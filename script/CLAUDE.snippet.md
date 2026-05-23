@@ -13,6 +13,9 @@ root. It contains the rule that fired, *why*, and *how to proceed* (an
 actionable alternative or a precondition to satisfy first). Follow that guidance
 to change course — do not blindly retry the blocked operation.
 
+- If an ActPlane hook injects feedback into the conversation, treat that message
+  as the current violation reason. Read the file only if you need the full log or
+  the hook message is truncated.
 - If the feedback says **retry is not useful**, find the suggested alternative
   path instead of repeating the operation.
 - If it describes a **precondition (gate)** — e.g. "run the tests first" — do

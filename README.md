@@ -79,6 +79,103 @@ audited it:
    reason: Codex must not invoke git; use the review workflow.
 ```
 
+## Agent feedback
+
+To make Codex or Claude receive the rule reason automatically, run ActPlane with
+a feedback file and install the post-tool hook adapter:
+
+```bash
+mkdir -p .actplane
+rm -f .actplane/last-violation.txt .actplane/feedback-hook.state.json
+
+sudo ./collector/target/release/actplane codex.dsl \
+  --feedback-file "$PWD/.actplane/last-violation.txt" \
+  --kill-on-violation
+```
+
+`--feedback-file` appends the model-facing `[ActPlane]` payload for every
+kernel-detected violation. `--kill-on-violation` is optional; it makes fallback
+tracepoint mode terminate `block` violations when BPF LSM is unavailable.
+
+Codex reads hooks from `.codex/hooks.json` or `~/.codex/hooks.json`. Use an
+absolute feedback path so the hook still works if the agent changes directory.
+`PostToolUse` injects feedback after supported tool calls. `Stop` is an optional
+fallback for Codex modes that emit stop hooks; when new ActPlane feedback is
+waiting, it asks Codex to continue for one extra turn with that feedback:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ACTPLANE_FEEDBACK_FILE=/abs/workspace/.actplane/last-violation.txt python3 /abs/ActPlane/script/actplane-feedback-hook.py",
+            "statusMessage": "Checking ActPlane feedback"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ACTPLANE_FEEDBACK_FILE=/abs/workspace/.actplane/last-violation.txt python3 /abs/ActPlane/script/actplane-feedback-hook.py",
+            "statusMessage": "Checking ActPlane feedback"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+In interactive Codex, open `/hooks` once to review and trust the hook. For
+one-off automation that already vets the hook source, Codex also accepts
+`--dangerously-bypass-hook-trust`.
+
+Claude Code uses the same adapter from `.claude/settings.local.json`. Register
+both success and failure events:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ACTPLANE_FEEDBACK_FILE=/abs/workspace/.actplane/last-violation.txt python3 /abs/ActPlane/script/actplane-feedback-hook.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ACTPLANE_FEEDBACK_FILE=/abs/workspace/.actplane/last-violation.txt python3 /abs/ActPlane/script/actplane-feedback-hook.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The adapter only forwards new bytes from the feedback file as hook
+`additionalContext`; it does not re-evaluate policy in userspace. The kernel is
+still the sole authority for match/block/kill/audit. Keep the short instruction
+snippet in [`script/CLAUDE.snippet.md`](script/CLAUDE.snippet.md) in the target
+`CLAUDE.md` or `AGENTS.md` so the agent knows how to handle `[ActPlane]`
+messages and EPERM failures.
+
 ## Layout
 
 - `bpf/` — eBPF taint engine (`taint.h` ABI + matchers, `taint_engine.bpf.h` state +
@@ -86,6 +183,7 @@ audited it:
   capture programs (`sslsniff`, `stdiocap`, `browsertrace`). See [`bpf/README.md`](bpf/README.md).
 - `collector/` — `src/dsl/` (DSL parser + lowering compiler), `src/main.rs` (driver),
   `src/binary_extractor.rs` (embeds/extracts the eBPF loader). See [`collector/README.md`](collector/README.md).
+- `script/` — e2e examples plus the Codex/Claude feedback hook adapter.
 - `docs/` — research plan, the taint-DSL spec, related work, and reference PDFs.
 
 ## Status

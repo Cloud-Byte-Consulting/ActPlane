@@ -276,9 +276,36 @@ approaches.
 
 ---
 
+## 6. Agent-native IFC, runtime policy & self-correction (2025–2026)
+
+Surfaced by the `docs/tmp/harness-survey.md` deep-research pass; all PDFs verified
+in `docs/reference/`. These are the closest modern neighbors to ActPlane — most
+enforce at the **tool/SDK layer (L1)**, not the kernel.
+
+- **Securing AI Agents with Information-Flow Control (FIDES)** — *Microsoft Research, arXiv 2505.23643 (2025).* PDF: `fides.pdf`. Typed taint + deterministic enforcement over a decomposed agent loop (planner/planning-loop) intercepting suggested actions. *ActPlane:* mechanism-cousin (typed taint + deterministic block) but **L1, bypassable by `bash -c`/subprocess**; ActPlane moves the same idea to L3 (kernel, cross-channel, unbypassable).
+- **CaMeL: Defeating Prompt Injections by Design** — *arXiv 2503.18813 (2025).* PDF: `camel.pdf`. Dual-LLM + capability/dataflow "model scaffolding" separating trusted control from untrusted data. *ActPlane:* L1 design-time guarantee; complementary, can't see below the tool layer.
+- **SAFEFLOW** — *arXiv 2506.07564 (2025).* PDF: `safeflow.pdf`. Protocol-level transactional/IFC discipline for multi-agent "agent systems". L1.
+- **Towards Verifiably Safe Tool Use for LLM Agents** — *arXiv 2601.08012 (2026).* PDF: `verifiably-safe-tool-use.pdf`. Verification-oriented tool-use safety. L1.
+- **ARM / Causality Laundering** — *arXiv 2604.04035 (2026).* PDF: `arm-causality-laundering.pdf`.
+- **LlamaFirewall** — *arXiv 2505.03574 (2025).* PDF: `llamafirewall.pdf`. Open guardrail framework (prompt-injection / unsafe-code scanners). L0/L1.
+- **Policy-as-Prompt** — *arXiv 2509.23994 (2025).* PDF: `policy-as-prompt.pdf`. L0.
+- **OAMAC** — *arXiv 2601.14021 (2026).* PDF: `oamac.pdf`. OS/eBPF-adjacent mandatory access control for agents (L2/L3 neighbor).
+- **AgentSight** — *arXiv 2508.02736 (2025).* PDF: `agentsight.pdf`. eBPF agent **observability** (this repo's ancestor) — observe-only, no enforcement.
+- **AgentDojo** — *NeurIPS 2024, arXiv 2406.13352.* PDF: `agentdojo.pdf`. Prompt-injection benchmark for tool-using agents. *ActPlane:* it does **not** evaluate cross-path bypass (`bash -c`/syscall) — ActPlane needs its own cross-path-coverage eval.
+- **PALADIN** — *arXiv 2509.25238 (2025).* PDF: `paladin.pdf`. Tool-failure recovery (recovery rate 32.8%→89.7%) — evidence for ActPlane's corrective-feedback loop.
+- **Structured Reflection for Reliable Tool Interactions** — *arXiv 2509.18847 (2025).* PDF: `structured-reflection.pdf`. Structured > heuristic self-correction; supports the §6 actionable-remediation feedback design.
+
+> **Terminology note:** none of these works defines "**harness**" as a technical
+> term. They model the thing around the LLM as an *agent system* (SAFEFLOW,
+> Progent), *agent loop* / *scaffolding* (FIDES, CaMeL), or *runtime*. "Harness"
+> is informal community jargon — leaving ActPlane room to define it precisely as
+> the OS-level enforcement boundary.
+
+---
+
 ## Notes on downloads
 
-All 21 PDFs above were downloaded and verified as valid PDF files (>50 KB) in
+All 33 PDFs above were downloaded and verified as valid PDF files (>50 KB) in
 `docs/reference/`. One item (**Landlock**) has no canonical academic PDF; its authoritative
 references are the Linux kernel documentation and LWN article linked inline above. Standard
 production enforcement tools (`seccomp`, Cilium **Tetragon**, Aqua **Tracee**) are mentioned for

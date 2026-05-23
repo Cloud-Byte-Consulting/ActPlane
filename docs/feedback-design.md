@@ -1,8 +1,8 @@
 # ActPlane 纠偏反馈闭环（Corrective-Feedback Loop）设计
 
-> **⚠️ 实现决策更新（2026-05）：通道 (b) 事前 PreToolUse hook 已从实现中移除。**
+> **⚠️ 实现决策更新（2026-05）：通道 (b) 事前 PreToolUse 预判 hook 已从实现中移除。**
 > 本文下面把通道 (b)（用户态在工具调用前预判命令、返回 `deny`）写成"首选注入通道 / 最高杠杆 MVP"——**这个定位是错的,已废弃**。理由:(b) 不碰 eBPF、评估不了内核里的污点状态、且能被 `bash -c`/混淆命令绕过,本质上就是 ActPlane 要当 baseline 去打败的那类"工具层 guardrail";把它当 feature 会稀释"内核强制、工具层之下、不可绕过"的核心主张。
-> **当前唯一实现的通道是 (a1):内核(eBPF 污点 + LSM)检测违规 → `--feedback-file` 按 §6 模板落盘 → agent 在 EPERM 时读取。** 判定永远在内核,集成层只"搬运"已判定的理由,不在用户态重新判定。通道 (b) 若保留,只应作为 §8 eval 的**对照组**(证明纯工具层 hook 漏 `bash -c`/subprocess,反衬内核必要),而非产品功能。落地现状见 [`../script/agent-feedback.md`](../script/agent-feedback.md)。下文 §2/§3/§4/§7 中关于 (b) 的"首选/MVP"表述按此 banner 理解为**历史设计探讨**。
+> **当前实现的通道是 (a1):内核(eBPF 污点 + LSM)检测违规 → `--feedback-file` 按 §6 模板落盘 → 可选 PostToolUse hook 把新增反馈作为 `additionalContext` 回灌给 agent；Codex headless 可再用 Stop hook 做回合级兜底。** 判定永远在内核,集成层只"搬运"已判定的理由,不在用户态重新判定。通道 (b) 若保留,只应作为 §8 eval 的**对照组**(证明纯工具层 hook 漏 `bash -c`/subprocess,反衬内核必要),而非产品功能。落地现状见 [`../script/agent-feedback.md`](../script/agent-feedback.md) 和 [`../script/actplane-feedback-hook.py`](../script/actplane-feedback-hook.py)。下文 §2/§3/§4/§7 中关于 (b) 的"首选/MVP"表述按此 banner 理解为**历史设计探讨**。
 
 > 目标：把 ActPlane 内核强制器产出的**人类可读违规理由**回灌进 agent 的上下文，让**合作但健忘**的 agent（§威胁模型）自我纠正并重试，把"违规 → 干巴巴的 syscall 失败"升级成"违规 → 语义反馈 → agent 改道完成任务"。
 >
@@ -14,7 +14,7 @@
 
 ## 0. 一句话结论
 
-ActPlane 已经在内核侧产出"带理由的违规"（NDJSON 含 `effect` + `blocked`/`killed`，BPF-LSM 可返回 `-EPERM`，tracepoint fallback 可立即 `SIGKILL`）。**这两个 agent 在 2026 年都已经原生支持一套 PreToolUse hook 协议，且都能在 `deny` 时把一段理由字符串回灌给模型让它重试**——这正是纠偏闭环的天然注入点。因此本设计的核心不是"发明注入通道",而是把 ActPlane 的违规流**桥接**到这两条 hook 协议上,并定义清楚 audit/block/kill 的 harness 语义与理由载荷格式。
+ActPlane 已经在内核侧产出"带理由的违规"（NDJSON 含 `effect` + `blocked`/`killed`，BPF-LSM 可返回 `-EPERM`，tracepoint fallback 可立即 `SIGKILL`）。**Codex CLI 和 Claude Code 都支持 PostToolUse 类 hook，把 `additionalContext` 加进下一步模型上下文**。因此当前实现不做用户态预判,只把 ActPlane 已经写出的违规流**桥接**到 agent hook 协议上,并定义清楚 audit/block/kill 的 harness 语义与理由载荷格式。
 
 ---
 

@@ -8,6 +8,8 @@ Individual rules can request `effect audit`, `effect block`, or `effect kill`.
 For harness enforcement, `block` denies through BPF LSM when available, while
 `kill` makes the action fail by terminating the violating task; `--kill-on-violation`
 upgrades fallback `block` hits to SIGKILL when BPF LSM is unavailable.
+`--feedback-file <path>` appends the model-facing ActPlane reason payload that
+`script/actplane-feedback-hook.py` can inject into Codex/Claude after tool calls.
 
 ## Build & test
 
