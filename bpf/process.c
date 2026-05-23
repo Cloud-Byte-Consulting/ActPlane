@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <arpa/inet.h>
 #include "process.h"
 #include "process.skel.h"
 #include "process_utils.h"
@@ -671,6 +672,40 @@ static int handle_event(void *ctx, void *data, size_t data_sz)
 			printf("\"filename\":\"%s\",", e->filename);
 			printf("\"rule_id\":%u,", e->taint_rule_id);
 			printf("\"taint_label\":%llu", e->taint_label);
+			printf("}\n");
+			fflush(stdout);
+			break;
+
+		case EVENT_TYPE_NET_CONNECT: {
+			// Network connect (ported from process_new).
+			if (!should_report_file_ops(tracker, e->pid))
+				break;
+			char ipbuf[INET6_ADDRSTRLEN] = "?";
+			if (e->net_op.family == 2)
+				inet_ntop(AF_INET, &e->net_op.addr4, ipbuf, sizeof(ipbuf));
+			printf("{");
+			printf("\"timestamp\":%llu,", timestamp_ns);
+			printf("\"event\":\"NET_CONNECT\",");
+			printf("\"comm\":\"%s\",", e->comm);
+			printf("\"pid\":%d,", e->pid);
+			printf("\"family\":%u,", e->net_op.family);
+			printf("\"dest\":\"%s:%u\"", ipbuf, ntohs(e->net_op.port));
+			printf("}\n");
+			fflush(stdout);
+			break;
+		}
+
+		case EVENT_TYPE_FILE_DELETE:
+		case EVENT_TYPE_FILE_RENAME:
+			// Filesystem mutations (ported from process_new).
+			if (!should_report_file_ops(tracker, e->pid))
+				break;
+			printf("{");
+			printf("\"timestamp\":%llu,", timestamp_ns);
+			printf("\"event\":\"%s\",", e->type == EVENT_TYPE_FILE_DELETE ? "FILE_DELETE" : "FILE_RENAME");
+			printf("\"comm\":\"%s\",", e->comm);
+			printf("\"pid\":%d,", e->pid);
+			printf("\"filepath\":\"%s\"", e->file_op.filepath);
 			printf("}\n");
 			fflush(stdout);
 			break;

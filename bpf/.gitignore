@@ -10,3 +10,7 @@
 /test_process_new_map_flush
 /test_process_new_mem_info
 /test_process_new_header
+
+# build artifacts
+process
+test_taint

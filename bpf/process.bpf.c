@@ -371,4 +371,105 @@ int trace_open(struct trace_event_raw_sys_enter *ctx)
 	return 0;
 }
 
+/* Filesystem-mutation tracepoints (ported from process_new, emitted in the
+ * lean per-event style). These are the proc->file edges the taint engine will
+ * grow into (§10); for now they are traced and reported like file opens. */
+static __always_inline void emit_path_event(enum event_type type, const char *upath)
+{
+	char filepath[MAX_FILENAME_LEN];
+	struct event *e;
 
+	if (bpf_probe_read_user_str(filepath, sizeof(filepath), upath) < 0)
+		return;
+	e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+	if (!e)
+		return;
+	e->type = type;
+	e->pid = bpf_get_current_pid_tgid() >> 32;
+	e->ppid = 0;
+	e->exit_code = 0;
+	e->duration_ns = 0;
+	e->timestamp_ns = bpf_ktime_get_ns();
+	e->exit_event = false;
+	bpf_get_current_comm(&e->comm, sizeof(e->comm));
+	bpf_probe_read_kernel_str(e->file_op.filepath, sizeof(e->file_op.filepath), filepath);
+	e->file_op.fd = -1;
+	e->file_op.flags = 0;
+	e->file_op.is_open = false;
+	bpf_ringbuf_submit(e, 0);
+}
+
+SEC("tp/syscalls/sys_enter_unlink")
+int trace_unlink(struct trace_event_raw_sys_enter *ctx)
+{
+	emit_path_event(EVENT_TYPE_FILE_DELETE, (const char *)ctx->args[0]);
+	return 0;
+}
+
+SEC("tp/syscalls/sys_enter_unlinkat")
+int trace_unlinkat(struct trace_event_raw_sys_enter *ctx)
+{
+	emit_path_event(EVENT_TYPE_FILE_DELETE, (const char *)ctx->args[1]);
+	return 0;
+}
+
+SEC("tp/syscalls/sys_enter_rename")
+int trace_rename(struct trace_event_raw_sys_enter *ctx)
+{
+	emit_path_event(EVENT_TYPE_FILE_RENAME, (const char *)ctx->args[1]); /* newpath */
+	return 0;
+}
+
+SEC("tp/syscalls/sys_enter_renameat")
+int trace_renameat(struct trace_event_raw_sys_enter *ctx)
+{
+	emit_path_event(EVENT_TYPE_FILE_RENAME, (const char *)ctx->args[3]); /* newpath */
+	return 0;
+}
+
+SEC("tp/syscalls/sys_enter_renameat2")
+int trace_renameat2(struct trace_event_raw_sys_enter *ctx)
+{
+	emit_path_event(EVENT_TYPE_FILE_RENAME, (const char *)ctx->args[3]); /* newpath */
+	return 0;
+}
+
+/* Network connect (ported from process_new). The sockaddr is read raw and the
+ * address/port are emitted in network byte order; userspace formats the string
+ * (no snprintf in BPF). This is the proc->endpoint edge for §10 network taint. */
+SEC("tp/syscalls/sys_enter_connect")
+int trace_connect(struct trace_event_raw_sys_enter *ctx)
+{
+	const void *uaddr = (const void *)ctx->args[1];
+	struct event *e;
+	u16 family = 0;
+
+	if (bpf_probe_read_user(&family, sizeof(family), uaddr) < 0)
+		return 0;
+	if (family != 2 && family != 10) /* AF_INET / AF_INET6 only */
+		return 0;
+
+	e = bpf_ringbuf_reserve(&rb, sizeof(*e), 0);
+	if (!e)
+		return 0;
+	e->type = EVENT_TYPE_NET_CONNECT;
+	e->pid = bpf_get_current_pid_tgid() >> 32;
+	e->ppid = 0;
+	e->exit_code = 0;
+	e->duration_ns = 0;
+	e->timestamp_ns = bpf_ktime_get_ns();
+	e->exit_event = false;
+	bpf_get_current_comm(&e->comm, sizeof(e->comm));
+	e->net_op.family = family;
+	e->net_op.addr4 = 0;
+	e->net_op.port = 0;
+	if (family == 2) { /* AF_INET: read sin_port + sin_addr */
+		struct sockaddr_in sa = {};
+		if (bpf_probe_read_user(&sa, sizeof(sa), uaddr) == 0) {
+			e->net_op.port = sa.sin_port;          /* network order */
+			e->net_op.addr4 = sa.sin_addr.s_addr;  /* network order */
+		}
+	}
+	bpf_ringbuf_submit(e, 0);
+	return 0;
+}

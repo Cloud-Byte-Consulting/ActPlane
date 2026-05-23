@@ -31,10 +31,10 @@ CFLAGS += $(ASAN_FLAGS)
 ALL_LDFLAGS += $(ASAN_FLAGS)
 endif
 
-APPS = sslsniff browsertrace stdiocap process process_new test_process_utils test_process_filter test_process_new_map_flush test_process_new_mem_info test_process_new_header test_taint # minimal minimal_legacy uprobe kprobe fentry usdt sockfilter tc ksyscall
+APPS = sslsniff browsertrace stdiocap process test_process_utils test_process_filter test_taint # minimal minimal_legacy uprobe kprobe fentry usdt sockfilter tc ksyscall
 
 # All test programs (no BPF skeleton needed)
-TEST_APPS = test_process_utils test_process_filter test_process_new_map_flush test_process_new_mem_info test_process_new_header test_taint
+TEST_APPS = test_process_utils test_process_filter test_taint
 
 CARGO ?= $(shell which cargo)
 ifeq ($(strip $(CARGO)),)
@@ -111,27 +111,18 @@ help:
 	@echo "  make ASAN=1 sslsniff"
 
 .PHONY: test
-test: test_process_utils test_process_filter test_process_new_map_flush test_process_new_mem_info test_process_new_header test_taint
+test: test_process_utils test_process_filter test_taint
 	@echo "Running process_utils tests..."
 	@./test_process_utils
 	@echo ""
 	@echo "Running process_filter tests..."
 	@./test_process_filter
 	@echo ""
-	@echo "Running process_new map_flush tests..."
-	@./test_process_new_map_flush
-	@echo ""
-	@echo "Running process_new mem_info tests..."
-	@./test_process_new_mem_info
-	@echo ""
-	@echo "Running process_new header tests..."
-	@./test_process_new_header
-	@echo ""
 	@echo "Running ActPlane taint tests..."
 	@./test_taint
 
 .PHONY: integration-test
-integration-test: process_new process
+integration-test: process
 	@echo "Running integration tests (requires sudo)..."
 	@sudo python3 tests/test_integration.py
 
@@ -164,9 +155,6 @@ $(LIBBLAZESYM_HEADER): $(LIBBLAZESYM_SRC)/target/release/libblazesym.a | $(OUTPU
 	$(call msg,LIB,$@)
 	$(Q)cp $(LIBBLAZESYM_SRC)/target/release/blazesym.h $@
 
-# Extra dependencies for process_new BPF (subdirectory headers)
-$(OUTPUT)/process_new.bpf.o: $(wildcard process_ext/*.h)
-
 # Build BPF code
 $(OUTPUT)/%.bpf.o: %.bpf.c $(LIBBPF_OBJ) $(wildcard %.h) $(VMLINUX) | $(OUTPUT) $(BPFTOOL)
 	$(call msg,BPF,$@)
@@ -196,18 +184,6 @@ $(OUTPUT)/test_taint.o: test_taint.c $(wildcard *.h) | $(OUTPUT)
 	$(call msg,CC,$@)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(OUTPUT)/test_process_new_map_flush.o: tests/test_process_new_map_flush.c $(wildcard *.h) $(wildcard process_ext/*.h) | $(OUTPUT)
-	$(call msg,CC,$@)
-	$(Q)$(CC) $(CFLAGS) -I. -Itests -c $< -o $@
-
-$(OUTPUT)/test_process_new_mem_info.o: tests/test_process_new_mem_info.c $(wildcard *.h) $(wildcard process_ext/*.h) | $(OUTPUT)
-	$(call msg,CC,$@)
-	$(Q)$(CC) $(CFLAGS) -I. -c $< -o $@
-
-$(OUTPUT)/test_process_new_header.o: tests/test_process_new_header.c $(wildcard *.h) $(wildcard process_ext/*.h) | $(OUTPUT)
-	$(call msg,CC,$@)
-	$(Q)$(CC) $(CFLAGS) -I. -c $< -o $@
-
 $(OUTPUT)/%.o: %.c $(wildcard %.h) | $(OUTPUT)
 	$(call msg,CC,$@)
 	$(Q)$(CC) $(CFLAGS) $(INCLUDES) -c $(filter %.c,$^) -o $@
@@ -231,19 +207,6 @@ test_process_filter: $(OUTPUT)/test_process_filter.o | $(OUTPUT)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -o $@
 
 test_taint: $(OUTPUT)/test_taint.o | $(OUTPUT)
-	$(call msg,BINARY,$@)
-	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -o $@
-
-# map_flush helper uses libbpf_num_possible_cpus() from libbpf.
-test_process_new_map_flush: $(OUTPUT)/test_process_new_map_flush.o $(LIBBPF_OBJ) | $(OUTPUT)
-	$(call msg,BINARY,$@)
-	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
-
-test_process_new_mem_info: $(OUTPUT)/test_process_new_mem_info.o | $(OUTPUT)
-	$(call msg,BINARY,$@)
-	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -o $@
-
-test_process_new_header: $(OUTPUT)/test_process_new_header.o | $(OUTPUT)
 	$(call msg,BINARY,$@)
 	$(Q)$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -o $@
 

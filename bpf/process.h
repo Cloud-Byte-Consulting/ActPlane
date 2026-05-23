@@ -22,6 +22,9 @@ enum event_type {
 	EVENT_TYPE_BASH_READLINE = 1,
 	EVENT_TYPE_FILE_OPERATION = 2,
 	EVENT_TYPE_TAINT_VIOLATION = 3,   /* ActPlane: tainted process hit a sink */
+	EVENT_TYPE_FILE_DELETE = 4,       /* unlink/unlinkat */
+	EVENT_TYPE_FILE_RENAME = 5,       /* rename/renameat/renameat2 (new path) */
+	EVENT_TYPE_NET_CONNECT = 6,       /* connect(2) */
 };
 
 struct event {
@@ -42,6 +45,11 @@ struct event {
 			int flags;
 			bool is_open;  /* true for open/openat, false for close */
 		} file_op;
+		struct {                             /* for NET_CONNECT events */
+			unsigned int addr4;  /* IPv4 dest, network byte order */
+			unsigned short port; /* dest port, network byte order */
+			unsigned short family; /* AF_INET=2, AF_INET6=10, ... */
+		} net_op;
 	};
 	bool exit_event;
 	/* ActPlane taint fields (valid for EVENT_TYPE_TAINT_VIOLATION) */
