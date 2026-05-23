@@ -3,42 +3,39 @@
 
 //! ActPlane — OS-enforced agent harness.
 //!
-//! Loads taint rules (YAML or inline), runs the embedded eBPF `process` tracer
-//! with the compiled `source:sink` edges, and reports the taint-rule violations
-//! it emits (a tainted process — a descendant of `source` — running a forbidden
-//! `sink`). The kernel does the taint propagation and detection; this binary is
-//! a thin policy + reporting shim, with no streaming/analyzer framework.
+//! Compiles a taint-DSL policy (docs/taint-dsl.md) to the kernel ABI, runs the
+//! embedded eBPF enforcer, and reports the taint-rule violations it emits — each
+//! with its policy reason (the corrective-feedback payload). The kernel does the
+//! taint propagation, matching, and detection; this binary is the policy
+//! compiler + reporting shim.
 
 use clap::Parser;
+use std::io::Write;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 mod binary_extractor;
-mod policy;
+mod dsl;
 
 use binary_extractor::BinaryExtractor;
-use policy::{Edge, Policy, SinkKind};
 
 #[derive(Parser)]
-#[command(author, version, about = "ActPlane: OS-enforced agent harness (taint-rule violations)", long_about = None)]
+#[command(author, version, about = "ActPlane: OS-enforced agent harness", long_about = None)]
 struct Cli {
-    /// Path to a YAML taint policy (see policy.rs for the schema).
+    /// Taint-DSL policy file (see docs/taint-dsl.md).
+    policy: String,
+    /// Compile only: write the kernel config blob to this path and exit.
     #[arg(short, long)]
-    config: Option<String>,
-
-    /// Inline taint edge SOURCE:SINK (repeatable). Combined with --config.
-    #[arg(short = 'r', long = "rule", value_name = "SOURCE:SINK")]
-    rules: Vec<String>,
+    out: Option<String>,
 }
 
-/// A violation event as emitted by the `process` tracer in taint mode.
 #[derive(serde::Deserialize)]
 struct Violation {
     pid: i32,
     ppid: i32,
     comm: String,
-    filename: String,
+    target: String,
     rule_id: usize,
     #[allow(dead_code)]
     taint_label: u64,
@@ -49,90 +46,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::init();
     let cli = Cli::parse();
 
-    // Compile the policy: config edges first, then inline --rule edges. Edge
-    // order is the kernel's rule_id, so the reporting lookup stays consistent.
-    let mut edges: Vec<Edge> = match &cli.config {
-        Some(path) => {
-            let text = std::fs::read_to_string(path)
-                .map_err(|e| format!("reading {}: {}", path, e))?;
-            Policy::from_yaml(&text)?.into_edges()
-        }
-        None => Vec::new(),
-    };
-    for r in &cli.rules {
-        let (source, sink) = r
-            .split_once(':')
-            .filter(|(s, k)| !s.is_empty() && !k.is_empty())
-            .ok_or_else(|| format!("invalid --rule '{}' (expected SOURCE:SINK)", r))?;
-        edges.push(Edge {
-            source: source.to_string(),
-            kind: SinkKind::Exec,
-            sink: sink.to_string(),
-            rule_name: "inline".to_string(),
-            reason: String::new(),
-        });
-    }
-    let policy = Policy::from_edges(edges);
+    let src = std::fs::read_to_string(&cli.policy)
+        .map_err(|e| format!("reading {}: {}", cli.policy, e))?;
+    let compiled = dsl::compile_str(&src)?;
+    eprintln!(
+        "ActPlane: compiled {} rule(s) ({} bytes of kernel config)",
+        compiled.reasons.len(),
+        compiled.bytes.len()
+    );
 
-    if policy.is_empty() {
-        return Err("no taint rules: pass --config <yaml> or --rule SOURCE:SINK".into());
+    // compile-only mode
+    if let Some(out) = &cli.out {
+        std::fs::write(out, &compiled.bytes)?;
+        eprintln!("wrote {}", out);
+        return Ok(());
     }
 
-    let edge_args = policy.edge_args();
-    eprintln!("ActPlane: enforcing {} taint edge(s):", edge_args.len());
-    for (i, e) in policy.edges().iter().enumerate() {
-        let op = match e.kind {
-            SinkKind::Exec => "exec",
-            SinkKind::FileOpen => "open",
-        };
-        eprintln!("  [{}] {} -> deny {} {}  ({})", i, e.source, op, e.sink, e.rule_name);
-    }
+    // write the config blob to a temp file for the loader
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    tmp.write_all(&compiled.bytes)?;
+    let cfg_path = tmp.path().to_path_buf();
 
-    // Extract the embedded eBPF loader and run it in taint mode.
     let extractor = BinaryExtractor::new().await?;
     let mut cmd = Command::new(extractor.get_process_path());
-    for edge in &edge_args {
-        cmd.arg("-T").arg(edge);
-    }
+    cmd.arg("--config").arg(&cfg_path);
     cmd.stdout(Stdio::piped()).stderr(Stdio::inherit());
 
-    let mut child = cmd.spawn().map_err(|e| format!("spawning tracer: {}", e))?;
+    let mut child = cmd.spawn().map_err(|e| format!("spawning enforcer: {}", e))?;
     let stdout = child.stdout.take().expect("piped stdout");
     let mut lines = BufReader::new(stdout).lines();
 
-    eprintln!("ActPlane: watching for violations (Ctrl-C to stop)...\n");
+    eprintln!("ActPlane: enforcing (Ctrl-C to stop)...\n");
     while let Some(line) = lines.next_line().await? {
         if line.is_empty() {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<Violation>(&line) {
-            report(&policy, &v);
+            report(&compiled.reasons, &v);
         }
     }
 
     let status = child.wait().await?;
     if !status.success() {
-        return Err(format!("tracer exited with {}", status).into());
+        return Err(format!("enforcer exited with {}", status).into());
     }
     Ok(())
 }
 
-/// Print a human-readable violation with the policy's reason.
-fn report(policy: &Policy, v: &Violation) {
-    let (rule_name, reason, op) = match policy.edge(v.rule_id) {
-        Some(e) => (
-            e.rule_name.as_str(),
-            e.reason.as_str(),
-            match e.kind {
-                SinkKind::Exec => "exec",
-                SinkKind::FileOpen => "open",
-            },
-        ),
-        None => ("?", "", "access"),
-    };
+/// Report a violation with its policy reason — the corrective-feedback payload.
+fn report(reasons: &[String], v: &Violation) {
+    let reason = reasons.get(v.rule_id).map(|s| s.as_str()).unwrap_or("");
     println!(
-        "🚫 BLOCKED [{}]: process '{}' (pid {}, ppid {}) tried to {} {}",
-        rule_name, v.comm, v.pid, v.ppid, op, v.filename
+        "🚫 BLOCKED: process '{}' (pid {}, ppid {}) — {}",
+        v.comm, v.pid, v.ppid, v.target
     );
     if !reason.is_empty() {
         println!("   reason: {}", reason);

@@ -1,52 +1,52 @@
-# AgentSight: Zero-Instrumentation LLM Agent Observability with eBPF
+# ActPlane: Zero-Instrumentation LLM Agent Observability with eBPF
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/eunomia-bpf/agentsight)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/eunomia-bpf/ActPlane)
 
 **English** | [中文](README.zh-CN.md)
 
-AgentSight is a observability tool designed specifically for monitoring LLM agent behavior through SSL/TLS traffic interception and process monitoring. Unlike traditional application-level instrumentation, AgentSight observes at the system boundary using eBPF technology, providing comprehensive insights into AI agent interactions with minimal performance overhead.
+ActPlane is a observability tool designed specifically for monitoring LLM agent behavior through SSL/TLS traffic interception and process monitoring. Unlike traditional application-level instrumentation, ActPlane observes at the system boundary using eBPF technology, providing comprehensive insights into AI agent interactions with minimal performance overhead.
 
 **✨ Zero Instrumentation Required** - No code changes, no new dependencies, no SDKs. Works with any AI framework or application out of the box.
 
 ## Quick Start
 
 ```bash
-wget https://github.com/eunomia-bpf/agentsight/releases/latest/download/agentsight && chmod +x agentsight
+wget https://github.com/eunomia-bpf/ActPlane/releases/latest/download/actplane && chmod +x actplane
 # Record Claude Code activity (Bun-based, requires --binary-path for statically-linked BoringSSL)
-sudo ./agentsight record -c claude --binary-path ~/.local/share/claude/versions/$(claude --version | head -1)
+sudo ./actplane record -c claude --binary-path ~/.local/share/claude/versions/$(claude --version | head -1)
 # Record agent behavior from claude (old version)
-sudo ./agentsight record -c "claude"
+sudo ./actplane record -c "claude"
 # Record agent behavior from gemini-cli (comm is "node")
-sudo ./agentsight record -c "node"
+sudo ./actplane record -c "node"
 # For Python AI tools (e.g. aider, open-interpreter)
-sudo ./agentsight record -c "python"
+sudo ./actplane record -c "python"
 # For Node.js apps with NVM (statically-linked OpenSSL)
-sudo ./agentsight record -c node --binary-path ~/.nvm/versions/node/v20.0.0/bin/node
+sudo ./actplane record -c node --binary-path ~/.nvm/versions/node/v20.0.0/bin/node
 ```
 
 Visit [http://127.0.0.1:7395](http://127.0.0.1:7395) to view the recorded data.
 
 <div align="center">
-  <img src="https://github.com/eunomia-bpf/agentsight/raw/master/docs/demo-tree.png" alt="AgentSight Demo - Process Tree Visualization" width="800">
+  <img src="https://github.com/eunomia-bpf/ActPlane/raw/master/docs/demo-tree.png" alt="ActPlane Demo - Process Tree Visualization" width="800">
   <p><em>Real-time process tree visualization showing AI agent interactions and file operations</em></p>
 </div>
 
 <div align="center">
-  <img src="https://github.com/eunomia-bpf/agentsight/raw/master/docs/demo-timeline.png" alt="AgentSight Demo - Timeline Visualization" width="800">
+  <img src="https://github.com/eunomia-bpf/ActPlane/raw/master/docs/demo-timeline.png" alt="ActPlane Demo - Timeline Visualization" width="800">
   <p><em>Real-time timeline visualization showing AI agent interactions and system calls</em></p>
 </div>
 
 <div align="center">
-  <img src="https://github.com/eunomia-bpf/agentsight/raw/master/docs/demo-metrics.png" alt="AgentSight Demo - Metrics Visualization" width="800">
+  <img src="https://github.com/eunomia-bpf/ActPlane/raw/master/docs/demo-metrics.png" alt="ActPlane Demo - Metrics Visualization" width="800">
   <p><em>Real-time metrics visualization showing AI agent memory and CPU usage</em></p>
 </div>
 
-## 🚀 Why AgentSight?
+## 🚀 Why ActPlane?
 
 ### Traditional Observability vs. System-Level Monitoring
 
-| **Challenge** | **Application-Level Tools** | **AgentSight Solution** |
+| **Challenge** | **Application-Level Tools** | **ActPlane Solution** |
 |---------------|----------------------------|------------------------|
 | **Framework Adoption** | ❌ New SDK/proxy for each framework | ✅ Drop-in daemon, no code changes |
 | **Closed-Source Tools** | ❌ Limited visibility into operations | ✅ Complete visibility into prompts & behaviors |
@@ -55,7 +55,7 @@ Visit [http://127.0.0.1:7395](http://127.0.0.1:7395) to view the recorded data.
 | **System Interactions** | ❌ Misses subprocess executions | ✅ Tracks all process behaviors & file operations |
 | **Multi-Agent Systems** | ❌ Isolated per-process tracing | ✅ Global correlation and analysis |
 
-AgentSight captures critical interactions that application-level tools miss:
+ActPlane captures critical interactions that application-level tools miss:
 
 - Subprocess executions that bypass instrumentation
 - Raw encrypted payloads before agent processing
@@ -74,7 +74,7 @@ AgentSight captures critical interactions that application-level tools miss:
 │   └─────────────────────────────────────────┘   │
 │                     ↕ (Can be bypassed)         │
 ├─────────────────────────────────────────────────┤ ← System Boundary
-│  🟢 AgentSight eBPF Monitoring (Kernel-level)   │
+│  🟢 ActPlane eBPF Monitoring (Kernel-level)   │
 │  ┌─────────────────┐  ┌─────────────────────┐   │
 │  │   SSL Traffic   │  │    Process Events   │   │
 │  │   Monitoring    │  │    Monitoring       │   │
@@ -132,14 +132,14 @@ eBPF Programs → JSON Events → Runners → Analyzer Chain → Frontend/Storag
 
 #### Option 1: Using Docker (Recommended)
 
-AgentSight runs in Docker with `--privileged` for eBPF, `--pid=host` to access host processes, `-v /sys:/sys:ro` for process monitoring, and `-v /usr:/usr:ro -v /lib:/lib:ro` for SSL library access (required to attach uprobes to shared libraries like `libssl.so`). Example:
+ActPlane runs in Docker with `--privileged` for eBPF, `--pid=host` to access host processes, `-v /sys:/sys:ro` for process monitoring, and `-v /usr:/usr:ro -v /lib:/lib:ro` for SSL library access (required to attach uprobes to shared libraries like `libssl.so`). Example:
 
 ```bash
 # Monitor Python AI tools
 docker run --privileged --pid=host --network=host \
   -v /sys:/sys:ro -v /usr:/usr:ro -v /lib:/lib:ro \
   -v $(pwd)/logs:/logs \
-  ghcr.io/eunomia-bpf/agentsight:latest \
+  ghcr.io/eunomia-bpf/actplane:latest \
   record --comm python --log-file /logs/record.log
 
 # Monitor Claude Code (mount home dir for binary access)
@@ -147,7 +147,7 @@ docker run --privileged --pid=host --network=host \
   -v /sys:/sys:ro -v /usr:/usr:ro -v /lib:/lib:ro \
   -v $HOME/.local/share/claude:/claude:ro \
   -v $(pwd)/logs:/logs \
-  ghcr.io/eunomia-bpf/agentsight:latest \
+  ghcr.io/eunomia-bpf/actplane:latest \
   record --comm claude --binary-path /claude/versions/2.1.39 --log-file /logs/record.log
 ```
 
@@ -155,8 +155,8 @@ docker run --privileged --pid=host --network=host \
 
 ```bash
 # Clone repository with submodules
-git clone https://github.com/eunomia-bpf/agentsight.git --recursive
-cd agentsight
+git clone https://github.com/eunomia-bpf/ActPlane.git --recursive
+cd ActPlane
 
 # Install system dependencies (Ubuntu/Debian)
 make install
@@ -176,7 +176,7 @@ make build
 #### Monitoring Claude Code
 
 Claude Code is a Bun-based application with BoringSSL statically linked and
-symbols stripped. AgentSight auto-detects BoringSSL functions via byte-pattern
+symbols stripped. ActPlane auto-detects BoringSSL functions via byte-pattern
 matching when `--binary-path` is provided:
 
 ```bash
@@ -184,11 +184,11 @@ matching when `--binary-path` is provided:
 CLAUDE_BIN=~/.local/share/claude/versions/$(claude --version | head -1)
 
 # Record all Claude activity with web UI
-sudo ./agentsight record -c claude --binary-path "$CLAUDE_BIN"
+sudo ./actplane record -c claude --binary-path "$CLAUDE_BIN"
 # Open http://127.0.0.1:7395 to view timeline
 
 # Advanced: full trace with custom filters
-sudo ./agentsight trace --ssl true --process true --comm claude \
+sudo ./actplane trace --ssl true --process true --comm claude \
   --binary-path "$CLAUDE_BIN" --server true --server-port 8080
 ```
 
@@ -206,10 +206,10 @@ This captures:
 
 ```bash
 # Monitor aider, open-interpreter, or any Python-based AI tool
-sudo ./agentsight record -c "python"
+sudo ./actplane record -c "python"
 
 # Custom port and log file
-sudo ./agentsight record -c "python" --server-port 8080 --log-file /tmp/agent.log
+sudo ./actplane record -c "python" --server-port 8080 --log-file /tmp/agent.log
 ```
 
 #### Monitoring Node.js AI Tools (Gemini CLI, etc.)
@@ -219,20 +219,20 @@ For Node.js applications installed via NVM that statically link OpenSSL, use
 
 ```bash
 # Monitor Gemini CLI or other Node.js AI tools
-sudo ./agentsight record -c node --binary-path ~/.nvm/versions/node/v20.0.0/bin/node
+sudo ./actplane record -c node --binary-path ~/.nvm/versions/node/v20.0.0/bin/node
 
 # Or with system Node.js (uses dynamic libssl, no --binary-path needed)
-sudo ./agentsight record -c node
+sudo ./actplane record -c node
 ```
 
 #### Advanced Monitoring
 
 ```bash
 # Combined SSL and process monitoring with web interface
-sudo ./agentsight trace --ssl true --process true --server true
+sudo ./actplane trace --ssl true --process true --server true
 
 # Custom port and log file
-sudo ./agentsight record -c "python" --server-port 8080 --log-file /tmp/agent.log
+sudo ./actplane record -c "python" --server-port 8080 --log-file /tmp/agent.log
 ```
 
 #### Browser Plaintext Capture
@@ -261,7 +261,7 @@ the standalone `stdiocap` BPF tool:
 sudo ./bpf/stdiocap -p <mcp_server_pid>
 ```
 
-AgentSight also includes a minimal MCP fixture for local testing under
+ActPlane also includes a minimal MCP fixture for local testing under
 [`docs/mcp-test/README.md`](docs/mcp-test/README.md). It provides both `stdio`
 and HTTP test modes so you can generate predictable MCP traffic before wiring
 it into the Rust collector.
@@ -297,8 +297,8 @@ All monitoring commands with `--server` flag provide web visualization at:
 
 ### General
 
-**Q: How does AgentSight differ from traditional APM tools?**
-A: AgentSight operates at the kernel level using eBPF, providing system-level monitoring that is independent of application code. Traditional APM requires instrumentation that can be modified or disabled.
+**Q: How does ActPlane differ from traditional APM tools?**
+A: ActPlane operates at the kernel level using eBPF, providing system-level monitoring that is independent of application code. Traditional APM requires instrumentation that can be modified or disabled.
 
 **Q: What's the performance impact?**
 A: Less than 3% CPU overhead due to optimized eBPF kernel-space data collection.
@@ -317,8 +317,8 @@ A: Yes, use combined monitoring modes for concurrent multi-agent observation wit
 **Q: How do I filter sensitive data?**  
 A: Built-in analyzers can remove authentication headers and filter specific content patterns.
 
-**Q: Why doesn't AgentSight capture traffic from Claude Code or NVM Node.js?**
-A: These applications statically link their SSL library (BoringSSL for Claude/Bun, OpenSSL for NVM Node.js) instead of using system `libssl.so`. Use `--binary-path` to point to the actual binary so AgentSight can auto-detect SSL functions via byte-pattern matching. See the "Monitoring Claude Code" and "Monitoring Node.js AI Tools" sections for examples.
+**Q: Why doesn't ActPlane capture traffic from Claude Code or NVM Node.js?**
+A: These applications statically link their SSL library (BoringSSL for Claude/Bun, OpenSSL for NVM Node.js) instead of using system `libssl.so`. Use `--binary-path` to point to the actual binary so ActPlane can auto-detect SSL functions via byte-pattern matching. See the "Monitoring Claude Code" and "Monitoring Node.js AI Tools" sections for examples.
 
 **Q: Why does `--comm claude` not capture SSL traffic?**
 A: Claude Code's SSL traffic runs on an internal "HTTP Client" thread, not the main "claude" thread. The `--comm` filter in sslsniff matches thread name (from `bpf_get_current_comm()`), not process name. When using `--binary-path`, the collector automatically skips the `--comm` filter for SSL monitoring.
@@ -359,4 +359,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**💡 The Future of AI Observability**: As AI agents become more autonomous and capable of self-modification, traditional observability approaches become insufficient. AgentSight provides independent, system-level monitoring for safe AI deployment at scale.
+**💡 The Future of AI Observability**: As AI agents become more autonomous and capable of self-modification, traditional observability approaches become insufficient. ActPlane provides independent, system-level monitoring for safe AI deployment at scale.

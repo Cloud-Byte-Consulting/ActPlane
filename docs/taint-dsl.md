@@ -4,7 +4,12 @@
 >
 > **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel taint *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
-> **Status: design document, not implemented.** It specifies the rule language and evaluation semantics only. The in-kernel POC (`bpf/`, research-plan §9) implements just the `{Process node, exec/open sink, fork+exec propagation}` special case; building the full semantics below in-kernel — plus the corrective-feedback loop — is the open work.
+> **Status: implemented** (compiler + kernel engine), with one honest caveat below.
+> - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse. 13 unit tests (E1–E12 compile).
+> - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, process+file+endpoint data-flow propagation (fork/exec/read/write/connect), `@arg`, exact/prefix/suffix/any matching, numeric IPv4 connect. Verifier-loadable; matching predicates have 30 unit tests (`test_taint.c`).
+> - **Loader** `bpf/process.c` installs the compiled config and reports only `TAINT_VIOLATION`.
+>
+> **Caveat (honest):** the full multi-construct *live* enforcement (all of E1–E12 firing on a real kernel in one run) was not cleanly reproducible in the dev sandbox (privileged background + `/tmp` isolation issues). The simpler exec/open/write/connect engine was demonstrated enforcing end-to-end earlier; the full engine compiles, the verifier accepts it, exact/prefix matching is confirmed (no false positives), and every construct is unit-tested at the predicate + compiler level. A clean end-to-end pass of all 12 on a stable host remains to be recorded. The corrective-feedback loop and agent eval are still not built.
 
 ---
 
@@ -251,5 +256,13 @@ for ev in trace:
 ```
 Lineage attributes (`gates`, ancestry) are propagated at `fork`/`exec` exactly like labels, so `lineage-includes` / `after` are O(1) lookups, not graph walks — preserving the in-kernel-enforceability argument.
 
-## 6. Implementation status
-Not implemented. The current in-kernel POC (`bpf/`, research-plan §9) covers only the special case `{Process node, exec/open sink, fork+exec propagation, no declassify}`. This document is the full design the kernel side would grow into; realizing it means implementing the propagation + matching of §1/§5 in eBPF/BPF-LSM (file and endpoint label maps, declassify/endorse, lineage + temporal gates) and the corrective-feedback loop. The §5 algorithm is the spec for that, not existing code.
+## 6. Implementation
+
+Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat kernel config; the **kernel** propagates taint and evaluates rules, emitting only violations.
+
+- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask). `mod.rs::compile_str`. 13 tests compile E1–E12. `main.rs` compiles a `.dsl`, spawns the loader, and prints violations with their reason (the feedback payload).
+- **`bpf/taint.h`** — the rule ABI (`taint_source`/`taint_rule`/`taint_xform`/`taint_gate`/`taint_config`) + libc-free matching predicates (`taint_streq`/`prefix`/`suffix`/`any`, `mask_ok`, `arg_match`), 30 unit tests in `test_taint.c`.
+- **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + propagation + `te_check`/`te_connect_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
+- **`bpf/process.bpf.c`** — fork/exec/exit/open/mutate/connect hooks; one emitter (`emit_violation`). **`bpf/process.c`** — installs config, reports violations.
+
+Engineering notes (verifier): patterns are copied rodata→local before matching (direct `volatile` reads mis-evaluate); heavy helpers are `__noinline` (stack budget); buffers are ≥ `TAINT_PAT_LEN`; argv/index access uses explicit bound guards (index masking makes clang emit a pointer-OR the verifier rejects); connect matches numeric IPv4 (no in-kernel string formatting). See §6 status note at the top for what remains unverified end-to-end.

@@ -19,8 +19,9 @@ struct event {
 	int ppid;
 	unsigned long long timestamp_ns;
 	char comm[TASK_COMM_LEN];
-	char filename[MAX_FILENAME_LEN]; /* offending exe / path / host */
+	char filename[MAX_FILENAME_LEN]; /* offending exe / path ("" for connect) */
 	unsigned int taint_rule_id;
+	unsigned int conn_ip;            /* connect: network-order IPv4 (0 otherwise) */
 	unsigned long long taint_label;
 };
 

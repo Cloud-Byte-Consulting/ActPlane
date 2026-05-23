@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2026 eunomia-bpf org. */
 //
-// ActPlane taint loader for process.bpf.c. The kernel program enforces the
-// compiled taint rules and emits ONLY TAINT_VIOLATION events; this loader
-// installs the rules and prints those violations. Taint edges are compiled by
-// the collector (DSL/YAML) and passed as `-T` arguments.
+// ActPlane taint loader. Reads a compiled policy (struct taint_config, produced
+// by the collector's DSL compiler) into the BPF rodata, attaches the enforcer,
+// and prints the TAINT_VIOLATION events the kernel emits.
 
 #include <argp.h>
 #include <signal.h>
@@ -18,89 +17,32 @@
 
 static struct env {
 	bool verbose;
-	struct taint_rule taint_rules[MAX_TAINT_RULES];
-	int taint_rule_count;
+	const char *config;
 } env = {0};
 
-const char *argp_program_version = "actplane-taint 1.0";
+const char *argp_program_version = "actplane-taint 2.0";
 const char argp_program_doc[] =
 "ActPlane in-kernel taint enforcer.\n"
 "\n"
-"Loads process.bpf.c, installs taint rules, and reports only the violations\n"
-"the kernel detects (a tainted descendant performing a forbidden operation).\n"
-"\n"
-"Taint edge formats (-T, repeatable):\n"
-"  SOURCE:SINK            exec sink (comm), default\n"
-"  SOURCE:exec:CMD        exec sink (comm)\n"
-"  SOURCE:open:PREFIX     file-open sink (path prefix)\n"
-"  SOURCE:write:PREFIX    file-mutate sink (unlink/rename path prefix)\n"
-"  SOURCE:connect:IPPFX   network-connect sink (IPv4 dotted prefix)\n";
+"Loads a compiled policy and reports only taint-rule violations.\n"
+"USAGE: ./process --config policy.bin\n";
 
 static const struct argp_option opts[] = {
+	{ "config", 'c', "FILE", 0, "Compiled policy (struct taint_config blob)" },
 	{ "verbose", 'v', NULL, 0, "Verbose libbpf debug output" },
-	{ "taint-rule", 'T', "EDGE", 0, "Taint edge (see formats above); repeatable" },
 	{},
 };
 
 static error_t parse_arg(int key, char *arg, struct argp_state *state)
 {
 	switch (key) {
-	case 'v':
-		env.verbose = true;
-		break;
-	case 'T': {
-		if (env.taint_rule_count >= MAX_TAINT_RULES) {
-			fprintf(stderr, "Too many taint rules (max %d)\n", MAX_TAINT_RULES);
-			argp_usage(state);
-		}
-		char *colon = strchr(arg, ':');
-		if (!colon || colon == arg || *(colon + 1) == '\0') {
-			fprintf(stderr, "Invalid taint rule '%s' (expected SOURCE:[KIND:]TARGET)\n", arg);
-			argp_usage(state);
-		}
-		struct taint_rule *r = &env.taint_rules[env.taint_rule_count];
-		memset(r, 0, sizeof(*r));
-		size_t src_len = (size_t)(colon - arg);
-		if (src_len >= TAINT_COMM_LEN)
-			src_len = TAINT_COMM_LEN - 1;
-		memcpy(r->source_comm, arg, src_len);
-
-		const char *rest = colon + 1;
-		if (strncmp(rest, "open:", 5) == 0) {
-			r->sink_kind = TAINT_SINK_FILE_OPEN;
-			rest += 5;
-		} else if (strncmp(rest, "write:", 6) == 0) {
-			r->sink_kind = TAINT_SINK_FILE_MUTATE;
-			rest += 6;
-		} else if (strncmp(rest, "connect:", 8) == 0) {
-			r->sink_kind = TAINT_SINK_CONNECT;
-			rest += 8;
-		} else if (strncmp(rest, "exec:", 5) == 0) {
-			r->sink_kind = TAINT_SINK_EXEC;
-			rest += 5;
-		} else {
-			r->sink_kind = TAINT_SINK_EXEC;
-		}
-		if (*rest == '\0') {
-			fprintf(stderr, "Invalid taint rule '%s' (empty sink target)\n", arg);
-			argp_usage(state);
-		}
-		strncpy(r->sink, rest, TAINT_SINK_LEN - 1);
-		r->sink[TAINT_SINK_LEN - 1] = '\0';
-		r->rule_id = (unsigned int)env.taint_rule_count;
-		r->label = 1ULL << env.taint_rule_count;
-		env.taint_rule_count++;
-		break;
-	}
-	case ARGP_KEY_ARG:
-		argp_usage(state);
-		break;
-	default:
-		return ARGP_ERR_UNKNOWN;
+	case 'v': env.verbose = true; break;
+	case 'c': env.config = arg; break;
+	case ARGP_KEY_ARG: argp_usage(state); break;
+	default: return ARGP_ERR_UNKNOWN;
 	}
 	return 0;
 }
-
 static const struct argp argp = { .options = opts, .parser = parse_arg, .doc = argp_program_doc };
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
@@ -110,38 +52,46 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 	return vfprintf(stderr, format, args);
 }
 
-static const char *sink_kind_str(unsigned int k)
-{
-	switch (k) {
-	case TAINT_SINK_FILE_OPEN: return "open";
-	case TAINT_SINK_FILE_MUTATE: return "write";
-	case TAINT_SINK_CONNECT: return "connect";
-	default: return "exec";
-	}
-}
-
 static volatile bool exiting = false;
 static void sig_handler(int sig) { (void)sig; exiting = true; }
 
-/* The kernel only ever emits TAINT_VIOLATION; print it as one JSON line. */
-static int handle_event(void *ctx, void *data, size_t data_sz)
+static int handle_event(void *ctx, void *data, size_t sz)
 {
 	const struct event *e = data;
-	(void)ctx;
-	(void)data_sz;
+	char target[64];
+	(void)ctx; (void)sz;
 	if (e->type != EVENT_TYPE_TAINT_VIOLATION)
 		return 0;
-	printf("{");
-	printf("\"timestamp\":%llu,", e->timestamp_ns);
-	printf("\"event\":\"TAINT_VIOLATION\",");
-	printf("\"comm\":\"%s\",", e->comm);
-	printf("\"pid\":%d,", e->pid);
-	printf("\"ppid\":%d,", e->ppid);
-	printf("\"target\":\"%s\",", e->filename);
-	printf("\"rule_id\":%u,", e->taint_rule_id);
-	printf("\"taint_label\":%llu", e->taint_label);
-	printf("}\n");
+	if (e->conn_ip) { /* connect: format the network-order IPv4 */
+		unsigned int ip = e->conn_ip;
+		snprintf(target, sizeof(target), "%u.%u.%u.%u",
+			 ip & 0xff, (ip >> 8) & 0xff, (ip >> 16) & 0xff, (ip >> 24) & 0xff);
+	} else {
+		snprintf(target, sizeof(target), "%s", e->filename);
+	}
+	printf("{\"timestamp\":%llu,\"event\":\"TAINT_VIOLATION\",\"comm\":\"%s\","
+	       "\"pid\":%d,\"ppid\":%d,\"target\":\"%s\",\"rule_id\":%u,\"taint_label\":%llu}\n",
+	       e->timestamp_ns, e->comm, e->pid, e->ppid, target,
+	       e->taint_rule_id, e->taint_label);
 	fflush(stdout);
+	return 0;
+}
+
+static int load_config(const char *path, struct taint_config *cfg)
+{
+	FILE *f = fopen(path, "rb");
+	if (!f) {
+		fprintf(stderr, "cannot open config '%s': %s\n", path, strerror(errno));
+		return -1;
+	}
+	memset(cfg, 0, sizeof(*cfg));
+	size_t n = fread(cfg, 1, sizeof(*cfg), f);
+	fclose(f);
+	if (n != sizeof(*cfg)) {
+		fprintf(stderr, "config size mismatch: read %zu, expected %zu\n",
+			n, sizeof(*cfg));
+		return -1;
+	}
 	return 0;
 }
 
@@ -149,11 +99,18 @@ int main(int argc, char **argv)
 {
 	struct ring_buffer *rb = NULL;
 	struct process_bpf *skel;
+	struct taint_config cfg;
 	int err;
 
 	err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (err)
 		return err;
+	if (!env.config) {
+		fprintf(stderr, "missing --config <policy.bin>\n");
+		return 1;
+	}
+	if (load_config(env.config, &cfg))
+		return 1;
 
 	libbpf_set_print(libbpf_print_fn);
 	signal(SIGINT, sig_handler);
@@ -165,44 +122,30 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	/* Install compiled taint rules into rodata before load. */
-	skel->rodata->n_taint_rules = (unsigned int)env.taint_rule_count;
-	for (int i = 0; i < env.taint_rule_count; i++) {
-		skel->rodata->taint_rules_cfg[i] = env.taint_rules[i];
-		fprintf(stderr, "ActPlane rule %d: '%s' -> deny %s '%s' (label 0x%llx)\n",
-			i, env.taint_rules[i].source_comm,
-			sink_kind_str(env.taint_rules[i].sink_kind),
-			env.taint_rules[i].sink, env.taint_rules[i].label);
-	}
+	/* install compiled tables into rodata before load */
+	skel->rodata->n_sources = cfg.n_sources;
+	skel->rodata->n_rules = cfg.n_rules;
+	skel->rodata->n_xforms = cfg.n_xforms;
+	skel->rodata->n_gates = cfg.n_gates;
+	memcpy((void *)skel->rodata->taint_sources, cfg.sources, sizeof(cfg.sources));
+	memcpy((void *)skel->rodata->taint_rules, cfg.rules, sizeof(cfg.rules));
+	memcpy((void *)skel->rodata->taint_xforms, cfg.xforms, sizeof(cfg.xforms));
+	memcpy((void *)skel->rodata->taint_gates, cfg.gates, sizeof(cfg.gates));
+	fprintf(stderr, "ActPlane: %u sources, %u rules, %u xforms, %u gates\n",
+		cfg.n_sources, cfg.n_rules, cfg.n_xforms, cfg.n_gates);
 
 	err = process_bpf__load(skel);
-	if (err) {
-		fprintf(stderr, "Failed to load BPF skeleton\n");
-		goto cleanup;
-	}
+	if (err) { fprintf(stderr, "Failed to load BPF skeleton\n"); goto cleanup; }
 	err = process_bpf__attach(skel);
-	if (err) {
-		fprintf(stderr, "Failed to attach BPF skeleton\n");
-		goto cleanup;
-	}
+	if (err) { fprintf(stderr, "Failed to attach BPF skeleton\n"); goto cleanup; }
 
 	rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
-	if (!rb) {
-		err = -1;
-		fprintf(stderr, "Failed to create ring buffer\n");
-		goto cleanup;
-	}
+	if (!rb) { err = -1; fprintf(stderr, "ring buffer failed\n"); goto cleanup; }
 
 	while (!exiting) {
-		err = ring_buffer__poll(rb, 100 /* ms */);
-		if (err == -EINTR) {
-			err = 0;
-			break;
-		}
-		if (err < 0) {
-			fprintf(stderr, "Error polling ring buffer: %d\n", err);
-			break;
-		}
+		err = ring_buffer__poll(rb, 100);
+		if (err == -EINTR) { err = 0; break; }
+		if (err < 0) { fprintf(stderr, "poll error: %d\n", err); break; }
 	}
 
 cleanup:

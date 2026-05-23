@@ -1,36 +1,29 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright (c) 2026 eunomia-bpf org. */
 //
-// ActPlane in-kernel taint enforcer.
-//
-// Every hook observes an operation, updates taint state, and checks the
-// compiled rules. The ONLY event ever emitted to userspace is a
-// TAINT_VIOLATION, produced by the single emit_violation() function when a
-// rule actually matches. There is no general event tracing here.
+// ActPlane in-kernel taint enforcer. Each hook propagates taint and evaluates
+// the compiled rules; the ONLY event emitted is a TAINT_VIOLATION, via the
+// single emit_violation() function, when a rule matches.
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include "process.h"
-#include "taint_engine.bpf.h" // taint_labels map, rodata rules, te_* helpers
+#include "taint_engine.bpf.h"
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
-/* The one and only output channel. */
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 256 * 1024);
 } rb SEC(".maps");
 
-/* THE single event-reporting function: emit a TAINT_VIOLATION and nothing
- * else. Called only when a rule has matched. `target` is the offending
- * exe/path/host string. */
+/* The one and only output channel. */
 static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
-					   const char *target)
+					   const char *target, u32 conn_ip)
 {
 	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-	u64 *cur = bpf_map_lookup_elem(&taint_labels, &pid);
 	struct event *v = bpf_ringbuf_reserve(&rb, sizeof(*v), 0);
 	if (!v)
 		return;
@@ -39,13 +32,15 @@ static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 	v->ppid = BPF_CORE_READ(task, real_parent, tgid);
 	v->timestamp_ns = bpf_ktime_get_ns();
 	v->taint_rule_id = rule_id;
-	v->taint_label = cur ? *cur : 0;
+	v->conn_ip = conn_ip;
+	v->taint_label = te_labels(pid);
 	bpf_get_current_comm(&v->comm, sizeof(v->comm));
-	bpf_probe_read_kernel_str(&v->filename, sizeof(v->filename), target);
+	v->filename[0] = '\0';
+	if (target)
+		bpf_probe_read_kernel_str(&v->filename, sizeof(v->filename), target);
 	bpf_ringbuf_submit(v, 0);
 }
 
-/* fork: child inherits parent's taint (provenance propagation). */
 SEC("tp/sched/sched_process_fork")
 int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 {
@@ -53,156 +48,143 @@ int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 	return 0;
 }
 
-/* exec: acquire any source label this binary introduces, then check exec sink. */
 SEC("tp/sched/sched_process_exec")
 int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 {
 	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char comm[TASK_COMM_LEN];
-	unsigned int rule_id = 0;
-	u64 label;
+	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+	char comm[TAINT_PAT_LEN] = {}; /* >= pattern len so matchers stay in-bounds */
+	char argv[TAINT_ARGV_CAP];
+	char fname[MAX_FILENAME_LEN];
+	unsigned fname_off;
+	int alen = 0, rid;
 
-	bpf_get_current_comm(&comm, sizeof(comm));
-	label = te_exec_label(pid, comm);
-	if (label && te_exec_sink(comm, label, &rule_id)) {
-		unsigned fname_off = ctx->__data_loc_filename & 0xFFFF;
-		char fname[MAX_FILENAME_LEN];
+	bpf_get_current_comm(&comm, TASK_COMM_LEN);
+	te_exec_update(pid, comm);
+
+	/* read argv blob (NUL-separated) for @arg matching */
+	struct mm_struct *mm = BPF_CORE_READ(task, mm);
+	unsigned long a0 = BPF_CORE_READ(mm, arg_start);
+	unsigned long a1 = BPF_CORE_READ(mm, arg_end);
+	unsigned long len = a1 - a0;
+	if (len > TAINT_ARGV_CAP - 1)
+		len = TAINT_ARGV_CAP - 1;
+	if (len > 0 && bpf_probe_read_user(argv, len, (void *)a0) == 0)
+		alen = (int)len;
+
+	rid = te_check(pid, TOP_EXEC, comm, argv, alen);
+	if (rid >= 0) {
+		fname_off = ctx->__data_loc_filename & 0xFFFF;
 		bpf_probe_read_str(fname, sizeof(fname), (void *)ctx + fname_off);
-		emit_violation(pid, rule_id, fname);
+		emit_violation(pid, rid, fname, 0);
 	}
 	return 0;
 }
 
-/* exit: drop the pid's taint label so the map doesn't leak. */
 SEC("tp/sched/sched_process_exit")
 int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 {
 	u64 id = bpf_get_current_pid_tgid();
 	pid_t pid = id >> 32;
-	if (pid != (u32)id) /* ignore thread exits */
+	if (pid != (u32)id)
 		return 0;
 	te_exit(pid);
 	return 0;
 }
 
-/* file-open sink helper (shared by openat/open). */
-static __always_inline void check_open(pid_t pid, const char *upath)
+static __always_inline void do_open(pid_t pid, const char *upath)
 {
 	char path[MAX_FILENAME_LEN];
-	unsigned int rule_id = 0;
+	int rid;
 	if (bpf_probe_read_user_str(path, sizeof(path), upath) < 0)
 		return;
-	if (te_prefix_sink(pid, path, TAINT_SINK_FILE_OPEN, &rule_id))
-		emit_violation(pid, rule_id, path);
+	te_read(pid, path); /* file -> proc propagation + file source */
+	rid = te_check(pid, TOP_OPEN, path, 0, 0);
+	if (rid >= 0)
+		emit_violation(pid, rid, path, 0);
 }
 
 SEC("tp/syscalls/sys_enter_openat")
 int trace_openat(struct trace_event_raw_sys_enter *ctx)
 {
-	check_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
+	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
 	return 0;
 }
 
 SEC("tp/syscalls/sys_enter_open")
 int trace_open(struct trace_event_raw_sys_enter *ctx)
 {
-	check_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0]);
+	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0]);
 	return 0;
 }
 
-/* file-mutate sink helper (unlink/rename). */
-static __always_inline void check_mutate(pid_t pid, const char *upath)
+static __always_inline void do_mutate(pid_t pid, const char *upath)
 {
 	char path[MAX_FILENAME_LEN];
-	unsigned int rule_id = 0;
+	int rid;
 	if (bpf_probe_read_user_str(path, sizeof(path), upath) < 0)
 		return;
-	if (te_prefix_sink(pid, path, TAINT_SINK_FILE_MUTATE, &rule_id))
-		emit_violation(pid, rule_id, path);
+	te_write_flow(pid, path); /* proc -> file propagation */
+	rid = te_check(pid, TOP_WRITE, path, 0, 0);
+	if (rid >= 0)
+		emit_violation(pid, rid, path, 0);
 }
 
 SEC("tp/syscalls/sys_enter_unlink")
 int trace_unlink(struct trace_event_raw_sys_enter *ctx)
 {
-	check_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0]);
+	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0]);
 	return 0;
 }
-
 SEC("tp/syscalls/sys_enter_unlinkat")
 int trace_unlinkat(struct trace_event_raw_sys_enter *ctx)
 {
-	check_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
+	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
 	return 0;
 }
-
 SEC("tp/syscalls/sys_enter_rename")
 int trace_rename(struct trace_event_raw_sys_enter *ctx)
 {
-	check_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]); /* newpath */
+	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
 	return 0;
 }
-
 SEC("tp/syscalls/sys_enter_renameat")
 int trace_renameat(struct trace_event_raw_sys_enter *ctx)
 {
-	check_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[3]); /* newpath */
+	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[3]);
 	return 0;
 }
-
 SEC("tp/syscalls/sys_enter_renameat2")
 int trace_renameat2(struct trace_event_raw_sys_enter *ctx)
 {
-	check_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[3]); /* newpath */
+	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[3]);
 	return 0;
 }
 
-/* Format an IPv4 address (network byte order) into "a.b.c.d". Index is masked
- * to keep the verifier happy (buf must be >= 16 bytes). */
-static __always_inline void fmt_ipv4(u32 net_addr, char *buf)
-{
-	unsigned char *o = (unsigned char *)&net_addr;
-	int p = 0;
-	TAINT_UNROLL
-	for (int k = 0; k < 4; k++) {
-		unsigned v = o[k];
-		if (v >= 100) {
-			buf[p++ & 15] = '0' + v / 100;
-			v %= 100;
-			buf[p++ & 15] = '0' + v / 10;
-			buf[p++ & 15] = '0' + v % 10;
-		} else if (v >= 10) {
-			buf[p++ & 15] = '0' + v / 10;
-			buf[p++ & 15] = '0' + v % 10;
-		} else {
-			buf[p++ & 15] = '0' + v;
-		}
-		if (k < 3)
-			buf[p++ & 15] = '.';
-	}
-	buf[p & 15] = '\0';
-}
-
-/* connect sink: tainted process connecting to a forbidden IPv4 prefix.
- * (Hostname-level rules need userspace DNS/SNI resolution; out of kernel scope.) */
+/* connect: numeric IPv4 matching (compiler lowers host/IP patterns to net+mask;
+ * no in-kernel string formatting, so no verifier-rejected pointer arithmetic).
+ * The reported IP is formatted by the userspace loader from conn_ip. */
 SEC("tp/syscalls/sys_enter_connect")
 int trace_connect(struct trace_event_raw_sys_enter *ctx)
 {
 	pid_t pid = bpf_get_current_pid_tgid() >> 32;
 	const void *uaddr = (const void *)ctx->args[1];
-	unsigned int rule_id = 0;
+	int rid;
 	u16 family = 0;
-	char ip[16];
 
 	if (bpf_probe_read_user(&family, sizeof(family), uaddr) < 0)
 		return 0;
-	if (family != 2) /* AF_INET only for the in-kernel IP match */
+	if (family != 2) /* AF_INET */
 		return 0;
-
 	struct sockaddr_in sa = {};
 	if (bpf_probe_read_user(&sa, sizeof(sa), uaddr) < 0)
 		return 0;
-	fmt_ipv4(sa.sin_addr.s_addr, ip);
-	if (te_prefix_sink(pid, ip, TAINT_SINK_CONNECT, &rule_id))
-		emit_violation(pid, rule_id, ip);
+	u32 ip = sa.sin_addr.s_addr; /* network byte order */
+
+	te_add_labels(pid, te_endp_src_ip(ip));   /* endpoint source taints connector */
+	te_connect_flow(ip, pid);                 /* proc -> endpoint */
+	rid = te_connect_check(pid, ip);
+	if (rid >= 0)
+		emit_violation(pid, rid, 0, ip);
 	return 0;
 }

@@ -4,172 +4,243 @@
 #define __TAINT_H
 
 /*
- * ActPlane in-kernel taint analysis.
+ * ActPlane in-kernel taint model (full design, see docs/taint-dsl.md).
  *
- * Model (see docs/actplane-research-plan.md):
- *   - Nodes are processes; taint propagates along the process tree.
- *   - A rule names a `source` executable: any process that execs it, and all
- *     of its descendants, acquire the rule's taint `label` (one bit per rule).
- *   - The same rule names one or more `sink` executables: a tainted process
- *     attempting to exec a sink is a violation, reported with `rule_id`.
+ * Taint state is a u64 label set per node (process / file / endpoint). The
+ * Rust collector compiles the DSL down to the flat tables below; the kernel
+ * propagates labels and evaluates the rules. This header holds the libc/libbpf-
+ * free *matching predicates* shared by the eBPF program and the unit tests
+ * (test_taint.c); the map-bearing engine is taint_engine.bpf.h.
  *
- * Enforcement note: on kernels with BPF LSM enabled this logic can move into
- * an `lsm/bprm_check_security` hook returning -EPERM. On kernels without it
- * (the common case today) we run it from the exec tracepoint and *report* the
- * violation; userspace turns the report into semantic feedback / a reactive
- * signal. The matching logic below is identical either way, which is why it
- * lives in this shared, libc-free, unit-testable header.
- *
- * This header is intentionally free of libc and libbpf dependencies so that it
- * compiles both inside the eBPF program and inside the plain-C unit test
- * (test_taint.c), mirroring process_filter.h.
+ * Constructs supported (per taint-dsl.md):
+ *   - object + subject sources                          (struct taint_source)
+ *   - sinks with boolean label masks (req AND, forbid NOT) and conditions
+ *     (lineage-includes / after / target-scope)         (struct taint_rule)
+ *   - declassify / endorse on a gate exec               (struct taint_xform)
+ *   - lineage/temporal gates                            (struct taint_gate)
+ * Globs are lowered to exact/prefix by the compiler; the kernel matches
+ * exact (comm) or prefix (path / IPv4 dotted / host).
  */
 
-/* Fully unroll the bounded loops below when compiled for BPF (clang), so the
- * verifier sees straight-line code. A no-op for the gcc-built unit test. */
 #if defined(__clang__)
 #define TAINT_UNROLL _Pragma("unroll")
 #else
 #define TAINT_UNROLL
 #endif
-
-/* Force inlining in BPF so helpers don't become separate subprograms with
- * loops the verifier can't bound. The unit test (gcc) supplies its own. */
 #ifndef __always_inline
 #define __always_inline inline __attribute__((always_inline))
 #endif
 
-#define TAINT_COMM_LEN   16   /* matches TASK_COMM_LEN */
-#define MAX_TAINT_RULES  16   /* one taint label bit per rule */
-#define TAINT_LABEL_NONE 0ULL
+#define TAINT_PAT_LEN     64
+#define TAINT_ARG_LEN     24
+#define TAINT_ARGV_CAP    128  /* must be a power of two; bounds argv scan */
+#define TAINT_COMM_LEN    16   /* matches TASK_COMM_LEN */
+#define MAX_TAINT_LABELS  64   /* labels are a u64 bitmask */
+#define MAX_TAINT_SOURCES 32
+#define MAX_TAINT_RULES   32
+#define MAX_TAINT_XFORMS  16
+#define MAX_TAINT_GATES   16
+#define TAINT_LABEL_NONE  0ULL
 
-#define TAINT_SINK_LEN   64   /* sink operand: exec comm (<=15) or file path prefix */
-
-/* Sink operation kind: what forbidden operation this rule guards. */
-enum taint_sink_kind {
-	TAINT_SINK_EXEC       = 0, /* tainted process may not exec `sink` (comm) */
-	TAINT_SINK_FILE_OPEN  = 1, /* tainted process may not open a path under `sink` */
-	TAINT_SINK_FILE_MUTATE = 2,/* ...may not unlink/rename a path under `sink` */
-	TAINT_SINK_CONNECT    = 3, /* ...may not connect to a host under `sink` */
+enum taint_match {
+	TAINT_MATCH_EXACT  = 0,
+	TAINT_MATCH_PREFIX = 1,
+	TAINT_MATCH_SUFFIX = 2, /* text ends with pat (dotfiles, host suffixes) */
+	TAINT_MATCH_ANY    = 3, /* always matches (the bare star) */
 };
 
-/* A compiled rule: "processes tainted by `source_comm` (and their descendants)
- * may not perform `sink_kind` on `sink`". The collector emits one per
- * (source, deny-operation, target) triple. One taint label bit per rule. */
+/* source kinds: what touching the node taints, and which node */
+enum taint_src_kind {
+	TSRC_EXEC     = 0, /* process that execs PAT acquires label */
+	TSRC_FILE     = 1, /* file matching PAT intrinsically has label (reader gets it) */
+	TSRC_ENDPOINT = 2, /* endpoint matching PAT has label (receiver gets it) */
+};
+
+/* sink operations */
+enum taint_op {
+	TOP_EXEC    = 0, /* exec comm */
+	TOP_OPEN    = 1, /* open/read path */
+	TOP_WRITE   = 2, /* write/unlink/rename path (mutation) */
+	TOP_CONNECT = 3, /* connect host/ip */
+};
+
+/* unless-condition kinds */
+enum taint_cond {
+	TCOND_NONE    = 0,
+	TCOND_LINEAGE = 1, /* allowed if gate bit set in lineage (ancestor) mask */
+	TCOND_AFTER   = 2, /* allowed if gate bit set in session mask */
+	TCOND_TARGET  = 3, /* allowed if object matches cond_pat (neg flips) */
+};
+
+struct taint_source {
+	unsigned char kind;   /* enum taint_src_kind */
+	unsigned char match;  /* enum taint_match */
+	char pat[TAINT_PAT_LEN];
+	unsigned long long label;
+	unsigned int ipv4;      /* TSRC_ENDPOINT: network-order IP, matched as */
+	unsigned int ipv4_mask; /* (ip & ipv4_mask) == ipv4 */
+};
+
 struct taint_rule {
-	char source_comm[TAINT_COMM_LEN]; /* executable that introduces the taint */
-	unsigned int sink_kind;           /* enum taint_sink_kind */
-	char sink[TAINT_SINK_LEN];        /* exec: comm; file: path prefix */
-	unsigned long long label;         /* taint bit for this rule (1 << rule_id) */
-	unsigned int rule_id;             /* index back into the DSL rule table */
+	unsigned char op;         /* enum taint_op */
+	unsigned char match;      /* enum taint_match (target) */
+	unsigned char cond_kind;  /* enum taint_cond */
+	unsigned char cond_neg;   /* for TCOND_TARGET: invert the match */
+	unsigned char cond_match; /* enum taint_match for cond_pat */
+	char target[TAINT_PAT_LEN];
+	char arg[TAINT_ARG_LEN];  /* exec @arg token, "" = ignore */
+	char cond_pat[TAINT_PAT_LEN];
+	unsigned long long req;    /* all these label bits must be set */
+	unsigned long long forbid; /* none of these may be set */
+	unsigned long long gate;   /* gate bit for LINEAGE/AFTER */
+	unsigned int rule_id;
+	/* TOP_CONNECT: numeric IPv4 match (avoids in-kernel string formatting) */
+	unsigned int ipv4;
+	unsigned int ipv4_mask;
+	unsigned int cond_ipv4;      /* TCOND_TARGET on connect */
+	unsigned int cond_ipv4_mask;
 };
 
-/* Exact comm comparison, bounded to TAINT_COMM_LEN bytes. comm values are the
- * 16-byte, NUL-padded names from bpf_get_current_comm(); a NUL terminates the
- * comparison early. Returns true on full match. BPF-verifier friendly: the
- * loop bound is a compile-time constant. */
-static __always_inline int taint_comm_eq(const char *a, const char *b)
+struct taint_xform {
+	unsigned char match;
+	unsigned char add; /* 1 = endorse (add label), 0 = declassify (remove) */
+	char gate[TAINT_PAT_LEN];
+	unsigned long long label;
+};
+
+struct taint_gate {
+	unsigned char match;
+	char pat[TAINT_PAT_LEN]; /* exec matching this sets `bit` in lineage+session */
+	unsigned long long bit;
+};
+
+/* Compiled policy, the ABI between the Rust DSL compiler and the C loader.
+ * The compiler writes exactly sizeof(struct taint_config) bytes; the loader
+ * freads it and copies the tables into the BPF rodata. Both sides are repr(C)
+ * with identical field order/types/sizes. */
+struct taint_config {
+	unsigned int n_sources;
+	unsigned int n_rules;
+	unsigned int n_xforms;
+	unsigned int n_gates;
+	struct taint_source sources[MAX_TAINT_SOURCES];
+	struct taint_rule rules[MAX_TAINT_RULES];
+	struct taint_xform xforms[MAX_TAINT_XFORMS];
+	struct taint_gate gates[MAX_TAINT_GATES];
+};
+
+/* ---- pure matching predicates (pattern side is volatile: it lives in rodata
+ * in the kernel; tests pass plain pointers, which convert fine) ---- */
+
+/* exact compare up to TAINT_PAT_LEN, NUL-terminated either side */
+static __always_inline int taint_streq(const char *a, const char *b)
 {
 	TAINT_UNROLL
-	for (int i = 0; i < TAINT_COMM_LEN; i++) {
-		if (a[i] != b[i])
+	for (int i = 0; i < TAINT_PAT_LEN; i++) {
+		char ca = a[i], cb = b[i];
+		if (ca != cb)
 			return 0;
-		if (a[i] == '\0')
+		if (ca == '\0')
 			return 1;
 	}
 	return 1;
 }
 
-/* Returns true if `path` starts with the non-empty `prefix`. Bounded to
- * TAINT_SINK_LEN bytes (compile-time constant) for the verifier. */
-static __always_inline int taint_path_has_prefix(const char *path, const char *prefix)
+/* does `text` start with non-empty `pre`? */
+static __always_inline int taint_prefix(const char *text, const char *pre)
 {
-	if (prefix[0] == '\0')
+	if (pre[0] == '\0')
 		return 0;
 	TAINT_UNROLL
-	for (int i = 0; i < TAINT_SINK_LEN; i++) {
-		if (prefix[i] == '\0')
-			return 1;          /* matched all of prefix */
-		if (path[i] != prefix[i])
+	for (int i = 0; i < TAINT_PAT_LEN; i++) {
+		char cp = pre[i];
+		if (cp == '\0')
+			return 1;
+		if (text[i] != cp)
 			return 0;
 	}
 	return 1;
 }
 
-/* OR in the taint labels of every rule whose source matches `comm`.
- * `cur_label` is the process's existing (inherited) label. Returns the result. */
-static __always_inline unsigned long long taint_apply_sources(const struct taint_rule *rules,
-						       unsigned int n_rules,
-						       const char *comm,
-						       unsigned long long cur_label)
+/* does `text` end with non-empty `suf`? bounded to TAINT_PAT_LEN. Uses explicit
+ * bound guards (not index masking, which makes clang emit a verifier-rejected
+ * pointer-OR). */
+static __always_inline int taint_suffix(const char *text, const char *suf)
 {
-	unsigned long long label = cur_label;
-
-	if (n_rules > MAX_TAINT_RULES)
-		n_rules = MAX_TAINT_RULES;
-
-	TAINT_UNROLL
-	for (unsigned int i = 0; i < MAX_TAINT_RULES; i++) {
-		if (i >= n_rules)
-			break;
-		if (rules[i].source_comm[0] != '\0' &&
-		    taint_comm_eq(comm, rules[i].source_comm))
-			label |= rules[i].label;
+	int tn = 0, sn = 0;
+	for (int i = 0; i < TAINT_PAT_LEN; i++) {
+		if (!text[i]) break;
+		tn++;
 	}
-	return label;
+	for (int i = 0; i < TAINT_PAT_LEN; i++) {
+		if (!suf[i]) break;
+		sn++;
+	}
+	if (sn == 0 || sn > tn)
+		return 0;
+	int off = tn - sn; /* >= 0, < TAINT_PAT_LEN */
+	for (int j = 0; j < TAINT_PAT_LEN; j++) {
+		if (j >= sn)
+			break;
+		int ti = off + j;
+		if (ti < 0 || ti >= TAINT_PAT_LEN)
+			return 0;
+		if (text[ti] != suf[j])
+			return 0;
+	}
+	return 1;
 }
 
-/* Is exec of `comm` by a process carrying `label` a violation? Checks only
- * TAINT_SINK_EXEC rules. Returns 1 + sets *out_rule_id on the first hit. */
-static __always_inline int taint_check_exec_sink(const struct taint_rule *rules,
-					 unsigned int n_rules,
-					 const char *comm,
-					 unsigned long long label,
-					 unsigned int *out_rule_id)
+static __always_inline int taint_match(unsigned int kind, const char *text,
+				       const char *pat)
 {
-	if (n_rules > MAX_TAINT_RULES)
-		n_rules = MAX_TAINT_RULES;
-
-	TAINT_UNROLL
-	for (unsigned int i = 0; i < MAX_TAINT_RULES; i++) {
-		if (i >= n_rules)
-			break;
-		if (rules[i].sink_kind == TAINT_SINK_EXEC &&
-		    (label & rules[i].label) &&
-		    rules[i].sink[0] != '\0' &&
-		    taint_comm_eq(comm, rules[i].sink)) {
-			if (out_rule_id)
-				*out_rule_id = rules[i].rule_id;
-			return 1;
-		}
+	switch (kind) {
+	case TAINT_MATCH_PREFIX: return taint_prefix(text, pat);
+	case TAINT_MATCH_SUFFIX: return taint_suffix(text, pat);
+	case TAINT_MATCH_ANY:    return 1;
+	default:                 return taint_streq(text, pat);
 	}
-	return 0;
 }
 
-/* Generic prefix-sink check for a given `kind` (FILE_OPEN / FILE_MUTATE /
- * CONNECT): is a process carrying `label` performing the op on `target`
- * (path or host) a violation? Returns 1 + sets *out_rule_id on the first hit. */
-static __always_inline int taint_check_prefix_sink(const struct taint_rule *rules,
-					 unsigned int n_rules,
-					 const char *target,
-					 unsigned long long label,
-					 unsigned int kind,
-					 unsigned int *out_rule_id)
+/* boolean label predicate: required bits all set, forbidden bits all clear */
+static __always_inline int taint_mask_ok(unsigned long long labels,
+					 unsigned long long req,
+					 unsigned long long forbid)
 {
-	if (n_rules > MAX_TAINT_RULES)
-		n_rules = MAX_TAINT_RULES;
+	return (labels & req) == req && (labels & forbid) == 0ULL;
+}
 
-	TAINT_UNROLL
-	for (unsigned int i = 0; i < MAX_TAINT_RULES; i++) {
-		if (i >= n_rules)
+/* is `tok` (NUL-terminated) present as a whole token in the NUL-separated argv
+ * blob `argv` (length `argv_len`, capacity TAINT_ARGV_CAP)? "" matches anything.
+ * Indices are masked to TAINT_ARGV_CAP so the verifier sees bounded access. */
+static __always_inline int taint_arg_match(const char *argv, int argv_len,
+					   const char *tok)
+{
+	if (tok[0] == '\0')
+		return 1;
+	if (argv_len > TAINT_ARGV_CAP)
+		argv_len = TAINT_ARGV_CAP;
+	for (int s = 0; s < TAINT_ARGV_CAP; s++) {
+		if (s >= argv_len)
 			break;
-		if (rules[i].sink_kind == kind &&
-		    (label & rules[i].label) &&
-		    taint_path_has_prefix(target, rules[i].sink)) {
-			if (out_rule_id)
-				*out_rule_id = rules[i].rule_id;
-			return 1;
+		int ok = 1, eot = 0;
+		for (int j = 0; j < TAINT_ARG_LEN; j++) {
+			char tc = tok[j];
+			int idx = s + j;
+			if (tc == '\0') {
+				eot = 1; /* token end: require argv token boundary (NUL) */
+				char ac = (idx < argv_len) ? argv[idx] : '\0';
+				if (ac != '\0')
+					ok = 0;
+				break;
+			}
+			if (idx >= argv_len || argv[idx] != tc) {
+				ok = 0;
+				break;
+			}
 		}
+		if (ok && eot)
+			return 1;
 	}
 	return 0;
 }
