@@ -1,0 +1,39 @@
+{
+  "repo": "ChromeDevTools/chrome-devtools-mcp",
+  "owner": "ChromeDevTools",
+  "name": "chrome-devtools-mcp",
+  "stars": 41076,
+  "language": "TypeScript",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-22T08:20:53Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+  "description": "Chrome DevTools for coding agents",
+  "topics": [
+    "browser",
+    "chrome",
+    "chrome-devtools",
+    "debugging",
+    "devtools",
+    "mcp",
+    "mcp-server",
+    "puppeteer"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "654a1e13bbab17b3dc25ec91e3ed1fb6e9bb2390",
+      "byte_size": 771,
+      "last_commit_sha": "7bb1ca50ef92e3bc02870553cc0c03b442df2e41",
+      "last_commit_date": "2026-04-22T12:03:57Z",
+      "content_sha256": "78e249431c9c0491d5344d559dc1e63baaa2835dbbaa42903e94ba63338c51c4",
+      "raw_url": "https://raw.githubusercontent.com/ChromeDevTools/chrome-devtools-mcp/7bb1ca50ef92e3bc02870553cc0c03b442df2e41/AGENTS.md"
+    }
+  ]
+}

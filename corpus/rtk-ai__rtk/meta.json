@@ -1,0 +1,44 @@
+{
+  "repo": "rtk-ai/rtk",
+  "owner": "rtk-ai",
+  "name": "rtk",
+  "stars": 52983,
+  "language": "Rust",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-22T16:04:00Z",
+  "default_branch": "develop",
+  "html_url": "https://github.com/rtk-ai/rtk",
+  "description": "CLI proxy that reduces LLM token consumption by 60-90% on common dev commands. Single Rust binary, zero dependencies",
+  "topics": [
+    "agentic-coding",
+    "ai-coding",
+    "anthropic",
+    "claude-code",
+    "cli",
+    "command-line-tool",
+    "cost-reduction",
+    "developer-tools",
+    "llm",
+    "open-source",
+    "productivity",
+    "rust",
+    "token-optimization"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "9e89fff388d81c7a803e3723d874c9502b7d09db",
+      "byte_size": 7406,
+      "last_commit_sha": "1400788224aa4d62f74a19461600a7fcfaa69d04",
+      "last_commit_date": "2026-04-10T07:52:44Z",
+      "content_sha256": "d0bfba7d3884d7f89fe2798a156fde21dbefda7b4c05125aa572f6e12febcbc2",
+      "raw_url": "https://raw.githubusercontent.com/rtk-ai/rtk/1400788224aa4d62f74a19461600a7fcfaa69d04/CLAUDE.md"
+    }
+  ]
+}

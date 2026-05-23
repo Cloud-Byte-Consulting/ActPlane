@@ -1,0 +1,60 @@
+{
+  "repo": "pingcap/tidb",
+  "owner": "pingcap",
+  "name": "tidb",
+  "stars": 40120,
+  "language": "Go",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T03:34:29Z",
+  "default_branch": "master",
+  "html_url": "https://github.com/pingcap/tidb",
+  "description": "TiDB is built for agentic workloads that grow unpredictably, with ACID guarantees and native support for transactions, analytics, and vector search. No data silos. No noisy neighbors. No infrastructure ceiling.",
+  "topics": [
+    "agent",
+    "agent-context",
+    "agent-memory",
+    "agentic",
+    "ai",
+    "cloud-native",
+    "database",
+    "distributed-database",
+    "distributed-transactions",
+    "go",
+    "hacktoberfest",
+    "htap",
+    "memory",
+    "mysql",
+    "mysql-compatibility",
+    "scale",
+    "serverless",
+    "sql",
+    "tidb"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+      "byte_size": 11,
+      "last_commit_sha": "5508821ec27c692350f568ef8d78469f3caab29d",
+      "last_commit_date": "2025-10-10T12:20:39Z",
+      "content_sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "raw_url": "https://raw.githubusercontent.com/pingcap/tidb/5508821ec27c692350f568ef8d78469f3caab29d/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "beae186dd5ea877a080370dffc348c33268e1f44",
+      "byte_size": 13168,
+      "last_commit_sha": "e53c50c1c5ae0bd926d75d278ed6fa958670b648",
+      "last_commit_date": "2026-05-22T05:27:09Z",
+      "content_sha256": "7d726d7014c7282a4b1dc6cb0ccb83ed3c54226e0c295c2e09002089523b7ed7",
+      "raw_url": "https://raw.githubusercontent.com/pingcap/tidb/e53c50c1c5ae0bd926d75d278ed6fa958670b648/AGENTS.md"
+    }
+  ]
+}

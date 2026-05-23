@@ -1,0 +1,61 @@
+{
+  "repo": "ruvnet/ruflo",
+  "owner": "ruvnet",
+  "name": "ruflo",
+  "stars": 54239,
+  "language": "TypeScript",
+  "license": "mit",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-22T19:19:16Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/ruvnet/ruflo",
+  "description": "🌊 The leading agent orchestration platform for Claude. Deploy intelligent multi-agent swarms, coordinate autonomous workflows, and build conversational AI systems. Features    enterprise-grade architecture, self-learning swarm intelligence, RAG integration, and native Claude Code / Codex Integration",
+  "topics": [
+    "agentic-ai",
+    "agentic-framework",
+    "agentic-rag",
+    "agentic-workflow",
+    "agents",
+    "ai-agent",
+    "ai-assistant",
+    "ai-coding",
+    "ai-skills",
+    "anthropic-claude",
+    "autonomous-agents",
+    "claude-code",
+    "claude-code-skills",
+    "codex",
+    "mcp-server",
+    "model-context-protocol",
+    "multi-agent",
+    "multi-agent-systems",
+    "swarm",
+    "swarm-intelligence"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "cd48648e42ba3cbe6b779542a282da64329361df",
+      "byte_size": 42456,
+      "last_commit_sha": "c44f527a1ecca83ee270762350fa72af3c16d0bf",
+      "last_commit_date": "2026-04-29T23:29:02Z",
+      "content_sha256": "60c901b91e7ccc1338b71690d7d17fb32b7efaf5cfa59477219c0df9d81a771c",
+      "raw_url": "https://raw.githubusercontent.com/ruvnet/ruflo/c44f527a1ecca83ee270762350fa72af3c16d0bf/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "a8267d2e1bbac725e36093ed5b0dc3b6d4b2bc9b",
+      "byte_size": 21154,
+      "last_commit_sha": "b8a2faa3e9ef5a83a89486d792f6f301c1f8f110",
+      "last_commit_date": "2026-02-07T18:18:17Z",
+      "content_sha256": "93d66aa262d78c86f90c7e5523731df9f97de8ba3671d06c2df0c0dc1e09486e",
+      "raw_url": "https://raw.githubusercontent.com/ruvnet/ruflo/b8a2faa3e9ef5a83a89486d792f6f301c1f8f110/AGENTS.md"
+    }
+  ]
+}

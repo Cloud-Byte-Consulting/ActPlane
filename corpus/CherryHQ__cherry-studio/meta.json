@@ -1,0 +1,51 @@
+{
+  "repo": "CherryHQ/cherry-studio",
+  "owner": "CherryHQ",
+  "name": "cherry-studio",
+  "stars": 46133,
+  "language": "TypeScript",
+  "license": "agpl-3.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T06:38:59Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/CherryHQ/cherry-studio",
+  "description": "AI productivity studio with smart chat, autonomous agents, and 300+ assistants. Unified access to frontier LLMs",
+  "topics": [
+    "agent-skills",
+    "ai-agent",
+    "awesome-skills",
+    "claude-code",
+    "codex",
+    "deepseek",
+    "hermes-agent",
+    "openclaw",
+    "skills",
+    "vibe-coding"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "89f8f50c59935b0fc5d38c22984c963308096565",
+      "byte_size": 14527,
+      "last_commit_sha": "d22b625355aecf7f15baf7c605f90515b3ce56ab",
+      "last_commit_date": "2026-04-03T06:18:02Z",
+      "content_sha256": "315313e677c1485db90e2087efdb177f211384c79f60fe21a20347092739bccc",
+      "raw_url": "https://raw.githubusercontent.com/CherryHQ/cherry-studio/d22b625355aecf7f15baf7c605f90515b3ce56ab/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "681311eb9cf453d0faddf3aacaec7357e97ba8e9",
+      "byte_size": 14527,
+      "last_commit_sha": "3fc92e093b6640b6b5dee52355a68161e88656d3",
+      "last_commit_date": "2025-09-14T09:09:32Z",
+      "content_sha256": "315313e677c1485db90e2087efdb177f211384c79f60fe21a20347092739bccc",
+      "raw_url": "https://raw.githubusercontent.com/CherryHQ/cherry-studio/3fc92e093b6640b6b5dee52355a68161e88656d3/AGENTS.md"
+    }
+  ]
+}

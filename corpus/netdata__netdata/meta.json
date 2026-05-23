@@ -1,0 +1,61 @@
+{
+  "repo": "netdata/netdata",
+  "owner": "netdata",
+  "name": "netdata",
+  "stars": 78915,
+  "language": "C",
+  "license": "gpl-3.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T00:40:02Z",
+  "default_branch": "master",
+  "html_url": "https://github.com/netdata/netdata",
+  "description": "The fastest path to AI-powered full stack observability, even for lean teams.",
+  "topics": [
+    "ai",
+    "alerting",
+    "cncf",
+    "data-visualization",
+    "database",
+    "devops",
+    "docker",
+    "grafana",
+    "influxdb",
+    "kubernetes",
+    "linux",
+    "machine-learning",
+    "mcp",
+    "mongodb",
+    "monitoring",
+    "mysql",
+    "netdata",
+    "observability",
+    "postgresql",
+    "prometheus"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "47dc3e3d863cfb5727b87d785d09abf9743c0a72",
+      "byte_size": 29799,
+      "last_commit_sha": "632658a7d8bf2c8d8ad9078d1f676506a55765a5",
+      "last_commit_date": "2026-04-27T14:44:52Z",
+      "content_sha256": "0e292a05f395e9d5efb29d7b5af793fe4b1026349ad39212fb4be5d854508c61",
+      "raw_url": "https://raw.githubusercontent.com/netdata/netdata/632658a7d8bf2c8d8ad9078d1f676506a55765a5/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "7b0e98899c7578ae986042de4bd239f552b49c4f",
+      "byte_size": 29799,
+      "last_commit_sha": "8afe52d8b18245fcd55f93e531f0f0896adcadc7",
+      "last_commit_date": "2026-05-22T08:38:34Z",
+      "content_sha256": "0e292a05f395e9d5efb29d7b5af793fe4b1026349ad39212fb4be5d854508c61",
+      "raw_url": "https://raw.githubusercontent.com/netdata/netdata/8afe52d8b18245fcd55f93e531f0f0896adcadc7/AGENTS.md"
+    }
+  ]
+}

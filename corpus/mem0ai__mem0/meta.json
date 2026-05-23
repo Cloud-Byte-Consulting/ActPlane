@@ -1,0 +1,55 @@
+{
+  "repo": "mem0ai/mem0",
+  "owner": "mem0ai",
+  "name": "mem0",
+  "stars": 56473,
+  "language": "Python",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T06:37:52Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/mem0ai/mem0",
+  "description": "Universal memory layer for AI Agents",
+  "topics": [
+    "agents",
+    "ai",
+    "ai-agents",
+    "application",
+    "chatbots",
+    "chatgpt",
+    "genai",
+    "llm",
+    "long-term-memory",
+    "memory",
+    "memory-management",
+    "python",
+    "rag",
+    "state-management"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "47dc3e3d863cfb5727b87d785d09abf9743c0a72",
+      "byte_size": 24214,
+      "last_commit_sha": "a670333d67be1207b5be2fc73af60c3439444f48",
+      "last_commit_date": "2026-04-06T16:02:43Z",
+      "content_sha256": "8a214ceebbf30ca868d7484cf2729bdcb1eaff7e9311acd665de37519bfd0aad",
+      "raw_url": "https://raw.githubusercontent.com/mem0ai/mem0/a670333d67be1207b5be2fc73af60c3439444f48/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "7754b84a2156d6e0d93114e695b939fed8256d58",
+      "byte_size": 24214,
+      "last_commit_sha": "08aa143db31994512e151dca0e7109ce040d180b",
+      "last_commit_date": "2026-05-22T14:32:19Z",
+      "content_sha256": "8a214ceebbf30ca868d7484cf2729bdcb1eaff7e9311acd665de37519bfd0aad",
+      "raw_url": "https://raw.githubusercontent.com/mem0ai/mem0/08aa143db31994512e151dca0e7109ce040d180b/AGENTS.md"
+    }
+  ]
+}

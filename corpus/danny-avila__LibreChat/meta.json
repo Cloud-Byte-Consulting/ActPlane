@@ -1,0 +1,61 @@
+{
+  "repo": "danny-avila/LibreChat",
+  "owner": "danny-avila",
+  "name": "LibreChat",
+  "stars": 37355,
+  "language": "TypeScript",
+  "license": "mit",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T01:28:28Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/danny-avila/LibreChat",
+  "description": "Enhanced ChatGPT Clone: Features Agents, MCP, DeepSeek, Anthropic, AWS, OpenAI, Responses API, Azure, Groq, o1, GPT-5, Mistral, OpenRouter, Vertex AI, Gemini, Artifacts, AI model switching, message search, Code Interpreter, langchain, DALL-E-3, OpenAPI Actions, Functions, Secure Multi-User Auth, Presets, open-source for self-hosting. Active.",
+  "topics": [
+    "ai",
+    "anthropic",
+    "artifacts",
+    "aws",
+    "azure",
+    "chatgpt",
+    "chatgpt-clone",
+    "claude",
+    "clone",
+    "deepseek",
+    "gemini",
+    "google",
+    "gpt-5",
+    "librechat",
+    "mcp",
+    "o1",
+    "openai",
+    "responses-api",
+    "vision",
+    "webui"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "81362cfc57010f4bd8b25ec01d61c8d727bf66a6",
+      "byte_size": 8906,
+      "last_commit_sha": "419613fdaf70197c2e3ac885f948c1d0e8d292c5",
+      "last_commit_date": "2026-04-01T01:50:38Z",
+      "content_sha256": "608341a0ed3bbb4c0064b4c8860f9506ed883cbb2fa3d3f5cc91f73ccc96c2cb",
+      "raw_url": "https://raw.githubusercontent.com/danny-avila/LibreChat/419613fdaf70197c2e3ac885f948c1d0e8d292c5/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "ceb2b988dc8aeca264a49eab26ef39e636508c84",
+      "byte_size": 10,
+      "last_commit_sha": "419613fdaf70197c2e3ac885f948c1d0e8d292c5",
+      "last_commit_date": "2026-04-01T01:50:38Z",
+      "content_sha256": "f8e95b617a27d1d3e0f595ea727640bea69667fab6093561406b45f11f9aeb6e",
+      "raw_url": "https://raw.githubusercontent.com/danny-avila/LibreChat/419613fdaf70197c2e3ac885f948c1d0e8d292c5/AGENTS.md"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "repo": "alibaba/arthas",
+  "owner": "alibaba",
+  "name": "arthas",
+  "stars": 37321,
+  "language": "Java",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-22T08:23:45Z",
+  "default_branch": "master",
+  "html_url": "https://github.com/alibaba/arthas",
+  "description": "Alibaba Java Diagnostic Tool Arthas/Alibaba Java诊断利器Arthas",
+  "topics": [
+    "agent",
+    "alibaba",
+    "arthas",
+    "classloader",
+    "diagnosis",
+    "java",
+    "jvm",
+    "trace",
+    "trouble-shooting"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "335ef20fe3d30d654acf0abbfc9fe97e36efac91",
+      "byte_size": 17970,
+      "last_commit_sha": "04e57667cb827c6e9c31f801a795c77326dff7ab",
+      "last_commit_date": "2025-12-24T15:30:10Z",
+      "content_sha256": "b96eeb1dbfa6ad360bbdb31565a61b21f3f12af81da4056621c12af4b63d68a0",
+      "raw_url": "https://raw.githubusercontent.com/alibaba/arthas/04e57667cb827c6e9c31f801a795c77326dff7ab/AGENTS.md"
+    }
+  ]
+}

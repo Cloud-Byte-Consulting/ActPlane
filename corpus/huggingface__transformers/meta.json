@@ -1,0 +1,60 @@
+{
+  "repo": "huggingface/transformers",
+  "owner": "huggingface",
+  "name": "transformers",
+  "stars": 160894,
+  "language": "Python",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-22T19:58:10Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/huggingface/transformers",
+  "description": "🤗 Transformers: the model-definition framework for state-of-the-art machine learning models in text, vision, audio, and multimodal models, for both inference and training. ",
+  "topics": [
+    "audio",
+    "deep-learning",
+    "deepseek",
+    "gemma",
+    "glm",
+    "hacktoberfest",
+    "llm",
+    "machine-learning",
+    "model-hub",
+    "natural-language-processing",
+    "nlp",
+    "pretrained-models",
+    "python",
+    "pytorch",
+    "pytorch-transformers",
+    "qwen",
+    "speech-recognition",
+    "transformer",
+    "vlm"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "b28461c924a4217b9478062bea99d2306d7d4d05",
+      "byte_size": 4375,
+      "last_commit_sha": "670f3c85fde62cede8206d7ade43a8eaa1edc205",
+      "last_commit_date": "2026-03-18T14:06:58Z",
+      "content_sha256": "0a73945d80f23cdc2da245891cb9fbd6d26f37d1d15eec8c7a7d8269bb1efb92",
+      "raw_url": "https://raw.githubusercontent.com/huggingface/transformers/670f3c85fde62cede8206d7ade43a8eaa1edc205/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "b28461c924a4217b9478062bea99d2306d7d4d05",
+      "byte_size": 4375,
+      "last_commit_sha": "670f3c85fde62cede8206d7ade43a8eaa1edc205",
+      "last_commit_date": "2026-03-18T14:06:58Z",
+      "content_sha256": "0a73945d80f23cdc2da245891cb9fbd6d26f37d1d15eec8c7a7d8269bb1efb92",
+      "raw_url": "https://raw.githubusercontent.com/huggingface/transformers/670f3c85fde62cede8206d7ade43a8eaa1edc205/AGENTS.md"
+    }
+  ]
+}

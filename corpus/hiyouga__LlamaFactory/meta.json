@@ -1,0 +1,51 @@
+{
+  "repo": "hiyouga/LlamaFactory",
+  "owner": "hiyouga",
+  "name": "LlamaFactory",
+  "stars": 71522,
+  "language": "Python",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-21T09:26:32Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/hiyouga/LlamaFactory",
+  "description": "Unified Efficient Fine-Tuning of 100+ LLMs & VLMs (ACL 2024)",
+  "topics": [
+    "agent",
+    "ai",
+    "deepseek",
+    "fine-tuning",
+    "gemma",
+    "gpt",
+    "instruction-tuning",
+    "large-language-models",
+    "llama",
+    "llama3",
+    "llm",
+    "lora",
+    "moe",
+    "nlp",
+    "peft",
+    "qlora",
+    "quantization",
+    "qwen",
+    "rlhf",
+    "transformers"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "1e135c798b0d4ad660df061cacb720a9ab832f05",
+      "byte_size": 3930,
+      "last_commit_sha": "6b08b948c98a36e6a1c52f17663bf1f942260cad",
+      "last_commit_date": "2026-04-30T17:30:11Z",
+      "content_sha256": "8096be15ca6b0a3423ed83ba3a99deb49f95d0ce0999b1f20d4804fcba78a8cf",
+      "raw_url": "https://raw.githubusercontent.com/hiyouga/LlamaFactory/6b08b948c98a36e6a1c52f17663bf1f942260cad/CLAUDE.md"
+    }
+  ]
+}

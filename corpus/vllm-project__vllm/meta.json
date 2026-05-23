@@ -1,0 +1,61 @@
+{
+  "repo": "vllm-project/vllm",
+  "owner": "vllm-project",
+  "name": "vllm",
+  "stars": 80767,
+  "language": "Python",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T06:23:33Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/vllm-project/vllm",
+  "description": "A high-throughput and memory-efficient inference and serving engine for LLMs",
+  "topics": [
+    "amd",
+    "blackwell",
+    "cuda",
+    "deepseek",
+    "deepseek-v3",
+    "gpt",
+    "gpt-oss",
+    "inference",
+    "kimi",
+    "llama",
+    "llm",
+    "llm-serving",
+    "model-serving",
+    "moe",
+    "openai",
+    "pytorch",
+    "qwen",
+    "qwen3",
+    "tpu",
+    "transformer"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+      "byte_size": 11,
+      "last_commit_sha": "e39257a552d18ae9abb6ba1bbe65865d385ea764",
+      "last_commit_date": "2026-03-12T17:20:50Z",
+      "content_sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "raw_url": "https://raw.githubusercontent.com/vllm-project/vllm/e39257a552d18ae9abb6ba1bbe65865d385ea764/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "215e4195eb437f9d5a51525808f871d93f13516e",
+      "byte_size": 3879,
+      "last_commit_sha": "fc645f1acc0f3250210738a026f812db37ae97f6",
+      "last_commit_date": "2026-04-10T20:46:41Z",
+      "content_sha256": "0a2ea921cc33a55e1f89bd8cdbad9f6a57feafe0798ecdd12a905f5a069722d3",
+      "raw_url": "https://raw.githubusercontent.com/vllm-project/vllm/fc645f1acc0f3250210738a026f812db37ae97f6/AGENTS.md"
+    }
+  ]
+}

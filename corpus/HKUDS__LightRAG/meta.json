@@ -1,0 +1,50 @@
+{
+  "repo": "HKUDS/LightRAG",
+  "owner": "HKUDS",
+  "name": "LightRAG",
+  "stars": 35574,
+  "language": "Python",
+  "license": "mit",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T06:03:38Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/HKUDS/LightRAG",
+  "description": "[EMNLP2025] \"LightRAG: Simple and Fast Retrieval-Augmented Generation\"",
+  "topics": [
+    "genai",
+    "gpt",
+    "gpt-4",
+    "graphrag",
+    "knowledge-graph",
+    "large-language-models",
+    "llm",
+    "rag",
+    "retrieval-augmented-generation"
+  ],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "27bd541086c49cceb4963161e41be0a7a958c150",
+      "byte_size": 41,
+      "last_commit_sha": "ebfd4d4859bb49faf5b0bb6554c40e070ba62235",
+      "last_commit_date": "2026-05-10T04:36:07Z",
+      "content_sha256": "71ee0214f05718c02e1467d9a1298e28f3d0ffec92b51a37c8d82c11a3325d5b",
+      "raw_url": "https://raw.githubusercontent.com/HKUDS/LightRAG/ebfd4d4859bb49faf5b0bb6554c40e070ba62235/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "e63a160ed803cdab8385faabe77d41b96bd8f92f",
+      "byte_size": 17175,
+      "last_commit_sha": "de27131014ae78f76d4e327b437a861bba4ecfb8",
+      "last_commit_date": "2026-05-23T06:02:56Z",
+      "content_sha256": "e6477e4bb575550fd46dfcc96ca5eeae56c4c3a7463ee679479fadb543d5cdb6",
+      "raw_url": "https://raw.githubusercontent.com/HKUDS/LightRAG/de27131014ae78f76d4e327b437a861bba4ecfb8/AGENTS.md"
+    }
+  ]
+}

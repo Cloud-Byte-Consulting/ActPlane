@@ -1,0 +1,48 @@
+{
+  "repo": "browser-use/browser-use",
+  "owner": "browser-use",
+  "name": "browser-use",
+  "stars": 95161,
+  "language": "Python",
+  "license": "mit",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T02:02:03Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/browser-use/browser-use",
+  "description": "🌐 Make websites accessible for AI agents. Automate tasks online with ease.",
+  "topics": [
+    "ai-agents",
+    "ai-tools",
+    "browser-automation",
+    "browser-use",
+    "llm",
+    "playwright",
+    "python"
+  ],
+  "seed": true,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "8600e72346bc14565a69f39ff0d7d2f281fd48a9",
+      "byte_size": 11149,
+      "last_commit_sha": "97d022d5a848881d7e6b6ab9d63d816980ab11b8",
+      "last_commit_date": "2025-08-31T19:01:39Z",
+      "content_sha256": "8d6a859035454f836706c53c4b89ddf2d03da6e44694242037b3683f34242b41",
+      "raw_url": "https://raw.githubusercontent.com/browser-use/browser-use/97d022d5a848881d7e6b6ab9d63d816980ab11b8/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "d4f1fcd728bb6f8cdeb0318f30a1e97c79b48e38",
+      "byte_size": 38310,
+      "last_commit_sha": "b00c41b66bf6c056d969f7a5f4e4a7c47166a7b3",
+      "last_commit_date": "2026-05-22T17:47:58Z",
+      "content_sha256": "1ac8ac94f625fab17657a270ff9b1ab23970ce65fb60891b068c4f1d0714d9a4",
+      "raw_url": "https://raw.githubusercontent.com/browser-use/browser-use/b00c41b66bf6c056d969f7a5f4e4a7c47166a7b3/AGENTS.md"
+    }
+  ]
+}

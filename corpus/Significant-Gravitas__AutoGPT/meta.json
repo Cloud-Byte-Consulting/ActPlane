@@ -1,0 +1,52 @@
+{
+  "repo": "Significant-Gravitas/AutoGPT",
+  "owner": "Significant-Gravitas",
+  "name": "AutoGPT",
+  "stars": 184466,
+  "language": "Python",
+  "license": "other",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T06:17:42Z",
+  "default_branch": "master",
+  "html_url": "https://github.com/Significant-Gravitas/AutoGPT",
+  "description": "AutoGPT is the vision of accessible AI for everyone, to use and to build on. Our mission is to provide the tools, so that you can focus on what matters.",
+  "topics": [
+    "agentic-ai",
+    "agents",
+    "ai",
+    "artificial-intelligence",
+    "autonomous-agents",
+    "claude",
+    "gpt",
+    "llama-api",
+    "llm",
+    "openai",
+    "python"
+  ],
+  "seed": true,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+      "byte_size": 11,
+      "last_commit_sha": "88589764b50988d62bf39b60f429ac812cc756ab",
+      "last_commit_date": "2026-04-01T09:08:51Z",
+      "content_sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "raw_url": "https://raw.githubusercontent.com/Significant-Gravitas/AutoGPT/88589764b50988d62bf39b60f429ac812cc756ab/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "d0b325167cd16fa8dcf131cce1cf7f4d1c2ebbd8",
+      "byte_size": 3818,
+      "last_commit_sha": "a11199aa67d9f17abebfb810d6e950adb249c6ef",
+      "last_commit_date": "2026-04-06T13:17:08Z",
+      "content_sha256": "234470d4ec8d55ae415233018f85063da8b673f17488007acd25a8a8d8cedbc6",
+      "raw_url": "https://raw.githubusercontent.com/Significant-Gravitas/AutoGPT/a11199aa67d9f17abebfb810d6e950adb249c6ef/AGENTS.md"
+    }
+  ]
+}

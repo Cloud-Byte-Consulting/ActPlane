@@ -1,0 +1,40 @@
+{
+  "repo": "OpenHands/OpenHands",
+  "owner": "OpenHands",
+  "name": "OpenHands",
+  "stars": 74561,
+  "language": "Python",
+  "license": "other",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T00:33:45Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/OpenHands/OpenHands",
+  "description": "🙌 OpenHands: AI-Driven Development",
+  "topics": [
+    "agent",
+    "artificial-intelligence",
+    "chatgpt",
+    "claude-ai",
+    "cli",
+    "developer-tools",
+    "gpt",
+    "llm",
+    "openai"
+  ],
+  "seed": true,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "c7f3d4dab0cd45eb9b8ec2bc4d1bc6f818e3b4e6",
+      "byte_size": 27033,
+      "last_commit_sha": "0ddbd85be45a85b9260e052bb58136552c1755ed",
+      "last_commit_date": "2026-05-22T16:42:40Z",
+      "content_sha256": "b98bdff135c6d3ba0ba3b5cae23c332d9bbcb86dd61fac46a63cbb2769b2646d",
+      "raw_url": "https://raw.githubusercontent.com/OpenHands/OpenHands/0ddbd85be45a85b9260e052bb58136552c1755ed/AGENTS.md"
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "repo": "langchain-ai/langchain",
+  "owner": "langchain-ai",
+  "name": "langchain",
+  "stars": 137435,
+  "language": "Python",
+  "license": "mit",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T04:30:21Z",
+  "default_branch": "master",
+  "html_url": "https://github.com/langchain-ai/langchain",
+  "description": "The agent engineering platform.",
+  "topics": [
+    "agents",
+    "ai",
+    "ai-agents",
+    "anthropic",
+    "chatgpt",
+    "deepagents",
+    "enterprise",
+    "framework",
+    "gemini",
+    "generative-ai",
+    "langchain",
+    "langgraph",
+    "llm",
+    "multiagent",
+    "open-source",
+    "openai",
+    "pydantic",
+    "python",
+    "rag",
+    "typescript"
+  ],
+  "seed": true,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "8b8a51a152c4d091a5ba6ef69de30487eabf1db1",
+      "byte_size": 13113,
+      "last_commit_sha": "f5f715985a1e0f2a94e4083abd3079f09a890f96",
+      "last_commit_date": "2026-04-21T16:03:54Z",
+      "content_sha256": "9ff5e7bea19353a79dd276f02c423a7cb0e11b11e6f2281953da7c6ccb320e3d",
+      "raw_url": "https://raw.githubusercontent.com/langchain-ai/langchain/f5f715985a1e0f2a94e4083abd3079f09a890f96/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "8b8a51a152c4d091a5ba6ef69de30487eabf1db1",
+      "byte_size": 13113,
+      "last_commit_sha": "f5f715985a1e0f2a94e4083abd3079f09a890f96",
+      "last_commit_date": "2026-04-21T16:03:54Z",
+      "content_sha256": "9ff5e7bea19353a79dd276f02c423a7cb0e11b11e6f2281953da7c6ccb320e3d",
+      "raw_url": "https://raw.githubusercontent.com/langchain-ai/langchain/f5f715985a1e0f2a94e4083abd3079f09a890f96/AGENTS.md"
+    }
+  ]
+}

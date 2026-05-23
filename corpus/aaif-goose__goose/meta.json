@@ -1,0 +1,45 @@
+{
+  "repo": "aaif-goose/goose",
+  "owner": "aaif-goose",
+  "name": "goose",
+  "stars": 45716,
+  "language": "Rust",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-22T23:08:24Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/aaif-goose/goose",
+  "description": "an open source, extensible AI agent that goes beyond code suggestions - install, execute, edit, and test with any LLM",
+  "topics": [
+    "acp",
+    "ai",
+    "ai-agents",
+    "mcp"
+  ],
+  "seed": true,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "43c994c2d3617f947bcb5adf1933e21dabe46bb5",
+      "byte_size": 11,
+      "last_commit_sha": "81d35e42c5104e8df814c12fcd35481b80899011",
+      "last_commit_date": "2026-05-05T18:53:52Z",
+      "content_sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "raw_url": "https://raw.githubusercontent.com/aaif-goose/goose/81d35e42c5104e8df814c12fcd35481b80899011/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "286ecce432ceedbf73bd1fe637a5c63da18ccbd5",
+      "byte_size": 4963,
+      "last_commit_sha": "4f7a2e8a5246078ca456619e3419309f4ba2b5bd",
+      "last_commit_date": "2026-05-04T01:36:08Z",
+      "content_sha256": "d0975e47af6ab6f51c5852b60d0cad2c0a68506cdfc4381e36678625a703d8fe",
+      "raw_url": "https://raw.githubusercontent.com/aaif-goose/goose/4f7a2e8a5246078ca456619e3419309f4ba2b5bd/AGENTS.md"
+    }
+  ]
+}

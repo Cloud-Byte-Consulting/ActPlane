@@ -1,0 +1,30 @@
+{
+  "repo": "earendil-works/pi",
+  "owner": "earendil-works",
+  "name": "pi",
+  "stars": 53065,
+  "language": "TypeScript",
+  "license": "mit",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-22T22:16:25Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/earendil-works/pi",
+  "description": "AI agent toolkit: coding agent CLI, unified LLM API, TUI & web UI libraries, Slack bot, vLLM pods",
+  "topics": [],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T06:41:37Z",
+  "files": [
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "065f2541fdf70ba4cb819e482e2688f0a50b6735",
+      "byte_size": 9307,
+      "last_commit_sha": "c841a6c78fbbb12e3ef6014c3044faa15aa7b259",
+      "last_commit_date": "2026-05-22T13:51:36Z",
+      "content_sha256": "d02da737ac1d94c157d7e62cd028da3a2cc33562f539b165bb9a9c6cadddaaa0",
+      "raw_url": "https://raw.githubusercontent.com/earendil-works/pi/c841a6c78fbbb12e3ef6014c3044faa15aa7b259/AGENTS.md"
+    }
+  ]
+}
