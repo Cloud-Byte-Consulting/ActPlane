@@ -47,8 +47,10 @@
 
 /* Sink operation kind: what forbidden operation this rule guards. */
 enum taint_sink_kind {
-	TAINT_SINK_EXEC      = 0, /* tainted process may not exec `sink` (comm) */
-	TAINT_SINK_FILE_OPEN = 1, /* tainted process may not open a path under `sink` */
+	TAINT_SINK_EXEC       = 0, /* tainted process may not exec `sink` (comm) */
+	TAINT_SINK_FILE_OPEN  = 1, /* tainted process may not open a path under `sink` */
+	TAINT_SINK_FILE_MUTATE = 2,/* ...may not unlink/rename a path under `sink` */
+	TAINT_SINK_CONNECT    = 3, /* ...may not connect to a host under `sink` */
 };
 
 /* A compiled rule: "processes tainted by `source_comm` (and their descendants)
@@ -144,12 +146,14 @@ static __always_inline int taint_check_exec_sink(const struct taint_rule *rules,
 	return 0;
 }
 
-/* Is opening `path` by a process carrying `label` a violation? Checks only
- * TAINT_SINK_FILE_OPEN rules (prefix match). Returns 1 + sets *out_rule_id. */
-static __always_inline int taint_check_file_sink(const struct taint_rule *rules,
+/* Generic prefix-sink check for a given `kind` (FILE_OPEN / FILE_MUTATE /
+ * CONNECT): is a process carrying `label` performing the op on `target`
+ * (path or host) a violation? Returns 1 + sets *out_rule_id on the first hit. */
+static __always_inline int taint_check_prefix_sink(const struct taint_rule *rules,
 					 unsigned int n_rules,
-					 const char *path,
+					 const char *target,
 					 unsigned long long label,
+					 unsigned int kind,
 					 unsigned int *out_rule_id)
 {
 	if (n_rules > MAX_TAINT_RULES)
@@ -159,9 +163,9 @@ static __always_inline int taint_check_file_sink(const struct taint_rule *rules,
 	for (unsigned int i = 0; i < MAX_TAINT_RULES; i++) {
 		if (i >= n_rules)
 			break;
-		if (rules[i].sink_kind == TAINT_SINK_FILE_OPEN &&
+		if (rules[i].sink_kind == kind &&
 		    (label & rules[i].label) &&
-		    taint_path_has_prefix(path, rules[i].sink)) {
+		    taint_path_has_prefix(target, rules[i].sink)) {
 			if (out_rule_id)
 				*out_rule_id = rules[i].rule_id;
 			return 1;

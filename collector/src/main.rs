@@ -15,7 +15,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 mod binary_extractor;
-mod dsl;
 mod policy;
 
 use binary_extractor::BinaryExtractor;

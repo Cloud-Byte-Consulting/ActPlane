@@ -4,7 +4,7 @@
 >
 > **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel taint *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
-The DSL is implemented and tested in `collector/src/dsl/` (see §6); every example below is a passing test.
+> **Status: design document, not implemented.** It specifies the rule language and evaluation semantics only. The in-kernel POC (`bpf/`, research-plan §9) implements just the `{Process node, exec/open sink, fork+exec propagation}` special case; building the full semantics below in-kernel — plus the corrective-feedback loop — is the open work.
 
 ---
 
@@ -104,7 +104,7 @@ PATTERN, STRING := quoted string
 
 ## 3. Worked examples (each: scenario · why · rule)
 
-> All 12 are encoded as passing tests in `collector/src/dsl/`. Each test feeds a synthetic event trace and asserts which events are violations.
+> Each example gives the scenario, the rationale, and the rule as it would be written in the DSL.
 
 ### E1 — Secret no-exfil (confidentiality)
 **Scenario**: while debugging, the agent reads `.env` for a value, and later (telemetry, or an injected instruction) opens an HTTPS connection. **Why**: API keys / customer secrets must never leave the host, regardless of which later tool sends them.
@@ -251,5 +251,5 @@ for ev in trace:
 ```
 Lineage attributes (`gates`, ancestry) are propagated at `fork`/`exec` exactly like labels, so `lineage-includes` / `after` are O(1) lookups, not graph walks — preserving the in-kernel-enforceability argument.
 
-## 6. Implementation
-`collector/src/dsl/`: `ast.rs` (types), `parse.rs` (grammar → AST), `engine.rs` (model + propagation + evaluation), `mod.rs`. Tests encode E1–E12 as synthetic traces with asserted violations. The current in-kernel POC (`bpf/`, §9 of the research plan) is the special case `{Process node, exec/open sink, fork+exec propagation, no declassify}`; this DSL is the full design the kernel side grows into.
+## 6. Implementation status
+Not implemented. The current in-kernel POC (`bpf/`, research-plan §9) covers only the special case `{Process node, exec/open sink, fork+exec propagation, no declassify}`. This document is the full design the kernel side would grow into; realizing it means implementing the propagation + matching of §1/§5 in eBPF/BPF-LSM (file and endpoint label maps, declassify/endorse, lineage + temporal gates) and the corrective-feedback loop. The §5 algorithm is the spec for that, not existing code.
