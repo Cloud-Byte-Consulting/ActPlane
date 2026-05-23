@@ -33,7 +33,7 @@
 
 #define TAINT_PAT_LEN     64
 #define TAINT_ARG_LEN     24
-#define TAINT_ARGV_CAP    128  /* must be a power of two; bounds argv scan */
+#define TAINT_ARGV_CAP    64   /* must be a power of two; bounds argv scan */
 #define TAINT_COMM_LEN    16   /* matches TASK_COMM_LEN */
 #define MAX_TAINT_LABELS  64   /* labels are a u64 bitmask */
 #define MAX_TAINT_SOURCES 32

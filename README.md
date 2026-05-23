@@ -29,19 +29,20 @@ for the framing, and [`docs/related_work.md`](docs/related_work.md) for position
 ## How it works
 
 ```
-policy.dsl ──▶ collector (Rust compiler) ──▶ struct taint_config ──▶ eBPF kernel engine
-   (rules)        parse + lower to kernel ABI     (rodata blob)        propagate taint,
-                                                                       match rules,
-   violations ◀────────── NDJSON (TAINT_VIOLATION + reason) ◀───────── emit on match only
+actplane.yaml ─▶ collector (Rust compiler) ─▶ struct taint_config ─▶ eBPF kernel engine
+ policy: |        parse + lower DSL to ABI       (rodata blob)       propagate taint,
+                                                                      match rules,
+ violations ◀───────── NDJSON (TAINT_VIOLATION + reason) ◀────────── emit on match only
 ```
 
 - **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect`,
   keeps a per-node taint label set (process / file / endpoint), propagates it,
   evaluates the compiled rules, and emits **only** `TAINT_VIOLATION` events through
   a single `emit_violation()` function.
-- **Collector** (`collector/`): a Rust DSL compiler that lowers a `.dsl` policy to
-  the kernel config (`struct taint_config`), runs the embedded loader, and prints
-  each violation with its policy reason.
+- **Collector** (`collector/`): a Rust runner that discovers `actplane.yaml`,
+  lowers the embedded `policy: |` DSL to the kernel config (`struct taint_config`),
+  runs the embedded loader, seeds the target command's pid lineage as `AGENT`, and
+  prints each violation with its policy reason.
 
 ## Build
 
@@ -56,50 +57,56 @@ a Rust toolchain. `make install` installs the system dependencies (Ubuntu/Debian
 ## Run
 
 ```bash
-# write a policy (full grammar in docs/taint-dsl.md)
-cat > codex.dsl <<'EOF'
-source AGENT = exec "**/codex"
-rule no-git:
-  deny exec "**/git" if AGENT
-  effect block
-  reason "Codex must not invoke git; use the review workflow."
+# write a project policy (full grammar in docs/taint-dsl.md)
+cat > actplane.yaml <<'EOF'
+policy: |
+  label AGENT
+
+  rule no-git:
+    deny exec "**/git" if AGENT
+    effect kill
+    reason "Codex must not invoke git; use the review workflow."
 EOF
 
-sudo ./collector/target/release/actplane codex.dsl      # compile + enforce/audit
-# compile only:  ./collector/target/release/actplane codex.dsl --out policy.bin
+sudo -E ./collector/target/release/actplane run -- bash -lc 'git status'
+# compile only: ./collector/target/release/actplane compile --out policy.bin
 ```
 
-`actplane` compiles the policy, loads the embedded eBPF program, and prints
-whether the kernel denied the operation, killed the violating task, or only
-audited it:
+`actplane run` discovers `actplane.yaml` upward from the current directory,
+creates `.actplane/last-violation.txt`, loads the embedded eBPF program, marks
+the target command's pid lineage as `AGENT`, and prints whether the kernel denied
+the operation, killed the violating task, or only audited it:
 
 ```
-🚫 BLOCKED: process 'git' (pid 4213, ppid 4210) — /usr/bin/git
-   effect: block
+🚫 KILLED: process 'git' (pid 4213, ppid 4210) — /usr/bin/git
+   effect: kill
    reason: Codex must not invoke git; use the review workflow.
 ```
 
+`effect block` and `effect kill` are intentionally not equivalent. `block` means
+BPF-LSM pre-operation denial (`-EPERM`) and is unsupported in tracepoint mode.
+Use `effect audit` for tracepoint reporting or `effect kill` when the harness
+should terminate the violating task from a tracepoint observation.
+
 ## Agent feedback
 
-To make Codex or Claude receive the rule reason automatically, run ActPlane with
-a feedback file and install the post-tool hook adapter:
+To make Codex or Claude receive the rule reason automatically, launch the agent
+through `actplane run` and install the post-tool hook adapter:
 
 ```bash
-mkdir -p .actplane
-rm -f .actplane/last-violation.txt .actplane/feedback-hook.state.json
-
-sudo ./collector/target/release/actplane codex.dsl \
-  --feedback-file "$PWD/.actplane/last-violation.txt" \
-  --kill-on-violation
+sudo -E ./collector/target/release/actplane run -- codex --cd "$PWD"
+sudo -E ./collector/target/release/actplane run -- claude -p "review this repo"
 ```
 
-`--feedback-file` appends the model-facing `[ActPlane]` payload for every
-kernel-detected violation. `--kill-on-violation` is optional; it makes fallback
-tracepoint mode terminate `block` violations when BPF LSM is unavailable.
+`run` always prepares the feedback file and exports `ACTPLANE_FEEDBACK_FILE` plus
+`ACTPLANE_HOOK_STATE` to the child agent. Tracepoint mode does not support
+`effect block`; those rules require BPF LSM and will not fire without it. Rules
+that explicitly say `effect audit` report, and rules that explicitly say
+`effect kill` terminate a task from tracepoint observations.
 
 Codex reads hooks from `.codex/hooks.json` or `~/.codex/hooks.json`. Use an
-absolute feedback path so the hook still works if the agent changes directory.
-`PostToolUse` injects feedback after supported tool calls:
+absolute `actplane` binary path so the hook still works if the agent changes
+directory. `PostToolUse` injects feedback after supported tool calls:
 
 ```json
 {
@@ -110,7 +117,7 @@ absolute feedback path so the hook still works if the agent changes directory.
         "hooks": [
           {
             "type": "command",
-            "command": "ACTPLANE_FEEDBACK_FILE=/abs/workspace/.actplane/last-violation.txt python3 /abs/ActPlane/script/actplane-feedback-hook.py",
+            "command": "/abs/ActPlane/collector/target/release/actplane feedback-hook",
             "statusMessage": "Checking ActPlane feedback"
           }
         ]
@@ -136,7 +143,7 @@ both success and failure events:
         "hooks": [
           {
             "type": "command",
-            "command": "ACTPLANE_FEEDBACK_FILE=/abs/workspace/.actplane/last-violation.txt python3 /abs/ActPlane/script/actplane-feedback-hook.py"
+            "command": "/abs/ActPlane/collector/target/release/actplane feedback-hook"
           }
         ]
       }
@@ -147,7 +154,7 @@ both success and failure events:
         "hooks": [
           {
             "type": "command",
-            "command": "ACTPLANE_FEEDBACK_FILE=/abs/workspace/.actplane/last-violation.txt python3 /abs/ActPlane/script/actplane-feedback-hook.py"
+            "command": "/abs/ActPlane/collector/target/release/actplane feedback-hook"
           }
         ]
       }
@@ -170,15 +177,17 @@ messages and EPERM failures.
   capture programs (`sslsniff`, `stdiocap`, `browsertrace`). See [`bpf/README.md`](bpf/README.md).
 - `collector/` — `src/dsl/` (DSL parser + lowering compiler), `src/main.rs` (driver),
   `src/binary_extractor.rs` (embeds/extracts the eBPF loader). See [`collector/README.md`](collector/README.md).
-- `script/` — e2e examples plus the Codex/Claude feedback hook adapter.
+- `script/` — e2e examples and agent instruction snippets.
 - `docs/` — research plan, the taint-DSL spec, related work, and reference PDFs.
 
 ## Status
 
 The DSL compiler and the kernel matching predicates are unit-tested (`make test`).
 The BPF program now has LSM hooks for exec, file access/mutation, and IPv4
-connect blocking, with tracepoint audit/kill fallback when `bpf` is not present
-in `/sys/kernel/security/lsm`. Remaining gaps include full `@arg` pre-exec
-blocking (currently handled as post-exec audit/kill), hostname/SNI network
+connect blocking, with tracepoint violation reporting and explicit `effect kill`
+termination when `bpf` is not present in `/sys/kernel/security/lsm`. Remaining
+gaps include full `@arg` pre-exec blocking (currently post-exec report for
+`audit`, post-exec termination for `kill`, and no tracepoint support for
+`block`), hostname/SNI network
 policy, inode-first file identity, and a clean live e2e suite.
 This is a research prototype.

@@ -12,14 +12,17 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <sys/types.h>
+#include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include "process.h"
 #include "process.skel.h"
 
 static struct env {
 	bool verbose;
-	bool kill_on_violation;
 	const char *config;
+	pid_t agent_pid;
+	unsigned long long agent_label;
 } env = {0};
 
 const char *argp_program_version = "actplane-taint 2.0";
@@ -27,11 +30,12 @@ const char argp_program_doc[] =
 "ActPlane in-kernel taint enforcer.\n"
 "\n"
 "Loads a compiled policy and reports only taint-rule violations.\n"
-"USAGE: ./process --config policy.bin [--kill-on-violation]\n";
+"USAGE: ./process --config policy.bin [--agent-pid PID --agent-label BIT]\n";
 
 static const struct argp_option opts[] = {
 	{ "config", 'c', "FILE", 0, "Compiled policy (struct taint_config blob)" },
-	{ "kill-on-violation", 'k', NULL, 0, "Fallback mode: send SIGKILL for block-effect violations when BPF LSM is inactive" },
+	{ "agent-pid", 1000, "PID", 0, "Seed this pid as the ActPlane AGENT root" },
+	{ "agent-label", 1001, "BIT", 0, "Label bit to apply to --agent-pid" },
 	{ "verbose", 'v', NULL, 0, "Verbose libbpf debug output" },
 	{},
 };
@@ -40,8 +44,9 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 {
 	switch (key) {
 	case 'v': env.verbose = true; break;
-	case 'k': env.kill_on_violation = true; break;
 	case 'c': env.config = arg; break;
+	case 1000: env.agent_pid = (pid_t)strtol(arg, NULL, 10); break;
+	case 1001: env.agent_label = strtoull(arg, NULL, 0); break;
 	case ARGP_KEY_ARG: argp_usage(state); break;
 	default: return ARGP_ERR_UNKNOWN;
 	}
@@ -81,6 +86,15 @@ static const char *effect_name(unsigned int effect)
 	case TEFFECT_BLOCK: return "block";
 	default: return "unknown";
 	}
+}
+
+static bool config_has_effect(const struct taint_config *cfg, unsigned int effect)
+{
+	for (unsigned int i = 0; i < cfg->n_rules && i < MAX_TAINT_RULES; i++) {
+		if (cfg->rules[i].effect == effect)
+			return true;
+	}
+	return false;
 }
 
 static int handle_event(void *ctx, void *data, size_t sz)
@@ -125,6 +139,41 @@ static int load_config(const char *path, struct taint_config *cfg)
 	return 0;
 }
 
+struct proc_state_seed {
+	unsigned long long labels;
+	unsigned long long lin_gates;
+};
+
+static int seed_agent_root(struct process_bpf *skel)
+{
+	struct proc_state_seed state = {};
+	unsigned long long sess = 0;
+	pid_t pid = env.agent_pid;
+
+	if (!env.agent_pid && !env.agent_label)
+		return 0;
+	if (env.agent_pid <= 0 || env.agent_label == 0) {
+		fprintf(stderr, "--agent-pid and --agent-label must be provided together\n");
+		return -1;
+	}
+
+	state.labels = env.agent_label;
+	if (bpf_map_update_elem(bpf_map__fd(skel->maps.ts_proc), &pid, &state, BPF_ANY) < 0) {
+		fprintf(stderr, "failed to seed AGENT pid %d in ts_proc: %s\n", pid, strerror(errno));
+		return -1;
+	}
+	if (bpf_map_update_elem(bpf_map__fd(skel->maps.ts_root), &pid, &pid, BPF_ANY) < 0) {
+		fprintf(stderr, "failed to seed AGENT pid %d in ts_root: %s\n", pid, strerror(errno));
+		return -1;
+	}
+	if (bpf_map_update_elem(bpf_map__fd(skel->maps.ts_sess), &pid, &sess, BPF_ANY) < 0) {
+		fprintf(stderr, "failed to seed AGENT pid %d in ts_sess: %s\n", pid, strerror(errno));
+		return -1;
+	}
+	fprintf(stderr, "ActPlane: seeded AGENT pid %d label 0x%llx\n", pid, env.agent_label);
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	struct ring_buffer *rb = NULL;
@@ -166,7 +215,6 @@ int main(int argc, char **argv)
 
 	/* install compiled tables into rodata before load */
 	skel->rodata->enforce_mode = enforce ? 1 : 0;
-	skel->rodata->fallback_kill_mode = (!enforce && env.kill_on_violation) ? 1 : 0;
 	skel->rodata->n_sources = cfg.n_sources;
 	skel->rodata->n_rules = cfg.n_rules;
 	skel->rodata->n_xforms = cfg.n_xforms;
@@ -178,18 +226,22 @@ int main(int argc, char **argv)
 	fprintf(stderr, "ActPlane: %u sources, %u rules, %u xforms, %u gates\n",
 		cfg.n_sources, cfg.n_rules, cfg.n_xforms, cfg.n_gates);
 	fprintf(stderr, "ActPlane: %s mode (%s)\n",
-		enforce ? "enforce" : (env.kill_on_violation ? "kill-fallback" : "audit"),
+		enforce ? "enforce" : "tracepoint",
 		enforce ? "BPF LSM is active" :
-			  (env.kill_on_violation ? "BPF LSM is not active; SIGKILL fallback enabled" :
-						   "BPF LSM is not active"));
+			  "BPF LSM is not active; block effects are unsupported, audit reports, kill terminates");
+	if (!enforce && config_has_effect(&cfg, TEFFECT_BLOCK))
+		fprintf(stderr,
+			"ActPlane: warning: effect block requires BPF LSM; block rules will not fire in tracepoint mode\n");
 
 	err = process_bpf__load(skel);
 	if (err) { fprintf(stderr, "Failed to load BPF skeleton\n"); goto cleanup; }
 	err = process_bpf__attach(skel);
 	if (err) { fprintf(stderr, "Failed to attach BPF skeleton\n"); goto cleanup; }
+	if (seed_agent_root(skel)) { err = -1; goto cleanup; }
 
 	rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
 	if (!rb) { err = -1; fprintf(stderr, "ring buffer failed\n"); goto cleanup; }
+	fprintf(stderr, "ActPlane: ready\n");
 
 	while (!exiting) {
 		err = ring_buffer__poll(rb, 100);

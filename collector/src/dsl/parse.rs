@@ -275,11 +275,11 @@ pub fn parse(src: &str) -> Result<Policy, String> {
                     } else if p.is_word("remediation") {
                         p.next();
                         remediation = Some(p.string()?);
-                    } else if p.is_word("effect") || p.is_word("action") || p.is_word("enforce") {
+                    } else if p.is_word("effect") {
                         p.next();
                         effect = match p.word()?.as_str() {
-                            "audit" | "warn" => Effect::Audit,
-                            "block" | "gate" => Effect::Block,
+                            "audit" => Effect::Audit,
+                            "block" => Effect::Block,
                             "kill" => Effect::Kill,
                             o => return Err(format!("unknown rule effect '{}'", o)),
                         };

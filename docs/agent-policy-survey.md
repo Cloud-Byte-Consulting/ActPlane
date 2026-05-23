@@ -158,7 +158,7 @@ schema/{manifest,rule}.schema.json
 
 ## 7. 从语料到 eval（eval 桥接）
 
-选场景的规则是机械的：**`D5.observable ∧ D5.expressible ∧ D5.robust ∧ D7.temptable`，并按 `D6=yes` 优先排序** → 评测场景。每个场景记录：源规则（带 provenance）、编译后的 `.dsl`、诱发违规的 agent 任务 prompt、期望违规、baseline。
+选场景的规则是机械的：**`D5.observable ∧ D5.expressible ∧ D5.robust ∧ D7.temptable`，并按 `D6=yes` 优先排序** → 评测场景。每个场景记录：源规则（带 provenance）、`actplane.yaml` 中的 `policy: |`、诱发违规的 agent 任务 prompt、期望违规、baseline。
 
 结合当前内核已具备的 **BPF-LSM 强制**（`block` 命中即 `-EPERM`；不可用时降级 tracepoint audit，必要时用 `kill` 让动作失败），每个场景跑四个条件：
 
@@ -197,7 +197,7 @@ schema/{manifest,rule}.schema.json
 | **M0 Pilot（先做）** | 20 个仓库跑通流水线，出**初步 D5 分布 + 初步 κ** | 决定是否值得全量；若可强制比例过低则调整 framing |
 | **M1 全量采集** | 按判据取 star 降序前 50，落盘 manifest + raw | 50 个合格代码项目 + 领域分布报告 |
 | **M2 编码 + 信度** | D1–D7 双编码 + 人工仲裁 + κ + 饱和曲线 | κ 达可接受区间，标签发布 |
-| **M3 分析 + eval 导出** | RQ1–RQ5 数字 + (规则→.dsl→任务) 场景集 | §2/§6 所需的全部数字与负载就绪 |
+| **M3 分析 + eval 导出** | RQ1–RQ5 数字 + (规则→policy YAML→任务) 场景集 | §2/§6 所需的全部数字与负载就绪 |
 
 **主要风险**：若 M0 显示行为约束中"可无误报强制"的比例很小（多为风格/语义类），则"强制"叙事削弱——届时据实把论文重心移向"可强制子集 + 纠偏闭环"，并诚实报告不可强制的占比。**先 pilot 再全量**正是为此设的早停点。
 

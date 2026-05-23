@@ -15,7 +15,6 @@
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 const volatile unsigned int enforce_mode = 0;
-const volatile unsigned int fallback_kill_mode = 0;
 
 #ifndef EPERM
 #define EPERM 1
@@ -57,6 +56,7 @@ const volatile unsigned int fallback_kill_mode = 0;
 #define TE_MODE_AUDIT 0
 #define TE_MODE_BLOCK 1
 #define TE_MODE_KILL  2
+#define TE_MODE_UNSUPPORTED 3
 
 #define TE_ACCESS_READ    (1U << 0)
 #define TE_ACCESS_WRITE   (1U << 1)
@@ -232,9 +232,9 @@ static __always_inline __u32 te_access_from_perm_mask(int mask)
 	return access;
 }
 
-static __always_inline __u32 te_fallback_mode(void)
+static __always_inline __u32 te_tracepoint_mode(void)
 {
-	return fallback_kill_mode ? TE_MODE_KILL : TE_MODE_AUDIT;
+	return TE_MODE_AUDIT;
 }
 
 static __always_inline __u32 te_effect_mode(__u32 backend_mode, __u32 effect)
@@ -243,11 +243,18 @@ static __always_inline __u32 te_effect_mode(__u32 backend_mode, __u32 effect)
 		return TE_MODE_AUDIT;
 	if (effect == TEFFECT_KILL)
 		return TE_MODE_KILL;
-	if (backend_mode == TE_MODE_BLOCK)
+	if (effect == TEFFECT_BLOCK && backend_mode == TE_MODE_BLOCK)
 		return TE_MODE_BLOCK;
-	if (backend_mode == TE_MODE_KILL)
-		return TE_MODE_KILL;
-	return TE_MODE_AUDIT;
+	return TE_MODE_UNSUPPORTED;
+}
+
+static __always_inline __u32 te_supported_effects(__u32 backend_mode)
+{
+	if (backend_mode == TE_MODE_BLOCK)
+		return (1U << TEFFECT_AUDIT) |
+		       (1U << TEFFECT_BLOCK) |
+		       (1U << TEFFECT_KILL);
+	return (1U << TEFFECT_AUDIT) | (1U << TEFFECT_KILL);
 }
 
 static __always_inline int te_better_match(int candidate_rule, __u32 candidate_effect,
@@ -320,6 +327,7 @@ static __always_inline int te_handle_event(struct te_event *ev)
 		eval.pid = ev->pid;
 		eval.labels = labels;
 		eval.effect = TEFFECT_BLOCK;
+		eval.effect_mask = te_supported_effects(ev->mode);
 		eval.op = TOP_EXEC;
 		eval.target = ev->target;
 		eval.argv = ev->argv;
@@ -330,6 +338,7 @@ static __always_inline int te_handle_event(struct te_event *ev)
 		eval.pid = ev->pid;
 		eval.labels = labels;
 		eval.effect = TEFFECT_BLOCK;
+		eval.effect_mask = te_supported_effects(ev->mode);
 		eval.target = ev->target;
 		if (ev->access & TE_ACCESS_READ) {
 			eval.op = TOP_OPEN;
@@ -352,17 +361,19 @@ static __always_inline int te_handle_event(struct te_event *ev)
 		eval.pid = ev->pid;
 		eval.labels = labels;
 		eval.effect = TEFFECT_BLOCK;
+		eval.effect_mask = te_supported_effects(ev->mode);
 		rid = te_connect_check_labels(&eval, ev->ip);
 		effect = eval.effect;
 	}
 
 	if (rid >= 0) {
 		action = te_effect_mode(ev->mode, effect);
-		emit_violation(ev->pid, rid, display,
-			       ev->obj_kind == TE_OBJ_ENDPOINT ? ev->ip : 0,
-			       action == TE_MODE_BLOCK ||
-				       (action == TE_MODE_KILL && ev->mode == TE_MODE_BLOCK),
-			       action == TE_MODE_KILL, effect);
+		if (action != TE_MODE_UNSUPPORTED)
+			emit_violation(ev->pid, rid, display,
+				       ev->obj_kind == TE_OBJ_ENDPOINT ? ev->ip : 0,
+				       action == TE_MODE_BLOCK ||
+					       (action == TE_MODE_KILL && ev->mode == TE_MODE_BLOCK),
+				       action == TE_MODE_KILL, effect);
 		if (action == TE_MODE_BLOCK)
 			return -EPERM;
 		if (action == TE_MODE_KILL) {
@@ -568,7 +579,7 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 
 	fname_off = ctx->__data_loc_filename & 0xFFFF;
 	bpf_probe_read_str(fname, sizeof(fname), (void *)ctx + fname_off);
-	te_handle_exec(TE_REF_STRINGS, comm, fname, argv, alen, te_fallback_mode());
+	te_handle_exec(TE_REF_STRINGS, comm, fname, argv, alen, te_tracepoint_mode());
 	return 0;
 }
 
@@ -588,7 +599,7 @@ int trace_openat(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[1], 0,
 			      te_access_from_open_flags((unsigned int)ctx->args[2]),
-			      te_fallback_mode());
+			      te_tracepoint_mode());
 }
 
 SEC("tp/syscalls/sys_enter_open")
@@ -596,38 +607,38 @@ int trace_open(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[0], 0,
 			      te_access_from_open_flags((unsigned int)ctx->args[1]),
-			      te_fallback_mode());
+			      te_tracepoint_mode());
 }
 
 SEC("tp/syscalls/sys_enter_unlink")
 int trace_unlink(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[0], 0,
-			      TE_ACCESS_WRITE, te_fallback_mode());
+			      TE_ACCESS_WRITE, te_tracepoint_mode());
 }
 SEC("tp/syscalls/sys_enter_unlinkat")
 int trace_unlinkat(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[1], 0,
-			      TE_ACCESS_WRITE, te_fallback_mode());
+			      TE_ACCESS_WRITE, te_tracepoint_mode());
 }
 SEC("tp/syscalls/sys_enter_rename")
 int trace_rename(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[1], 0,
-			      TE_ACCESS_WRITE, te_fallback_mode());
+			      TE_ACCESS_WRITE, te_tracepoint_mode());
 }
 SEC("tp/syscalls/sys_enter_renameat")
 int trace_renameat(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[3], 0,
-			      TE_ACCESS_WRITE, te_fallback_mode());
+			      TE_ACCESS_WRITE, te_tracepoint_mode());
 }
 SEC("tp/syscalls/sys_enter_renameat2")
 int trace_renameat2(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[3], 0,
-			      TE_ACCESS_WRITE, te_fallback_mode());
+			      TE_ACCESS_WRITE, te_tracepoint_mode());
 }
 
 /* connect: numeric IPv4 matching (compiler lowers host/IP patterns to net+mask;
@@ -637,5 +648,5 @@ SEC("tp/syscalls/sys_enter_connect")
 int trace_connect(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_net(TE_REF_SOCKADDR_USER, (const void *)ctx->args[1], 0,
-			     TE_ACCESS_CONNECT, te_fallback_mode());
+			     TE_ACCESS_CONNECT, te_tracepoint_mode());
 }

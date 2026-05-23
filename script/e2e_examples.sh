@@ -64,8 +64,8 @@ get() { [ -f "$1" ] && cat "$1"; }
 run_case() {
   local d="$1" name policy trig setup
   name="$(get "$d/name")"; policy="$(get "$d/policy")"; trig="$(get "$d/trigger")"
-  printf '%s' "$policy" > "$D/p.dsl"
-  if ! "$ACT" "$D/p.dsl" --out "$D/c.bin" >"$D/cc.txt" 2>&1; then
+  { echo "policy: |"; printf '%s\n' "$policy" | sed 's/^/  /'; } > "$D/p.yaml"
+  if ! "$ACT" --policy "$D/p.yaml" compile --out "$D/c.bin" >"$D/cc.txt" 2>&1; then
     echo "✗ $name  (compile error)"; sed 's/^/    /' "$D/cc.txt"; fail=$((fail+1)); return
   fi
   [ -f "$d/setup" ] && bash -c "$(get "$d/setup")" >/dev/null 2>&1

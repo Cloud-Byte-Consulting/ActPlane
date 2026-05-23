@@ -27,6 +27,7 @@ struct te_rule_eval {
 	const char *argv;
 	int argv_len;
 	unsigned int effect;
+	unsigned int effect_mask;
 };
 
 struct {
@@ -212,6 +213,13 @@ static __noinline int te_connect_check_labels(struct te_rule_eval *e, __u32 ip)
 			break;
 		if (taint_rules[i].op != TOP_CONNECT)
 			continue;
+		unsigned int effect = taint_rules[i].effect;
+		if (e->effect_mask) {
+			if (effect > TEFFECT_KILL)
+				continue;
+			if (!(e->effect_mask & (1U << effect)))
+				continue;
+		}
 		if (!taint_mask_ok(labels, taint_rules[i].req, taint_rules[i].forbid))
 			continue;
 		if ((ip & taint_rules[i].ipv4_mask) != taint_rules[i].ipv4)
@@ -232,9 +240,9 @@ static __noinline int te_connect_check_labels(struct te_rule_eval *e, __u32 ip)
 			if (taint_rules[i].cond_neg ? !m : m)
 				continue;
 		}
-		if (best_rule < 0 || taint_rules[i].effect > best_effect) {
+		if (best_rule < 0 || effect > best_effect) {
 			best_rule = (int)taint_rules[i].rule_id;
-			best_effect = taint_rules[i].effect;
+			best_effect = effect;
 			if (best_effect == TEFFECT_KILL)
 				break;
 		}
@@ -326,6 +334,12 @@ static __noinline int te_check_labels(struct te_rule_eval *e)
 		struct taint_rule r = taint_rules[i]; /* local copy: plain reads */
 		if (r.op != op)
 			continue;
+		if (e->effect_mask) {
+			if (r.effect > TEFFECT_KILL)
+				continue;
+			if (!(e->effect_mask & (1U << r.effect)))
+				continue;
+		}
 		if (!taint_mask_ok(labels, r.req, r.forbid))
 			continue;
 		if (!taint_match(r.match, target, r.target))

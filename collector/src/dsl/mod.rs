@@ -175,8 +175,15 @@ mod tests {
     }
 
     #[test]
-    fn old_enforce_warn_aliases_to_audit() {
-        let c = ok("rule r:\n  deny exec \"git\"\n  reason \"x\"\n  enforce warn\n");
-        assert_eq!(c.meta[0].effect, ast::Effect::Audit);
+    fn declared_labels_are_allocated_for_runner_seeding() {
+        let c = ok("label AGENT\nrule r:\n  deny exec \"git\" if AGENT\n  reason \"x\"\n");
+        assert!(c.labels.contains_key("AGENT"));
+    }
+
+    #[test]
+    fn old_effect_aliases_are_rejected() {
+        assert!(
+            compile_str("rule r:\n  deny exec \"git\"\n  reason \"x\"\n  enforce warn\n").is_err()
+        );
     }
 }

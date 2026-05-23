@@ -289,6 +289,7 @@ pub struct Compiled {
     pub bytes: Vec<u8>,
     pub reasons: Vec<String>, // indexed by rule_id
     pub meta: Vec<RuleMeta>,  // indexed by rule_id
+    pub labels: HashMap<String, u64>,
 }
 
 pub fn compile(pol: &Policy) -> Result<Compiled, String> {
@@ -304,6 +305,10 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
     let mut reasons: Vec<String> = Vec::new();
     let mut meta: Vec<RuleMeta> = Vec::new();
     let mut xforms: Vec<CXform> = Vec::new();
+
+    for label in &pol.labels {
+        ctx.label_bit(label)?;
+    }
 
     for s in &pol.sources {
         let bit = ctx.label_bit(&s.label)?;
@@ -470,5 +475,6 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
         bytes,
         reasons,
         meta,
+        labels: ctx.labels,
     })
 }

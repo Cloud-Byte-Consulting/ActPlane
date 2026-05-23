@@ -1,0 +1,24 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  label AGENT
+
+  source SECRET = file "**/.env"
+  source SECRET = file "**/.envrc"
+  source SECRET = file "**/id_rsa"
+  source SECRET = file "**/id_ed25519"
+
+  rule no-secret-egress:
+    deny connect endpoint "*" if SECRET
+    effect block
+    reason "Data derived from local secrets must not leave the workspace."
+    remediation "Stop the network action and ask the user for an explicit safe handling path"
+
+  rule no-agent-git:
+    deny exec "**/git" if AGENT
+    effect kill
+    reason "Agent runs must not invoke git directly under the default ActPlane development harness."
+    remediation "Use review output or patches; ask the user to run git commands outside the harness"

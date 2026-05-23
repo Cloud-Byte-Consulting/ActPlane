@@ -5,7 +5,7 @@
 //!
 //! Turns a violation the *kernel* detected (rule + target, looked up via
 //! `RuleMeta`) into the model-facing, actionable feedback string written to the
-//! `--feedback-file` reason file (channel a1). The kernel — eBPF taint
+//! `actplane run` feedback file (channel a1). The kernel — eBPF taint
 //! propagation + LSM — is the sole detector; this module only formats what it
 //! reports. There is no userspace re-detection here.
 
@@ -20,9 +20,20 @@ pub fn format_payload(
     reason: &str,
     remediation: Option<&str>,
     effect: Effect,
+    blocked: bool,
+    killed: bool,
 ) -> String {
-    let body = match effect {
-        Effect::Audit => {
+    let enforcement = if killed {
+        "kill"
+    } else if blocked {
+        "block"
+    } else if effect == Effect::Block {
+        "unsupported"
+    } else {
+        "report"
+    };
+    let body = match (effect, enforcement) {
+        (Effect::Audit, _) => {
             let rem = remediation.unwrap_or("后续请避免该操作");
             format!(
                 "[ActPlane] 操作「{op} {target}」触发了审计规则「{name}」（操作未被拦截）。\n\
@@ -30,7 +41,7 @@ pub fn format_payload(
                  - 建议：{rem}。"
             )
         }
-        Effect::Block => {
+        (Effect::Block, "block") => {
             let rem = remediation.unwrap_or(
                 "请改用不触发该约束的等价方式完成任务；若确无替代路径，请向用户说明并确认",
             );
@@ -38,11 +49,22 @@ pub fn format_payload(
                 "[ActPlane] 操作被规则「{name}」拒绝。\n\
                  - 目标操作：{op} {target}\n\
                  - 触发原因：{reason}\n\
-                 - 这是一条 OS 层 harness 约束，无论用工具、bash 还是直接调用都会失败，重试相同操作不会成功。\n\
+                 - BPF-LSM 已在内核提交前返回 EPERM；重试相同操作不会成功。\n\
                  - 如何继续：{rem}。"
             )
         }
-        Effect::Kill => {
+        (Effect::Block, _) => {
+            let rem = remediation
+                .unwrap_or("启用 BPF-LSM，或把这条规则显式改成 effect audit / effect kill");
+            format!(
+                "[ActPlane] 规则「{name}」要求 block，但当前 backend 不支持 block。\n\
+                 - 目标操作：{op} {target}\n\
+                 - 触发原因：{reason}\n\
+                 - block 只由 BPF-LSM pre-op hook 实现；tracepoint backend 不支持 block，也不会把它降级成 audit 或 kill。\n\
+                 - 如何继续：{rem}。"
+            )
+        }
+        (Effect::Kill, _) => {
             let rem = remediation.unwrap_or(
                 "请停止该路径，改用不触发该约束的等价方式；若确无替代路径，请向用户说明并确认",
             );
@@ -50,7 +72,7 @@ pub fn format_payload(
                 "[ActPlane] 操作被规则「{name}」终止。\n\
                  - 目标操作：{op} {target}\n\
                  - 触发原因：{reason}\n\
-                 - 该规则会终止当前违规进程，重试相同操作不会成功。\n\
+                 - 该规则显式要求终止当前违规进程，重试相同操作不会成功。\n\
                  - 如何继续：{rem}。"
             )
         }
@@ -68,7 +90,7 @@ pub fn format_payload(
         "{{\"actplane_rule\":{},\"effect\":\"{}\",\"enforcement\":\"{}\",\"retry_useful\":{}}}",
         json_str(name),
         tier,
-        tier,
+        enforcement,
         retry_useful
     );
     format!("{body}\n{tag}")
@@ -91,6 +113,8 @@ mod tests {
             "no git allowed",
             None,
             Effect::Block,
+            true,
+            false,
         );
         assert!(s.starts_with("[ActPlane]"));
         assert!(s.contains("\"enforcement\":\"block\""));
@@ -106,8 +130,27 @@ mod tests {
             "run tests",
             Some("先跑 pytest"),
             Effect::Audit,
+            false,
+            false,
         );
         assert!(s.contains("先跑 pytest"));
         assert!(s.contains("\"retry_useful\":false"));
+    }
+
+    #[test]
+    fn block_without_lsm_is_unsupported_not_reported_as_blocked() {
+        let s = format_payload(
+            "no-git",
+            "exec",
+            "git",
+            "no git allowed",
+            None,
+            Effect::Block,
+            false,
+            false,
+        );
+        assert!(s.contains("当前 backend 不支持 block"));
+        assert!(s.contains("\"effect\":\"block\""));
+        assert!(s.contains("\"enforcement\":\"unsupported\""));
     }
 }
