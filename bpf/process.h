@@ -18,6 +18,8 @@ struct event {
 	int pid;
 	int ppid;
 	unsigned int blocked;          /* 1 if an LSM hook denied the operation */
+	unsigned int killed;           /* 1 if audit fallback signaled the task */
+	unsigned int effect;           /* enum taint_effect declared by the rule */
 	unsigned long long timestamp_ns;
 	char comm[TASK_COMM_LEN];
 	char filename[MAX_FILENAME_LEN]; /* offending exe / path ("" for connect) */

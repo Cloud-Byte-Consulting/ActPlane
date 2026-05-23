@@ -72,6 +72,13 @@ enum taint_cond {
 	TCOND_TARGET  = 3, /* allowed if object matches cond_pat (neg flips) */
 };
 
+/* rule result */
+enum taint_effect {
+	TEFFECT_AUDIT = 0, /* report only */
+	TEFFECT_BLOCK = 1, /* deny at LSM when available */
+	TEFFECT_KILL  = 2, /* send SIGKILL to the current task */
+};
+
 struct taint_source {
 	unsigned char kind;   /* enum taint_src_kind */
 	unsigned char match;  /* enum taint_match */
@@ -87,6 +94,7 @@ struct taint_rule {
 	unsigned char cond_kind;  /* enum taint_cond */
 	unsigned char cond_neg;   /* for TCOND_TARGET: invert the match */
 	unsigned char cond_match; /* enum taint_match for cond_pat */
+	unsigned char effect;     /* enum taint_effect */
 	char target[TAINT_PAT_LEN];
 	char arg[TAINT_ARG_LEN];  /* exec @arg token, "" = ignore */
 	char cond_pat[TAINT_PAT_LEN];

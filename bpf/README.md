@@ -34,16 +34,17 @@ process labels flow to the endpoint. In enforce mode, the LSM hook checks before
 committing the operation and only propagates on allow. Sinks (`deny exec/open/write/connect`) match
 on a label mask (`req` AND / `forbid` NOT, DNF-expanded by the compiler) plus the
 target pattern, optional `@arg` match, and an optional condition (`lineage-includes`,
-`after`, target scope). On a match the rule's `rule_id` is emitted with a `blocked`
-flag; the compiler keeps the reason strings. Full semantics:
+`after`, target scope). Each rule carries an explicit effect (`audit`, `block`,
+or `kill`). On a match the rule's `rule_id`, `effect`, `blocked`, and `killed`
+flags are emitted; the compiler keeps the reason strings. Full semantics:
 [`../docs/taint-dsl.md`](../docs/taint-dsl.md).
 
 ### eBPF verifier notes (why the code looks the way it does)
 
 - **Subprograms for stack room.** `te_check` / `te_exec_update` / `te_file_src` /
   `te_endp_src_ip` / `te_connect_check` are `__noinline` so each gets its own 512 B
-  frame. `te_check` takes ≤ 5 args (BPF's max scalar args) — it returns `rule_id`
-  / `-1` instead of an out-param.
+  frame. `te_check_labels` takes one context pointer (BPF subprogram scalar args
+  are limited) and writes the matched rule effect back into that context.
 - **Copy rodata before matching.** Each loop copies `struct taint_rule r =
   taint_rules[i]` into a non-volatile local; matchers take `const char *` (not
   `const volatile char *`). Direct volatile rodata reads inside the matchers

@@ -6,9 +6,9 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
-const PROCESS_BINARY: &[u8] = include_bytes!("../../bpf/process");
+const PROCESS_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/process"));
 
 pub struct BinaryExtractor {
     _temp_dir: TempDir, // Keep alive to prevent cleanup

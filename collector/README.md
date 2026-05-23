@@ -5,7 +5,9 @@ parses a `.dsl` policy, lowers it to the kernel ABI (`struct taint_config`), run
 the embedded eBPF program, and prints each `TAINT_VIOLATION` the kernel emits
 with its policy reason. The kernel does all taint propagation and matching; when
 BPF LSM is active, violations from LSM hooks are blocked, and otherwise the loader
-falls back to audit mode.
+falls back to audit mode. Individual rules can request `effect audit`, `effect block`,
+or `effect kill`; `--kill-on-violation` upgrades fallback `block` hits to SIGKILL
+when BPF LSM is unavailable.
 
 ## Build & test
 
@@ -18,6 +20,7 @@ cargo test                   # DSL compiler unit tests (E1–E12, DNF, ABI size)
 
 ```bash
 sudo ./target/release/actplane policy.dsl          # compile + enforce/audit
+sudo ./target/release/actplane --kill-on-violation policy.dsl
 ./target/release/actplane policy.dsl --out cfg.bin # compile only -> kernel blob
 ```
 
@@ -33,7 +36,7 @@ worked examples.
   - `ast.rs` — `Policy` / `Source` / `Rule` / `Clause` / `Expr` / `Cond` / `Xform`.
   - `parse.rs` — hand-rolled lexer + recursive-descent parser for the DSL.
   - `lower.rs` — `#[repr(C)]` mirrors of the kernel structs (`CSource`, `CRule`,
-    `CXform`, `CGate`, `CConfig`) and `compile(Policy) -> Compiled { bytes, reasons }`:
+    `CXform`, `CGate`, `CConfig`) and `compile(Policy) -> Compiled { bytes, reasons, meta }`:
     bit allocation, DNF expansion of label expressions (`dnf()`), and glob lowering
     (`lower_exec` / `lower_path` / `lower_ipv4`, mapping `**`/`*` to EXACT / PREFIX /
     SUFFIX / ANY match kinds and IPs to net+mask).

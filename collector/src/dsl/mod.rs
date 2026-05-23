@@ -7,7 +7,7 @@ pub mod ast;
 pub mod lower;
 pub mod parse;
 
-pub use lower::{compile, Compiled};
+pub use lower::{Compiled, RuleMeta, compile};
 
 /// Parse + compile DSL source text to a kernel config blob + reason table.
 pub fn compile_str(src: &str) -> Result<Compiled, String> {
@@ -161,7 +161,22 @@ mod tests {
     fn config_blob_is_fixed_size() {
         // every policy produces the same fixed-size struct taint_config blob
         let a = ok("rule r:\n  deny exec \"git\" if A\n  reason \"x\"\n");
-        let b = ok("source S = file \"/x/**\"\nrule r:\n  deny open file \"/y/**\" if S\n  reason \"x\"\n");
+        let b = ok(
+            "source S = file \"/x/**\"\nrule r:\n  deny open file \"/y/**\" if S\n  reason \"x\"\n",
+        );
         assert_eq!(a.bytes.len(), b.bytes.len());
+    }
+
+    #[test]
+    fn rule_effect_is_metadata_and_kernel_config() {
+        let c = ok("rule r:\n  deny exec \"git\"\n  reason \"x\"\n  effect kill\n");
+        assert_eq!(c.meta[0].effect, ast::Effect::Kill);
+        assert!(c.bytes.len() > 0);
+    }
+
+    #[test]
+    fn old_enforce_warn_aliases_to_audit() {
+        let c = ok("rule r:\n  deny exec \"git\"\n  reason \"x\"\n  enforce warn\n");
+        assert_eq!(c.meta[0].effect, ast::Effect::Audit);
     }
 }

@@ -58,6 +58,7 @@ cat > codex.dsl <<'EOF'
 source AGENT = exec "**/codex"
 rule no-git:
   deny exec "**/git" if AGENT
+  effect block
   reason "Codex must not invoke git; use the review workflow."
 EOF
 
@@ -70,6 +71,7 @@ whether the kernel actually blocked the operation or only audited it:
 
 ```
 🚫 BLOCKED: process 'git' (pid 4213, ppid 4210) — /usr/bin/git
+   effect: block
    reason: Codex must not invoke git; use the review workflow.
 ```
 

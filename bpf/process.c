@@ -18,6 +18,7 @@
 
 static struct env {
 	bool verbose;
+	bool kill_on_violation;
 	const char *config;
 } env = {0};
 
@@ -26,10 +27,11 @@ const char argp_program_doc[] =
 "ActPlane in-kernel taint enforcer.\n"
 "\n"
 "Loads a compiled policy and reports only taint-rule violations.\n"
-"USAGE: ./process --config policy.bin\n";
+"USAGE: ./process --config policy.bin [--kill-on-violation]\n";
 
 static const struct argp_option opts[] = {
 	{ "config", 'c', "FILE", 0, "Compiled policy (struct taint_config blob)" },
+	{ "kill-on-violation", 'k', NULL, 0, "Fallback mode: send SIGKILL for block-effect violations when BPF LSM is inactive" },
 	{ "verbose", 'v', NULL, 0, "Verbose libbpf debug output" },
 	{},
 };
@@ -38,6 +40,7 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 {
 	switch (key) {
 	case 'v': env.verbose = true; break;
+	case 'k': env.kill_on_violation = true; break;
 	case 'c': env.config = arg; break;
 	case ARGP_KEY_ARG: argp_usage(state); break;
 	default: return ARGP_ERR_UNKNOWN;
@@ -70,6 +73,16 @@ static bool bpf_lsm_active(void)
 	return active;
 }
 
+static const char *effect_name(unsigned int effect)
+{
+	switch (effect) {
+	case TEFFECT_AUDIT: return "audit";
+	case TEFFECT_KILL: return "kill";
+	case TEFFECT_BLOCK: return "block";
+	default: return "unknown";
+	}
+}
+
 static int handle_event(void *ctx, void *data, size_t sz)
 {
 	const struct event *e = data;
@@ -84,11 +97,12 @@ static int handle_event(void *ctx, void *data, size_t sz)
 	} else {
 		snprintf(target, sizeof(target), "%s", e->filename);
 	}
-	printf("{\"timestamp\":%llu,\"event\":\"TAINT_VIOLATION\",\"blocked\":%s,"
-	       "\"comm\":\"%s\",\"pid\":%d,\"ppid\":%d,\"target\":\"%s\","
-	       "\"rule_id\":%u,\"taint_label\":%llu}\n",
-	       e->timestamp_ns, e->blocked ? "true" : "false", e->comm, e->pid,
-	       e->ppid, target, e->taint_rule_id, e->taint_label);
+	printf("{\"timestamp\":%llu,\"event\":\"TAINT_VIOLATION\",\"effect\":\"%s\","
+	       "\"blocked\":%s,\"killed\":%s,\"comm\":\"%s\",\"pid\":%d,\"ppid\":%d,"
+	       "\"target\":\"%s\",\"rule_id\":%u,\"taint_label\":%llu}\n",
+	       e->timestamp_ns, effect_name(e->effect), e->blocked ? "true" : "false",
+	       e->killed ? "true" : "false", e->comm, e->pid, e->ppid,
+	       target, e->taint_rule_id, e->taint_label);
 	fflush(stdout);
 	return 0;
 }
@@ -152,6 +166,7 @@ int main(int argc, char **argv)
 
 	/* install compiled tables into rodata before load */
 	skel->rodata->enforce_mode = enforce ? 1 : 0;
+	skel->rodata->fallback_kill_mode = (!enforce && env.kill_on_violation) ? 1 : 0;
 	skel->rodata->n_sources = cfg.n_sources;
 	skel->rodata->n_rules = cfg.n_rules;
 	skel->rodata->n_xforms = cfg.n_xforms;
@@ -163,8 +178,10 @@ int main(int argc, char **argv)
 	fprintf(stderr, "ActPlane: %u sources, %u rules, %u xforms, %u gates\n",
 		cfg.n_sources, cfg.n_rules, cfg.n_xforms, cfg.n_gates);
 	fprintf(stderr, "ActPlane: %s mode (%s)\n",
-		enforce ? "enforce" : "audit",
-		enforce ? "BPF LSM is active" : "BPF LSM is not active");
+		enforce ? "enforce" : (env.kill_on_violation ? "kill-fallback" : "audit"),
+		enforce ? "BPF LSM is active" :
+			  (env.kill_on_violation ? "BPF LSM is not active; SIGKILL fallback enabled" :
+						   "BPF LSM is not active"));
 
 	err = process_bpf__load(skel);
 	if (err) { fprintf(stderr, "Failed to load BPF skeleton\n"); goto cleanup; }

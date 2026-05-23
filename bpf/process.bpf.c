@@ -15,9 +15,13 @@
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 const volatile unsigned int enforce_mode = 0;
+const volatile unsigned int fallback_kill_mode = 0;
 
 #ifndef EPERM
 #define EPERM 1
+#endif
+#ifndef SIGKILL
+#define SIGKILL 9
 #endif
 #ifndef AF_INET
 #define AF_INET 2
@@ -50,6 +54,28 @@ const volatile unsigned int enforce_mode = 0;
 #define MAY_READ 4
 #endif
 
+#define TE_MODE_AUDIT 0
+#define TE_MODE_BLOCK 1
+#define TE_MODE_KILL  2
+
+#define TE_ACCESS_READ    (1U << 0)
+#define TE_ACCESS_WRITE   (1U << 1)
+#define TE_ACCESS_EXEC    (1U << 2)
+#define TE_ACCESS_CONNECT (1U << 3)
+
+#define TE_OBJ_EXEC     1
+#define TE_OBJ_FILE     2
+#define TE_OBJ_ENDPOINT 3
+
+#define TE_REF_FILE          1
+#define TE_REF_PATH          2
+#define TE_REF_PATH_DENTRY   3
+#define TE_REF_USER_PATH     4
+#define TE_REF_BPRM          5
+#define TE_REF_STRINGS       6
+#define TE_REF_SOCKADDR_KERN 7
+#define TE_REF_SOCKADDR_USER 8
+
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 256 * 1024);
@@ -58,7 +84,9 @@ struct {
 /* The one and only output channel. */
 static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 					   const char *target, u32 conn_ip,
-					   unsigned int blocked)
+					   unsigned int blocked,
+					   unsigned int killed,
+					   unsigned int effect)
 {
 	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 	struct event *v = bpf_ringbuf_reserve(&rb, sizeof(*v), 0);
@@ -68,6 +96,8 @@ static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 	v->pid = pid;
 	v->ppid = BPF_CORE_READ(task, real_parent, tgid);
 	v->blocked = blocked;
+	v->killed = killed;
+	v->effect = effect;
 	v->timestamp_ns = bpf_ktime_get_ns();
 	v->taint_rule_id = rule_id;
 	v->conn_ip = conn_ip;
@@ -167,157 +197,317 @@ static __always_inline int bprm_filename(struct linux_binprm *bprm, char *path,
 	return -1;
 }
 
-static __always_inline int check_file_access(pid_t pid, const char *path,
-					     int can_read, int can_write,
-					     unsigned int blocked)
-{
-	int rid;
+struct te_event {
+	pid_t pid;
+	__u32 obj_kind;
+	__u32 access;
+	__u32 mode;
+	const char *target;
+	const char *display;
+	const char *argv;
+	int argv_len;
+	__u32 ip;
+};
 
-	if (can_read) {
-		rid = te_check(pid, TOP_OPEN, path, 0, 0);
-		if (rid >= 0) {
-			emit_violation(pid, rid, path, 0, blocked);
-			return rid;
-		}
-	}
-	if (can_write) {
-		rid = te_check(pid, TOP_WRITE, path, 0, 0);
-		if (rid >= 0) {
-			emit_violation(pid, rid, path, 0, blocked);
-			return rid;
-		}
-	}
-	return -1;
+static __always_inline __u32 te_access_from_open_flags(unsigned int flags)
+{
+	int acc = flags & O_ACCMODE;
+	__u32 access = 0;
+
+	if (acc != O_WRONLY)
+		access |= TE_ACCESS_READ;
+	if (acc != O_RDONLY || (flags & (O_CREAT | O_TRUNC)))
+		access |= TE_ACCESS_WRITE;
+	return access;
 }
 
-static __always_inline int check_write_path(pid_t pid, const char *path,
-					    unsigned int blocked)
+static __always_inline __u32 te_access_from_perm_mask(int mask)
 {
-	int rid = te_check(pid, TOP_WRITE, path, 0, 0);
+	__u32 access = 0;
+
+	if (mask & MAY_READ)
+		access |= TE_ACCESS_READ;
+	if (mask & MAY_WRITE)
+		access |= TE_ACCESS_WRITE;
+	return access;
+}
+
+static __always_inline __u32 te_fallback_mode(void)
+{
+	return fallback_kill_mode ? TE_MODE_KILL : TE_MODE_AUDIT;
+}
+
+static __always_inline __u32 te_effect_mode(__u32 backend_mode, __u32 effect)
+{
+	if (effect == TEFFECT_AUDIT)
+		return TE_MODE_AUDIT;
+	if (effect == TEFFECT_KILL)
+		return TE_MODE_KILL;
+	if (backend_mode == TE_MODE_BLOCK)
+		return TE_MODE_BLOCK;
+	if (backend_mode == TE_MODE_KILL)
+		return TE_MODE_KILL;
+	return TE_MODE_AUDIT;
+}
+
+static __always_inline int te_better_match(int candidate_rule, __u32 candidate_effect,
+					   int current_rule, __u32 current_effect)
+{
+	return candidate_rule >= 0 &&
+	       (current_rule < 0 || candidate_effect > current_effect);
+}
+
+static __always_inline int te_resolve_file_ref(__u32 ref_kind, const void *a,
+					       const void *b, char *path,
+					       int path_sz)
+{
+	switch (ref_kind) {
+	case TE_REF_FILE:
+		return file_path((struct file *)a, path, path_sz);
+	case TE_REF_PATH:
+		return path_to_str((const struct path *)a, path, path_sz);
+	case TE_REF_PATH_DENTRY:
+		return path_dentry_to_str((const struct path *)a, (struct dentry *)b,
+					  path, path_sz);
+	case TE_REF_USER_PATH:
+		return bpf_probe_read_user_str(path, path_sz, a) > 0 ? 0 : -1;
+	default:
+		return -1;
+	}
+}
+
+static __always_inline int te_resolve_sockaddr(__u32 ref_kind, const void *addr,
+					       __u32 *ip)
+{
+	struct sockaddr_in sa = {};
+	u16 family = 0;
+
+	if (ref_kind == TE_REF_SOCKADDR_USER) {
+		if (bpf_probe_read_user(&family, sizeof(family), addr) < 0)
+			return -1;
+		if (family != AF_INET)
+			return -1;
+		if (bpf_probe_read_user(&sa, sizeof(sa), addr) < 0)
+			return -1;
+	} else {
+		if (bpf_probe_read_kernel(&family, sizeof(family), addr) < 0)
+			return -1;
+		if (family != AF_INET)
+			return -1;
+		if (bpf_probe_read_kernel(&sa, sizeof(sa), addr) < 0)
+			return -1;
+	}
+	*ip = sa.sin_addr.s_addr;
+	return 0;
+}
+
+static __always_inline int te_handle_event(struct te_event *ev)
+{
+	__u64 labels = te_labels(ev->pid);
+	struct te_rule_eval eval = {};
+	const char *display = ev->display ? ev->display : ev->target;
+	__u32 effect = TEFFECT_AUDIT;
+	__u32 action = TE_MODE_AUDIT;
+	int rid = -1;
+	int candidate = -1;
+
+	if (ev->obj_kind == TE_OBJ_FILE && (ev->access & TE_ACCESS_READ))
+		labels |= te_file_labels(ev->target);
+	if (ev->obj_kind == TE_OBJ_ENDPOINT && (ev->access & TE_ACCESS_CONNECT))
+		labels |= te_endp_src_ip(ev->ip);
+
+	if (ev->obj_kind == TE_OBJ_EXEC) {
+		eval.pid = ev->pid;
+		eval.labels = labels;
+		eval.effect = TEFFECT_BLOCK;
+		eval.op = TOP_EXEC;
+		eval.target = ev->target;
+		eval.argv = ev->argv;
+		eval.argv_len = ev->argv_len;
+		rid = te_check_labels(&eval);
+		effect = eval.effect;
+	} else if (ev->obj_kind == TE_OBJ_FILE) {
+		eval.pid = ev->pid;
+		eval.labels = labels;
+		eval.effect = TEFFECT_BLOCK;
+		eval.target = ev->target;
+		if (ev->access & TE_ACCESS_READ) {
+			eval.op = TOP_OPEN;
+			candidate = te_check_labels(&eval);
+			if (te_better_match(candidate, eval.effect, rid, effect)) {
+				rid = candidate;
+				effect = eval.effect;
+			}
+		}
+		if (ev->access & TE_ACCESS_WRITE) {
+			eval.effect = TEFFECT_BLOCK;
+			eval.op = TOP_WRITE;
+			candidate = te_check_labels(&eval);
+			if (te_better_match(candidate, eval.effect, rid, effect)) {
+				rid = candidate;
+				effect = eval.effect;
+			}
+		}
+	} else if (ev->obj_kind == TE_OBJ_ENDPOINT) {
+		eval.pid = ev->pid;
+		eval.labels = labels;
+		eval.effect = TEFFECT_BLOCK;
+		rid = te_connect_check_labels(&eval, ev->ip);
+		effect = eval.effect;
+	}
 
 	if (rid >= 0) {
-		emit_violation(pid, rid, path, 0, blocked);
-		return rid;
+		action = te_effect_mode(ev->mode, effect);
+		emit_violation(ev->pid, rid, display,
+			       ev->obj_kind == TE_OBJ_ENDPOINT ? ev->ip : 0,
+			       action == TE_MODE_BLOCK ||
+				       (action == TE_MODE_KILL && ev->mode == TE_MODE_BLOCK),
+			       action == TE_MODE_KILL, effect);
+		if (action == TE_MODE_BLOCK)
+			return -EPERM;
+		if (action == TE_MODE_KILL) {
+			bpf_send_signal(SIGKILL);
+			if (ev->mode == TE_MODE_BLOCK)
+				return -EPERM;
+		}
 	}
-	return -1;
+
+	if (ev->obj_kind == TE_OBJ_FILE) {
+		if (ev->access & TE_ACCESS_READ)
+			te_read(ev->pid, ev->target);
+		if (ev->access & TE_ACCESS_WRITE)
+			te_write_flow(ev->pid, ev->target);
+	} else if (ev->obj_kind == TE_OBJ_ENDPOINT) {
+		te_add_labels(ev->pid, te_endp_src_ip(ev->ip));
+		te_connect_flow(ev->ip, ev->pid);
+	}
+
+	return 0;
+}
+
+static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
+					  const void *b, __u32 access,
+					  __u32 mode)
+{
+	char path[MAX_FILENAME_LEN] = {};
+	struct te_event ev = {};
+
+	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
+	    ((mode == TE_MODE_AUDIT || mode == TE_MODE_KILL) && enforce_mode))
+		return 0;
+	if (!access)
+		return 0;
+	if (te_resolve_file_ref(ref_kind, a, b, path, sizeof(path)) < 0)
+		return 0;
+
+	ev.pid = bpf_get_current_pid_tgid() >> 32;
+	ev.obj_kind = TE_OBJ_FILE;
+	ev.access = access;
+	ev.mode = mode;
+	ev.target = path;
+	return te_handle_event(&ev);
+}
+
+static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
+					 const void *b, __u32 access,
+					 __u32 mode)
+{
+	struct te_event ev = {};
+	__u32 ip = 0;
+
+	(void)b;
+	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
+	    ((mode == TE_MODE_AUDIT || mode == TE_MODE_KILL) && enforce_mode))
+		return 0;
+	if (!(access & TE_ACCESS_CONNECT))
+		return 0;
+	if (te_resolve_sockaddr(ref_kind, a, &ip) < 0)
+		return 0;
+
+	ev.pid = bpf_get_current_pid_tgid() >> 32;
+	ev.obj_kind = TE_OBJ_ENDPOINT;
+	ev.access = access;
+	ev.mode = mode;
+	ev.ip = ip;
+	return te_handle_event(&ev);
+}
+
+static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
+					  const void *b, const char *argv,
+					  int argv_len, __u32 mode)
+{
+	char match[TAINT_PAT_LEN] = {};
+	char display[MAX_FILENAME_LEN] = {};
+	const char *target = match;
+	const char *shown = display;
+	struct te_event ev = {};
+
+	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
+	    ((mode == TE_MODE_AUDIT || mode == TE_MODE_KILL) && enforce_mode))
+		return 0;
+	if (ref_kind == TE_REF_BPRM) {
+		if (bprm_basename((struct linux_binprm *)a, match, sizeof(match)) < 0)
+			return 0;
+		if (bprm_filename((struct linux_binprm *)a, display, sizeof(display)) < 0)
+			__builtin_memcpy(display, match, sizeof(match));
+	} else if (ref_kind == TE_REF_STRINGS) {
+		target = a;
+		shown = b ? b : a;
+		if (!target)
+			return 0;
+	} else {
+		return 0;
+	}
+
+	ev.pid = bpf_get_current_pid_tgid() >> 32;
+	ev.obj_kind = TE_OBJ_EXEC;
+	ev.access = TE_ACCESS_EXEC;
+	ev.mode = mode;
+	ev.target = target;
+	ev.display = shown;
+	ev.argv = argv;
+	ev.argv_len = argv_len;
+	return te_handle_event(&ev);
 }
 
 SEC("lsm/bprm_check_security")
 int BPF_PROG(enforce_bprm_check_security, struct linux_binprm *bprm)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char base[TAINT_PAT_LEN] = {};
-	char target[MAX_FILENAME_LEN] = {};
-	int rid;
-
-	if (!enforce_mode)
-		return 0;
-	if (bprm_basename(bprm, base, sizeof(base)) < 0)
-		return 0;
-	rid = te_check(pid, TOP_EXEC, base, 0, 0);
-	if (rid < 0)
-		return 0;
-	if (bprm_filename(bprm, target, sizeof(target)) < 0)
-		__builtin_memcpy(target, base, sizeof(base));
-	emit_violation(pid, rid, target, 0, 1);
-	return -EPERM;
+	return te_handle_exec(TE_REF_BPRM, bprm, 0, 0, 0, TE_MODE_BLOCK);
 }
 
 SEC("lsm/file_open")
 int BPF_PROG(enforce_file_open, struct file *file)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char path[MAX_FILENAME_LEN] = {};
-	unsigned int flags;
-	int acc, can_read, can_write;
-
-	if (!enforce_mode)
-		return 0;
-	if (file_path(file, path, sizeof(path)) < 0)
-		return 0;
-
-	flags = BPF_CORE_READ(file, f_flags);
-	acc = flags & O_ACCMODE;
-	can_read = acc != O_WRONLY;
-	can_write = acc != O_RDONLY || (flags & (O_CREAT | O_TRUNC));
-	if (check_file_access(pid, path, can_read, can_write, 1) >= 0)
-		return -EPERM;
-
-	if (can_read)
-		te_read(pid, path);
-	if (can_write)
-		te_write_flow(pid, path);
-	return 0;
+	return te_handle_file(TE_REF_FILE, file, 0,
+			      te_access_from_open_flags(BPF_CORE_READ(file, f_flags)),
+			      TE_MODE_BLOCK);
 }
 
 SEC("lsm/file_permission")
 int BPF_PROG(enforce_file_permission, struct file *file, int mask)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char path[MAX_FILENAME_LEN] = {};
-	int can_read = mask & MAY_READ;
-	int can_write = mask & MAY_WRITE;
-
-	if (!enforce_mode || (!can_read && !can_write))
-		return 0;
-	if (file_path(file, path, sizeof(path)) < 0)
-		return 0;
-	if (check_file_access(pid, path, can_read, can_write, 1) >= 0)
-		return -EPERM;
-
-	if (can_read)
-		te_read(pid, path);
-	if (can_write)
-		te_write_flow(pid, path);
-	return 0;
+	return te_handle_file(TE_REF_FILE, file, 0, te_access_from_perm_mask(mask),
+			      TE_MODE_BLOCK);
 }
 
 SEC("lsm/file_truncate")
 int BPF_PROG(enforce_file_truncate, struct file *file)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char path[MAX_FILENAME_LEN] = {};
-
-	if (!enforce_mode)
-		return 0;
-	if (file_path(file, path, sizeof(path)) < 0)
-		return 0;
-	if (check_write_path(pid, path, 1) >= 0)
-		return -EPERM;
-	te_write_flow(pid, path);
-	return 0;
+	return te_handle_file(TE_REF_FILE, file, 0, TE_ACCESS_WRITE, TE_MODE_BLOCK);
 }
 
 SEC("lsm/path_truncate")
 int BPF_PROG(enforce_path_truncate, const struct path *path_arg)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char path[MAX_FILENAME_LEN] = {};
-
-	if (!enforce_mode)
-		return 0;
-	if (path_to_str(path_arg, path, sizeof(path)) < 0)
-		return 0;
-	if (check_write_path(pid, path, 1) >= 0)
-		return -EPERM;
-	te_write_flow(pid, path);
-	return 0;
+	return te_handle_file(TE_REF_PATH, path_arg, 0, TE_ACCESS_WRITE, TE_MODE_BLOCK);
 }
 
 SEC("lsm/path_unlink")
 int BPF_PROG(enforce_path_unlink, const struct path *dir, struct dentry *dentry)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char path[MAX_FILENAME_LEN] = {};
-
-	if (!enforce_mode)
-		return 0;
-	if (path_dentry_to_str(dir, dentry, path, sizeof(path)) < 0)
-		return 0;
-	if (check_write_path(pid, path, 1) >= 0)
-		return -EPERM;
-	te_write_flow(pid, path);
-	return 0;
+	return te_handle_file(TE_REF_PATH_DENTRY, dir, dentry, TE_ACCESS_WRITE,
+			      TE_MODE_BLOCK);
 }
 
 SEC("lsm/path_rename")
@@ -325,23 +515,13 @@ int BPF_PROG(enforce_path_rename, const struct path *old_dir,
 	     struct dentry *old_dentry, const struct path *new_dir,
 	     struct dentry *new_dentry, unsigned int flags)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	char old_path[MAX_FILENAME_LEN] = {};
-	char new_path[MAX_FILENAME_LEN] = {};
-
 	(void)flags;
-	if (!enforce_mode)
-		return 0;
-	if (path_dentry_to_str(old_dir, old_dentry, old_path, sizeof(old_path)) == 0 &&
-	    check_write_path(pid, old_path, 1) >= 0)
+	if (te_handle_file(TE_REF_PATH_DENTRY, old_dir, old_dentry,
+			   TE_ACCESS_WRITE, TE_MODE_BLOCK) < 0)
 		return -EPERM;
-	if (path_dentry_to_str(new_dir, new_dentry, new_path, sizeof(new_path)) == 0 &&
-	    check_write_path(pid, new_path, 1) >= 0)
+	if (te_handle_file(TE_REF_PATH_DENTRY, new_dir, new_dentry,
+			   TE_ACCESS_WRITE, TE_MODE_BLOCK) < 0)
 		return -EPERM;
-	if (old_path[0] != '\0')
-		te_write_flow(pid, old_path);
-	if (new_path[0] != '\0')
-		te_write_flow(pid, new_path);
 	return 0;
 }
 
@@ -349,32 +529,10 @@ SEC("lsm/socket_connect")
 int BPF_PROG(enforce_socket_connect, struct socket *sock, struct sockaddr *address,
 	     int addrlen)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	struct sockaddr_in sa = {};
-	u16 family = 0;
-	u32 ip;
-	int rid;
-
 	(void)sock;
 	(void)addrlen;
-	if (!enforce_mode)
-		return 0;
-	if (bpf_probe_read_kernel(&family, sizeof(family), address) < 0)
-		return 0;
-	if (family != AF_INET)
-		return 0;
-	if (bpf_probe_read_kernel(&sa, sizeof(sa), address) < 0)
-		return 0;
-	ip = sa.sin_addr.s_addr;
-
-	te_add_labels(pid, te_endp_src_ip(ip));
-	rid = te_connect_check(pid, ip);
-	if (rid >= 0) {
-		emit_violation(pid, rid, 0, ip, 1);
-		return -EPERM;
-	}
-	te_connect_flow(ip, pid);
-	return 0;
+	return te_handle_net(TE_REF_SOCKADDR_KERN, address, 0,
+			     TE_ACCESS_CONNECT, TE_MODE_BLOCK);
 }
 
 SEC("tp/sched/sched_process_fork")
@@ -391,9 +549,9 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 	char comm[TAINT_PAT_LEN] = {}; /* >= pattern len so matchers stay in-bounds */
 	char argv[TAINT_ARGV_CAP];
-	char fname[MAX_FILENAME_LEN];
+	char fname[MAX_FILENAME_LEN] = {};
 	unsigned fname_off;
-	int alen = 0, rid;
+	int alen = 0;
 
 	bpf_get_current_comm(&comm, TASK_COMM_LEN);
 	te_exec_update(pid, comm);
@@ -408,12 +566,9 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	if (len > 0 && bpf_probe_read_user(argv, len, (void *)a0) == 0)
 		alen = (int)len;
 
-	rid = te_check(pid, TOP_EXEC, comm, argv, alen);
-	if (rid >= 0) {
-		fname_off = ctx->__data_loc_filename & 0xFFFF;
-		bpf_probe_read_str(fname, sizeof(fname), (void *)ctx + fname_off);
-		emit_violation(pid, rid, fname, 0, 0);
-	}
+	fname_off = ctx->__data_loc_filename & 0xFFFF;
+	bpf_probe_read_str(fname, sizeof(fname), (void *)ctx + fname_off);
+	te_handle_exec(TE_REF_STRINGS, comm, fname, argv, alen, te_fallback_mode());
 	return 0;
 }
 
@@ -428,100 +583,51 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	return 0;
 }
 
-/* open flag bits (not always in vmlinux.h) */
-#ifndef O_WRONLY
-#define O_WRONLY 00000001
-#endif
-#ifndef O_RDWR
-#define O_RDWR 00000002
-#endif
-#ifndef O_CREAT
-#define O_CREAT 00000100
-#endif
-#ifndef O_TRUNC
-#define O_TRUNC 00001000
-#endif
-#define TAINT_WRITE_FLAGS (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC)
-
-static __always_inline void do_open(pid_t pid, const char *upath, u64 flags)
-{
-	char path[MAX_FILENAME_LEN];
-	int rid;
-	if (enforce_mode)
-		return;
-	if (bpf_probe_read_user_str(path, sizeof(path), upath) < 0)
-		return;
-	te_read(pid, path); /* read(p,f): proc absorbs file labels + file source */
-	if (flags & TAINT_WRITE_FLAGS) {
-		te_write_flow(pid, path); /* write(p,f): file inherits writer labels */
-		rid = te_check(pid, TOP_WRITE, path, 0, 0);
-		if (rid >= 0) {
-			emit_violation(pid, rid, path, 0, 0);
-			return;
-		}
-	}
-	rid = te_check(pid, TOP_OPEN, path, 0, 0);
-	if (rid >= 0)
-		emit_violation(pid, rid, path, 0, 0);
-}
-
 SEC("tp/syscalls/sys_enter_openat")
 int trace_openat(struct trace_event_raw_sys_enter *ctx)
 {
-	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1], ctx->args[2]);
-	return 0;
+	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[1], 0,
+			      te_access_from_open_flags((unsigned int)ctx->args[2]),
+			      te_fallback_mode());
 }
 
 SEC("tp/syscalls/sys_enter_open")
 int trace_open(struct trace_event_raw_sys_enter *ctx)
 {
-	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0], ctx->args[1]);
-	return 0;
-}
-
-static __always_inline void do_mutate(pid_t pid, const char *upath)
-{
-	char path[MAX_FILENAME_LEN];
-	int rid;
-	if (enforce_mode)
-		return;
-	if (bpf_probe_read_user_str(path, sizeof(path), upath) < 0)
-		return;
-	te_write_flow(pid, path); /* proc -> file propagation */
-	rid = te_check(pid, TOP_WRITE, path, 0, 0);
-	if (rid >= 0)
-		emit_violation(pid, rid, path, 0, 0);
+	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[0], 0,
+			      te_access_from_open_flags((unsigned int)ctx->args[1]),
+			      te_fallback_mode());
 }
 
 SEC("tp/syscalls/sys_enter_unlink")
 int trace_unlink(struct trace_event_raw_sys_enter *ctx)
 {
-	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0]);
-	return 0;
+	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[0], 0,
+			      TE_ACCESS_WRITE, te_fallback_mode());
 }
 SEC("tp/syscalls/sys_enter_unlinkat")
 int trace_unlinkat(struct trace_event_raw_sys_enter *ctx)
 {
-	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
-	return 0;
+	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[1], 0,
+			      TE_ACCESS_WRITE, te_fallback_mode());
 }
 SEC("tp/syscalls/sys_enter_rename")
 int trace_rename(struct trace_event_raw_sys_enter *ctx)
 {
-	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
-	return 0;
+	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[1], 0,
+			      TE_ACCESS_WRITE, te_fallback_mode());
 }
 SEC("tp/syscalls/sys_enter_renameat")
 int trace_renameat(struct trace_event_raw_sys_enter *ctx)
 {
-	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[3]);
-	return 0;
+	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[3], 0,
+			      TE_ACCESS_WRITE, te_fallback_mode());
 }
 SEC("tp/syscalls/sys_enter_renameat2")
 int trace_renameat2(struct trace_event_raw_sys_enter *ctx)
 {
-	do_mutate(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[3]);
-	return 0;
+	return te_handle_file(TE_REF_USER_PATH, (const void *)ctx->args[3], 0,
+			      TE_ACCESS_WRITE, te_fallback_mode());
 }
 
 /* connect: numeric IPv4 matching (compiler lowers host/IP patterns to net+mask;
@@ -530,26 +636,6 @@ int trace_renameat2(struct trace_event_raw_sys_enter *ctx)
 SEC("tp/syscalls/sys_enter_connect")
 int trace_connect(struct trace_event_raw_sys_enter *ctx)
 {
-	pid_t pid = bpf_get_current_pid_tgid() >> 32;
-	const void *uaddr = (const void *)ctx->args[1];
-	int rid;
-	u16 family = 0;
-
-	if (enforce_mode)
-		return 0;
-	if (bpf_probe_read_user(&family, sizeof(family), uaddr) < 0)
-		return 0;
-	if (family != 2) /* AF_INET */
-		return 0;
-	struct sockaddr_in sa = {};
-	if (bpf_probe_read_user(&sa, sizeof(sa), uaddr) < 0)
-		return 0;
-	u32 ip = sa.sin_addr.s_addr; /* network byte order */
-
-	te_add_labels(pid, te_endp_src_ip(ip));   /* endpoint source taints connector */
-	te_connect_flow(ip, pid);                 /* proc -> endpoint */
-	rid = te_connect_check(pid, ip);
-	if (rid >= 0)
-		emit_violation(pid, rid, 0, ip, 0);
-	return 0;
+	return te_handle_net(TE_REF_SOCKADDR_USER, (const void *)ctx->args[1], 0,
+			     TE_ACCESS_CONNECT, te_fallback_mode());
 }

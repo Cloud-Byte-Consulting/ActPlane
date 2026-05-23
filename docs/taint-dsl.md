@@ -5,11 +5,11 @@
 > **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel taint *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
 > **Status: implemented as a BPF-LSM enforcement backend with tracepoint audit fallback.**
-> - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse. 13 unit tests (E1–E12 compile).
+> - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse. 15 unit tests (E1–E12 compile + effect coverage).
 > - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec, file access/mutation, and connect blocking when `bpf` LSM is active; otherwise tracepoints provide audit reporting. Matching predicates have 30 unit tests (`test_taint.c`).
 > - **Loader** `bpf/process.c` installs the compiled config, detects BPF LSM availability, and reports only `TAINT_VIOLATION` with a `blocked` flag.
 >
-> Current limitations: `@arg` exec predicates are audited after exec unless an argv cache is added before `bprm_check_security`; endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4; file labels are still keyed by path hash rather than inode/dev. A clean live e2e suite and the corrective-feedback loop beyond reason printing remain.
+> Current limitations: `@arg` exec predicates are audited after exec unless an argv cache is added before `bprm_check_security`; endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4; file labels are still keyed by path hash rather than inode/dev. The corrective-feedback loop is wired up kernel-side: violations the eBPF/LSM enforcer detects are formatted (`--feedback-file`) into the §6 reason payload the agent reads on EPERM (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
 
 ---
 
@@ -77,7 +77,13 @@ rule NAME:
 
 **Violation**: event `op(s, o)` violates rule `deny op pat if Φ unless cond` iff
 `match(o, pat) ∧ Φ(σ(s)) ∧ ¬cond(s, o, history)`.
-In **enforce** mode the op is blocked before its effect (LSM `-EPERM`); in **audit** mode a violation is reported with `NAME` + `reason` (the corrective feedback payload).
+Each rule has an explicit `effect`:
+
+- `block` (default): deny at the BPF-LSM hook when available; otherwise report in tracepoint fallback.
+- `audit`: report only; the operation proceeds.
+- `kill`: send `SIGKILL` to the violating task. With BPF-LSM active, the hook also denies the triggering operation.
+
+If multiple clauses/rules match the same event, the kernel chooses the strongest effect: `kill > block > audit`.
 
 ### 1.8 Pattern matching
 `PAT` is a glob over the relevant attribute: process `exe`/`comm`/`arg`, file `path`, endpoint `host`. `**` = any path span, `*` = one segment / any chars, exact otherwise. Endpoint host supports `*` suffix/prefix wildcards.
@@ -92,7 +98,9 @@ decl        := label_decl | source_decl | sink_decl | xform_decl
 label_decl  := "label" IDENT
 source_decl := "source" IDENT "=" node_kind PATTERN          # node_kind: file|endpoint|exec
 sink_decl   := "rule" IDENT ":" clause+ ["reason" STRING]
+                                        ["remediation" STRING] ["effect" EFFECT]
 clause      := "deny" OP target ["if" expr] ["unless" cond]
+EFFECT      := "block" | "audit" | "kill"                    # default: block
 xform_decl  := ("declassify"|"endorse") IDENT "by" "exec" PATTERN
 OP          := "exec"|"read"|"write"|"unlink"|"connect"|"recv"|"open"
 target      := ("file"|"endpoint"|"exec") PATTERN [ "@arg" STRING ]
@@ -104,6 +112,13 @@ cond        := "target" ["not"] PATTERN
 PATTERN, STRING := quoted string
 ```
 (`open` is sugar matching both `read` and `write`; `@arg "x"` additionally requires token `x` in argv — for `git push` etc.)
+
+`effect` is compiled into the kernel ABI and is the source of truth for what
+happens on a match. `reason` and `remediation` stay Rust-side and shape the
+corrective-feedback payload shown to the agent. `enforce block|gate|warn` is
+accepted as a compatibility alias (`gate -> block`, `warn -> audit`), but new
+policies should use `effect block|audit|kill`. See
+[`feedback-design.md`](feedback-design.md) and [`../script/agent-feedback.md`](../script/agent-feedback.md).
 
 ---
 
@@ -260,7 +275,7 @@ Lineage attributes (`gates`, ancestry) are propagated at `fork`/`exec` exactly l
 
 Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat kernel config; the **kernel** propagates taint and evaluates rules, emitting only violations.
 
-- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask). `mod.rs::compile_str`. 13 tests compile E1–E12. `main.rs` compiles a `.dsl`, spawns the loader, and prints violations with their reason (the feedback payload).
+- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask). `mod.rs::compile_str`. 15 tests compile E1–E12 and rule effects. `main.rs` compiles a `.dsl`, spawns the loader, and prints violations with their reason (the feedback payload).
 - **`bpf/taint.h`** — the rule ABI (`taint_source`/`taint_rule`/`taint_xform`/`taint_gate`/`taint_config`) + libc-free matching predicates (`taint_streq`/`prefix`/`suffix`/`any`, `mask_ok`, `arg_match`), 30 unit tests in `test_taint.c`.
 - **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + propagation + `te_check`/`te_connect_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
 - **`bpf/process.bpf.c`** — fork/exec/exit/open/mutate/connect hooks; one emitter (`emit_violation`). **`bpf/process.c`** — installs config, reports violations.

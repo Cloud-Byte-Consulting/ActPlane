@@ -58,11 +58,33 @@ pub struct Clause {
     pub unless: Option<Cond>,
 }
 
+/// Rule result. This is compiled into the kernel rule table and is the source
+/// of truth for what happens when the rule matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    /// Report only; the operation proceeds.
+    Audit,
+    /// Hard block (LSM -EPERM) when BPF LSM is available.
+    Block,
+    /// Send SIGKILL to the current task.
+    Kill,
+}
+
+impl Default for Effect {
+    fn default() -> Self {
+        Effect::Block
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Rule {
     pub name: String,
     pub clauses: Vec<Clause>,
     pub reason: String,
+    /// Optional actionable next step shown to the agent (docs/feedback-design.md §6).
+    pub remediation: Option<String>,
+    /// Action taken when this rule matches (default Block).
+    pub effect: Effect,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -19,6 +19,16 @@ struct proc_state {
 	__u64 lin_gates; /* gate bits seen in this pid's ancestor chain (incl self) */
 };
 
+struct te_rule_eval {
+	pid_t pid;
+	__u64 labels;
+	unsigned int op;
+	const char *target;
+	const char *argv;
+	int argv_len;
+	unsigned int effect;
+};
+
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 16384);
@@ -190,41 +200,57 @@ static __noinline __u64 te_endp_src_ip(__u32 ip)
 }
 
 /* connect sink: numeric IPv4 match (no string formatting). Returns rule_id/-1. */
-static __noinline int te_connect_check_labels(pid_t pid, __u64 labels, __u32 ip)
+static __noinline int te_connect_check_labels(struct te_rule_eval *e, __u32 ip)
 {
+	pid_t pid = e->pid;
+	__u64 labels = e->labels;
+	unsigned int best_effect = TEFFECT_AUDIT;
+	int best_rule = -1;
+
 	for (unsigned int i = 0; i < MAX_TAINT_RULES; i++) {
 		if (i >= n_rules)
 			break;
-		struct taint_rule r = taint_rules[i];
-		if (r.op != TOP_CONNECT)
+		if (taint_rules[i].op != TOP_CONNECT)
 			continue;
-		if (!taint_mask_ok(labels, r.req, r.forbid))
+		if (!taint_mask_ok(labels, taint_rules[i].req, taint_rules[i].forbid))
 			continue;
-		if ((ip & r.ipv4_mask) != r.ipv4)
+		if ((ip & taint_rules[i].ipv4_mask) != taint_rules[i].ipv4)
 			continue;
 		/* conditions */
-		if (r.cond_kind == TCOND_LINEAGE) {
+		if (taint_rules[i].cond_kind == TCOND_LINEAGE) {
 			struct proc_state *p = te_get(pid);
-			if (p && (p->lin_gates & r.gate))
+			if (p && (p->lin_gates & taint_rules[i].gate))
 				continue;
-		} else if (r.cond_kind == TCOND_AFTER) {
+		} else if (taint_rules[i].cond_kind == TCOND_AFTER) {
 			pid_t rt = te_root(pid);
 			__u64 *s = bpf_map_lookup_elem(&ts_sess, &rt);
-			if (s && (*s & r.gate))
+			if (s && (*s & taint_rules[i].gate))
 				continue;
-		} else if (r.cond_kind == TCOND_TARGET) {
-			int m = ((ip & r.cond_ipv4_mask) == r.cond_ipv4);
-			if (r.cond_neg ? !m : m)
+		} else if (taint_rules[i].cond_kind == TCOND_TARGET) {
+			int m = ((ip & taint_rules[i].cond_ipv4_mask) ==
+				 taint_rules[i].cond_ipv4);
+			if (taint_rules[i].cond_neg ? !m : m)
 				continue;
 		}
-		return (int)r.rule_id;
+		if (best_rule < 0 || taint_rules[i].effect > best_effect) {
+			best_rule = (int)taint_rules[i].rule_id;
+			best_effect = taint_rules[i].effect;
+			if (best_effect == TEFFECT_KILL)
+				break;
+		}
 	}
-	return -1;
+	if (best_rule >= 0)
+		e->effect = best_effect;
+	return best_rule;
 }
 
 static __always_inline int te_connect_check(pid_t pid, __u32 ip)
 {
-	return te_connect_check_labels(pid, te_labels(pid), ip);
+	struct te_rule_eval e = {
+		.pid = pid,
+		.labels = te_labels(pid),
+	};
+	return te_connect_check_labels(&e, ip);
 }
 
 static __always_inline __u64 te_file_labels(const char *path)
@@ -281,13 +307,19 @@ static __always_inline int te_cond_satisfied(const struct taint_rule *r, pid_t p
 	return r->cond_neg ? !m : m;
 }
 
-/* Evaluate sinks for op `op` on `target` by process `pid`. Returns the matched
- * rule_id, or -1 if none. argv may be NULL (non-exec ops). Limited to 5 args so
- * it can be a bpf2bpf subprogram (own stack frame). */
-static __noinline int te_check_labels(pid_t pid, __u64 labels, unsigned int op,
-				      const char *target, const char *argv,
-				      int argv_len)
+/* Evaluate sinks for one normalized event. Returns the matched rule_id, or -1
+ * if none. The context pointer keeps the bpf2bpf call within the 5-arg limit. */
+static __noinline int te_check_labels(struct te_rule_eval *e)
 {
+	pid_t pid = e->pid;
+	__u64 labels = e->labels;
+	unsigned int op = e->op;
+	const char *target = e->target;
+	const char *argv = e->argv;
+	int argv_len = e->argv_len;
+	unsigned int best_effect = TEFFECT_AUDIT;
+	int best_rule = -1;
+
 	for (unsigned int i = 0; i < MAX_TAINT_RULES; i++) {
 		if (i >= n_rules)
 			break;
@@ -306,15 +338,30 @@ static __noinline int te_check_labels(pid_t pid, __u64 labels, unsigned int op,
 		}
 		if (te_cond_satisfied(&r, pid, target))
 			continue;
-		return (int)r.rule_id;
+		if (best_rule < 0 || r.effect > best_effect) {
+			best_rule = (int)r.rule_id;
+			best_effect = r.effect;
+			if (best_effect == TEFFECT_KILL)
+				break;
+		}
 	}
-	return -1;
+	if (best_rule >= 0)
+		e->effect = best_effect;
+	return best_rule;
 }
 
 static __always_inline int te_check(pid_t pid, unsigned int op, const char *target,
 				    const char *argv, int argv_len)
 {
-	return te_check_labels(pid, te_labels(pid), op, target, argv, argv_len);
+	struct te_rule_eval e = {
+		.pid = pid,
+		.labels = te_labels(pid),
+		.op = op,
+		.target = target,
+		.argv = argv,
+		.argv_len = argv_len,
+	};
+	return te_check_labels(&e);
 }
 
 static __always_inline void te_exit(pid_t pid)

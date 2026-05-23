@@ -1,16 +1,11 @@
-/.output
-/bootstrap
-/sslsniff
-/browsertrace
-/stdiocap
-/process
-/test_process_utils
-/test_process_filter
-/process_new
-/test_process_new_map_flush
-/test_process_new_mem_info
-/test_process_new_header
+/.output/
+/bootstrap/
 
-# build artifacts
-process
-test_taint
+# root-level binaries produced by the bpf Makefile
+/browsertrace
+/process
+/process_new
+/sslsniff
+/stdiocap
+/test_taint
+/test_process_*

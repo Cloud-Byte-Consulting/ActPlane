@@ -17,6 +17,7 @@ use tokio::process::Command;
 
 mod binary_extractor;
 mod dsl;
+mod feedback;
 
 use binary_extractor::BinaryExtractor;
 
@@ -28,6 +29,13 @@ struct Cli {
     /// Compile only: write the kernel config blob to this path and exit.
     #[arg(short, long)]
     out: Option<String>,
+    /// When BPF LSM is inactive, send SIGKILL for block-effect violations.
+    #[arg(long)]
+    kill_on_violation: bool,
+    /// Also append the formatted corrective-feedback payload for each violation
+    /// to this file (the channel (a1) reason file agents read on EPERM).
+    #[arg(long)]
+    feedback_file: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -37,7 +45,10 @@ struct Violation {
     comm: String,
     target: String,
     rule_id: usize,
+    #[allow(dead_code)]
+    effect: Option<String>,
     blocked: Option<bool>,
+    killed: Option<bool>,
     #[allow(dead_code)]
     taint_label: u64,
 }
@@ -71,6 +82,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let extractor = BinaryExtractor::new().await?;
     let mut cmd = Command::new(extractor.get_process_path());
     cmd.arg("--config").arg(&cfg_path);
+    if cli.kill_on_violation {
+        cmd.arg("--kill-on-violation");
+    }
     cmd.stdout(Stdio::piped()).stderr(Stdio::inherit());
 
     let mut child = cmd
@@ -85,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<Violation>(&line) {
-            report(&compiled.reasons, &v);
+            report(&compiled.meta, &v, cli.feedback_file.as_deref());
         }
     }
 
@@ -96,19 +110,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-/// Report a violation with its policy reason — the corrective-feedback payload.
-fn report(reasons: &[String], v: &Violation) {
-    let reason = reasons.get(v.rule_id).map(|s| s.as_str()).unwrap_or("");
-    let verb = if v.blocked.unwrap_or(false) {
+/// Report a violation: a human one-liner to stdout, plus the structured
+/// corrective-feedback payload (docs/feedback-design.md §6) appended to the
+/// feedback file if one was requested — channel (a1), the reason file an agent
+/// reads when a syscall fails with EPERM.
+fn report(meta: &[dsl::RuleMeta], v: &Violation, feedback_file: Option<&str>) {
+    let verb = if v.killed.unwrap_or(false) {
+        "KILLED"
+    } else if v.blocked.unwrap_or(false) {
         "BLOCKED"
     } else {
         "VIOLATION"
     };
+    let m = meta.get(v.rule_id);
+    let reason = m.map(|m| m.reason.as_str()).unwrap_or("");
+    let effect = v
+        .effect
+        .as_deref()
+        .or_else(|| m.map(|m| effect_name(m.effect)))
+        .unwrap_or("");
     println!(
         "🚫 {}: process '{}' (pid {}, ppid {}) — {}",
         verb, v.comm, v.pid, v.ppid, v.target
     );
+    if !effect.is_empty() {
+        println!("   effect: {}", effect);
+    }
     if !reason.is_empty() {
         println!("   reason: {}", reason);
+    }
+
+    if let (Some(path), Some(m)) = (feedback_file, m) {
+        let op = m.ops.first().map(|s| s.as_str()).unwrap_or("op");
+        let payload = feedback::format_payload(
+            &m.name,
+            op,
+            &v.target,
+            &m.reason,
+            m.remediation.as_deref(),
+            m.effect,
+        );
+        if let Err(e) = append_feedback(path, &payload) {
+            eprintln!("ActPlane: writing feedback file {}: {}", path, e);
+        }
+    }
+}
+
+/// Append a feedback payload (with a separator) to the reason file.
+fn append_feedback(path: &str, payload: &str) -> std::io::Result<()> {
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(f, "{}\n----", payload)
+}
+
+fn effect_name(effect: dsl::ast::Effect) -> &'static str {
+    match effect {
+        dsl::ast::Effect::Audit => "audit",
+        dsl::ast::Effect::Block => "block",
+        dsl::ast::Effect::Kill => "kill",
     }
 }

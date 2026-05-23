@@ -31,6 +31,9 @@ const C_NONE: u8 = 0;
 const C_LINEAGE: u8 = 1;
 const C_AFTER: u8 = 2;
 const C_TARGET: u8 = 3;
+const EFFECT_AUDIT: u8 = 0;
+const EFFECT_BLOCK: u8 = 1;
+const EFFECT_KILL: u8 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -50,6 +53,7 @@ struct CRule {
     cond_kind: u8,
     cond_neg: u8,
     cond_match: u8,
+    effect: u8,
     target: [u8; PAT],
     arg: [u8; ARG],
     cond_pat: [u8; PAT],
@@ -228,6 +232,19 @@ fn dnf(e: &Expr, ctx: &mut Ctx) -> Result<Vec<(u64, u64)>, String> {
     })
 }
 
+/// Human-readable verb for a DSL op, used in the feedback payload.
+fn op_name(op: Op) -> &'static str {
+    match op {
+        Op::Exec => "exec",
+        Op::Read => "read",
+        Op::Open => "open",
+        Op::Write => "write",
+        Op::Unlink => "unlink",
+        Op::Connect => "connect",
+        Op::Recv => "recv",
+    }
+}
+
 fn op_lowers(op: Op) -> Result<&'static [u8], String> {
     match op {
         Op::Exec => Ok(&[OP_EXEC]),
@@ -248,9 +265,30 @@ fn lower_target(op: u8, kind: Kind, pat: &str) -> (u8, String) {
     }
 }
 
+fn lower_effect(effect: Effect) -> u8 {
+    match effect {
+        Effect::Audit => EFFECT_AUDIT,
+        Effect::Block => EFFECT_BLOCK,
+        Effect::Kill => EFFECT_KILL,
+    }
+}
+
+/// Per-rule metadata, indexed by `rule_id`, kept Rust-side for building the
+/// corrective-feedback payload (docs/feedback-design.md §6).
+#[derive(Clone)]
+pub struct RuleMeta {
+    pub name: String,
+    pub reason: String,
+    pub remediation: Option<String>,
+    pub effect: Effect,
+    /// Operations the rule denies (e.g. "exec", "write"), de-duplicated.
+    pub ops: Vec<String>,
+}
+
 pub struct Compiled {
     pub bytes: Vec<u8>,
     pub reasons: Vec<String>, // indexed by rule_id
+    pub meta: Vec<RuleMeta>,  // indexed by rule_id
 }
 
 pub fn compile(pol: &Policy) -> Result<Compiled, String> {
@@ -264,6 +302,7 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
     let mut sources: Vec<CSource> = Vec::new();
     let mut rules: Vec<CRule> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
+    let mut meta: Vec<RuleMeta> = Vec::new();
     let mut xforms: Vec<CXform> = Vec::new();
 
     for s in &pol.sources {
@@ -304,6 +343,20 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
     }
     for (rid, rule) in pol.rules.iter().enumerate() {
         reasons.push(rule.reason.clone());
+        let mut ops: Vec<String> = Vec::new();
+        for cl in &rule.clauses {
+            let s = op_name(cl.op).to_string();
+            if !ops.contains(&s) {
+                ops.push(s);
+            }
+        }
+        meta.push(RuleMeta {
+            name: rule.name.clone(),
+            reason: rule.reason.clone(),
+            remediation: rule.remediation.clone(),
+            effect: rule.effect,
+            ops,
+        });
         for cl in &rule.clauses {
             for op in op_lowers(cl.op)? {
                 let op = *op;
@@ -349,6 +402,7 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
                         cond_kind: ck,
                         cond_neg: cneg,
                         cond_match: cm,
+                        effect: lower_effect(rule.effect),
                         target: [0; PAT],
                         arg: [0; ARG],
                         cond_pat: [0; PAT],
@@ -412,5 +466,9 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
         )
     }
     .to_vec();
-    Ok(Compiled { bytes, reasons })
+    Ok(Compiled {
+        bytes,
+        reasons,
+        meta,
+    })
 }

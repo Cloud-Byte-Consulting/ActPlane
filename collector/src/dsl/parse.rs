@@ -169,15 +169,22 @@ impl P {
                 if negate {
                     self.next();
                 }
-                Ok(Cond::Target { negate, pattern: self.string()? })
+                Ok(Cond::Target {
+                    negate,
+                    pattern: self.string()?,
+                })
             }
             "lineage-includes" => {
                 self.eat("exec")?;
-                Ok(Cond::LineageIncludes { exec: self.string()? })
+                Ok(Cond::LineageIncludes {
+                    exec: self.string()?,
+                })
             }
             "after" => {
                 self.eat("exec")?;
-                Ok(Cond::After { exec: self.string()? })
+                Ok(Cond::After {
+                    exec: self.string()?,
+                })
             }
             _ => Err(format!("unknown unless cond '{}'", w)),
         }
@@ -198,7 +205,12 @@ impl P {
         } else {
             None
         };
-        Ok(Clause { op, target, when, unless })
+        Ok(Clause {
+            op,
+            target,
+            when,
+            unless,
+        })
     }
 }
 
@@ -224,7 +236,11 @@ pub fn parse(src: &str) -> Result<Policy, String> {
                 }
                 let kind = P::kind(&p.word()?)?;
                 let pattern = p.string()?;
-                pol.sources.push(Source { label, kind, pattern });
+                pol.sources.push(Source {
+                    label,
+                    kind,
+                    pattern,
+                });
             }
             "declassify" | "endorse" => {
                 let endorse = kw == "endorse";
@@ -233,7 +249,11 @@ pub fn parse(src: &str) -> Result<Policy, String> {
                 p.eat("by")?;
                 p.eat("exec")?;
                 let gate = p.string()?;
-                pol.xforms.push(Xform { endorse, label, gate });
+                pol.xforms.push(Xform {
+                    endorse,
+                    label,
+                    gate,
+                });
             }
             "rule" => {
                 p.next();
@@ -244,18 +264,36 @@ pub fn parse(src: &str) -> Result<Policy, String> {
                 }
                 let mut clauses = Vec::new();
                 let mut reason = String::new();
+                let mut remediation = None;
+                let mut effect = Effect::default();
                 loop {
                     if p.is_word("deny") {
                         clauses.push(p.clause()?);
                     } else if p.is_word("reason") {
                         p.next();
                         reason = p.string()?;
-                        break;
+                    } else if p.is_word("remediation") {
+                        p.next();
+                        remediation = Some(p.string()?);
+                    } else if p.is_word("effect") || p.is_word("action") || p.is_word("enforce") {
+                        p.next();
+                        effect = match p.word()?.as_str() {
+                            "audit" | "warn" => Effect::Audit,
+                            "block" | "gate" => Effect::Block,
+                            "kill" => Effect::Kill,
+                            o => return Err(format!("unknown rule effect '{}'", o)),
+                        };
                     } else {
                         break;
                     }
                 }
-                pol.rules.push(Rule { name, clauses, reason });
+                pol.rules.push(Rule {
+                    name,
+                    clauses,
+                    reason,
+                    remediation,
+                    effect,
+                });
             }
             other => return Err(format!("unknown declaration '{}'", other)),
         }
