@@ -92,13 +92,36 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	return 0;
 }
 
-static __always_inline void do_open(pid_t pid, const char *upath)
+/* open flag bits (not always in vmlinux.h) */
+#ifndef O_WRONLY
+#define O_WRONLY 00000001
+#endif
+#ifndef O_RDWR
+#define O_RDWR 00000002
+#endif
+#ifndef O_CREAT
+#define O_CREAT 00000100
+#endif
+#ifndef O_TRUNC
+#define O_TRUNC 00001000
+#endif
+#define TAINT_WRITE_FLAGS (O_WRONLY | O_RDWR | O_CREAT | O_TRUNC)
+
+static __always_inline void do_open(pid_t pid, const char *upath, u64 flags)
 {
 	char path[MAX_FILENAME_LEN];
 	int rid;
 	if (bpf_probe_read_user_str(path, sizeof(path), upath) < 0)
 		return;
-	te_read(pid, path); /* file -> proc propagation + file source */
+	te_read(pid, path); /* read(p,f): proc absorbs file labels + file source */
+	if (flags & TAINT_WRITE_FLAGS) {
+		te_write_flow(pid, path); /* write(p,f): file inherits writer labels */
+		rid = te_check(pid, TOP_WRITE, path, 0, 0);
+		if (rid >= 0) {
+			emit_violation(pid, rid, path, 0);
+			return;
+		}
+	}
 	rid = te_check(pid, TOP_OPEN, path, 0, 0);
 	if (rid >= 0)
 		emit_violation(pid, rid, path, 0);
@@ -107,14 +130,14 @@ static __always_inline void do_open(pid_t pid, const char *upath)
 SEC("tp/syscalls/sys_enter_openat")
 int trace_openat(struct trace_event_raw_sys_enter *ctx)
 {
-	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1]);
+	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[1], ctx->args[2]);
 	return 0;
 }
 
 SEC("tp/syscalls/sys_enter_open")
 int trace_open(struct trace_event_raw_sys_enter *ctx)
 {
-	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0]);
+	do_open(bpf_get_current_pid_tgid() >> 32, (const char *)ctx->args[0], ctx->args[1]);
 	return 0;
 }
 

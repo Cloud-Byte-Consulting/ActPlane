@@ -4,12 +4,25 @@
 >
 > **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel taint *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
-> **Status: implemented** (compiler + kernel engine), with one honest caveat below.
+> **Status: implemented and verified end-to-end** (compiler + kernel engine; all 12 examples enforce live).
 > - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse. 13 unit tests (E1–E12 compile).
 > - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, process+file+endpoint data-flow propagation (fork/exec/read/write/connect), `@arg`, exact/prefix/suffix/any matching, numeric IPv4 connect. Verifier-loadable; matching predicates have 30 unit tests (`test_taint.c`).
 > - **Loader** `bpf/process.c` installs the compiled config and reports only `TAINT_VIOLATION`.
 >
-> **Caveat (honest):** the full multi-construct *live* enforcement (all of E1–E12 firing on a real kernel in one run) was not cleanly reproducible in the dev sandbox (privileged background + `/tmp` isolation issues). The simpler exec/open/write/connect engine was demonstrated enforcing end-to-end earlier; the full engine compiles, the verifier accepts it, exact/prefix matching is confirmed (no false positives), and every construct is unit-tested at the predicate + compiler level. A clean end-to-end pass of all 12 on a stable host remains to be recorded. The corrective-feedback loop and agent eval are still not built.
+ **Live enforcement (verified on a real kernel, 6.15):** all 12 examples E1–E12 are exercised by `test/e2e_examples.sh` (`sudo bash test/e2e_examples.sh`), which loads each example's own compiled policy, fires a trigger, and checks both the violation **and** the suppression of the allowed/declassified case. Latest run: **11/11 cases pass** (E8 is folded into E1's declassify path). Each case uses copies of `/bin/bash` renamed to the agent/tool names (exec sources match `comm`) and `/bin/true` renamed to `git` (so `@arg` cases get a clean argv). What each verifies:
+> - **E1/E8** secret no-exfil + declassify — `read .env` taints the shell `SECRET`; the connect fires; the same flow through `redact` is suppressed.
+> - **E2** prompt-injection — a process tainted from `downloads/` running `git push` fires; with `human-approve` (`endorse REVIEWED`) first it is suppressed.
+> - **E3** mandatory mediation — agent's `open prod.db` fires; the same open under `migrate` lineage is suppressed.
+> - **E4** workspace confinement — `unlink` outside `work/` fires; inside it is suppressed.
+> - **E5** test-before-commit — `git commit` fires; after `pytest` in the session it is suppressed.
+> - **E6** read-only sub-agent — `research-agent` execing `git` fires.
+> - **E7** transitive derivation — process A taints `out.json` by writing it; unrelated process B reads `out.json` and its connect fires (B never touched the secret).
+> - **E9** cross-tool/unbypassable — agent-descended `git` fires; an identical `git` from a plain `bash` does not.
+> - **E10** provenance-scoped egress — PII-tainted process connecting to an external IP fires; to an internal-scoped IP it is suppressed.
+> - **E11** destructive needs confirm — `git --force` fires; with `confirm` in lineage it is suppressed.
+> - **E12** task non-interference — a process carrying both `TASK_A` and `TASK_B` running `git commit` fires; `TASK_A` alone does not.
+>
+> Two notes from bringing the suite up: (1) `write(p,f)` propagation (§1.5) now fires on `open`-for-write (O_WRONLY/O_RDWR/O_CREAT/O_TRUNC), not only on unlink/rename — this is what makes E7 work. (2) The kernel matcher has only exact/prefix/suffix/any (no **infix** glob), so an `**/X/**` source pattern is unsupported; the concrete prefix form (`/path/X/**`, as in E10's `/data/customers/**`) is used instead. E10's host-glob `*.internal` is likewise adapted to an IP scope (`127.`), since `connect` matches numeric IPv4. The corrective-feedback *loop* (beyond the current reason-printing report) and an agent evaluation remain.
 
 ---
 
@@ -265,4 +278,4 @@ Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat ke
 - **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + propagation + `te_check`/`te_connect_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
 - **`bpf/process.bpf.c`** — fork/exec/exit/open/mutate/connect hooks; one emitter (`emit_violation`). **`bpf/process.c`** — installs config, reports violations.
 
-Engineering notes (verifier): patterns are copied rodata→local before matching (direct `volatile` reads mis-evaluate); heavy helpers are `__noinline` (stack budget); buffers are ≥ `TAINT_PAT_LEN`; argv/index access uses explicit bound guards (index masking makes clang emit a pointer-OR the verifier rejects); connect matches numeric IPv4 (no in-kernel string formatting). See §6 status note at the top for what remains unverified end-to-end.
+Engineering notes (verifier): patterns are copied rodata→local before matching (direct `volatile` reads mis-evaluate); heavy helpers are `__noinline` (stack budget); buffers are ≥ `TAINT_PAT_LEN`; argv/index access uses explicit bound guards (index masking makes clang emit a pointer-OR the verifier rejects); connect matches numeric IPv4 (no in-kernel string formatting). See the status note at the top for what is verified live and what remains.

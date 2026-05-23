@@ -4,124 +4,130 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-AgentSight is an eBPF-based observability framework for monitoring AI agent behavior through SSL/TLS traffic interception and process monitoring. It captures unencrypted request/response data at the kernel level without requiring any code changes to target applications.
+ActPlane is an **OS-enforced harness for AI agents**. It compiles a taint-DSL
+policy to an in-kernel eBPF enforcer that propagates information-flow taint across
+process / file / network edges and reports **only** rule violations — each with a
+human-readable reason (the corrective-feedback payload). It enforces below the
+tool layer (at the syscall boundary), so constraints hold across any tool,
+subprocess, or direct syscall the agent uses.
+
+The repo descends from AgentSight (an eBPF observability framework); the SSL/HTTP
+analyzer chain, runners, web server, and frontend were removed. What remains is the
+taint enforcer plus a minimal Rust compiler/driver.
 
 ## Build & Test Commands
 
 ```bash
-# Full build (eBPF + Rust collector + frontend)
-make build
+make                                    # build bpf/ then collector/
+make test                               # bpf C unit tests + collector Rust tests
+sudo bash test/e2e_examples.sh          # live enforcement of all 12 examples (E1–E12)
 
-# Individual components
-make build-bpf                          # eBPF C programs only
-cd collector && cargo build --release   # Rust collector only
-cd frontend && npm install && npm run build  # Frontend only
+# individual components
+make -C bpf                             # eBPF programs + loaders
+make -C bpf test                        # C unit tests (test_taint)
+cd collector && cargo build --release   # Rust compiler/driver (-> target/release/actplane)
+cd collector && cargo test              # DSL compiler tests
+cd collector && cargo test <name>       # a single test
 
-# Tests
-cd bpf && make test              # 60 C unit tests
-cd collector && cargo test       # 89+ Rust tests
-cd frontend && npm run lint      # Frontend linting
-
-# Run a single Rust test
-cd collector && cargo test test_name
-
-# Debug builds with AddressSanitizer
-cd bpf && make debug
-cd bpf && make sslsniff-debug
-
-# Install system dependencies (Ubuntu/Debian)
-make install
+make -C bpf debug                       # AddressSanitizer build of the loaders
 ```
 
 ## Running
 
 ```bash
-# Record Claude Code (requires --binary-path for statically-linked BoringSSL)
-sudo ./agentsight record -c claude --binary-path ~/.local/share/claude/versions/<version>
+# compile + enforce a policy
+sudo ./collector/target/release/actplane policy.dsl
 
-# Record Python AI tools
-sudo ./agentsight record -c python
+# compile only -> kernel config blob
+./collector/target/release/actplane policy.dsl --out policy.bin
 
-# Record with NVM Node.js (statically-linked OpenSSL)
-sudo ./agentsight record -c node --binary-path ~/.nvm/versions/node/v20.0.0/bin/node
-
-# Direct eBPF program usage
-sudo ./bpf/sslsniff --binary-path <path>
-sudo ./bpf/process -c python
-
-# Web UI available at http://127.0.0.1:7395 when using record/trace with --server
+# run the kernel enforcer directly against a compiled blob
+sudo ./bpf/process --config policy.bin
 ```
+
+Requires `sudo` (or `CAP_BPF` + `CAP_SYS_ADMIN`) and a recent kernel (5.8+,
+developed on 6.15).
 
 ## Architecture
 
 ```
-eBPF Programs (kernel) → JSON stdout → Rust Runners → Analyzer Chain → Output/Frontend/Files
+policy.dsl ─▶ collector (Rust) ─▶ struct taint_config ─▶ eBPF engine ─▶ TAINT_VIOLATION (+reason)
+              parse + lower          (rodata blob)         propagate,
+                                                           match, detect
 ```
 
-### Key Components
+### Kernel (`bpf/`)
 
-- **`bpf/`** — C eBPF programs. `sslsniff` hooks SSL_read/SSL_write via uprobes; `process` tracks process lifecycle via tracepoints. Both emit JSON to stdout.
-- **`collector/src/framework/`** — Rust streaming framework:
-  - `runners/` — Execute eBPF binaries and parse their JSON output into event streams (SslRunner, ProcessRunner, SystemRunner, FakeRunner)
-  - `analyzers/` — Pluggable stream processors: ChunkMerger, SSEProcessor, HTTPParser, SSLFilter, HTTPFilter, FileLogger, AuthHeaderRemover
-  - `core/events.rs` — Standardized `Event` struct with JSON payloads
-  - `binary_extractor.rs` — Extracts embedded eBPF binaries to temp files at runtime
-- **`collector/src/main.rs`** — CLI entry point. Subcommands: `ssl`, `process`, `trace` (most flexible), `record` (optimized defaults)
-- **`collector/src/server/`** — Hyper-based embedded web server serving frontend assets and `/api/events`
-- **`frontend/`** — Next.js/React/TypeScript visualization with timeline, process tree, and log views
+- `taint.h` — the rule **ABI** (shared, byte-for-byte, with the Rust compiler) and
+  the matching predicates. Structs: `taint_source`, `taint_rule`, `taint_xform`,
+  `taint_gate`, `taint_config`. Enums: `taint_match` (EXACT/PREFIX/SUFFIX/ANY),
+  `taint_src_kind`, `taint_op` (EXEC/OPEN/WRITE/CONNECT), `taint_cond`
+  (NONE/LINEAGE/AFTER/TARGET). Matchers: `taint_streq/prefix/suffix/match`,
+  `taint_mask_ok`, `taint_arg_match`.
+- `taint_engine.bpf.h` — engine state + `te_*` helpers. Maps: `ts_proc`
+  (pid → labels + lineage gates), `ts_root`, `ts_sess`, `ts_file` (fnv1a(path) →
+  labels), `ts_endp` (IPv4 → labels). Rodata rule tables filled by the loader.
+- `process.bpf.c` — the hooks (fork/exec/exit/open/unlink/rename/connect). The only
+  output channel is `emit_violation()`.
+- `process.c` — loader: `--config` reads the blob into rodata, attaches, prints
+  `TAINT_VIOLATION` as NDJSON.
 
-### Data Flow
+### Collector (`collector/src/`)
 
-Runners use a fluent builder pattern: `SslRunner::new().with_args(&args).add_analyzer(Box::new(HTTPParser::new())).run().await`
+- `main.rs` — driver: read policy → `dsl::compile_str` → temp blob → spawn loader →
+  parse `Violation` lines → `report()` with the reason.
+- `dsl/` — `ast.rs`, `parse.rs` (lexer + recursive-descent), `lower.rs` (`#[repr(C)]`
+  mirrors of the C structs + `compile()`: bit allocation, `dnf()` label-expr
+  expansion, glob lowering), `mod.rs` (`compile_str` + tests E1–E12).
+- `binary_extractor.rs` — embeds `bpf/process` via `include_bytes!`, extracts at
+  runtime so `actplane` is self-contained.
 
-Each Runner produces an `EventStream` (async Stream of Events). Analyzers transform streams in sequence. The `AgentRunner` orchestrates multiple runners concurrently via `RunnerOrchestrator`.
+### Taint model
 
-### Timestamp Convention
+Each node carries a `u64` label mask. Sources add labels (exec comm / file path /
+endpoint IP). Propagation: fork→inherit, exec→apply source/xform/gate, read→file
+labels into proc, write→proc labels into file, connect→proc labels to endpoint.
+Sinks match a label mask (`req` AND / `forbid` NOT, DNF-expanded) + target pattern
++ optional `@arg` + optional condition (lineage-includes / after / target-scope).
+Full semantics and 12 examples: `docs/taint-dsl.md`.
 
-All timestamps are nanoseconds since boot (`bpf_ktime_get_ns()`). `Event::datetime()` converts to wall-clock time using boot time from `/proc/stat`.
+## Critical: the Rust↔C ABI
 
-## Critical: `--binary-path` and `--comm` Interaction
+`collector/src/dsl/lower.rs`'s `#[repr(C)]` structs are **byte-identical** to the C
+structs in `bpf/taint.h`. The blob is serialized with `from_raw_parts` and read
+directly into the BPF rodata. Any change to `taint.h` MUST be mirrored in
+`lower.rs` (and vice versa). The `fixed-size` test in `dsl/mod.rs` guards total
+`CConfig` size against drift.
 
-Applications that statically link SSL (Claude/Bun uses BoringSSL, NVM Node.js uses OpenSSL) require `--binary-path` because there's no system `libssl.so` to hook. When `--binary-path` is specified:
+## eBPF verifier gotchas (see bpf/README.md for detail)
 
-1. sslsniff tries symbol lookup first, then falls back to **BoringSSL byte-pattern detection** for stripped binaries
-2. The `--comm` filter is **NOT passed to sslsniff** (only to the process runner) — because `bpf_get_current_comm()` returns the thread name, not the process name. Claude's SSL traffic runs on an "HTTP Client" thread, so `-c claude` would filter out all SSL traffic.
-
-This logic is in `run_trace()` in `collector/src/main.rs` (around line 485).
+- Mark deep helpers `__noinline` (own stack frame); `te_check` takes ≤ 5 args.
+- Copy each rodata rule into a non-volatile local before matching; matchers take
+  `const char *`, not `const volatile char *`.
+- Use explicit `if (idx < N)` bound guards, never `idx & (N-1)` (pointer-OR reject).
+- Match buffers must be ≥ `TAINT_PAT_LEN`.
+- connect uses numeric IPv4 (net+mask) — no in-kernel string formatting.
 
 ## Development Patterns
 
-### Adding a New Analyzer
+### Adding a DSL construct
 
-1. Implement `Analyzer` trait in `collector/src/framework/analyzers/`
-2. Core method: `async fn analyze(&self, events: EventStream) -> EventStream`
-3. Export in `analyzers/mod.rs`
-4. Attach via `.add_analyzer(Box::new(MyAnalyzer::new()))` on any runner
+1. Extend the grammar in `dsl/parse.rs` and the AST in `dsl/ast.rs`.
+2. Lower it in `dsl/lower.rs`; if it needs new kernel state, extend `taint.h`
+   (both sides) and the engine in `taint_engine.bpf.h`.
+3. Add a worked example + test in `dsl/mod.rs` and document it in `docs/taint-dsl.md`.
 
-### Adding a New Runner
+### Adding a kernel hook
 
-1. Implement `Runner` trait in `collector/src/framework/runners/`
-2. Use `BinaryExecutor` for running external binaries and parsing JSON output
-3. Use fluent builder pattern for configuration
-4. Export in `runners/mod.rs`
-
-### Adding a New eBPF Program
-
-1. Create `name.bpf.c` (kernel) and `name.c` (userspace) in `bpf/`
-2. Add to `APPS` variable in `bpf/Makefile`
-3. Use CO-RE pattern with architecture-specific `vmlinux.h` from `vmlinux/`
-4. Output JSON to stdout; debug info to stderr
-
-## CLI Subcommands
-
-- **`record`** — Optimized agent recording with predefined filters. Always enables SSL + process + system monitoring and web server on port 7395. `--comm` is required.
-- **`trace`** — Most flexible. Toggle `--ssl`, `--process`, `--server` independently. Supports `--ssl-filter`, `--http-filter`, `--binary-path`.
-- **`ssl`** — Raw SSL events only. Passes extra args directly to sslsniff after `--`.
-- **`process`** — Process events only.
+1. Add a `SEC("tp/...")` handler in `process.bpf.c`.
+2. Call the appropriate `te_*` propagation helper, then `te_check` / `te_connect_check`.
+3. Emit only via `emit_violation()`.
 
 ## Common Issues
 
-- **No SSL capture from Claude/Bun**: Must use `--binary-path` pointing to the actual binary. BoringSSL is statically linked and stripped.
-- **`--comm` filter drops all SSL events**: SSL runs on "HTTP Client" thread, not the process name thread. Fixed: `--comm` is auto-skipped for sslsniff when `--binary-path` is set.
-- **eBPF permission errors**: Requires `sudo` or `CAP_BPF` + `CAP_SYS_ADMIN`.
-- **Port 7395 conflict**: Default web server port. Change with `--server-port`.
+- **eBPF permission errors**: needs `sudo` or `CAP_BPF` + `CAP_SYS_ADMIN`.
+- **No violations fire**: confirm the loader printed `ActPlane: N sources, N rules,
+  ...` (rodata loaded) and that exec patterns match `comm` (basename, ≤ 15 chars),
+  not the full path.
+- **ABI size mismatch on load** ("config size mismatch"): `lower.rs` and `taint.h`
+  drifted — re-sync the structs.
