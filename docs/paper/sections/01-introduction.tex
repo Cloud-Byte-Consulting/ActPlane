@@ -1,0 +1,65 @@
+\section{Introduction}
+
+AI coding agents increasingly operate as long-running processes with access to
+shells, source trees, package managers, browsers, issue trackers, and external
+APIs. Project maintainers attempt to steer these agents with instruction files
+such as \texttt{CLAUDE.md} and \texttt{AGENTS.md}: do not push directly to
+\texttt{main}; run tests before committing; never expose secrets; use a specific
+review tool before destructive operations. These are not simply style
+preferences. Many are behavioral invariants over the agent's execution.
+
+The problem is that the dominant enforcement point is still the prompt or the
+tool-call API. Prompt rules are probabilistic, and tool-level guards only see
+actions that pass through the guarded API. A coding agent that forgets a rule
+can invoke \texttt{bash -c}, use \texttt{python -c subprocess.run(...)}, run an
+SDK, or call a syscall through a helper. The agent need not be malicious for the
+guardrail to fail; it only needs enough autonomy to route around the layer where
+the rule was encoded.
+
+ActPlane takes the harness boundary below the tool layer. It treats an agent
+run as an OS execution tree and enforces policies at kernel observation and
+mediation points. Policies are expressed as typed information-flow rules:
+sources label processes, files, and endpoints; labels propagate through
+fork/exec, file reads and writes, and connect-level endpoint edges; sinks declare which labeled
+subjects may not perform which actions. Enforcement happens through BPF-LSM
+hooks when the kernel can deny before commit, and through tracepoints when only
+observation or harness-level termination is available.
+
+This framing differs from both traditional sandboxing and traditional access
+control. A sandbox usually draws a coarse perimeter around the entire agent.
+Access control asks whether a principal may touch a resource. An agent harness
+instead encodes workflow contracts over a cooperative but fallible actor:
+\emph{if this action violates the contract, fail it and explain how to proceed}.
+The feedback path matters because a coding agent can often recover: after being
+told that it must run tests before committing, it can run the tests and retry.
+
+ActPlane's core technical claim is not that in-kernel provenance enforcement is
+new. Systems such as CamQuery already showed that labels can be propagated over
+process, file, and network provenance and used to prevent policy
+violations~\cite{pasquier2018camquery}. ActPlane's contribution is to make this
+mechanism an agent harness: a modern eBPF/BPF-LSM implementation, an
+agent-oriented rule language, and a corrective feedback loop integrated with
+contemporary coding agents.
+
+This paper makes four contributions.
+
+\begin{itemize}
+\item It defines OS-enforced agent harnesses as behavioral invariants plus
+corrective feedback over an agent's whole execution, and explains why the
+enforcement point must be below the tool API for shell/subprocess/SDK bypasses.
+\item It presents a compact policy language for source/sink/gate rules over
+process, file, and endpoint objects, including explicit \texttt{audit},
+\texttt{block}, and \texttt{kill} effects.
+\item It describes an implementation that compiles policies into a fixed kernel
+ABI, propagates labels in eBPF maps, checks rules at tracepoints and BPF-LSM
+hooks, and bridges kernel violations into agent feedback files and post-tool
+hooks.
+\item It lays out an evaluation plan, derived from real agent instruction
+files, for measuring bypass coverage, recovery from corrective feedback,
+false positives, overhead, and expressiveness against tool-layer and kernel
+baselines.
+\end{itemize}
+
+The paper does not report evaluation numbers until they can be regenerated from
+the experiment artifacts. The evaluation section specifies the experiments and
+result tables, with result cells marked \textsc{TBD}.
