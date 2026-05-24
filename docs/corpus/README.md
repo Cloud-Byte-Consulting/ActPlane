@@ -7,7 +7,7 @@
 ## 目录结构（每仓一个文件夹）
 
 ```
-corpus/
+docs/corpus/
   collect.sh                 # 采集脚本（唯一事实来源，可复现）
   manifest.jsonl             # 150 行，每行一个仓库的 meta（机读聚合，含 excluded 标记）
   queries.log                # 每条 GitHub API 查询串 + 时间戳（可复现）

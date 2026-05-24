@@ -305,7 +305,7 @@ enforce at the **tool/SDK layer (L1)**, not the kernel.
 
 ## 7. Empirical studies of CLAUDE.md / AGENTS.md context files (2025–2026)
 
-The **prior work most directly adjacent to ActPlane's corpus study** (`corpus/`,
+The **prior work most directly adjacent to ActPlane's corpus study** (`docs/corpus/`,
 `docs/tmp/corpus-analysis.md`). Crucial framing: **all of these study *content
 taxonomy*, *structure*, *maintenance*, or *task efficiency* — none studies which
 instructions are *behavioral/flow constraints* or whether they are *enforceable*

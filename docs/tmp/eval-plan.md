@@ -7,14 +7,15 @@
 >
 > 上游依据:`actplane-research-plan.md` §6(novelty/baseline)、`feedback-design.md` §8
 > (四条件 C1–C4 + 假设 H1–H4)、`agent-policy-survey.md` §5/§7(D1–D7 编码、κ、四条件)、
-> `corpus/` 与 `docs/tmp/corpus-analysis.md`(144 仓真实语料)。E1–E12 见 `taint-dsl.md`。
+> `docs/corpus/` 与 `docs/tmp/corpus-analysis.md`(144 仓真实语料)。E1–E12 见 `taint-dsl.md`。
 
 ---
 
 ## 0. 研究问题（RQs）
 
-- **RQ1（覆盖/抗绕过）**：ActPlane 是否在 syscall/LSM 层强制约束,使 agent 经任何路径
-  (工具调用 / `bash -c` / `subprocess` / 直接 syscall)的改道都被拦截并反馈?——核心卖点。
+- **RQ1（跨路径覆盖）**：ActPlane 是否在 syscall/LSM 层强制约束,使**合作 agent 自然会走的
+  任何路径**(工具调用 / `bash -c` / `subprocess` / 直接 syscall)都被拦截并反馈?——核心卖点。
+  (威胁模型是"合作但健忘"的 agent,不是对抗者;这里测的是*覆盖/可靠性*,不是抗规避。)
 - **RQ2（纠偏闭环）**：把内核违规理由以语义反馈回灌给合作 agent,是否**提升受约束下的
   任务完成率、减少重复违规**?(claim 2)
 - **RQ3（精度/误报）**：ActPlane 拦错正常工作的比例有多低?declassify/gate 放行路径是否如期?
@@ -43,11 +44,11 @@
 >
 > | 用途 | workload 来源 | 理由 |
 > |---|---|---|
-> | **安全/违规**(E1,E3) | **复用 AgentDojo / AgentHarm 的任务**,并**额外把其攻击/违规路径改写成 `bash -c`/subprocess/直接 syscall** | 借第三方任务集摆脱"自造 benchmark";cross-path 改写是这些 benchmark 都没测、且正是 ActPlane 独有的维度 |
+> | **约束触发/覆盖**(E1,E3) | **真实编码任务中"最自然的解法会触发某条约束"的场景**(从 SWE-bench / Terminal-Bench 子集挑),并覆盖**合作 agent 自然会走的非工具路径**(`bash -c`/subprocess/直接 syscall) | 用第三方真实任务摆脱"自造 benchmark";cross-path 覆盖是工具层 guardrail 漏掉、ActPlane 独有的维度。(注:对抗类 benchmark 如 AgentDojo/AgentHarm 与"合作 agent"模型不符,不作主力。) |
 > | **完成率**(E2) | **SWE-bench(-Verified) / Terminal-Bench 子集**,挑"最自然解法会违反某策略"的任务 | 有自动判定器(测试通过=完成),解决"完成"无 oracle 的问题;是公认真实负载 |
 > | **开销**(E4) | **syscall 密集的真实负载**:真编译项目、跑 pytest 全套、大规模文件 refactor、git 操作 + 真实 agent session 的 syscall trace | OSDI 要真实负载下的 p99,微基准不够 |
 >
-> 贡献叙述应是"**在第三方真实任务 + 真实绕过路径下的内核强制**",而非"我们设计了一套场景"。
+> 贡献叙述应是"**在第三方真实任务上、覆盖合作 agent 自然会走的所有路径的内核强制**",而非"我们设计了一套场景"。
 
 ### 1.3 基线系统（`research-plan §6` 指定）
 | 基线 | 层 | 跑法 |
@@ -158,7 +159,7 @@
 ## 7. E6 — Baseline head-to-head 汇总（RQ6）
 
 一张表,在**相同场景**上实跑能跑的基线,维度:
-**强制层 · 强制/检测 · 跨通道(P/F/N) · 抗绕过 · 污点传播 · agent 导向 · 语义反馈 · 开销**。
+**强制层 · 强制/检测 · 跨通道(P/F/N) · 跨路径覆盖 · 污点传播 · agent 导向 · 语义反馈 · 开销**。
 预期:唯一同时填满 **〔L3 内核跨通道 typed-taint〕×〔agent 导向〕×〔语义纠偏反馈〕** 的是 ActPlane
 (CamQuery 缺 agent+反馈;Tetragon/OAMAC 单通道或无污点;Progent/AgentSpec 在可绕的 L1)。
 CamQuery 若无法在现代内核复跑,则定性对比 + 引其论文数据,并诚实声明。
@@ -215,7 +216,8 @@ CamQuery 若无法在现代内核复跑,则定性对比 + 引其论文数据,并
    少量高代表性场景(每个 D1 类别 1–2 条)× 充足 N,而非全场景浅跑;或先单 agent(Claude Code)跑通,
    Codex 作复现性附录。
 5. **E1–E12 的角色**:它们是 **DSL 能力测试 / 正确性单元测试**(每个构造可编译可强制),**不是 eval
-   workload**。eval workload 见 §1.2 补充框(AgentDojo/AgentHarm + SWE-bench + 真实 syscall 负载)。
+   workload**。eval workload 见 §1.2 补充框(SWE-bench / Terminal-Bench + 真实 syscall 负载)。
 
-> 一句话:**机制 + E1 跨路径 + E4 开销(含 vs CamQuery 的部署/开销优势)= 脊梁;workload 借第三方
-> (AgentDojo/AgentHarm/SWE-bench);E2 反馈与 E5 语料是支撑与 motivation,不是主 claim。**
+> 一句话:**机制 + E1 跨路径覆盖 + E4 开销(含 vs CamQuery 的部署/开销优势)= 脊梁;workload 借第三方
+> 真实任务(SWE-bench / Terminal-Bench);E2 反馈与 E5 语料是支撑与 motivation,不是主 claim。
+> 威胁模型是"合作但健忘"的 agent,全文按*可靠性/覆盖*而非*安全/抗规避*叙述。**

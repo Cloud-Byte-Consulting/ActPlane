@@ -1,20 +1,20 @@
 # 全量 144 仓语料分析（CLAUDE.md / AGENTS.md）
 
-> **定位**：本文件是对 ActPlane 论文实证语料（`corpus/`，快照 2026‑05）**全量 144 个入语料仓库**（`excluded:false`）的详细分析，按 [`agent-policy-survey.md`](../agent-policy-survey.md) 的研究方法学（RQ1–5、D1–D7 编码本、D5 三层可强制性、两数字报告原则、威胁有效性）展开，并把真实规则映射到 [`taint-dsl.md`](../taint-dsl.md) 的 12 个构造类例子 E1–E12。
+> **定位**：本文件是对 ActPlane 论文实证语料（`docs/corpus/`，快照 2026‑05）**全量 144 个入语料仓库**（`excluded:false`）的详细分析，按 [`agent-policy-survey.md`](../agent-policy-survey.md) 的研究方法学（RQ1–5、D1–D7 编码本、D5 三层可强制性、两数字报告原则、威胁有效性）展开，并把真实规则映射到 [`taint-dsl.md`](../taint-dsl.md) 的 12 个构造类例子 E1–E12。
 >
 > **方法学层级声明（关键）**：本分析是**多语言关键词/类别抽取**，对应 survey §4.2 里"LLM/脚本负责切分+预编码"的那一步，**不是**最终的逐规则 D1–D7 人工双编码 + κ 信度（survey §5）。因此**所有类别计数都是上界、含噪声**，必须经后续人工编码收敛。本文件如实标注每一类的信号干净度。它在方法学上**取代** [`analysis-rough.md`](analysis-rough.md)（那是 50 仓的旧版、更粗的关键词并集），并在全量 144 上更新了全部数字。
 >
-> **可复核性**：所有数字由两个落盘脚本产物支撑——`corpus/manifest.jsonl`（144 行 `excluded:false`）与 `corpus/candidate_rules_144.tsv`（本次抽取的 3762 条候选行，列 `repo,family,line_no,category_guess,text`）。下文每个数字都给出"怎么数的"。
+> **可复核性**：所有数字由两个落盘脚本产物支撑——`docs/corpus/manifest.jsonl`（144 行 `excluded:false`）与 `docs/corpus/candidate_rules_144.tsv`（本次抽取的 3762 条候选行，列 `repo,family,line_no,category_guess,text`）。下文每个数字都给出"怎么数的"。
 
 ---
 
 ## 1. 语料概览（仅 `excluded:false` 的 144 仓）
 
-> 数法：从 `manifest.jsonl` 取 `excluded:false` 的 144 条；文件规模直接对盘上 `corpus/<owner>__<repo>/{CLAUDE,AGENTS}.md` 字节/行数求和。
+> 数法：从 `manifest.jsonl` 取 `excluded:false` 的 144 条；文件规模直接对盘上 `docs/corpus/<owner>__<repo>/{CLAUDE,AGENTS}.md` 字节/行数求和。
 
 | 指标 | 值 |
 |------|----|
-| 入语料仓库数 | **144**（排除 6 个 <500B / 纯指针，见 `corpus/README.md`） |
+| 入语料仓库数 | **144**（排除 6 个 <500B / 纯指针，见 `docs/corpus/README.md`） |
 | 盘上指令文件数 | **228**（CLAUDE.md 113 + AGENTS.md 115） |
 | 总行数 / 总字节 | **39,803 行 / 2,284,687 B（≈2.18 MB）** |
 | 文件中位字节数 | 5,901 B |
@@ -51,7 +51,7 @@
 
 ### 2.2 抽取产物
 
-落盘 **`corpus/candidate_rules_144.tsv`**（列：`repo, family, line_no, category_guess, text`），共 **3762** 条候选行。
+落盘 **`docs/corpus/candidate_rules_144.tsv`**（列：`repo, family, line_no, category_guess, text`），共 **3762** 条候选行。
 
 - **含 ≥1 条信号行的仓**：**142 / 144**（仅 2 仓 0 条：`chroma-core/chroma`、`HKUDS/nanobot`——它们的指令文件几乎全是构建/架构说明，无任何祈使型约束）。
 - 这 3762 是**最宽口径**（任意 `must/only/before/always` 都计），**噪声极大**：抽样确认绝大多数是**编码风格 / 构建流程**（"All new backend code must be TypeScript"、"Never use `any`"、"imports at top"、"run pre-commit before committing"），属 **D1 = coding-style / build-setup，ActPlane 不管**。这与 survey §2/RQ1 的预期一致：指令文件主体在规约"怎么写代码"，行为约束是少数。
@@ -140,7 +140,7 @@
 
 ## 6. 代表性引文（真实文件原话，带 repo 来源；证明规则非臆造）
 
-> 全部摘自盘上 `corpus/<repo>/{CLAUDE,AGENTS}.md`，verbatim。
+> 全部摘自盘上 `docs/corpus/<repo>/{CLAUDE,AGENTS}.md`，verbatim。
 
 **secrets（E1/E7）**
 - `[Skyvern-AI/skyvern]` "Never commit secrets or credentials"
@@ -218,7 +218,7 @@
 - **类别多标签 + 文件去重**：#repos 口径稳健；#lines 已对字节相同的 CLAUDE/AGENTS 去重，但同一约束在不同措辞下仍可能被多计——最终应做规则级聚类（survey §6 `rule_cluster_id`）。
 - **two-number 原则已遵守**：70% 用无偏分母（含 0、未按因变量筛选）；58 仓子集已声明有偏、仅供 taxonomy/eval。绝未按"是否含行为约束"过滤语料。
 
-**采样/外部效度局限（继承自 survey §8 与 corpus/README）**：
+**采样/外部效度局限（继承自 survey §8 与 docs/corpus/README）**：
 - 仅 GitHub、仅 `CLAUDE.md`+`AGENTS.md` 两类文件、英文为主、**star 流行度偏置**、**单一时点快照**（2026‑05）、code search 仅索引部分仓、反 fake-star 过滤保守（可能漏真实低-issue 项目）。
 - 语料只能证明"开发者**写了**什么约束"，**不能**证明"agent **违反**了多少"——后者由 eval（survey §6/§7 的 C1–C4）给出。两类论断严格分离。
 

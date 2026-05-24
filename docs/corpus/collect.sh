@@ -4,8 +4,8 @@
 # AI-agent space that ship a CLAUDE.md or AGENTS.md, sorted by stars desc, and saves
 # one folder per repo: the raw file(s) + meta.json. Applies a code-project filter and
 # a fake-star authenticity filter (the AI-agent niche is heavily star-inflated).
-# Reproducible: every API query + every exclusion is logged. See corpus/README.md.
-# Usage: bash corpus/collect.sh [TARGET_HITS]
+# Reproducible: every API query + every exclusion is logged. See docs/corpus/README.md.
+# Usage: bash docs/corpus/collect.sh [TARGET_HITS]
 set -u
 cd "$(dirname "$0")"
 OUT="."

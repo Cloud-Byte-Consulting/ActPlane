@@ -123,7 +123,7 @@ LLM 负责"切分 + 预编码"以上规模，但：(a) 每条记录保留原文+
 格式选 **JSONL**（追加友好、可 diff、每条自包含）+ 原始字节留存 + JSON Schema 校验。**每条数据都带 provenance（URL + commit SHA + 行号区间 + 采集时间）**——这是可信度的底线。
 
 ```
-corpus/
+docs/corpus/
   raw/<sha256>.md            # 文件原始字节（离线、可复现）
   manifest.jsonl             # 每个 (repo,file) 一条
   rules.jsonl                # 每条抽取出的规则一条
