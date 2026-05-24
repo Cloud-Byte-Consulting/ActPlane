@@ -1,4 +1,4 @@
-# ActPlane: OS-Enforced Agent Harnesses
+# ActPlane: OS-Enforce AI Agent Harnesses with eBPF
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
