@@ -68,6 +68,21 @@ The key differences:
 - **Corrective feedback, not just blocking**: violations feed a human-readable reason back to the agent, so it can retry a different way. This is what makes it a harness, not a sandbox.
 - **Agent-maintained rules**: the rule language is designed so agents can write, validate (`actplane check`), and evolve their own contracts.
 
+## Harness, not just a sandbox
+
+A sandbox draws an isolation boundary: everything inside is allowed, everything
+outside is denied. That works for untrusted code, but agents need something
+richer.
+
+- **Data-flow constraints**: a sandbox only guards the boundary. A harness can express "data read from A must never flow to B", across arbitrary fork/exec chains.
+- **Causal ordering**: a sandbox cannot express "run tests before committing". A harness can, via `since` clauses and gate invalidation.
+- **Corrective feedback**: a sandbox returns EPERM and the agent is stuck. A harness returns a human-readable reason, so the agent retries a different way.
+- **Agent-authored rules**: a sandbox is imposed externally. A harness is collaborative: the agent writes, validates (`actplane check`), and evolves its own contracts.
+
+Sandboxes answer "can this process access this resource?" A harness answers
+"is this agent behaving according to its contract, and if not, how should it
+adjust?"
+
 ## How rules work
 
 Rules are **labeled information-flow contracts**, not static allow-lists.
@@ -76,19 +91,21 @@ constraints follow derived data across processes and files.
 
 ```yaml
 # actplane.yaml
-rules:
-  - name: no-secret-exfil
-    source: { file: "/etc/secrets/**" }
-    deny:
-      - { connect: "*" }
-      - { write: "/tmp/**" }
-    reason: "Data derived from secrets must not leave the machine."
-    effect: kill
+version: 1
+policy: |
+  label AGENT
+
+  rule no-git-branch:
+    deny exec "**/git" @arg "branch"   if AGENT
+    deny exec "**/git" @arg "worktree" if AGENT
+    effect kill
+    reason "This workspace forbids creating git branches or worktrees."
+    remediation "Use other git commands, or ask the user to manage branches"
 ```
 
-A process that reads `/etc/secrets/api-key` gets labeled. If any descendant of
-that process (however many hops) tries to connect to the network or write to
-`/tmp`, the kernel kills it and reports the reason.
+The agent can run `git commit`, `git status`, `git push`, but the moment
+anything in its process tree tries `git branch` or `git worktree`, the kernel
+kills it and feeds the reason back so the agent self-corrects.
 
 See [`docs/rule-language.md`](docs/rule-language.md) for the full rule language and
 worked examples.
