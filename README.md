@@ -79,9 +79,21 @@ richer.
 - **Corrective feedback**: a sandbox returns EPERM and the agent is stuck. A harness returns a human-readable reason, so the agent retries a different way.
 - **Agent-authored rules**: a sandbox is imposed externally. A harness is collaborative: the agent writes, validates (`actplane check`), and evolves its own contracts.
 
-Sandboxes answer "can this process access this resource?" A harness answers
-"is this agent behaving according to its contract, and if not, how should it
-adjust?"
+Sandboxes answer "can this process access this resource?" A harness answers a
+broader set of questions: not just security ("secret data must not reach the
+network") but also software engineering discipline ("run tests before
+committing", "don't mix data from independent tasks in one commit", "use the
+migration tool to access prod.db"). These are workflow constraints, not access
+control, and they are exactly the kind of rules agents need to operate
+autonomously in real codebases.
+
+A harness also subsumes sandboxing when you need it. When an agent spawns a
+sub-agent or runs an untrusted command, you can write a rule that confines the
+entire subtree to read-only, no-network, or a specific directory. This is
+especially important when agents cross vendor boundaries: Codex calling Claude
+Code, or the other way around. Framework-level guards from different vendors
+don't compose, but OS-level rules follow process lineage regardless of which
+runtime is underneath.
 
 ## How rules work
 
