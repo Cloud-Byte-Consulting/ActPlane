@@ -2,36 +2,12 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-ActPlane is an **OS-level harness for AI agents**. It lets you write behavioral
+ActPlane is an **OS-level harness for AI agents**. It lets you or AI agents write behavioral
 contracts for your agent in YAML, and enforces them deterministically at the OS
 level via eBPF, across every process, file access, and network connection, no
-matter how the agent gets there. When a contract is violated, ActPlane blocks
-the action and feeds the reason back to the agent so it self-corrects.
+matter how the agent gets there with scripts or commands. When a contract is violated, ActPlane blocks the action and feeds the reason back to the agent so it self-corrects.
 
 Prompt constraints are probabilistic. ActPlane is deterministic.
-
-## Why an OS-level harness?
-
-Agent constraints today come in three forms. Each solves a real problem but
-leaves a gap that the next layer down needs to cover.
-
-| Approach | What it does | What it can't cover |
-|----------|-------------|---------------------|
-| **Prompt constraints** (`CLAUDE.md`, `AGENTS.md`) | Tell the agent what to do and not do | Probabilistic: long-context agents forget or route around them, often non-maliciously |
-| **Tool-layer guards** (MCP gateways, AgentSpec) | Intercept and authorize at the tool API | Bypassed the moment the agent shells out, links an SDK, or spawns a subprocess |
-| **Sandboxes** (containers, VMs, E2B, Daytona) | Isolate the entire execution environment | All-or-nothing: can't express "file A must only be accessed via script A" or "run tests before committing" |
-
-ActPlane sits below all three, at the OS level. Every `exec`, file open, and
-network connect goes through the kernel, so a rule like *"nothing descended from
-`codex`, however many hops, may run `git` or modify files outside `/work`"*
-holds regardless of which tool path the agent takes.
-
-The key differences:
-
-- **OS-level coverage**: enforcement happens at the kernel, not the tool API. Bash, Python subprocess, direct SDK calls, all covered.
-- **Call-chain granularity**: rules follow process lineage, not just single operations. "Codex's entire subprocess tree cannot touch git" is one rule.
-- **Corrective feedback, not just blocking**: violations feed a human-readable reason back to the agent, so it can retry a different way. This is what makes it a harness, not a sandbox.
-- **Agent-maintained rules**: the rule language is designed so agents can write, validate (`actplane check`), and evolve their own contracts.
 
 ## Quickstart
 
@@ -71,6 +47,29 @@ constraint, and takes a different path to complete the task.
 `run`/`watch` load the eBPF enforcer, so they need root (or `CAP_BPF` +
 `CAP_SYS_ADMIN`); ActPlane drops the target command back to your user.
 
+## Why an OS-level harness?
+
+Agent constraints today come in three forms. Each solves a real problem but
+leaves a gap that the next layer down needs to cover.
+
+| Approach | What it does | What it can't cover |
+|----------|-------------|---------------------|
+| **Prompt constraints** (`CLAUDE.md`, `AGENTS.md`) | Tell the agent what to do and not do | Probabilistic: long-context agents forget or route around them, often non-maliciously |
+| **Tool-layer guards** (MCP gateways, AgentSpec) | Intercept and authorize at the tool API | Bypassed the moment the agent shells out, links an SDK, or spawns a subprocess |
+| **Sandboxes** (containers, VMs, E2B, Daytona) | Isolate the entire execution environment | All-or-nothing: can't express "file A must only be accessed via script A" or "run tests before committing" |
+
+ActPlane sits below all three, at the OS level. Every `exec`, file open, and
+network connect goes through the kernel, so a rule like *"nothing descended from
+`codex`, however many hops, may run `git` or modify files outside `/work`"*
+holds regardless of which tool path the agent takes.
+
+The key differences:
+
+- **OS-level coverage**: enforcement happens at the kernel, not the tool API. Bash, Python subprocess, direct SDK calls, all covered.
+- **Call-chain granularity**: rules follow process lineage, not just single operations. "Codex's entire subprocess tree cannot touch git" is one rule.
+- **Corrective feedback, not just blocking**: violations feed a human-readable reason back to the agent, so it can retry a different way. This is what makes it a harness, not a sandbox.
+- **Agent-maintained rules**: the rule language is designed so agents can write, validate (`actplane check`), and evolve their own contracts.
+
 ## How rules work
 
 Rules are **labeled information-flow contracts**, not static allow-lists.
@@ -93,7 +92,7 @@ A process that reads `/etc/secrets/api-key` gets labeled. If any descendant of
 that process (however many hops) tries to connect to the network or write to
 `/tmp`, the kernel kills it and reports the reason.
 
-See [`docs/taint-dsl.md`](docs/taint-dsl.md) for the full rule language and 12
+See [`docs/rule-language.md`](docs/taint-dsl.md) for the full rule language and 12
 worked examples.
 
 ## Agent integration
@@ -128,7 +127,7 @@ for the agent instruction snippet.
 ## How it works
 
 ```
-actplane.yaml ─▶ collector (Rust) ─▶ struct taint_config ─▶ eBPF kernel engine
+actplane.yaml ─▶ collector (Rust) ─▶ policy config ─▶ eBPF kernel engine
  policy: |        parse + lower DSL      (rodata blob)       propagate labels,
                                                               match rules,
  violations ◀──── NDJSON (TAINT_VIOLATION + reason) ◀─────── emit on match only
