@@ -117,6 +117,14 @@ for op in exec conn write; do
     printf '  %-6s %-12s ActPlane=%s L1=%s\n' "$op" "${PN[$p]}" "$ap" "$l1"
   done
 done
-{ echo; echo "**覆盖率: ActPlane $ap_hit/$ap_tot, L1 baseline $l1_hit/$l1_tot.**"; } >> "$md"
+{ echo; echo "**覆盖率: ActPlane $ap_hit/$ap_tot, L1 baseline $l1_hit/$l1_tot.**"; echo
+  echo "## L1 baseline 建模理由"
+  echo "L1 代表工具层 guardrail(AgentSpec/Progent/PreToolUse-hook):规则锚在被调用的工具/动作上,"
+  echo "建模为\"首命令 token 是否就是被禁的命名工具/动作\"——只在 p1(直接工具调用)命中;p2/p3/p4"
+  echo "分别表现为 bash/python/编译二进制,构造性失明。这是 baseline 的本质,不是实现缺陷。"; echo
+  echo "## write·syscall(p4)漏检的根因与修复"
+  echo "此前裸 C \`open(O_WRONLY|O_CREAT)\` 子进程的写被漏检(矩阵曾 11/12)。根因:\`sys_enter_openat\`"
+  echo "在 syscall 入口处用户页尚未驻留,\`bpf_probe_read_user_str\` 非缺页读返回 -EFAULT,该 open 被静默"
+  echo "丢弃。改为 sys_enter 暂存、sys_exit 读取(页已驻留)后转为 4/4(见 \`bpf/process.bpf.c\`)。"; } >> "$md"
 echo "== ActPlane $ap_hit/$ap_tot, L1 $l1_hit/$l1_tot =="
 echo "wrote $md / $csv"
