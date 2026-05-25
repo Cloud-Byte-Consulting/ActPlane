@@ -11,21 +11,20 @@ use clap::{Parser, Subcommand};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::time::timeout;
 
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 
-mod binary_extractor;
 mod dsl;
 mod feedback;
 
-use binary_extractor::BinaryExtractor;
+use actplane_bpf::Loader;
 
 type AnyError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, AnyError>;
@@ -292,30 +291,43 @@ async fn watch_policy(cli: &Cli) -> Result<i32> {
     let compiled = dsl::compile_str(&loaded.config.policy)?;
     let feedback = feedback_paths(&loaded);
     prepare_feedback_files(&feedback, target_user(cli.run_as_root))?;
-    let mut tmp = tempfile::NamedTempFile::new()?;
-    tmp.write_all(&compiled.bytes)?;
 
-    let extractor = BinaryExtractor::new().await?;
-    let mut enforcer = spawn_enforcer(&extractor, tmp.path(), None, None)?;
-    let stdout = enforcer.stdout.take().expect("piped stdout");
-    let stderr = enforcer.stderr.take().expect("piped stderr");
-    wait_for_ready(stderr).await?;
+    // Load + attach the in-process eBPF enforcer on a dedicated thread (aya
+    // state stays single-threaded); report violations until Ctrl-C.
+    let stop = Arc::new(AtomicBool::new(false));
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
+    let blob = compiled.bytes;
+    let meta = compiled.meta;
+    let fb = feedback.feedback.clone();
+    let stop_thread = stop.clone();
+    let poller = std::thread::spawn(move || {
+        let mut loader = match Loader::load(&blob) {
+            Ok(l) => l,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("load enforcer: {e}")));
+                return;
+            }
+        };
+        let _ = ready_tx.send(Ok(()));
+        let _ = loader.run(&stop_thread, |v| report(&meta, &to_violation(&v), Some(&fb)));
+    });
+
+    match ready_rx.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            let _ = poller.join();
+            return Err(e.into());
+        }
+        Err(_) => return Err("enforcer thread exited before readiness".into()),
+    }
     eprintln!(
         "ActPlane: watching with feedback file {}\n",
         feedback.feedback.display()
     );
 
-    let mut lines = BufReader::new(stdout).lines();
-    while let Some(line) = lines.next_line().await? {
-        if let Ok(v) = serde_json::from_str::<Violation>(&line) {
-            report(&compiled.meta, &v, Some(&feedback.feedback));
-        }
-    }
-
-    let status = enforcer.wait().await?;
-    if !status.success() {
-        return Err(format!("enforcer exited with {}", status).into());
-    }
+    let _ = tokio::signal::ctrl_c().await;
+    stop.store(true, Ordering::SeqCst);
+    let _ = poller.join();
     Ok(0)
 }
 
@@ -360,31 +372,48 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     let target_owner = target_user(cli.run_as_root);
     prepare_feedback_files(&feedback, target_owner)?;
 
-    let mut tmp = tempfile::NamedTempFile::new()?;
-    tmp.write_all(&compiled.bytes)?;
-
-    let extractor = BinaryExtractor::new().await?;
     let mut target = spawn_stopped_target(cmd, &feedback, loaded.path.as_deref(), cli.run_as_root)?;
     let target_pid = target.id().ok_or("target process has no pid")?;
 
-    let mut enforcer =
-        match spawn_enforcer(&extractor, tmp.path(), Some(target_pid), Some(agent_label)) {
-            Ok(child) => child,
+    // Load + attach the in-process eBPF enforcer and seed the AGENT lineage on a
+    // dedicated thread (aya state stays single-threaded), signalling readiness
+    // before we resume the stopped target.
+    let stop = Arc::new(AtomicBool::new(false));
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
+    let blob = compiled.bytes;
+    let meta = compiled.meta;
+    let fb = feedback.feedback.clone();
+    let stop_thread = stop.clone();
+    let poller = std::thread::spawn(move || {
+        let mut loader = match Loader::load(&blob) {
+            Ok(l) => l,
             Err(e) => {
-                let _ = send_signal(target_pid, libc::SIGKILL);
-                let _ = target.wait().await;
-                return Err(e);
+                let _ = ready_tx.send(Err(format!("load enforcer: {e}")));
+                return;
             }
         };
-    let stdout = enforcer.stdout.take().expect("piped stdout");
-    let stderr = enforcer.stderr.take().expect("piped stderr");
-    if let Err(e) = wait_for_ready(stderr).await {
-        let _ = send_signal(target_pid, libc::SIGKILL);
-        let _ = target.wait().await;
-        stop_enforcer(enforcer).await;
-        return Err(e);
+        if let Err(e) = loader.seed_agent(target_pid as i32, agent_label) {
+            let _ = ready_tx.send(Err(format!("seed agent: {e}")));
+            return;
+        }
+        let _ = ready_tx.send(Ok(()));
+        let _ = loader.run(&stop_thread, |v| report(&meta, &to_violation(&v), Some(&fb)));
+    });
+
+    match ready_rx.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            let _ = send_signal(target_pid, libc::SIGKILL);
+            let _ = target.wait().await;
+            let _ = poller.join();
+            return Err(e.into());
+        }
+        Err(_) => {
+            let _ = send_signal(target_pid, libc::SIGKILL);
+            let _ = target.wait().await;
+            return Err("enforcer thread exited before readiness".into());
+        }
     }
-    send_signal(target_pid, libc::SIGCONT)?;
 
     eprintln!(
         "ActPlane: running pid {} under AGENT label 0x{:x}; feedback {}\n",
@@ -392,29 +421,37 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
         agent_label,
         feedback.feedback.display()
     );
+    send_signal(target_pid, libc::SIGCONT)?;
 
-    let mut lines = BufReader::new(stdout).lines();
-    let status = loop {
-        tokio::select! {
-            line = lines.next_line() => {
-                match line? {
-                    Some(line) => {
-                        if let Ok(v) = serde_json::from_str::<Violation>(&line) {
-                            report(&compiled.meta, &v, Some(&feedback.feedback));
-                        }
-                    }
-                    None => break target.wait().await?,
-                }
-            }
-            status = target.wait() => {
-                break status?;
-            }
-        }
-    };
-
-    drain_event_lines(&mut lines, &compiled.meta, &feedback.feedback).await?;
-    stop_enforcer(enforcer).await;
+    let status = target.wait().await?;
+    // Let the poller drain any final in-flight violation, then stop it.
+    std::thread::sleep(Duration::from_millis(200));
+    stop.store(true, Ordering::SeqCst);
+    let _ = poller.join();
     Ok(exit_code(status))
+}
+
+/// Map the eBPF crate's violation into the collector's reporting struct.
+fn to_violation(v: &actplane_bpf::Violation) -> Violation {
+    Violation {
+        pid: v.pid,
+        ppid: v.ppid,
+        comm: v.comm.clone(),
+        target: v.target.clone(),
+        rule_id: v.rule_id as usize,
+        effect: Some(
+            match v.effect {
+                0 => "audit",
+                1 => "block",
+                2 => "kill",
+                _ => "unknown",
+            }
+            .to_string(),
+        ),
+        blocked: Some(v.blocked),
+        killed: Some(v.killed),
+        taint_label: v.label,
+    }
 }
 
 fn load_policy(cli: &Cli) -> Result<LoadedPolicy> {
@@ -521,24 +558,6 @@ fn chown_path(path: &Path, uid: libc::uid_t, gid: libc::gid_t) -> std::io::Resul
     }
 }
 
-fn spawn_enforcer(
-    extractor: &BinaryExtractor,
-    cfg_path: &Path,
-    agent_pid: Option<u32>,
-    agent_label: Option<u64>,
-) -> Result<Child> {
-    let mut cmd = Command::new(extractor.get_process_path());
-    cmd.arg("--config").arg(cfg_path);
-    if let (Some(pid), Some(label)) = (agent_pid, agent_label) {
-        cmd.arg("--agent-pid").arg(pid.to_string());
-        cmd.arg("--agent-label").arg(format!("0x{label:x}"));
-    }
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    Ok(cmd
-        .spawn()
-        .map_err(|e| format!("spawning enforcer: {}", e))?)
-}
-
 fn spawn_stopped_target(
     cmd: &[String],
     feedback: &FeedbackPaths,
@@ -592,62 +611,6 @@ fn target_user(run_as_root: bool) -> Option<(libc::uid_t, libc::gid_t)> {
         .parse::<libc::gid_t>()
         .ok()?;
     Some((uid, gid))
-}
-
-async fn wait_for_ready(stderr: tokio::process::ChildStderr) -> Result<()> {
-    let mut lines = BufReader::new(stderr).lines();
-    timeout(Duration::from_secs(10), async {
-        let mut ready = false;
-        while let Some(line) = lines.next_line().await? {
-            eprintln!("{line}");
-            if line.contains("ActPlane: ready") {
-                ready = true;
-                break;
-            }
-        }
-        if !ready {
-            return Err("enforcer exited before reporting readiness".into());
-        }
-        Ok::<(), AnyError>(())
-    })
-    .await
-    .map_err(|_| "timed out waiting for enforcer readiness")??;
-
-    tokio::spawn(async move {
-        while let Ok(Some(line)) = lines.next_line().await {
-            eprintln!("{line}");
-        }
-    });
-    Ok(())
-}
-
-async fn stop_enforcer(mut child: Child) {
-    if let Some(pid) = child.id() {
-        let _ = send_signal(pid, libc::SIGTERM);
-    }
-    if timeout(Duration::from_secs(2), child.wait()).await.is_err() {
-        let _ = child.kill().await;
-    }
-}
-
-async fn drain_event_lines(
-    lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    meta: &[dsl::RuleMeta],
-    feedback: &Path,
-) -> Result<()> {
-    for _ in 0..20 {
-        match timeout(Duration::from_millis(50), lines.next_line()).await {
-            Ok(Ok(Some(line))) => {
-                if let Ok(v) = serde_json::from_str::<Violation>(&line) {
-                    report(meta, &v, Some(feedback));
-                }
-            }
-            Ok(Ok(None)) => break,
-            Ok(Err(e)) => return Err(e.into()),
-            Err(_) => break,
-        }
-    }
-    Ok(())
 }
 
 fn send_signal(pid: u32, sig: i32) -> std::io::Result<()> {

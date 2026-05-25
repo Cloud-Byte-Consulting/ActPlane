@@ -2,13 +2,24 @@
 name = "actplane"
 version = "0.1.0"
 edition = "2024"
+description = "OS-level harness for AI agents: enforce behavioral contracts on an agent's whole execution via eBPF, with corrective feedback."
+license = "MIT"
+repository = "https://github.com/eunomia-bpf/ActPlane"
+readme = "../README.md"
+keywords = ["ebpf", "ai-agent", "security", "sandbox", "bpf"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "actplane"
+path = "src/main.rs"
 
 [dependencies]
+actplane-bpf = { version = "0.1.0", path = "../bpf" }
 clap = { version = "4.5.41", features = ["derive"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_yaml = "0.9"
-tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "signal"] }
 tempfile = "3.10"
 env_logger = "0.10"
 libc = "0.2"
