@@ -191,3 +191,7 @@ Run the tests:
 make test                          # bpf C unit tests + collector Rust unit tests
 sudo bash script/e2e_examples.sh   # live E1–E12 enforcement
 ```
+
+## LICENSE
+
+MIT License. See [LICENSE](LICENSE).
