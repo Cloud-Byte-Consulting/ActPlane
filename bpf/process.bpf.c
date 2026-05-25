@@ -672,6 +672,46 @@ int trace_open_exit(struct trace_event_raw_sys_exit *ctx)
 	return handle_open_exit(ctx->ret);
 }
 
+/* openat2(dfd, path, struct open_how *, size): flags live in open_how, not a
+ * scalar arg. Without this hook a write/read via openat2 bypasses detection. */
+SEC("tp/syscalls/sys_enter_openat2")
+int trace_openat2(struct trace_event_raw_sys_enter *ctx)
+{
+	struct open_how how = {};
+	bpf_probe_read_user(&how, sizeof(how), (void *)ctx->args[2]);
+	return stash_open((const void *)ctx->args[1], (unsigned int)how.flags);
+}
+SEC("tp/syscalls/sys_exit_openat2")
+int trace_openat2_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_open_exit(ctx->ret);
+}
+
+/* creat(path, mode) == open(path, O_WRONLY|O_CREAT|O_TRUNC): a file write. */
+SEC("tp/syscalls/sys_enter_creat")
+int trace_creat(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_open((const void *)ctx->args[0], O_WRONLY | O_CREAT | O_TRUNC);
+}
+SEC("tp/syscalls/sys_exit_creat")
+int trace_creat_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_open_exit(ctx->ret);
+}
+
+/* truncate(path, len): a file write (size change). */
+SEC("tp/syscalls/sys_enter_truncate")
+int trace_truncate(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_open((const void *)ctx->args[0], O_WRONLY);
+}
+SEC("tp/syscalls/sys_exit_truncate")
+int trace_truncate_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_open_exit(ctx->ret);
+}
+/* renameat2 is already hooked below (sys_enter_renameat2 -> write on new path). */
+
 SEC("tp/syscalls/sys_enter_unlink")
 int trace_unlink(struct trace_event_raw_sys_enter *ctx)
 {
