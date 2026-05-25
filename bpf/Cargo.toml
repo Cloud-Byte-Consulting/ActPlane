@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "ActPlane eBPF loader: loads the prebuilt CO-RE object with aya, no clang/libbpf at runtime."
 license = "MIT"
+repository = "https://github.com/eunomia-bpf/ActPlane"
 
 [lib]
 name = "actplane_bpf"
