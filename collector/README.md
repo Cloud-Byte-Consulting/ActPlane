@@ -28,7 +28,7 @@ sudo -E ./target/release/actplane --policy ../policies/readonly.yaml run -- clau
 ./target/release/actplane feedback-hook
 ```
 
-See [`../docs/taint-dsl.md`](../docs/taint-dsl.md) for the policy grammar and 12
+See [`../docs/rule-language.md`](../docs/rule-language.md) for the policy grammar and 12
 worked examples.
 
 ## Source layout

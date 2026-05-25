@@ -34,7 +34,7 @@ struct te_sess {
 	__u32 inval_epoch[MAX_TAINT_INVALS];
 };
 
-/* File object identity (Layer A, docs/taint-dsl-v2.md §4). A real (dev, inode)
+/* File object identity (Layer A, docs/rule-language.md §1.10). A real (dev, inode)
  * when the hook has an inode (LSM mode); otherwise (0, fnv1a(path)) so the
  * tracepoint path keeps its old path-keyed behavior byte-for-byte. Used as a
  * HASH key, so it MUST be fully zero-initialized (incl _pad) before use. */

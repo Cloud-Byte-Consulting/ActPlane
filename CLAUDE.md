@@ -110,7 +110,7 @@ endpoint IP). Propagation: fork→inherit, exec→apply source/xform/gate, read�
 labels into proc, write→proc labels into file, connect→proc labels to endpoint.
 Sinks match a label mask (`req` AND / `forbid` NOT, DNF-expanded) + target pattern
 + optional `@arg` + optional condition (lineage-includes / after / target-scope).
-Full semantics and 12 examples: `docs/taint-dsl.md`.
+Full semantics and 12 examples: `docs/rule-language.md`.
 
 ## Critical: the Rust↔C ABI
 
@@ -136,7 +136,7 @@ directly into the BPF rodata. Any change to `taint.h` MUST be mirrored in
 1. Extend the grammar in `dsl/parse.rs` and the AST in `dsl/ast.rs`.
 2. Lower it in `dsl/lower.rs`; if it needs new kernel state, extend `taint.h`
    (both sides) and the engine in `taint_engine.bpf.h`.
-3. Add a worked example + test in `dsl/mod.rs` and document it in `docs/taint-dsl.md`.
+3. Add a worked example + test in `dsl/mod.rs` and document it in `docs/rule-language.md`.
 
 ### Adding a kernel hook
 

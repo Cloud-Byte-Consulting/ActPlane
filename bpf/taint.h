@@ -4,7 +4,7 @@
 #define __TAINT_H
 
 /*
- * ActPlane in-kernel taint model (full design, see docs/taint-dsl.md).
+ * ActPlane in-kernel taint model (full design, see docs/rule-language.md).
  *
  * Taint state is a u64 label set per node (process / file / endpoint). The
  * Rust collector compiles the DSL down to the flat tables below; the kernel
@@ -12,7 +12,7 @@
  * free *matching predicates* shared by the eBPF program and the unit tests
  * (test_taint.c); the map-bearing engine is taint_engine.bpf.h.
  *
- * Constructs supported (per taint-dsl.md):
+ * Constructs supported (per rule-language.md):
  *   - object + subject sources                          (struct taint_source)
  *   - sinks with boolean label masks (req AND, forbid NOT) and conditions
  *     (lineage-includes / after / target-scope)         (struct taint_rule)

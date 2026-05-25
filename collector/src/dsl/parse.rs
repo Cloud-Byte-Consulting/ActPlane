@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 eunomia-bpf org.
-//! Hand-rolled parser for the taint DSL (docs/taint-dsl.md §2).
+//! Hand-rolled parser for the taint DSL (docs/rule-language.md §2).
 
 use super::ast::*;
 

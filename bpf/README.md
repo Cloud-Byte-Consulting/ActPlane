@@ -38,7 +38,7 @@ target pattern, optional `@arg` match, and an optional condition (`lineage-inclu
 `after`, target scope). Each rule carries an explicit effect (`audit`, `block`,
 or `kill`). On a match the rule's `rule_id`, `effect`, `blocked`, and `killed`
 flags are emitted; the compiler keeps the reason strings. Full semantics:
-[`../docs/taint-dsl.md`](../docs/taint-dsl.md).
+[`../docs/rule-language.md`](../docs/rule-language.md).
 
 ### eBPF verifier notes (why the code looks the way it does)
 

@@ -48,7 +48,7 @@ const HOOK_MAX_CHARS: usize = 8000;
       actplane --policy actplane.yaml compile --out /tmp/policy.bin\n\n  \
       # watch & report violations system-wide without launching a child\n  \
       sudo -E actplane --policy actplane.yaml watch\n\n\
-    See docs/taint-dsl.md for the policy language.")]
+    See docs/rule-language.md for the policy language.")]
 struct Cli {
     /// Project policy YAML. Defaults to discovering actplane.yaml upward from cwd.
     #[arg(long, global = true, conflicts_with = "rule")]
@@ -171,7 +171,7 @@ const STARTER_POLICY: &str = r#"# ActPlane project policy. Constraints are enfor
 # the tool layer, so they hold across any tool / subprocess / direct syscall.
 # Validate any time with:  actplane check
 # Enforce around an agent:  sudo -E actplane run -- <your agent command>
-# DSL reference: docs/taint-dsl.md
+# DSL reference: docs/rule-language.md
 policy: |
   # `label AGENT` marks the process tree launched by `actplane run` as the agent.
   label AGENT

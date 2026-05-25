@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 eunomia-bpf org.
-//! Parsed form of the ActPlane taint DSL (docs/taint-dsl.md §2).
+//! Parsed form of the ActPlane taint DSL (docs/rule-language.md §2).
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {

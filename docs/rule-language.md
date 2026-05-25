@@ -1,15 +1,15 @@
-# ActPlane Policy DSL (Labeled Information-Flow Control) — Formal Definition & Worked Examples
+# ActPlane Rule Language (Labeled Information-Flow Control) — Formal Definition & Worked Examples
 
 > Goal: a policy language for **OS-enforced agent harnesses** whose rules are workflow, capability, and provenance contracts over the agent's whole execution, not static access-control lists. Security-relevant policies are one class of contract, not the sole product framing.
 >
 > **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel labeled information-flow *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
 > **Status: implemented as a BPF-LSM enforcement backend with tracepoint observation.**
-> - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse. 15 unit tests (E1–E12 compile + effect coverage).
-> - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec, file access/mutation, and connect blocking when `bpf` LSM is active; otherwise tracepoints support `audit` reporting and explicit `kill` termination. `block` is LSM-only. Matching predicates have 30 unit tests (`test_taint.c`).
+> - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse, and the `since` staleness clause (§1.9). Unit tests cover E1–E13 compile + effect coverage.
+> - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, the `since` epoch engine (§1.9), object identity by `(dev,inode)` (§1.10), process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec, file access/mutation, and connect blocking when `bpf` LSM is active; otherwise tracepoints support `audit` reporting and explicit `kill` termination. `block` is LSM-only. Matching predicates have 30 unit tests (`test_taint.c`).
 > - **Loader** `bpf/process.c` installs the compiled config, detects BPF LSM availability, and reports only `TAINT_VIOLATION` with `effect`, `blocked`, and `killed` fields.
 >
-> Current limitations: `@arg` exec predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `effect block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `effect audit` reports and `effect kill` terminates the matching task after exec in tracepoint mode. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4; file labels are still keyed by path hash rather than inode/dev. The corrective-feedback loop is wired up through `actplane run`: violations the eBPF/LSM enforcer detects are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
+> Current limitations: `@arg` exec predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `effect block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `effect audit` reports and `effect kill` terminates the matching task after exec in tracepoint mode. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4. File identity uses real `(dev,inode)` in LSM mode and falls back to `(0, fnv1a(path))` in tracepoint mode (§1.10). The eager per-gate consumption set (Layer B, §1.10) is the remaining precision step and is deliberately deferred. The corrective-feedback loop is wired up through `actplane run`: violations the eBPF/LSM enforcer detects are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
 
 ### Enforcement Semantics
 
@@ -91,7 +91,7 @@ rule NAME:
 - `COND` (optional) relaxes the deny:
   - `target PAT` — only when the object also matches PAT (positive scope), or `target not PAT` (allow-listed region).
   - `lineage-includes exec G` — **mandatory mediation**: allowed iff an ancestor (incl. self) exec'd `G`.
-  - `after exec G` — **temporal**: allowed iff `exec G` happened earlier in this process's lineage.
+  - `after exec G [since EV…]` — **temporal**: allowed iff `exec G` happened earlier in this process's lineage. Plain `after` is *latching* (satisfied once `G` ever ran). The optional `since EV…` tail makes the gate go **stale** when a later invalidating event `EV` occurs (§1.9).
 
 **Violation**: event `op(s, o)` violates rule `deny op pat if Φ unless cond` iff
 `match(o, pat) ∧ Φ(σ(s)) ∧ ¬cond(s, o, history)`.
@@ -105,6 +105,87 @@ If multiple clauses/rules match the same event, the kernel chooses the strongest
 
 ### 1.8 Pattern matching
 `PAT` is a glob over the relevant attribute: process `exe`/`comm`/`arg`, file `path`, endpoint `host`. `**` = any path span, `*` = one segment / any chars, exact otherwise. Endpoint host supports `*` suffix/prefix wildcards.
+
+### 1.9 Staleness (`since`): gates that re-arm when their inputs change
+
+Plain `after exec G` is **latching**: run the gate once and it stays satisfied
+forever, even after you change its inputs again. That is the trap a build system
+avoids with **staleness**: `foo.o` is stale the moment `foo.c` changes after the
+last build. The `since` tail gives a gate that exact behavior — it **goes stale**
+when its inputs change again, and nothing more.
+
+```
+after exec "**/pytest"                       # ran pytest ever  → permanently OK
+after exec "**/pytest" since write "src/**"  # ran pytest since I last edited src
+```
+
+`since Y` resets the gate whenever a `Y`-event happens later in the same lineage.
+The plain-language name for it everywhere in docs and errors is **"the gate is
+stale."** A `since` clause may list several invalidators
+(`since write "src/**" or write "tests/**"`): any of them, occurring after the
+gate, makes it stale.
+
+**Semantics (epoch comparison, still O(1) per event).** Each gate bit is replaced
+by an **epoch** (a monotonic per-lineage event counter):
+
+```
+state per process lineage:
+  gate_epoch[g]   : epoch of the most recent `exec g`            (0 = never)
+  inval_epoch[s]  : epoch of the most recent `since`-event s     (0 = never)
+
+on exec(p, f):      for each gate g matching f:           gate_epoch[g]  = ++epoch
+on write/read(p,f): for each since-event s matching f:    inval_epoch[s] = ++epoch
+fork(p,c):          child copies both maps (same as latching gate inheritance)
+
+condition `after exec X since Y` holds  iff
+    gate_epoch[X] != 0  AND  gate_epoch[X] > inval_epoch[Y]
+```
+
+This keeps the in-kernel-enforceability argument intact: O(1) per event (no
+provenance-graph walk, just counter writes and one compare at check time),
+bounded state (one `u32` epoch per distinct gate and per distinct `since`-event
+in the policy — a handful, not per object), and lineage-scoped (inherited at fork
+exactly like labels, so "since *I* edited src" means anyone in the agent's
+subtree). Engine surface: `te_sess` per-session epochs, `te_tick`/`te_stamp`,
+`te_inval_hits`, `te_after_satisfied` in `taint_engine.bpf.h`; ABI fields
+`taint_inval`, `taint_rule.{gate_idx,since_mask}`, `taint_config.invals`.
+`since read PAT` bumps `inval_epoch` on **read** events as well as writes.
+
+### 1.10 Object identity and the precision frontier
+
+There is **one ordering primitive — the per-session monotonic epoch counter**.
+You never need per-object "version numbers": the "version" of a file is just the
+epoch of its last write. The real design axis is **what granularity you compare
+that counter at**.
+
+**Layer A — object identity + per-file last-write epoch (implemented).** Files
+are keyed by an object identity rather than a path hash:
+
+```
+struct file_id    = { u64 ino; u32 dev; }      // real (dev,inode) in LSM mode;
+                                                // (0, fnv1a(path)) fallback otherwise
+struct file_state = { u64 labels; u32 last_write_epoch; }
+```
+
+In **LSM mode** the hooks carry a `struct file`/`dentry`, so we read the real
+`(i_ino, s_dev)`: rename keeps provenance, overwrite is the same object, a
+hardlink can't dodge a rule. In **tracepoint mode** there is no inode at
+`sys_enter`, so `file_id` falls back to `(0, fnv1a(path))` — byte-for-byte the
+old path-hash behavior, so nothing regresses. `last_write_epoch` is populated
+only for files that already carry labels, so `ts_file` stays as sparse and
+bounded as before.
+
+**Layer B — per-gate consumption set (the precision step, deferred).** To stop
+"editing `bar.py` invalidates a test that only read `foo.py`", the engine would
+record which files a gate actually read and invalidate eagerly per file. The
+honest catch: **precision trades against eviction-safety.** The consumed map must
+be LRU-bounded; an eviction means a missed invalidation, i.e. a *false negative*
+(a stale commit slips through), which is the dangerous direction. Layer A
+over-approximates (any pattern-matching write invalidates) — more false
+positives, never a false negative. For the cooperative-agent threat model a false
+positive costs one redundant test run while a false negative ships stale code, so
+Layer A's conservatism is often the correct default, and Layer B should be
+**opt-in per rule** where a precision number is needed.
 
 ---
 
@@ -132,12 +213,10 @@ PATTERN, STRING := quoted string
 ```
 (`open` is sugar matching both `read` and `write`; `@arg "x"` additionally requires token `x` in argv — for `git push` etc.)
 
-> **v2 staleness (`since`)** — `after exec X` is *latching* (satisfied once X
-> ever ran). Adding `since EV…` makes the gate go **stale** when a later EV
-> (a write/read/exec event) occurs in the same session, exactly like a build
-> system re-marking a target dirty when its inputs change. `after exec
-> "**/pytest" since write "src/**"` = "tests must have run *after* your last
-> edit to src". Full design + engine model: [`taint-dsl-v2.md`](taint-dsl-v2.md).
+The `since EV…` tail on `after` is the staleness primitive defined in §1.9:
+`after exec "**/pytest" since write "src/**"` means "tests must have run *after*
+your last edit to src". `EV` may be a `write`/`read`/`exec` pattern; multiple
+invalidators are joined with `or`.
 
 `effect` is compiled into the kernel ABI and is the source of truth for what
 happens on a match. `reason` and `remediation` stay Rust-side and shape the
@@ -194,13 +273,15 @@ rule confine-writes:
   reason "agent may only modify its workspace /work/**"
 ```
 
-### E5 — Test-before-commit (temporal ordering)
-**Scenario**: the agent commits without ever running tests in this session. **Why**: a process/CI-hygiene invariant a harness should enforce, not hope for.
+### E5 — Test-before-commit (temporal ordering, staleness-aware)
+**Scenario**: the agent commits without running tests since its last code edit. **Why**: a process/CI-hygiene invariant a harness should enforce, not hope for. The latching `after exec "**/pytest"` lets `edit → test → edit → commit` slip through; `since` re-arms the gate when src changes again (§1.9).
 ```
 source AGENT = exec "**/codex"
 rule test-before-commit:
-  deny exec "**/git" @arg "commit"  if AGENT  unless after exec "**/pytest"
-  reason "run the test suite before committing"
+  deny exec "**/git" @arg "commit"
+    if AGENT  unless after exec "**/pytest" since write "src/**" or write "tests/**"
+  reason "tests are stale — you edited code after the last passing run"
+  remediation "re-run the test suite, then commit"
 ```
 
 ### E6 — Read-only sub-agent capability scoping
@@ -250,14 +331,15 @@ rule customer-data-egress:
   reason "customer-data task may only reach approved internal ranges"
 ```
 
-### E11 — Destructive op requires a confirmation gate
-**Scenario**: the agent attempts `git push --force` or deletes under `/data` without a confirmation step. **Why**: gate irreversible actions behind an explicit confirmation that the harness can observe.
+### E11 — Destructive op requires a fresh confirmation gate
+**Scenario**: the agent attempts `git push --force` or deletes under `/data` without a confirmation step. **Why**: gate irreversible actions behind an explicit confirmation the harness can observe. A latching `after exec "**/confirm"` would arm one confirm to authorize every later force-push; `since exec "**/git"` makes confirmation single-shot — any later `git` invocation makes the confirm stale again (§1.9).
 ```
 source AGENT = exec "**/codex"
 rule confirm-destructive:
-  deny exec "**/git" @arg "--force"  if AGENT  unless after exec "**/confirm"
+  deny exec "**/git" @arg "--force"  if AGENT  unless after exec "**/confirm" since exec "**/git"
   deny unlink file "/data/**"        if AGENT  unless after exec "**/confirm"
-  reason "destructive action needs an explicit confirm step first"
+  reason "each force-push needs a fresh confirm; a stale confirm doesn't count"
+  effect kill
 ```
 
 ### E12 — Task non-interference / separation (multi-label sets)
@@ -270,11 +352,22 @@ rule no-cross-task-commit:
   reason "a commit must not mix data from task A and task B"
 ```
 
+### E13 — Migration-check must be fresh w.r.t. the migrations on disk
+**Scenario**: the agent writes to `prod.db` after running a migration check, but edited the migrations again in between. **Why**: the check must have seen the migrations actually on disk; `since write "migrations/**"` re-arms the gate whenever migrations change (§1.9).
+```
+source AGENT = exec "**/codex"
+rule migrate-checked:
+  deny write file "**/prod.db"
+    if AGENT  unless after exec "**/migrate-check" since write "migrations/**"
+  reason "prod.db write needs a migration-check that saw the current migrations"
+  effect block
+```
+
 ---
 
 ## 4. Why these are valuable (and where the novelty actually is)
 > Caveat repeated: the *mechanism* (cross-channel taint enforced in-kernel) is CamQuery's; the novelty is the agent-oriented harness model + eBPF substrate + sub-tool-layer coverage + feedback loop. Per-example value:
-- **E3, E5, E11** are *mandatory-mediation / temporal* contracts ("only via gate", "only after tests", "only after confirm") that prompt instructions do not reliably preserve.
+- **E3, E5, E11, E13** are *mandatory-mediation / temporal* contracts ("only via gate", "only after fresh tests", "only after a fresh confirm", "only after a current migration-check") that prompt instructions do not reliably preserve. The `since` staleness primitive (§1.9) is what makes "fresh" enforceable rather than latching.
 - **E4, E6, E9, E12** are *lineage-scoped capability / task-boundary* contracts over the fork/exec subtree.
 - **E1, E7, E8, E10** are data-handling contracts over **derived, cross-process, cross-channel** data. They are security-relevant, but the harness point is provenance continuity across tools.
 - **E2** is an untrusted-input review contract: when task context came from outside, privileged actions require an endorsement step.
@@ -295,15 +388,15 @@ for ev in trace:
            and Φ(σ[ev.subject]) and not cond(ev.subject, ev.object, G, history):
               emit Violation(rule.name, ev, reason)
 ```
-Lineage attributes (`gates`, ancestry) are propagated at `fork`/`exec` exactly like labels, so `lineage-includes` / `after` are O(1) lookups, not graph walks — preserving the in-kernel-enforceability argument.
+Lineage attributes (`gates`, ancestry, and the per-lineage epoch counters of §1.9) are propagated at `fork`/`exec` exactly like labels, so `lineage-includes` / `after` / `after … since` are O(1) lookups, not graph walks — preserving the in-kernel-enforceability argument.
 
 ## 6. Implementation
 
 Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat kernel config; the **kernel** propagates taint and evaluates rules, emitting only violations.
 
-- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask). `mod.rs::compile_str`. Tests compile E1–E12 and rule effects. `main.rs` loads `actplane.yaml`, compiles its `policy: |` DSL block, spawns the loader, and prints violations with their reason (the feedback payload).
-- **`bpf/taint.h`** — the rule ABI (`taint_source`/`taint_rule`/`taint_xform`/`taint_gate`/`taint_config`) + libc-free matching predicates (`taint_streq`/`prefix`/`suffix`/`any`, `mask_ok`, `arg_match`), 30 unit tests in `test_taint.c`.
-- **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + propagation + `te_check`/`te_connect_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
+- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST, incl. the optional `since` tail on `after`), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask, and gate+`since` → epoch-slot indices with `taint_rule.{gate_idx,since_mask}` + `taint_config.invals`). `mod.rs::compile_str`. Tests compile E1–E13 and rule effects. `main.rs` loads `actplane.yaml`, compiles its `policy: |` DSL block, spawns the loader, and prints violations with their reason (the feedback payload).
+- **`bpf/taint.h`** — the rule ABI (`taint_source`/`taint_rule`/`taint_xform`/`taint_gate`/`taint_inval`/`taint_config`) + libc-free matching predicates (`taint_streq`/`prefix`/`suffix`/`any`, `mask_ok`, `arg_match`), 30 unit tests in `test_taint.c`.
+- **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + per-session epochs (`te_sess`, `te_tick`/`te_stamp`, `te_inval_hits`, `te_after_satisfied`) for §1.9 staleness + `file_id`/`file_state` object identity (§1.10) + propagation + `te_check`/`te_connect_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
 - **`bpf/process.bpf.c`** — fork/exec/exit/open/mutate/connect hooks; one emitter (`emit_violation`). **`bpf/process.c`** — installs config, reports violations.
 
 Engineering notes (verifier): patterns are copied rodata→local before matching (direct `volatile` reads mis-evaluate); heavy helpers are `__noinline` (stack budget); buffers are ≥ `TAINT_PAT_LEN`; argv/index access uses explicit bound guards (index masking makes clang emit a pointer-OR the verifier rejects); connect matches numeric IPv4 (no in-kernel string formatting). See the status note at the top for what is verified live and what remains.

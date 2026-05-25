@@ -92,7 +92,7 @@ A process that reads `/etc/secrets/api-key` gets labeled. If any descendant of
 that process (however many hops) tries to connect to the network or write to
 `/tmp`, the kernel kills it and reports the reason.
 
-See [`docs/rule-language.md`](docs/taint-dsl.md) for the full rule language and 12
+See [`docs/rule-language.md`](docs/rule-language.md) for the full rule language and
 worked examples.
 
 ## Agent integration
