@@ -40,9 +40,9 @@ const HOOK_MAX_CHARS: usize = 8000;
       # get started: write a starter policy, then validate it (no sudo needed)\n  \
       actplane init  &&  actplane check\n\n  \
       # enforce a one-line policy around a command (needs sudo for the eBPF load)\n  \
-      sudo -E actplane --rule 'label AGENT\n                       rule no-git-branch:\n                         deny exec \"**/git\" @arg \"branch\" if AGENT\n                         effect kill\n                         reason \"create a branch via the host, not the agent\"' run -- claude -p '...'\n\n  \
+      sudo -E actplane --rule 'label AGENT\n                       rule no-git-branch:\n                         deny exec \"**/git\" @arg \"branch\" if AGENT\n                         effect kill\n                         reason \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
-      sudo -E actplane run -- <your agent command>\n\n  \
+      sudo -E actplane run <your agent command>\n\n  \
       # just compile/validate a policy (no privileges needed)\n  \
       actplane --policy actplane.yaml compile --out /tmp/policy.bin\n\n  \
       # watch & report violations system-wide without launching a child\n  \
@@ -169,7 +169,7 @@ async fn compile_policy(cli: &Cli, out: &Path) -> Result<i32> {
 const STARTER_POLICY: &str = r#"# ActPlane project policy. Constraints are enforced in the kernel (eBPF), below
 # the tool layer, so they hold across any tool / subprocess / direct syscall.
 # Validate any time with:  actplane check
-# Enforce around an agent:  sudo -E actplane run -- <your agent command>
+# Enforce around an agent:  sudo -E actplane run <your agent command>
 # DSL reference: docs/rule-language.md
 policy: |
   # `label AGENT` marks the process tree launched by `actplane run` as the agent.
@@ -211,7 +211,7 @@ fn init_policy(force: bool) -> Result<i32> {
     std::fs::write(&path, STARTER_POLICY)?;
     eprintln!(
         "actplane: wrote {}\n  Next:  actplane check        # validate it (no sudo)\n         \
-         sudo -E actplane run -- <your agent command>",
+         sudo -E actplane run <your agent command>",
         path.display()
     );
     Ok(0)

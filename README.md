@@ -25,7 +25,7 @@ Write a policy and run an agent (or any command) under enforcement:
 actplane init                                  # write a starter actplane.yaml
 actplane check                                 # validate rules (no privileges)
 
-sudo -E actplane run -- claude -p "review this repo"
+sudo -E actplane run claude -p "review this repo"
 ```
 
 When the agent violates a rule, ActPlane kills the action and tells it why:
