@@ -1,0 +1,18 @@
+[package]
+name = "actplane-bpf"
+version = "0.1.0"
+edition = "2021"
+description = "ActPlane eBPF loader: loads the prebuilt CO-RE object with aya, no clang/libbpf at runtime."
+license = "MIT"
+
+[lib]
+name = "actplane_bpf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "actplane-loader"
+path = "src/bin/actplane-loader.rs"
+
+[dependencies]
+aya = "0.13"
+libc = "0.2"
