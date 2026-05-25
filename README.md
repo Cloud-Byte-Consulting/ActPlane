@@ -11,26 +11,21 @@ Prompt constraints are probabilistic. ActPlane is deterministic.
 
 ## Quickstart
 
-```bash
-make                                         # build eBPF programs + Rust collector
-A=./collector/target/release/actplane
-
-$A init                                      # write a starter actplane.yaml
-$A check                                     # validate rules (no privileges needed)
-```
-
-```
-✓ ./actplane.yaml: 3 rule(s) compile.
-  1. no-git-branch     — deny exec    → kill (create branches/worktrees on the host…)
-  2. no-secret-exfil   — deny connect → kill (data derived from local secrets must not leave…)
-  3. test-before-commit — deny exec   → kill (run the tests before committing)
-✓ no warnings.
-```
-
-Now run an agent (or any command) under enforcement:
+Install with one command. The eBPF program ships prebuilt (CO-RE, architecture
+independent), so there is **no clang/llvm/libbpf to install** — just a Rust
+toolchain:
 
 ```bash
-sudo -E $A run -- claude -p "review this repo"
+cargo install actplane
+```
+
+Write a policy and run an agent (or any command) under enforcement:
+
+```bash
+actplane init                                  # write a starter actplane.yaml
+actplane check                                 # validate rules (no privileges)
+
+sudo -E actplane run -- claude -p "review this repo"
 ```
 
 When the agent violates a rule, ActPlane kills the action and tells it why:
@@ -38,14 +33,17 @@ When the agent violates a rule, ActPlane kills the action and tells it why:
 ```
 🚫 KILLED: process 'git' (pid 4213, ppid 4210) — /usr/bin/git
    effect: kill
-   reason: Codex must not invoke git; use the review workflow.
+   reason: no git under the agent; use the review workflow
 ```
 
 The agent receives this reason through its hook integration, understands the
 constraint, and takes a different path to complete the task.
 
-`run`/`watch` load the eBPF enforcer, so they need root (or `CAP_BPF` +
-`CAP_SYS_ADMIN`); ActPlane drops the target command back to your user.
+**Requirements:** Linux kernel 5.8+ with BTF (`/sys/kernel/btf/vmlinux`). `run`
+and `watch` load the eBPF enforcer, so they need root (or `CAP_BPF` +
+`CAP_SYS_ADMIN`); ActPlane drops the target command back to your user. With
+BPF-LSM enabled, rules can `block` before the action commits; otherwise they
+`audit` (report) or `kill`.
 
 ## Why an OS-level harness?
 
@@ -127,25 +125,40 @@ for the agent instruction snippet.
 ## How it works
 
 ```
-actplane.yaml ─▶ collector (Rust) ─▶ policy config ─▶ eBPF kernel engine
- policy: |        parse + lower DSL      (rodata blob)       propagate labels,
-                                                              match rules,
- violations ◀──── NDJSON (TAINT_VIOLATION + reason) ◀─────── emit on match only
+actplane.yaml ─▶ collector (Rust) ─▶ .rodata config ─▶ eBPF kernel engine
+ policy: |        parse + lower DSL    (set_global)      propagate labels,
+                                                          match rules,
+ violations ◀──── ring buffer (in-process, via aya) ◀─── emit on match only
 ```
 
 - **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect`,
   keeps a per-node label set (process / file / endpoint), propagates labels,
   evaluates compiled rules, emits only violation events.
-- **Collector** (`collector/`): discovers `actplane.yaml`, compiles the DSL to
-  kernel config, loads the eBPF program, seeds the target process lineage, and
-  prints violations with policy reasons.
+- **Collector** (`actplane`): discovers `actplane.yaml`, compiles the DSL to the
+  kernel config, and loads the prebuilt eBPF object in-process via
+  [`actplane-bpf`](bpf/) (aya) — no libbpf/clang at runtime — seeds the target
+  process lineage, and reports violations with policy reasons.
 
-## Build
+## Build from source
+
+`cargo install actplane` is all most users need. To hack on ActPlane:
 
 ```bash
-make            # builds bpf/ (eBPF programs) then collector/ (Rust)
-make test       # bpf C unit tests + collector Rust unit tests
+git clone --recurse-submodules https://github.com/eunomia-bpf/ActPlane
+cd ActPlane/collector && cargo build --release   # uses the prebuilt eBPF object
 ```
 
-Requires clang/llvm, libelf, zlib, a recent kernel (5.8+; developed on 6.15), and
-a Rust toolchain. `make install` installs system dependencies (Ubuntu/Debian).
+Editing the kernel eBPF (`bpf/*.bpf.c`) requires the BPF toolchain
+(clang/llvm, libelf, zlib) and the `libbpf`/`bpftool` submodules. Rebuild and
+refresh the committed object with:
+
+```bash
+ACTPLANE_REBUILD_BPF=1 cargo build -p actplane-bpf   # regenerates bpf/prebuilt/process.bpf.o
+```
+
+Run the tests:
+
+```bash
+make test                          # bpf C unit tests + collector Rust unit tests
+sudo bash script/e2e_examples.sh   # live E1–E12 enforcement
+```
