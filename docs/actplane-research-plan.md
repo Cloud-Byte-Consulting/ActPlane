@@ -141,7 +141,7 @@
 
 ActPlane 已从 AgentSight 的观测框架收敛成一个**专注的 taint-rule 工具**：内核做 taint 传播与检测，用户态只负责策略与上报。本节描述实际构建出来的东西。
 
-### 9.1 内核：in-kernel taint（`bpf/process.bpf.c` + `bpf/taint.h`）
+### 9.1 内核：labeled information-flow control（`bpf/process.bpf.c` + `bpf/taint.h`）
 
 在原 `process` tracer 上**新增** taint 引擎（不删原有 exec/exit/file 功能）：
 

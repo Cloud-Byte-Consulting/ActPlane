@@ -4,16 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-ActPlane is an **OS-enforced harness for AI agents**. It compiles a taint-DSL
-policy to an in-kernel eBPF enforcer that propagates information-flow taint across
-process / file / network edges and reports **only** rule violations — each with a
-human-readable reason (the corrective-feedback payload). It enforces below the
-tool layer (at the syscall boundary), so constraints hold across any tool,
-subprocess, or direct syscall the agent uses.
+ActPlane is an **OS-enforced harness for AI agents**. It compiles a policy DSL
+to an in-kernel eBPF enforcer that performs **labeled information-flow control**
+across process / file / network edges and reports **only** rule violations —
+each with a human-readable reason (the corrective-feedback payload). It enforces
+below the tool layer (at the syscall boundary), so constraints hold across any
+tool, subprocess, or direct syscall the agent uses. (The mechanism is a labeled,
+runtime form of information-flow control — unlike classic taint analysis, which
+is single-bit, usually offline, and aimed at finding vulnerabilities. Code-level
+identifiers still use `taint` — `taint.h`, `taint_config`, `te_*` — as the
+implementation name.)
 
 The repo descends from AgentSight (an eBPF observability framework); the SSL/HTTP
 analyzer chain, runners, web server, and frontend were removed. What remains is the
-taint enforcer plus a minimal Rust compiler/driver.
+labeled information-flow enforcer plus a minimal Rust compiler/driver.
 
 ## Agent behavioral constraints (ActPlane-enforced)
 
@@ -99,7 +103,7 @@ policy.dsl ─▶ collector (Rust) ─▶ struct taint_config ─▶ eBPF engine
 - `binary_extractor.rs` — embeds `bpf/process` via `include_bytes!`, extracts at
   runtime so `actplane` is self-contained.
 
-### Taint model
+### Labeled information-flow model
 
 Each node carries a `u64` label mask. Sources add labels (exec comm / file path /
 endpoint IP). Propagation: fork→inherit, exec→apply source/xform/gate, read→file

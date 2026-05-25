@@ -41,8 +41,9 @@ common layer below these routes: every exec, file access, and socket connect
 crosses a kernel interface regardless of how the agent initiated it.
 
 ActPlane is an OS-level harness for AI agents. It compiles declarative
-source/sink/gate policies into an eBPF/BPF-LSM backend that maintains typed
-labels over processes, files, and endpoints. Labels propagate through
+source/sink/gate policies into an eBPF/BPF-LSM backend that performs
+\emph{labeled information-flow control}: it maintains named labels over
+processes, files, and endpoints. Labels propagate through
 fork/exec, file reads and writes, and connect-level endpoint edges. Rules then check whether a
 labeled subject may perform an action on a matching target. The policy language
 is intentionally agent-oriented: it expresses secret-derived egress, untrusted
@@ -106,7 +107,7 @@ First, can ActPlane catch the same violation across direct tool calls, nested
 shell strings, subprocesses, SDK/helper paths, and direct syscalls? Second, does
 corrective feedback improve task completion and reduce repeated violations
 relative to bare \texttt{-EPERM} or \texttt{SIGKILL}? Third, what false positive
-rate arises from object-level taint, and do declassification and gate paths
+rate arises from object-level label propagation, and do declassification and gate paths
 allow intended work? Fourth, what overhead does label propagation add to
 fork/exec, file, and connect events, and to real agent tasks? The evaluation
 matrix leaves numeric result cells \textsc{TBD} until the experiments are run.

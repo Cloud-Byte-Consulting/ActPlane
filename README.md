@@ -17,8 +17,10 @@ ActPlane sits **below the tool layer**: every `exec` / file / network operation 
 a syscall, so a rule like *"nothing descended from `codex`, however many hops, may
 run `git` or modify files outside `/work`"* holds no matter how the agent gets there.
 
-Rules are **information-flow / provenance** contracts, not static allow-lists.
-Taint labels propagate along fork/exec edges and, as data flow, along file
+Rules are **labeled information-flow** / provenance contracts, not static
+allow-lists. Unlike classic taint analysis (single-bit, usually offline, aimed
+at vulnerabilities), ActPlane carries multiple named labels and enforces at
+runtime: labels propagate along fork/exec edges and, as data flow, along file
 read/write and network edges, so task boundaries and workflow obligations follow
 derived data across processes and files. Security-relevant policies are one use
 case, but the primary framing is a deterministic operating contract for
@@ -30,13 +32,14 @@ for the framing, and [`docs/related_work.md`](docs/related_work.md) for position
 
 ```
 actplane.yaml ─▶ collector (Rust compiler) ─▶ struct taint_config ─▶ eBPF kernel engine
- policy: |        parse + lower DSL to ABI       (rodata blob)       propagate taint,
+ policy: |        parse + lower DSL to ABI       (rodata blob)       propagate labels,
                                                                       match rules,
  violations ◀───────── NDJSON (TAINT_VIOLATION + reason) ◀────────── emit on match only
 ```
 
-- **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect`,
-  keeps a per-node taint label set (process / file / endpoint), propagates it,
+- **Kernel** (`bpf/`): performs labeled information-flow control — hooks
+  `fork / exec / exit / open / unlink / rename / connect`,
+  keeps a per-node label set (process / file / endpoint), propagates it,
   evaluates the compiled rules, and emits **only** `TAINT_VIOLATION` events through
   a single `emit_violation()` function.
 - **Collector** (`collector/`): a Rust runner that discovers `actplane.yaml`,

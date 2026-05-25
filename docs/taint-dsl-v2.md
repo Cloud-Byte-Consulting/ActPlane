@@ -1,4 +1,4 @@
-# ActPlane Taint DSL v2 — Staleness-Aware Contracts
+# ActPlane Policy DSL v2 — the `since` clause (gates that go stale)
 
 > **Status: implemented (Tier 1 `since` + Layer A object identity).**
 > - `since` clause: parser/AST, ABI (`taint_inval`,

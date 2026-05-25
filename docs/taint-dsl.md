@@ -1,8 +1,8 @@
-# ActPlane Taint DSL — Formal Definition & Worked Examples
+# ActPlane Policy DSL (Labeled Information-Flow Control) — Formal Definition & Worked Examples
 
 > Goal: a policy language for **OS-enforced agent harnesses** whose rules are workflow, capability, and provenance contracts over the agent's whole execution, not static access-control lists. Security-relevant policies are one class of contract, not the sole product framing.
 >
-> **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel taint *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
+> **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel labeled information-flow *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
 > **Status: implemented as a BPF-LSM enforcement backend with tracepoint observation.**
 > - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse. 15 unit tests (E1–E12 compile + effect coverage).
@@ -39,7 +39,7 @@ denial, use `block` on hooks whose arguments are available before commit.
 - **Endpoint** `E(host, port)` — identity: `host`, `port`.
 
 ### 1.2 Labels and state
-A finite set of label names `L`. The taint **state** is a map
+A finite set of label names `L`. The label **state** is a map
 σ : Node → 2^L
 i.e. every node carries a *set* of labels. Initial state: every node has ∅ unless a **source** assigns intrinsic labels (§1.4).
 
@@ -56,7 +56,7 @@ The kernel observes a stream of operations; each has a process **subject** and (
 | `connect(p, e)` | proc → endpoint | p opens a connection to e |
 | `recv(p, e)` | proc → endpoint | p receives data from e |
 
-### 1.4 Sources (taint introduction)
+### 1.4 Sources (label introduction)
 A source gives a node *intrinsic* labels. Two forms:
 - **object source**: `source L = file PAT` / `source L = endpoint PAT` — any matching file/endpoint intrinsically carries `L`. (Reading it taints the reader via propagation.)
 - **subject source**: `source L = exec PAT` — a process that `exec`s a matching file acquires `L` (and passes it to descendants via fork).
@@ -232,7 +232,7 @@ rule research-readonly:
 ```
 
 ### E9 — Cross-tool / unbypassable coverage
-**Scenario**: "the agent may not use git" must hold whether it calls the *git tool*, runs `bash -c 'git ...'`, or `python -c "subprocess.run(['git',...])"`. **Why**: this is the §3 claim — tool-layer guards (AgentSpec) miss the bash/SDK paths; lineage taint catches all three because each git lands in the agent's descendant subtree.
+**Scenario**: "the agent may not use git" must hold whether it calls the *git tool*, runs `bash -c 'git ...'`, or `python -c "subprocess.run(['git',...])"`. **Why**: this is the §3 claim — tool-layer guards (AgentSpec) miss the bash/SDK paths; lineage label propagation catches all three because each git lands in the agent's descendant subtree.
 ```
 source AGENT = exec "**/codex"
 rule no-git:

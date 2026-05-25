@@ -160,7 +160,7 @@
 
 一张表,在**相同场景**上实跑能跑的基线,维度:
 **强制层 · 强制/检测 · 跨通道(P/F/N) · 跨路径覆盖 · 污点传播 · agent 导向 · 语义反馈 · 开销**。
-预期:唯一同时填满 **〔L3 内核跨通道 typed-taint〕×〔agent 导向〕×〔语义纠偏反馈〕** 的是 ActPlane
+预期:唯一同时填满 **〔L3 内核跨通道 labeled information flow〕×〔agent 导向〕×〔语义纠偏反馈〕** 的是 ActPlane
 (CamQuery 缺 agent+反馈;Tetragon/OAMAC 单通道或无污点;Progent/AgentSpec 在可绕的 L1)。
 CamQuery 若无法在现代内核复跑,则定性对比 + 引其论文数据,并诚实声明。
 

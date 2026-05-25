@@ -27,11 +27,15 @@ SDK path that bypasses a tool-level guard. Existing agent guardrails therefore
 sit at the wrong layer for constraints that must hold across the agent's whole
 execution.
 
-ActPlane is an OS-level harness for AI agents. It compiles declarative
-information-flow policies into an eBPF/BPF-LSM enforcement backend that tracks
-typed labels across process, file, and endpoint objects; checks source-to-sink
-rules at kernel hooks; and returns corrective feedback to the agent so that a
-failed action can be repaired rather than blindly retried. The system targets
+ActPlane is an OS-level harness for AI agents. It compiles declarative policies
+into an eBPF/BPF-LSM backend that performs \emph{labeled information-flow
+control}: named labels are propagated across process, file, and endpoint
+objects, source-to-sink rules are checked at kernel hooks, and corrective
+feedback is returned to the agent so that a failed action can be repaired rather
+than blindly retried. Unlike classic taint analysis---single-bit and usually
+offline, aimed at finding vulnerabilities---ActPlane carries multiple named
+labels, enforces at runtime below the tool layer, and serves a cooperative
+rather than adversarial agent. The system targets
 cooperative-but-forgetful agents, not only adversarial code. Its semantics
 therefore distinguish LSM-only pre-operation \emph{block}, tracepoint-compatible
 \emph{audit}, and harness-level \emph{kill}. This paper describes ActPlane's
@@ -65,7 +69,7 @@ until the experiments are run.
 \ccsdesc[300]{Security and privacy~Software and application security}
 \ccsdesc[300]{Software and its engineering~Software safety}
 
-\keywords{AI agents, eBPF, BPF-LSM, information-flow control, provenance, taint tracking, corrective feedback}
+\keywords{AI agents, eBPF, BPF-LSM, labeled information-flow control, information-flow control, provenance, corrective feedback}
 
 \begin{document}
 \maketitle

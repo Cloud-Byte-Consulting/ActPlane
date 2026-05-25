@@ -1,8 +1,10 @@
 # Related Work
 
-**ActPlane** is an OS-level agent harness that enforces information-flow / provenance *taint*
-rules across **process, file, and network** channels for AI agents. It runs in the kernel
-(eBPF / BPF-LSM), propagates typed taint along fork/exec, file-read/file-write, and socket
+**ActPlane** is an OS-level agent harness that enforces **labeled information-flow** / provenance
+rules across **process, file, and network** channels for AI agents (a labeled, dynamic form of
+the DIFT/taint mechanism of §1, used here as a harness substrate rather than for attack
+detection). It runs in the kernel
+(eBPF / BPF-LSM), propagates information-flow labels along fork/exec, file-read/file-write, and socket
 send/recv edges, blocks forbidden source→sink flows at the relevant LSM hook (returning
 `-EPERM` / killing), and closes the loop with **corrective semantic feedback** delivered back to
 the agent. The threat model is a **cooperative-but-forgetful agent** — an autonomous LLM agent
@@ -97,7 +99,7 @@ authority, addressing how to make the provenance record itself trustworthy.
 *vs ActPlane:* The closest *classic* precursor to ActPlane's enforcement idea — access decisions
 driven by provenance — and the source of ActPlane's integrity requirements (an attacker/forgetful
 agent must not be able to forge or drop the edges taint depends on). But LPM's PBAC is about
-access control over the provenance graph in general; it is not a *typed taint-propagation* rule
+access control over the provenance graph in general; it is not a *labeled information-flow* rule
 engine, not eBPF, and not agent-aware.
 
 **CamFlow** (Pasquier et al., SoCC 2017; `camflow.pdf`). Low-overhead whole-system provenance
@@ -245,9 +247,9 @@ confinement); **Falco** (detect-only, userspace eval, `proc.aname[n]` ancestor *
 **Tracee** (eBPF capture + userspace signatures); **Landlock** (in-tree unprivileged
 self-sandbox, path/net, `-EACCES`).
 *vs ActPlane:* Tetragon's `followChildren` is the single most-overlapping OSS feature, but it
-propagates only a boolean lineage flag along **fork/exec**, not typed taint across **file/network**
+propagates only a boolean lineage flag along **fork/exec**, not labeled information flow across **file/network**
 edges; it caps at 64 sections and does not match pre-existing children. None of these propagate
-typed taint across file *and* network *and* process edges, none are agent-aware, none give
+labeled information flow across file *and* network *and* process edges, none are agent-aware, none give
 semantic feedback. They are the right enforcement substrate to reuse — not the policy model.
 
 ---
@@ -319,12 +321,12 @@ semantics rather than high-level intent. Userspace, framework-level, bypassable.
   same bypass gap as other tool-layer guardrails.
 - **FIDES — "Securing AI Agents with Information-Flow Control"** (Microsoft Research, arXiv
   2505.23643, 2025; `fides.pdf`). Decomposes the agent loop into a planner and a planning loop and
-  carries **typed taint labels** through it, intercepting each suggested action to enforce a
+  carries **information-flow labels** through it, intercepting each suggested action to enforce a
   confidentiality/integrity policy *deterministically* before it runs.
-  *vs ActPlane:* The **mechanism-cousin** — typed taint + deterministic pre-action block is exactly
+  *vs ActPlane:* The **mechanism-cousin** — labeled information flow + deterministic pre-action block is exactly
   ActPlane's model. The difference is the *layer*: FIDES enforces inside the agent loop (L1), so a
   forgetful agent that shells out / opens a socket / makes a direct syscall escapes it; ActPlane
-  runs the same typed-taint discipline at the kernel/LSM boundary (L3), cross-process/file/network,
+  runs the same labeled information-flow discipline at the kernel/LSM boundary (L3), cross-process/file/network,
   uncircumventable. The single closest paper to cite as "same idea, wrong layer for un-bypassable
   enforcement."
 - **CaMeL — "Defeating Prompt Injections by Design"** (arXiv 2503.18813, 2025; `camel.pdf`). A
@@ -419,7 +421,7 @@ flows) · **Cross-channel** (P=process, F=file, N=network) · **Agent-aware** ·
 | Schwartz survey | — (theory) | — | yes (defines) | — | no | no |
 | PASS | kernel | record only | no | F | no | no |
 | Hi-Fi | kernel (LSM) | record only | no | P/F/N | no | no |
-| LPM (PBAC) | kernel (LSM) | **enforce** | no (PBAC, not typed taint) | P/F/N | no | no |
+| LPM (PBAC) | kernel (LSM) | **enforce** | no (PBAC, not labeled flow) | P/F/N | no | no |
 | CamFlow | kernel (LSM+NF) | record only | label-capable, used for audit | P/F/N | no | no |
 | **CamQuery** | **kernel (LSM, LKM)** | **enforce** | **yes (label propagation)** | **P/F/N** | **no** | **no** |
 | SLEUTH | user (audit) | detect | yes (tags) | P/F/N | no | no |
@@ -466,25 +468,27 @@ system in particular gets uncomfortably close:
 
 What is **genuinely unoccupied** is the *intersection*, and it reduces to two specific points:
 
-1. **Cross-channel typed taint (process → file → process → network) enforced in the kernel via the
-   modern eBPF/BPF-LSM substrate.** CamQuery has the taint+cross-channel+enforce combination but
-   on a CamFlow *kernel module*, not eBPF; every eBPF-LSM enforcer that exists (Tetragon, OAMAC,
-   KubeArmor, eBPF-PATROL) is *single-channel* (process lineage flag, or per-event match) and does
-   **not** flow typed taint across file and network edges. So "full cross-channel taint, on eBPF,
-   enforced" is not occupied by any one system — it is split between CamQuery (taint+cross-channel,
-   wrong substrate) and the eBPF enforcers (right substrate, no cross-channel taint).
+1. **Cross-channel labeled information flow (process → file → process → network) enforced in the
+   kernel via the modern eBPF/BPF-LSM substrate.** CamQuery has the labeled-flow + cross-channel +
+   enforce combination but on a CamFlow *kernel module*, not eBPF; every eBPF-LSM enforcer that
+   exists (Tetragon, OAMAC, KubeArmor, eBPF-PATROL) is *single-channel* (process lineage flag, or
+   per-event match) and does **not** propagate labels across file and network edges. So "full
+   cross-channel labeled flow, on eBPF, enforced" is not occupied by any one system — it is split
+   between CamQuery (labeled flow + cross-channel, wrong substrate) and the eBPF enforcers (right
+   substrate, no cross-channel labeled flow).
 
 2. **An AI-agent threat model with a corrective semantic feedback loop, fused with that
-   kernel-level cross-channel taint.** The agent-aware feedback-loop systems (AgentSpec, Progent,
-   SAFEFLOW, ARM) all live at the bypassable userspace/tool-call layer and do no OS-object taint;
-   the kernel taint/provenance systems (CamQuery, OAMAC, STBAC, the detectors) are *not* agent-aware
-   and give *no* corrective feedback (at most a silent `-EPERM` or a `RAISE_WARNING`). **No system
-   delivers semantic, corrective feedback to a cooperative agent from a kernel-level taint
-   decision.**
+   kernel-level cross-channel labeled flow.** The agent-aware feedback-loop systems (AgentSpec,
+   Progent, SAFEFLOW, ARM) all live at the bypassable userspace/tool-call layer and do no OS-object
+   label tracking; the kernel information-flow/provenance systems (CamQuery, OAMAC, STBAC, the
+   detectors) are *not* agent-aware and give *no* corrective feedback (at most a silent `-EPERM` or
+   a `RAISE_WARNING`). **No system delivers semantic, corrective feedback to a cooperative agent
+   from a kernel-level information-flow decision.**
 
-**Precise gap statement.** ActPlane's defensible contribution is **not** "taint in the kernel"
-(CamQuery), **not** "eBPF agent enforcement" (eBPF-PATROL/OAMAC), and **not** "agent guardrails with
-feedback" (AgentSpec/Progent). It is the **unification**: *multi-channel typed taint propagation
+**Precise gap statement.** ActPlane's defensible contribution is **not** "labeled flow in the
+kernel" (CamQuery), **not** "eBPF agent enforcement" (eBPF-PATROL/OAMAC), and **not** "agent
+guardrails with feedback" (AgentSpec/Progent). It is the **unification**: *multi-channel labeled
+information-flow propagation
 (process+file+network) running in the kernel on the eBPF/BPF-LSM substrate, driven by an
 agent-aware source/sink rule model, that closes the loop with corrective semantic feedback to a
 cooperative-but-forgetful agent.* The two cells empty in the comparison table for **every** prior
