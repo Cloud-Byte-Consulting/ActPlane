@@ -351,6 +351,23 @@ The five studies converge on a consistent picture:
    median runtime reduction and 16.58% output token reduction when AGENTS.md
    is present, with comparable task completion.
 
+7. **Interactive confirmation degenerates to rubber-stamping.** Liu et al.
+   report that users approve 93% of permission prompts in Claude Code. This
+   means the primary interactive enforcement mechanism provides negligible
+   filtering in practice. Combined with the finding that CLAUDE.md is treated
+   as context rather than policy (Liu et al.: "violations rely on the model
+   respecting instructions; there are no hard deny/allow gates for CLAUDE.md
+   directives"), these data points establish that today's harnesses have no
+   effective behavioral enforcement: prompt-level compliance is probabilistic,
+   and interactive confirmation is near-universally approved.
+
+8. **Efficiency gains are documented; correctness enforcement is not.**
+   Lulla et al. measured that instruction files reduce runtime by 29%, but
+   explicitly did not measure compliance: "no correctness or compliance
+   evaluation was performed." This gap between demonstrated efficiency
+   benefits and unmeasured correctness guarantees is the central motivation
+   for OS-level enforcement.
+
 ### 6.2 "Behavioral contracts" vs. coding style
 
 **No study explicitly separates behavioral contracts (restrictions, prohibitions,
@@ -372,10 +389,94 @@ prevalence.  From the reported data we can observe that:
 - **Development Process** (37.2--63.3%) includes commit-message and PR rules,
   which are quasi-contractual, but again no sub-classification.
 
+The following table illustrates how the same enforcement-relevant speech act
+("must not X unless Y") scatters across different topic categories in the
+existing taxonomies, making behavioral contracts invisible to topic-based
+analysis:
+
+| Real instruction | Topic category (prior studies) | ActPlane category |
+|---|---|---|
+| "run tests before committing" | Testing | Temporal ordering (E5) |
+| "never commit secrets" | Security | Data flow (E1/E7) |
+| "never push to main directly" | Development Process | VCS gate (E5/E11) |
+| "must use the gh-create-pr skill" | AI Integration | Lineage mediation (E3) |
+
+All four are cross-object contracts requiring state tracking, but they appear
+in four different topic categories in the existing taxonomies. ActPlane's
+speech-act-based classification groups them by enforcement requirement rather
+than by topic.
+
 **Bottom line:** The fraction of instructions that constitute enforceable
 behavioral contracts (as opposed to coding style or project context) is
-unknown from the existing literature.  This is a gap ActPlane's corpus study
-can fill.
+unknown from the existing literature.
+
+**ActPlane's corpus study addresses this gap.** From 144 popular projects (228
+instruction files, 39,803 lines), we extracted 3,762 candidate imperative
+statements via keyword matching and classified them by category regex into
+ActPlane-relevant categories (mapped to DSL constructs E1--E12). Preliminary
+findings (all numbers are upper bounds from automated extraction; manual
+coding with Cohen's kappa has not yet been completed):
+
+- **101/144 (70%) of projects** contain at least one keyword-and-category
+  match. This is an **upper bound**: the category regex admits noise
+  (build instructions, commit-message formatting rules), so the true
+  prevalence of enforceable behavioral contracts is lower and will be
+  determined by manual D1--D7 coding. The distribution of candidates per
+  repo (from corpus-analysis.md) is:
+
+  | Candidates per repo | Repos | Cumulative |
+  |---|---|---|
+  | 0 | 43 | 43 (30%) |
+  | 1--2 | 19 | 62 (43%) |
+  | 3--5 | 26 | 88 (61%) |
+  | 6+ | 56 | 144 (100%) |
+
+  The distribution is bimodal: 30% of projects have zero candidates, while
+  39% have six or more. This suggests behavioral contracts are concentrated
+  in projects that actively govern agent behavior rather than spread thinly.
+
+- The top categories by repo count are: VCS commit/push gates (63 repos),
+  test-before-commit (51 repos), secrets/credentials (40 repos), approval
+  gates (23 repos), and mandatory mediation (20 repos).
+- These contracts span three patterns that require cross-object state
+  tracking: **data flow** (secrets: 40 repos), **temporal ordering**
+  (test-before-commit: 51 repos), and **lineage mediation** (mandatory
+  tool routing: 20 repos). We use the term "cross-object" rather than
+  "information flow" for temporal and lineage patterns, since they track
+  execution ordering and process ancestry rather than data propagation
+  (Section 6.2.1 below).
+- Keyword matching has known **recall limitations**: contracts stated as
+  positive imperatives ("always run tests first") and long-sentence
+  narratives (e.g., untrusted-input policies) are under-counted. The
+  untrusted-input category registered only 1 repo by keyword but manual
+  inspection found additional instances (see corpus-analysis.md Section 6).
+
+**Methodological caveats.** The DSL constructs E1--E12 were designed from
+an initial examination of instruction files, so the correspondence between
+corpus categories and DSL constructs is by construction, not by independent
+validation. The finding is that the *prevalence* of these patterns is high,
+not that the DSL is independently validated by the corpus. A precision
+estimate (manual labeling of a random sample of the 529 candidates) and
+inter-rater reliability (Cohen's kappa on the D1--D7 coding) are required
+before these numbers can be cited as final results. See
+`docs/tmp/corpus-analysis.md` for full methodology, per-category breakdown,
+signal-cleanliness annotations, and representative quotes.
+
+#### 6.2.1 Why temporal and lineage patterns require cross-object tracking
+
+A reviewer may object that "run tests before committing" is a workflow
+ordering constraint, not an information-flow property. We include it because
+enforcement requires the same mechanism: the enforcer must maintain state
+(a temporal gate) across multiple OS operations in the agent's process tree
+and check that state at a later enforcement point. Per-event matching cannot
+express "commit only if a test process executed earlier in this session."
+The labeled IFC framework encodes this as an `after` gate: the `TESTED`
+label is set when a test binary executes, and the commit rule checks for
+its presence. The mechanism is label propagation and checking; the
+*semantics* differ (data provenance vs. temporal ordering vs. process
+ancestry), but the *enforcement substrate* is the same. We use "cross-object
+contracts" as the umbrella term in the paper to avoid over-claiming that all
+patterns are information flow in the strict DIFC sense.
 
 ### 6.3 Compliance and violation measurement
 
@@ -392,64 +493,78 @@ can fill.
   but provides no empirical violation rate data beyond the 93% approval rate
   statistic (which measures user behavior, not agent compliance).
 
-**This is the central gap.**  All five studies assume instructions are followed
-or do not ask the question.  None provides empirical evidence on violation
-frequency, violation types, or whether enforcement matters.
+**This is the central gap.** All five studies assume instructions are followed
+or do not ask the question. None provides empirical evidence on violation
+frequency, violation types, or whether enforcement matters. Three quotes from
+the prior authors themselves underscore the gap:
 
-### 6.4 Implications for ActPlane's corpus study methodology
+> Chatlatanagulchai et al. (2025b): developers "provide few guardrails to
+> ensure that agent-written code is secure or performant."
 
-ActPlane's corpus study can build directly on these findings while addressing
-their gaps:
+> Liu et al. (2026): CLAUDE.md instructions are treated as "context, not as
+> policy ... violations rely on the model respecting instructions; there are
+> no hard deny/allow gates for CLAUDE.md directives."
 
-| Aspect | Existing studies | ActPlane opportunity |
+> Lulla et al. (2026): "no correctness or compliance evaluation was
+> performed."
+
+These statements, from the authors of the three largest empirical studies of
+agent instruction files, collectively establish that behavioral enforcement
+for coding agents is an unaddressed problem.
+
+### 6.4 Relationship to existing studies
+
+ActPlane's corpus study differs from the five surveyed studies along six
+dimensions:
+
+| Aspect | Existing studies | ActPlane corpus study |
 |---|---|---|
-| **Taxonomy axis** | Topic-based (what the instruction is *about*) | Speech-act-based (what the instruction *demands*: enable, restrict, gate, transform) |
+| **Taxonomy axis** | Topic-based (what the instruction is *about*) | Speech-act-based (what the instruction *demands*: restrict, gate, flow) |
 | **Enforcement** | None measured | Kernel-level enforcement with violation logs |
 | **Compliance data** | None | Empirical violation rates from eBPF telemetry |
 | **Scope** | Userspace instructions (context for the model) | Syscall-boundary enforcement (holds for any tool/subprocess) |
 | **Expressiveness** | Free-text natural language | Compiled DSL with labeled information-flow semantics |
 | **What counts as "security"** | Vague ("workspace isolation") | Precise: label propagation, mask matching, lineage gates |
 
-The existing studies establish that:
-- Developers *want* behavioral constraints (they write prohibitive rules).
-- Developers *rarely specify* non-functional constraints (security 8.7--14.5%).
-- There is *no enforcement* today (CLAUDE.md is context, not policy -- Liu
-  et al. 2026).
-- Efficiency improves with better context (Lulla et al. 2026).
+The existing studies establish that developers write prohibitive rules, that
+instruction files are ubiquitous (59--67% modified in multiple commits), and
+that there is no enforcement mechanism (CLAUDE.md is context, not policy;
+Liu et al. 2026). The low prevalence of security/behavioral instructions in
+their taxonomies (8.7--14.5%) may partly reflect the topic-based
+classification, which scatters behavioral contracts across Build, Testing,
+and Development Process categories rather than grouping them by
+enforceability. Whether the availability of enforcement infrastructure
+would change what developers write is an open question that this study
+does not answer.
 
-ActPlane can argue that the low prevalence of security/behavioral instructions
-may partly reflect the *lack of enforcement infrastructure*: why write
-constraints you cannot enforce?  The labeled information-flow model provides
-the missing enforcement layer.
-
-### 6.5 What ActPlane's corpus study asks that these studies do NOT answer
+### 6.5 Questions the existing studies do not answer
 
 1. **What fraction of real-world agent instructions are enforceable behavioral
-   contracts?**  None of the five studies classifies instructions by
-   enforceability or by speech act (prohibition vs. obligation vs. preference).
+   contracts?** None of the five studies classifies instructions by
+   enforceability or speech act. ActPlane's corpus study finds
+   behavioral-contract candidates in 70% of projects (101/144, upper bound
+   from keyword+regex extraction; not yet validated by manual coding).
 
-2. **Do agents violate instructions, and how often?**  No study provides
-   empirical violation rates.
+2. **Do agents violate instructions, and how often?** No study provides
+   empirical violation rates. ActPlane's evaluation (Section 6) measures
+   this under four feedback conditions.
 
-3. **Can natural-language instructions be compiled to a formal policy?**  The
-   existing studies treat instruction files as opaque text.  ActPlane's DSL
-   demonstrates that a meaningful subset can be lowered to labeled
-   information-flow rules.
+3. **Can natural-language instructions be compiled to a formal policy?**
+   ActPlane's DSL demonstrates that a meaningful subset of cross-object
+   contracts (spanning data-flow, temporal-ordering, and lineage-mediation
+   patterns) can be lowered to label-propagation rules.
 
-4. **Does enforcement change agent behavior or developer practice?**  Lulla
-   et al. measure efficiency without enforcement; no study measures the
-   effect of *hard* enforcement (kill/deny at syscall boundary) on agent
-   correctness, safety, or developer trust.
+4. **Does enforcement change agent behavior?** Lulla et al. measure
+   efficiency without enforcement. ActPlane's C3-vs-C4 experiment isolates
+   the effect of kernel-level enforcement with corrective feedback on agent
+   recovery rate.
 
-5. **What is the relationship between instruction-file content and actual
-   syscall-level behavior?**  The existing studies analyze text; ActPlane
-   can correlate text-level instructions with kernel-observed behavior.
-
-6. **What information-flow properties do developers implicitly specify?**  The
-   label/source/sink/propagation model in ActPlane can express constraints
-   (e.g., "data read from secrets must not be written to network") that no
-   existing taxonomy captures, even when developers write them in natural
-   language.
+5. **What cross-object contract patterns do developers implicitly specify?**
+   The corpus study identifies three recurring patterns: data flow (secrets,
+   40 repos), temporal ordering (test-before-commit, 51 repos), and lineage
+   mediation (mandatory tool routing, 20 repos). All three require
+   cross-object state tracking and cut across the existing topic-based
+   taxonomies.
 
 ---
 
