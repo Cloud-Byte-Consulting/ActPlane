@@ -19,30 +19,35 @@
   \country{}}
 
 \begin{abstract}
-Modern coding agents are governed largely by natural-language instructions such
-as \texttt{CLAUDE.md} and \texttt{AGENTS.md}. These instructions express real
-workflow and data-handling constraints, but they are probabilistic: an otherwise
-cooperative agent may forget them, invoke a shell, spawn a subprocess, or use an
-SDK path that bypasses a tool-level guard. Existing agent guardrails therefore
-sit at the wrong layer for constraints that must hold across the agent's whole
-execution.
+AI coding agents are guided by natural-language instruction files that express
+behavioral contracts: do not leak secrets, run tests before committing, use
+only sanctioned tools. These contracts are declared at the level of
+\emph{intent}---what the agent should and should not do---but their effects
+occur as \emph{behavior}---actual operations such as file access, process
+execution, and network connections. Between the two sits the agent's
+\emph{action} layer: tool calls whose mapping to OS behavior is many-to-many
+and opaque.  A single tool invocation can trigger arbitrary system calls, and the
+same OS operation can be reached through different tool paths. 
+Existing enforcement operates at a single level: action-level
+guards check tool calls but miss effects that reach the OS through subprocesses
+or direct system interfaces; behavior-level enforcement (syscall filters,
+sandboxes) is unbypassable but returns opaque failures disconnected from
+intent. 
 
-ActPlane is an OS-level harness for AI agents. It compiles declarative policies
-into an eBPF/BPF-LSM backend that performs \emph{labeled information-flow
-control}: named labels are propagated across process, file, and endpoint
-objects, source-to-sink rules are checked at kernel hooks, and corrective
-feedback is returned to the agent so that a failed action can be repaired rather
-than blindly retried. Unlike classic taint analysis---single-bit and usually
-offline, aimed at finding vulnerabilities---ActPlane carries multiple named
-labels, enforces at runtime below the tool layer, and serves a cooperative
-rather than adversarial agent. The system targets
-cooperative-but-forgetful agents, not only adversarial code. Its semantics
-therefore distinguish LSM-only pre-operation \emph{block}, tracepoint-compatible
-\emph{audit}, and harness-level \emph{kill}. This paper describes ActPlane's
-policy language, kernel design, feedback bridge, and an evaluation plan that
-will measure bypass coverage, agent recovery, false positives, overhead, and
-real-policy coverage. Evaluation result cells are intentionally left as TBDs
-until the experiments are run.
+Today's agent harnesses---the non-model infrastructure around an
+agent to enforce the behavioral contracts---keep their  components entirely at the
+application layer, leaving this \emph{intent--behavior gap} unbridged.
+ActPlane is the OS-level enforcement component of an agent harness, allowing agent
+and human. declares behavioral contracts in a compact DSL and ActPlane compiles them 
+into labeled information-flow rules enforced by an eBPF/BPF-LSM backend. 
+Named labels propagate across process, file, and network objects at kernel hooks, 
+tracking which sources have
+influenced which subjects. When a violation is detected, the kernel reports it
+and ActPlane returns corrective feedback to the agent: which contract was
+violated, why, and what alternative path satisfies it. The agent receives not
+\texttt{Permission denied} but a reminder of its own declared intent.we evaluates
+ActPlane on bypass coverage across tool paths, agent recovery rate 
+under feedback conditions, false positives, and per-event overhead.
 \end{abstract}
 
 \begin{CCSXML}

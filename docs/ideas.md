@@ -308,23 +308,87 @@ AgentSight 和 ActPlane 处理同一个 gap（intent ↔ behavior），但方向
 
 ---
 
+## 为什么用 "Harness" 这个词——以及怎么跟主流定义对齐
+
+### 主流定义回顾
+
+2026 年的行业共识（Anthropic, OpenAI, LangChain, Martin Fowler, O'Reilly）：
+
+> **Agent = Model + Harness**
+
+Harness = 模型之外的一切，包括：tool dispatch, memory/state, context engineering,
+**sandbox, guardrails/enforcement, feedback loops**, orchestration, observability。
+
+Martin Fowler 的分解：harness = **guides**（feedforward: docs, rules, tooling）
++ **sensors**（feedback: linters, review）。
+
+关键观察：**enforcement 和 feedback 已经是 harness 的公认组件**。主流定义没有
+把 harness 限定为 "只是 orchestration"——sandbox、guardrails、feedback 都算在内。
+
+详见 `harness_define.md` 的完整来源和时间线。
+
+### ActPlane 不需要重新定义 harness
+
+ActPlane 不是在说 "harness 应该改成 enforcement 的意思"。而是在说：
+
+> 现有 agent harness 把所有组件——包括 enforcement 和 feedback——都实现在
+> application layer。但因为 action ≠ behavior，application layer 的
+> enforcement 看不到 OS-level 的行为。**Harness 的 enforcement + feedback
+> 组件需要延伸到 OS 层。**
+
+所以 paper 标题 "OS-Enforced Agent Harnesses" 的含义是：
+
+- 不是说 ActPlane 是一个完整的 harness（它不做 orchestration、memory、
+  context engineering）
+- 而是说 ActPlane 是 **harness 的 OS-enforced 组件**——那些必须在 OS 层
+  才能正确工作的部分（enforcement + feedback）
+- 这与主流定义不冲突——它是在说 harness 的某些组件需要比 application layer 更深
+
+### 对应 intent/action/behavior 的 framing
+
+```
+现有 harness（application layer）：
+  orchestration + tools + memory + context
+  + enforcement（action-level）     ← 看不到 behavior
+  + feedback（action-level）        ← 只能说 "tool call 被禁了"
+
+ActPlane 补充的部分（OS layer）：
+  + enforcement（behavior-level）   ← 看到实际 OS 操作
+  + feedback（behavior-level）      ← 能说 "你因为读了 .env 所以不能连外网"
+```
+
+主流 harness 的 enforcement + feedback 只连通了 intent ↔ action。
+ActPlane 的 enforcement + feedback 连通了 intent ↔ behavior。
+两者是互补的，不是替代的。
+
+### 在 paper 中怎么写
+
+在 introduction 中用一两句定位：
+
+> The term \emph{agent harness} has come to mean everything around the model:
+> tool dispatch, memory, orchestration, guardrails, and
+> feedback~\cite{langchain-harness,fowler-harness}. Current harness
+> implementations place all of these components at the application layer.
+> ActPlane extends the harness to the OS level for the components that
+> cannot work at the application layer alone: behavioral enforcement and
+> corrective feedback over the agent's actual OS-level behavior.
+
+这样标题 "OS-Enforced Agent Harnesses" 自然地连接到主流定义，不需要 fight it。
+
+---
+
 ## Open questions（更新）
 
-1. **Paper 标题**：
-   - "OS-Enforced Agent Harnesses" 是否还合适？
-   - 主流 "harness" 指 orchestration，不是 enforcement（见 `harness_define.md`）
-   - 可能的替代：用 intent/behavior 桥接的语言？或 voluntary confinement？
-2. **Abstract 重写**：基于 6.1–6.7 的结构重写 abstract
-   - 核心叙事：agent 主动声明约束 → intent/behavior gap → ActPlane 桥接
-3. **Evaluation 的核心 hypothesis**：
+1. **Abstract/Intro 已重写**：基于 intent/action/behavior framing + harness 定位
+2. **Evaluation 的核心 hypothesis**：
    - C3 vs C4 验证 feedback（behavior→intent 提醒）的价值
    - E1 验证 action ≠ behavior 的实证（同一约束通过不同 tool path bypass）
    - 需要一个实验验证 cross-object label propagation 的必要性——
      对比 per-event matching（Tetragon 式）vs cross-object flow（ActPlane 式）
-4. **与 AgentSight 的关系**：
+3. **与 AgentSight 的关系**：
    - 不说 "延伸"，说 "互补"：AgentSight 被动观测 intent，ActPlane 主动声明 intent
    - 引用 AgentSight 的 intent/behavior gap 框架
-5. **Agent 主动参与不是 vision，是已有实践的系统化**：
+4. **Agent 主动参与不是 vision，是已有实践的系统化**：
    - 应用层已有 paper 让 agent 主动管理自己的约束/能力：
      FIDES（agent loop 内的 IFC）、CaMeL（dual-LLM capability separation）、
      各种 agent framework 的 self-reflection / corrective invocation

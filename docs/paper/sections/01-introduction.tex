@@ -1,65 +1,146 @@
 \section{Introduction}
 
 AI coding agents increasingly operate as long-running processes with access to
-shells, source trees, package managers, browsers, issue trackers, and external
-APIs. Project maintainers attempt to steer these agents with instruction files
-such as \texttt{CLAUDE.md} and \texttt{AGENTS.md}: do not push directly to
-\texttt{main}; run tests before committing; never expose secrets; use a specific
-review tool before destructive operations. These are not simply style
-preferences. Many are behavioral invariants over the agent's execution.
+shells, source trees, package managers, and external APIs. Project maintainers
+steer these agents with instruction files such as \texttt{CLAUDE.md} and
+\texttt{AGENTS.md}: do not push directly to \texttt{main}; run tests before
+committing; never expose secrets; use only a sanctioned review tool before
+destructive operations. These are not style preferences. They are behavioral
+constraints that must hold across the agent's entire execution.
 
-The problem is that the dominant enforcement point is still the prompt or the
-tool-call API. Prompt rules are probabilistic, and tool-level guards only see
-actions that pass through the guarded API. A coding agent that forgets a rule
-can invoke \texttt{bash -c}, use \texttt{python -c subprocess.run(...)}, run an
-SDK, or call a syscall through a helper. The agent need not be malicious for the
-guardrail to fail; it only needs enough autonomy to route around the layer where
-the rule was encoded.
+A cooperative agent will generally follow these constraints---but it forgets.
+In long contexts, attention is diluted, earlier instructions drop out of the
+effective window, and the agent takes a shortcut that violates a rule it
+previously acknowledged. The agent is not adversarial; it is
+\emph{cooperative but forgetful}. It would benefit from a mechanism that
+makes its own declared constraints durable---surviving context loss, tool
+switching, and subprocess indirection---and that reminds it when a constraint
+is about to be violated.
 
-ActPlane takes the harness boundary below the tool layer. It treats an agent
-run as an OS execution tree and enforces policies at kernel observation and
-mediation points. Policies are expressed as typed information-flow rules:
-sources label processes, files, and endpoints; labels propagate through
-fork/exec, file reads and writes, and connect-level endpoint edges; sinks declare which labeled
-subjects may not perform which actions. Enforcement happens through BPF-LSM
-hooks when the kernel can deny before commit, and through tracepoints when only
-observation or harness-level termination is available.
+\subsection{The Intent--Behavior Gap}
 
-This framing differs from both traditional sandboxing and traditional access
-control. A sandbox usually draws a coarse perimeter around the entire agent.
-Access control asks whether a principal may touch a resource. An agent harness
-instead encodes workflow contracts over a cooperative but fallible actor:
-\emph{if this action violates the contract, fail it and explain how to proceed}.
-The feedback path matters because a coding agent can often recover: after being
-told that it must run tests before committing, it can run the tests and retry.
+We distinguish three levels at which an agent's execution can be described,
+following AgentSight's observation of a ``semantic gap'' between agent intent
+and low-level actions~\cite{agentsight}.
 
-ActPlane's core technical claim is not that in-kernel provenance enforcement is
-new. Systems such as CamQuery already showed that labels can be propagated over
-process, file, and network provenance and used to prevent policy
-violations~\cite{pasquier2018camquery}. ActPlane's contribution is to make this
-mechanism an agent harness: a modern eBPF/BPF-LSM implementation, an
-agent-oriented rule language, and a corrective feedback loop integrated with
-contemporary coding agents.
+\textbf{Intent.} What the agent declares it will and will not do: goals
+(``fix this bug'') and self-constraints (``I must not leak secrets'').
+Intent is expressed in natural language and, in ActPlane's design, formalized
+in a compact DSL that the agent itself can write and maintain.
 
-This paper makes four contributions.
+\textbf{Action.} The tool calls the agent issues through its runtime:
+\texttt{read\_file}, \texttt{run\_command}, \texttt{edit\_file}. This is the
+interface between the agent and the outside world, mediated by the agent
+framework.
 
-\begin{itemize}
-\item It defines OS-enforced agent harnesses as behavioral invariants plus
-corrective feedback over an agent's whole execution, and explains why the
-enforcement point must be below the tool API for shell/subprocess/SDK bypasses.
-\item It presents a compact policy language for source/sink/gate rules over
-process, file, and endpoint objects, including explicit \texttt{audit},
-\texttt{block}, and \texttt{kill} effects.
-\item It describes an implementation that compiles policies into a fixed kernel
-ABI, propagates labels in eBPF maps, checks rules at tracepoints and BPF-LSM
-hooks, and bridges kernel violations into agent feedback files and post-tool
-hooks.
-\item It lays out an evaluation plan, derived from real agent instruction
-files, for measuring bypass coverage, recovery from corrective feedback,
-false positives, overhead, and expressiveness against tool-layer and kernel
-baselines.
-\end{itemize}
+\textbf{Behavior.} The actual OS-level operations that result: \texttt{open},
+\texttt{execve}, \texttt{connect}, \texttt{fork}. Behavior is where effects
+really happen---files are read, processes are spawned, data reaches the
+network.
 
-The paper does not report evaluation numbers until they can be regenerated from
-the experiment artifacts. The evaluation section specifies the experiments and
-result tables, with result cells marked \textsc{TBD}.
+The core problem is that the mapping from action to behavior is
+\emph{many-to-many and opaque}. A single tool call
+\texttt{run\_command("make")} can produce hundreds of system calls. The same
+OS operation---\texttt{execve("git", ["push"])}---can be reached through a
+direct tool call, a \texttt{bash~-c} string, a Python subprocess, or a
+compiled helper binary. An action-level guard sees only the tool call; it
+cannot predict or intercept the behavior it produces.
+
+\subsection{Why Single-Level Enforcement Is Insufficient}
+
+Enforcement can be placed at any of the three levels. Each alone is
+insufficient.
+
+\textbf{Intent-level} enforcement (prompt instructions, \texttt{CLAUDE.md})
+is probabilistic: the agent may forget the constraint or override it in
+reasoning.
+
+\textbf{Action-level} enforcement (tool-call guards such as AgentSpec and
+Progent~\cite{wang2025agentspec,shi2025progent}) is deterministic but
+bypassable: it checks tool calls, not the OS behavior they produce. When the
+agent routes an effect through a subprocess, an SDK, or a direct system
+interface, the guard sees nothing.
+
+\textbf{Behavior-level} enforcement (syscall filters, sandboxes, eBPF
+enforcers) is unbypassable---every effect crosses the kernel boundary. But
+isolated behavior-level enforcement returns only \texttt{-EPERM} or
+\texttt{SIGKILL}; the agent receives no explanation and cannot recover.
+
+The gap between intent and behavior is not bridged by any single level.
+Intent-level constraints are not connected to behavior-level enforcement;
+behavior-level enforcement is not connected back to intent-level feedback.
+
+\subsection{ActPlane: Bridging Intent and Behavior}
+
+ActPlane closes this gap in both directions.
+
+\textbf{Downward: intent to behavior.} The agent declares behavioral
+contracts in a DSL---voluntary confinement, analogous to \texttt{pledge()} in
+OpenBSD, where a program restricts its own capabilities because it knows it
+may be exploited. A coding agent can write and maintain this DSL just as it
+edits any other project file. ActPlane compiles these declarations into
+labeled information-flow rules and loads them into an eBPF/BPF-LSM backend.
+Named labels propagate across process, file, and network objects at kernel
+hooks, tracking which sources have influenced which subjects.
+
+\textbf{Horizontal: across objects.} Labels encode execution history at the
+behavior level. When a process reads a file labeled \texttt{SECRET}, the
+process acquires that label. When it forks, the child inherits the label.
+This cross-object propagation turns individual OS operations into checkable
+behavioral state---enabling constraints like ``a process that has read
+\texttt{.env} must not connect to external endpoints.''
+
+\textbf{Upward: behavior to intent.} When a violation is detected, the
+kernel reports the rule, the target, and the effect. ActPlane translates
+this into corrective feedback delivered to the agent's context: which
+constraint was violated, why the current operation conflicts with it, and
+what alternative path (running a redactor, going through a review tool,
+executing tests first) would satisfy the contract. The agent receives not
+\texttt{Permission denied} but a reminder of its own declared intent.
+
+The term \emph{agent harness} has come to mean everything around the
+model---tool dispatch, memory, orchestration, guardrails, and
+feedback~\cite{langchain-harness,fowler-harness}. Current harness
+implementations place all of these components, including enforcement and
+feedback, at the application layer. ActPlane extends the harness to the OS
+level for the components that cannot work at the application layer alone:
+behavioral enforcement and corrective feedback over the agent's actual
+OS-level behavior. It is not a replacement for the application-layer harness
+but a complement---the part that must reach below the tool API.
+
+This design is not a new enforcement mechanism---CamQuery showed that
+cross-channel label propagation and enforcement can be done in the
+kernel~\cite{pasquier2018camquery}. Nor is corrective feedback for agents
+new---AgentSpec demonstrated it at the tool-call
+layer~\cite{wang2025agentspec}. And letting agents participate in their own
+governance through information-flow control is already practiced at the
+application layer by systems such as FIDES and
+CaMeL~\cite{costa2025fides,debenedetti2025camel}. ActPlane's contribution is
+bringing these capabilities together \emph{at the OS level}: cross-channel
+labeled information-flow enforcement on the modern eBPF/BPF-LSM substrate,
+driven by agent-declared behavioral contracts, with a feedback path that
+connects kernel-detected violations back to the agent's intent---where
+constraints survive context loss and cannot be bypassed below the tool API.
+
+\subsection{Contributions}
+
+This paper makes three contributions.
+
+\begin{enumerate}
+\item It defines the \emph{intent--behavior gap} for AI agents---the
+disconnect between behavioral constraints declared at the intent level and
+their enforcement at the OS level---and grounds it with a corpus study of
+instruction files from 50 popular projects, showing that OS-enforceable
+behavioral constraints are pervasive.
+
+\item It presents ActPlane, a system that compiles agent-declared behavioral
+contracts into eBPF/BPF-LSM labeled information-flow enforcement. The system
+propagates labels across process, file, and network objects, checks
+source-to-sink rules at kernel hooks, and returns corrective feedback that
+reconnects behavior-level violations to intent-level remediation.
+
+\item It evaluates ActPlane on bypass coverage across five tool paths, agent
+recovery rate under four feedback conditions, false positives under benign
+workloads, and per-event overhead, comparing against action-level and
+behavior-level baselines.
+\end{enumerate}
