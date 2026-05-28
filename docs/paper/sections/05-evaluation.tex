@@ -1,0 +1,160 @@
+\section{Evaluation}
+\label{sec:evaluation}
+
+The evaluation measures five properties: bypass coverage, corrective-feedback
+effectiveness, false-positive rate, runtime overhead, and coverage over
+real-world contracts.
+
+\subsection{Experimental Setup}
+
+% TODO: Fill in agent versions, kernel version, hardware, policy set.
+
+\subsection{Bypass Coverage (RQ1)}
+
+Does OS-level enforcement detect the same contract violation regardless of
+the tool path through which the agent triggers it?
+
+We execute the same forbidden operation through five paths: (1)~direct tool
+call, (2)~nested shell string (\texttt{bash~-c}), (3)~Python
+\texttt{subprocess}, (4)~compiled helper binary, and (5)~direct
+\texttt{execve} from generated C code. For each path, we record whether
+ActPlane detects the violation and whether the corrective feedback payload
+is delivered to the agent.
+
+% TODO: Insert coverage matrix table.
+
+\subsection{Feedback and Recovery (RQ2)}
+
+Does corrective feedback improve agent task completion and reduce repeated
+violations compared with enforcement without feedback?
+
+We run agent tasks under four conditions: (C1)~prompt-only---the
+contract is stated in the prompt but not enforced; (C2)~audit---ActPlane
+reports violations but does not fail operations; (C3)~enforcement without
+feedback---the operation fails with \texttt{-EPERM} or \texttt{SIGKILL}
+but no structured reason; (C4)~enforcement with feedback---the operation
+fails and ActPlane injects the rule name, reason, and remediation into the
+agent's context.
+
+The primary comparison is C3 vs.\ C4: the marginal benefit of corrective
+feedback. The C1-to-C2 comparison measures how often prompt-only contracts
+are violated. The C2-to-C3 comparison isolates the effect of enforcement
+from observation.
+
+% TODO: Insert results table.
+
+\subsection{False Positives (RQ3)}
+
+Do benign tasks and sanctioned contract paths (declassification, gate
+mediation, temporal gates) proceed without spurious enforcement?
+
+% TODO: Insert false-positive results.
+
+\subsection{Overhead (RQ4)}
+
+What is the per-event and end-to-end cost of label propagation and rule
+checking?
+
+We measure per-event latency for fork, exec, open, write, and connect
+operations with and without ActPlane attached, and report p50 and p99
+latencies. We also measure wall-clock time for representative agent tasks
+and BPF map memory consumption as a function of rule count and active
+process count.
+
+% TODO: Insert latency table and overhead figures.
+
+\subsection{Corpus Coverage (RQ5)}
+
+How many real-world contracts from the corpus study
+(\S\ref{sec:corpus}) are enforceable by ActPlane?
+
+We apply the D1--D7 coding dimensions to each extracted contract and
+report the fraction that is observable at the syscall boundary (D3),
+expressible in the ActPlane DSL (D4), enforceable without false positives
+(D5), and temptable in a realistic agent task (D7). We report inter-rater
+agreement (Cohen's $\kappa$) for each dimension.
+
+% TODO: Insert corpus coverage funnel table.
+
+
+\section{Related Work}
+\label{sec:related}
+
+\subsection{In-Kernel Provenance and Information Flow}
+
+PASS introduced provenance as a storage-layer
+primitive~\cite{muniswamy2006pass}. Hi-Fi and LPM used LSM hooks to capture
+trustworthy whole-system provenance~\cite{pohly2012hifi,bates2015lpm}.
+CamFlow extended this to a streaming provenance framework over processes,
+files, and sockets~\cite{pasquier2017camflow}.
+
+CamQuery is the closest prior
+system~\cite{pasquier2018camquery}. It executes provenance queries inline
+in the kernel, propagates labels across process, file, and network edges,
+and can deny operations that violate a policy. ActPlane shares this
+label-propagation model but differs in three respects: it targets
+cooperative AI agents rather than adversarial intrusions, compiles an
+agent-oriented source/sink DSL rather than general provenance queries, and
+returns corrective feedback to the violating actor. The implementation
+differs as well: ActPlane uses the eBPF/BPF-LSM substrate rather than a
+loadable kernel module.
+
+TaintDroid, Dytan, libdft, and Panorama established dynamic taint tracking
+at runtime, binary-instrumentation, and emulation
+layers~\cite{enck2010taintdroid,clause2007dytan,kemerlis2012libdft,yin2007panorama}.
+ActPlane operates at object granularity rather than byte granularity,
+trading precision for low-overhead whole-system coverage.
+
+\subsection{eBPF and LSM Enforcement}
+
+BPF-LSM, originally proposed as KRSI, allows eBPF programs to attach to
+Linux security hooks and return allow/deny
+verdicts~\cite{singh2019krsi,linuxbpflsm}. ActPlane uses BPF-LSM as its
+pre-operation enforcement backend. Contemporary eBPF enforcement tools
+such as Tetragon, Tracee, and eBPF-PATROL provide per-event predicate
+matching and, in Tetragon's case, a boolean lineage flag
+(\texttt{followChildren}) that propagates across fork/exec. These systems
+evaluate per-event predicates or single-channel lineage flags rather than
+cross-channel labeled information
+flow~\cite{ciliumtetragon,aquasecuritytracee,ghimire2025ebpfpatrol}.
+
+\subsection{Agent Guardrails and Information-Flow Control}
+
+AgentSpec and Progent provide deterministic runtime enforcement over
+tool-call names, arguments, and framework
+actions~\cite{wang2025agentspec,shi2025progent}. These systems enforce at
+the tool-call boundary; ActPlane complements them by enforcing below the
+tool API, where effects that bypass the framework are still visible.
+
+FIDES and CaMeL apply typed information-flow control and capability
+separation within the agent loop or
+scaffolding~\cite{costa2025fides,debenedetti2025camel}. ActPlane applies
+the same style of information-flow reasoning at the OS boundary, where
+enforcement persists across context windows and cannot be circumvented by
+subprocess indirection.
+
+\subsection{Agent Instruction Files}
+
+Recent empirical studies characterize \texttt{CLAUDE.md},
+\texttt{AGENTS.md}, and related agent instruction files along dimensions
+of content taxonomy, maintenance practices, and effect on task
+efficiency~\cite{chatlatanagulchai2025manifests,chatlatanagulchai2025agentreadmes,
+santos2025claudeconfig,lulla2026agentsmd}. ActPlane's corpus study
+(\S\ref{sec:corpus}) asks a different question: which instructions
+constitute cross-object information-flow contracts, and which of those can
+be enforced at the OS level?
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+ActPlane extends agent harness enforcement to the OS level. It compiles
+agent-declared behavioral contracts into eBPF/BPF-LSM labeled
+information-flow rules, propagates labels across process, file, and endpoint
+objects at kernel hooks, and returns kernel-detected violations as corrective
+feedback to the agent. By supporting audit, pre-operation denial, and
+harness-level termination with structured remediation, ActPlane enables
+agents to recover from contract violations rather than fail opaquely.
+ActPlane unifies labeled information-flow enforcement with an agent-oriented
+contract language and a feedback loop on the eBPF/BPF-LSM substrate,
+bridging the intent--behavior gap that single-level harnesses leave open.

@@ -9,8 +9,8 @@ autonomously writing code, running tests, and managing infrastructure across
 extended sessions.
 
 % ¶2: Agents need deterministic harnesses to enforce behavioral contracts
-As agents gain autonomy, they require deterministic harnesses to enforce
-behavioral contracts. Projects encode such contracts in instruction files such
+As agents gain autonomy, they require harnesses to enforce behavioral
+contracts. Projects encode such contracts in instruction files such
 as \texttt{CLAUDE.md} and
 \texttt{AGENTS.md}~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}:
 do not push directly to \texttt{main}; run tests before committing; never
@@ -29,12 +29,13 @@ result)~\cite{agentsight}. The mapping from action to behavior is many-to-many
 and opaque: a single \texttt{run\_command("make")} can trigger hundreds of
 system calls, and the same \texttt{git~push} can be reached through a direct
 tool call, a \texttt{bash~-c} string, a Python subprocess, or a compiled
-helper. Intent-level enforcement (prompt instructions) is probabilistic. Action-level enforcement (tool-call guards such as AgentSpec
-~\cite{wang2025agentspec,shi2025progent}) is deterministic but
+helper. Intent-level enforcement (prompt instructions) is probabilistic.
+Action-level enforcement (tool-call
+guards~\cite{wang2025agentspec,shi2025progent}) is deterministic but
 bypassable: it checks tool calls, not the OS behavior they produce.
-Behavior-level enforcement (syscall filters,
-sandboxes~\cite{pasquier2018camquery,ciliumtetragon}) is unbypassable but
-the policy and results are disconnected from intent. No single
+Behavior-level enforcement (kernel-level enforcers such as CamQuery and
+Tetragon~\cite{pasquier2018camquery,ciliumtetragon}) is unbypassable but
+returns failures disconnected from intent. No single
 level bridges the gap.
 
 % ¶4: Insight — contracts are cross-object information flow

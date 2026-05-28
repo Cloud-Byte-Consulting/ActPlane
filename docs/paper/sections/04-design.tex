@@ -1,0 +1,234 @@
+\section{Design}
+\label{sec:design}
+
+ActPlane compiles behavioral contracts into labeled information-flow rules
+enforced at OS kernel hooks, and returns corrective feedback when a rule is
+violated. Figure~\ref{fig:architecture} summarizes the pipeline.
+
+\begin{figure}[t]
+\begin{verbatim}
+actplane.yaml
+  policy: |
+        |
+        v
+Rust compiler ------> struct taint_config
+        |                    |
+        v                    v
+ actplane run -----> eBPF loader + BPF maps
+        |                    |
+        v                    v
+  target command <--- kernel hooks
+        |
+        v
+.actplane/last-violation.txt
+\end{verbatim}
+\caption{ActPlane pipeline. The Rust compiler lowers the policy DSL into a
+fixed-size binary configuration. The eBPF loader writes it into read-only
+data, attaches to kernel hooks, and reports violations as NDJSON. The runner
+maps rule identifiers back to human-readable feedback.}
+\Description{ASCII diagram of policy compilation, eBPF loading, target
+command execution, and feedback output.}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Policy Model}
+
+ActPlane policies are object-level information-flow rules over three node
+types: processes (identified by pid and command name), files (keyed by
+path hash), and endpoints (keyed by IPv4 address and mask). The model
+operates at object granularity rather than byte
+granularity~\cite{kemerlis2012libdft}, trading precision for low-overhead
+whole-system coverage.
+
+\subsubsection{Labels and Propagation}
+
+Each node carries a 64-bit label bitmask. A \emph{source} declaration
+introduces labels: an exec source labels processes that execute a matching
+binary, a file source labels files matching a path pattern, and an endpoint
+source labels network endpoints matching an address range. Labels propagate
+through fixed transfer functions:
+
+\begin{itemize}
+\item \textbf{fork}: child inherits parent's labels.
+\item \textbf{exec}: process absorbs labels from the executed file and
+matching exec sources.
+\item \textbf{read}: process absorbs labels from the file it reads.
+\item \textbf{write}: file absorbs labels from the writing process.
+\item \textbf{connect}: endpoint absorbs labels from the connecting process.
+\end{itemize}
+
+These transfer functions maintain a provenance invariant: if a process
+carries label $\ell$, then information from some source tagged with $\ell$
+has reached that process through observed OS-level flow edges.
+
+\subsubsection{Rules and Effects}
+
+A rule contains one or more \emph{deny} clauses. Each clause specifies an
+operation (\texttt{exec}, \texttt{read}, \texttt{write}, \texttt{unlink},
+\texttt{connect}, or \texttt{open}), a target pattern, a Boolean expression
+over required and forbidden labels, and an optional condition (target
+allow-list, lineage gate, or temporal after-gate).
+
+\begin{figure}[t]
+\begin{verbatim}
+label AGENT
+source SECRET = file "**/.env"
+
+rule no-secret-egress:
+  deny connect endpoint "*" if SECRET
+  effect block
+  reason "secret-derived data must stay local"
+  remediation "run the redactor first"
+
+rule no-agent-git:
+  deny exec "**/git" if AGENT
+  effect kill
+  reason "agent must not invoke git directly"
+\end{verbatim}
+\caption{Two ActPlane contract rules. The first uses BPF-LSM pre-operation
+denial; the second uses harness-level termination.}
+\Description{Code listing of two ActPlane rules.}
+\label{fig:policy-example}
+\end{figure}
+
+Each rule declares an explicit effect that determines how the kernel
+responds to a match.
+
+\textbf{Audit}: the kernel emits a violation event and allows the operation
+to proceed.
+
+\textbf{Block}: a BPF-LSM hook returns \texttt{-EPERM} before the operation
+commits. Block is available only when the \texttt{bpf} LSM is active in the
+running kernel; it is not silently downgraded.
+
+\textbf{Kill}: the kernel sends \texttt{SIGKILL} to the violating task. From
+a BPF-LSM hook, kill also returns \texttt{-EPERM}; from a tracepoint, kill
+is post-operation termination.
+
+When multiple rules match the same event, the strongest effect applies in
+the order kill $>$ block $>$ audit.
+
+\subsubsection{Contract Language Scope}
+
+The DSL is not a general-purpose mandatory access control policy. Its
+primitives map to recurring agent workflow patterns: ``after tests,''
+``through a review tool,'' ``data derived from untrusted input,'' and
+``read-only sub-agent.'' The grammar is small so that contract authors can
+translate natural-language instructions into source/sink/gate shapes without
+security-policy expertise.
+
+\subsection{System Architecture}
+
+\subsubsection{Compiler and Kernel ABI}
+
+The Rust compiler parses the DSL and lowers it into a C-compatible
+\texttt{struct taint\_config}. Lowering allocates label bits, expands Boolean
+expressions into required and forbidden bitmasks, lowers glob patterns into
+exact, prefix, suffix, or wildcard match kinds, and compiles IPv4 patterns
+into network/mask pairs. Human-readable rule names, reasons, and remediation
+strings remain in Rust metadata; the kernel receives only fixed-size rule
+tables and emits integer rule identifiers.
+
+This split keeps the eBPF program verifier-friendly. The kernel program
+iterates over fixed-size arrays in read-only data using bounded loops, copies
+each rule entry into a stack-local variable before matching, and uses explicit
+index bounds checks for argument scanning and pattern comparison.
+
+\subsubsection{Kernel State}
+
+The eBPF backend maintains five BPF hash maps:
+
+\begin{itemize}
+\item \texttt{ts\_proc}: pid $\to$ label bitmask and lineage-gate state.
+\item \texttt{ts\_root}, \texttt{ts\_sess}: root-process and session-level
+temporal (after) gate state.
+\item \texttt{ts\_file}: path hash $\to$ label bitmask.
+\item \texttt{ts\_endp}: IPv4 address $\to$ label bitmask.
+\end{itemize}
+
+Tracepoint programs handle process lifecycle events (fork, exec, exit) and
+observation-compatible file and connect events. BPF-LSM programs attach to
+\texttt{bprm\_check\_security}, \texttt{file\_open}, and
+\texttt{socket\_connect} for pre-operation enforcement. When BPF-LSM is not
+active, the loader uses tracepoint mode and disables block-effect rules.
+
+\subsubsection{Unified Event Handling}
+
+Each hook normalizes kernel arguments into a common event structure:
+subject pid, object kind, access kind, backend mode, target string,
+optional argument vector, and optional IPv4 address. A shared handler
+resolves the subject's label bitmask, applies source labels for
+read/connect events, evaluates all supported rules, emits at most one
+\texttt{TAINT\_VIOLATION} event for the highest-priority matching rule, and
+then applies propagation updates.
+
+\subsection{Corrective Feedback}
+
+The kernel violation event contains the rule identifier, effect, target
+string, pid, and flags indicating whether the operation was blocked or the
+task was killed. The Rust runner maps the rule identifier to the
+corresponding rule name, reason, and remediation string, then appends a
+structured payload to \texttt{.actplane/last-violation.txt}.
+
+Agent integration uses a post-tool hook. The \texttt{actplane feedback-hook}
+subcommand reads new bytes from the violation file and returns them as
+\texttt{additionalContext} to compatible agent
+runtimes~\cite{agentsight}. The hook is a transport bridge: it does not
+re-evaluate policy in userspace. The kernel is the sole authority for rule
+matches; userspace formats the result so the agent can select an alternative
+execution path.
+
+
+\section{Implementation}
+\label{sec:implementation}
+
+ActPlane is implemented as a Rust driver and an eBPF program pair. The
+system builds a single \texttt{actplane} binary that embeds the compiled
+eBPF loader, extracts it at runtime, compiles the project's policy DSL,
+and runs a target command under the enforcement harness.
+
+\subsection{Runner and Policy Discovery}
+
+The command \texttt{actplane run -- <cmd>} discovers
+\texttt{actplane.yaml} by searching upward from the working directory.
+The policy YAML contains a \texttt{policy:~|} DSL block. Before the
+target process begins executing, the loader seeds the stopped target's pid
+with the \texttt{AGENT} label so that all descendants inherit the agent
+identity. The runner prepares the feedback file
+(\texttt{.actplane/last-violation.txt}) and a hook state file, exports
+their paths to the child environment, waits for the loader to report
+readiness, then resumes the target. This sequencing ensures that the
+first target operation is observed.
+
+\subsection{BPF Backends}
+
+The eBPF program attaches to process lifecycle tracepoints (fork, exec,
+exit), syscall tracepoints for file and connect events, and BPF-LSM hooks
+for pre-operation enforcement. At load time, the loader checks whether the
+running kernel has the \texttt{bpf} LSM active in
+\texttt{/sys/kernel/security/lsm}. If not, it falls back to tracepoint
+mode, in which the supported effects are \texttt{audit} and \texttt{kill};
+\texttt{block} rules are disabled because there is no pre-operation verdict
+path.
+
+\subsection{Limitations}
+
+\textbf{Path identity.} File labels are keyed by FNV-1a path hash rather
+than inode/device pairs. Hard links and mount binds can cause the same
+file to carry different labels under different paths.
+
+\textbf{Endpoint identity.} Connect matching uses numeric IPv4 addresses.
+Hostname, DNS, SNI, and HTTP-layer matching require userspace resolution or
+additional instrumentation.
+
+\textbf{Argument predicates.} The \texttt{@arg} predicate inspects
+arguments after exec via the tracepoint argument buffer. Pre-operation
+blocking of argument predicates requires an argument cache before
+\texttt{bprm\_check\_security}, which is not yet implemented.
+
+\textbf{Label precision.} Labels propagate at object granularity. A process
+that reads one byte from a labeled file acquires the full label set. This
+can produce over-tainting relative to byte-level
+systems~\cite{kemerlis2012libdft}. Section~\ref{sec:evaluation} measures the
+false-positive rate and validates that declassification and gate paths
+prevent unnecessary enforcement.

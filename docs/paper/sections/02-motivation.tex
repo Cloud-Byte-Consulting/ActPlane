@@ -1,60 +1,135 @@
 \section{Background and Motivation}
 \label{sec:motivation}
 
-\subsection{Behavioral Contracts in Agent Instruction Files}
+\subsection{Agent Harnesses and Behavioral Contracts}
 
-We collected \texttt{CLAUDE.md} and \texttt{AGENTS.md} files from 50~popular
-open-source projects and extracted candidate behavioral rules. These files
-contain many imperative statements, but only a subset are OS-observable
-behavioral contracts. A rule such as ``never use \texttt{any}'' is a
-coding-style directive and is outside ActPlane's scope. A rule such as ``never
-push directly to \texttt{main}'' or ``run tests before committing'' has an
-observable process and syscall footprint and can be enforced as a harness
-contract.
+An agent harness is the non-model infrastructure that mediates between an LLM
+agent and its execution
+environment~\cite{langchain-harness,fowler-harness}. Harness components
+include tool dispatch, memory management, orchestration, enforcement, and
+feedback. This paper focuses on the enforcement and feedback components:
+the mechanisms that ensure an agent's behavioral contracts hold at runtime.
 
-The corpus serves two purposes. First, it grounds the motivation: developers
-already write behavioral contracts for agents. Second, it derives evaluation
-workloads: we convert rules that are observable, expressible, robust, and
-temptable into policy/task pairs (\S\ref{sec:evaluation}), reporting both the
-full corpus and the filtered evaluation subset.
+Behavioral contracts are constraints that govern an agent's observable
+effects rather than its internal reasoning. Projects encode them in
+instruction files such as \texttt{CLAUDE.md} and
+\texttt{AGENTS.md}~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}:
+do not push directly to \texttt{main}; run tests before committing; never
+expose secrets to the network. These contracts differ from coding-style
+directives (e.g., ``prefer \texttt{const} over \texttt{let}'') in that they
+have an observable process and syscall footprint.
 
-\subsection{Why Tool-Layer Guards Are Insufficient}
+\subsection{The Intent--Behavior Gap}
 
-Agent frameworks and permission systems can intercept tool calls and apply
-deterministic policies~\cite{wang2025agentspec,shi2025progent}. This approach
-is effective when all effects pass through the guarded tool boundary, but a
-coding agent violates that assumption whenever it invokes a shell, starts a
-subprocess, loads a library, or communicates with an external service from
-generated code. The same
-semantic action, for example invoking \texttt{git push --force}, can appear as a
-direct shell command, a nested \texttt{bash -c} string, a Python subprocess, or
-a helper binary. A tool-layer guard sees only the outer tool invocation.
+An agent's execution spans three abstraction levels.
 
-The kernel observes the effect directly. Every exec, file open, unlink, rename, truncate,
-and socket connect crosses a kernel boundary. If a policy is phrased over those
-effects and over the lineage of the agent process tree, then the policy applies
-regardless of the high-level route the agent selected.
+\textbf{Intent} is the set of contracts the agent declares it will follow:
+goals and self-constraints expressed in natural language or formalized in a
+policy DSL.
 
-\subsection{Requirements}
+\textbf{Action} is the tool calls the agent issues through its runtime
+(\texttt{read\_file}, \texttt{run\_command}, \texttt{edit\_file}), mediated
+by the agent framework.
 
-ActPlane is designed around five requirements.
+\textbf{Behavior} is the actual OS-level operations that result:
+\texttt{open}, \texttt{execve}, \texttt{connect}, and \texttt{fork}.
 
-\textbf{R1: Whole-execution scope.} A rule applies to the agent's
-descendants, not just to the top-level process or the initial tool call.
+The mapping from action to behavior is many-to-many and opaque. A single
+\texttt{run\_command("make")} triggers hundreds of system calls. The same
+\texttt{git push} can be reached through a direct tool call, a
+\texttt{bash~-c} string, a Python \texttt{subprocess}, or a compiled helper
+binary. This opacity creates an \emph{intent--behavior gap}: contracts
+declared at the intent level cannot be reliably enforced at a single
+intermediate level.
 
-\textbf{R2: Cross-object provenance.} Many contracts involve information flow,
-not a single event. Reading a secret file taints the reader; writing a
-derived file taints that file; reading the derived file later taints
-the next process.
+Enforcement placed at the intent level (prompt instructions) is
+probabilistic: LLM compliance degrades with context length and task
+complexity. Enforcement placed at the action level (tool-call
+guards~\cite{wang2025agentspec,shi2025progent}) is deterministic but
+bypassable: it intercepts tool calls, not the OS behavior they produce.
+Enforcement placed at the behavior level (syscall filters,
+sandboxes~\cite{pasquier2018camquery,ciliumtetragon}) is complete but
+returns opaque \texttt{-EPERM} failures with no connection to the agent's
+declared contracts. Each level addresses a different part of the stack;
+none spans the full gap from intent to behavior.
 
-\textbf{R3: Effect semantics that match the backend.} \texttt{block} means
-pre-operation denial and is implemented only by BPF-LSM hooks. Tracepoints
-support \texttt{audit} and \texttt{kill} but not \texttt{block}.
+\subsection{Threat Model}
 
-\textbf{R4: Corrective feedback.} The harness not only fails a violating
-action but tells the agent which rule fired, why, and what alternative or
-precondition allows progress.
+ActPlane targets a \emph{cooperative but probabilistic} agent. The agent is
+not adversarial: it does not attempt to defeat the enforcement mechanism
+through obfuscation or exploitation. However, because LLM inference is
+inherently stochastic, the agent may violate any given contract with
+non-zero probability at each step, regardless of context length or prompt
+design. Over a long session with many steps, the cumulative probability of
+at least one violation approaches certainty.
 
-\textbf{R5: Deployable mechanism.} The implementation uses upstream Linux
-interfaces: eBPF for dynamic loading and BPF-LSM for pre-operation deny, rather
-than a custom kernel module.
+The trust boundary is the kernel. The eBPF programs and BPF maps that
+propagate labels and check rules run in kernel space and cannot be modified
+by the agent. The policy DSL and feedback formatting run in a trusted
+userspace process (\texttt{actplane run}) that is not part of the agent's
+process tree. The agent's process tree---including all descendants spawned
+through tools, shells, or subprocesses---is the monitored domain.
+
+ActPlane does not defend against an agent that deliberately exploits kernel
+vulnerabilities or manipulates the eBPF loader. Such attacks require
+\texttt{CAP\_BPF} or root privileges that the agent does not hold.
+
+
+\section{Corpus Study}
+\label{sec:corpus}
+
+This section characterizes behavioral contracts in real agent instruction
+files and identifies the subset that requires cross-object information-flow
+enforcement.
+
+\subsection{Methodology}
+
+We collected \texttt{CLAUDE.md} and \texttt{AGENTS.md} files from 50
+popular open-source projects, selected by GitHub star count and filtered
+to exclude documentation-only repositories. From these files we extracted
+866 candidate imperative statements using keyword matching (``never,''
+``must,'' ``do not,'' ``before,'' ``only'') and manually coded each
+statement along seven dimensions: (D1)~coding style vs.\ behavioral
+contract, (D2)~contract category, (D3)~observable at the syscall boundary,
+(D4)~expressible in the ActPlane DSL, (D5)~enforceable without false
+positives under normal use, (D6)~robust to naming and path variation, and
+(D7)~temptable---likely to be violated by an agent in a realistic task.
+Two annotators independently coded the full set; we report Cohen's
+$\kappa$ for inter-rater reliability.
+
+\subsection{Per-Action vs.\ Cross-Object Contracts}
+
+Behavioral contracts fall into two categories that differ in enforcement
+requirements.
+
+\textbf{Per-action contracts} constrain a single operation independently of
+execution history. Examples include ``do not execute \texttt{rm~-rf}'' and
+``do not run \texttt{git branch}.'' These contracts can be enforced by
+matching a single system call or tool call against a static rule.
+
+\textbf{Cross-object contracts} constrain an operation based on prior
+interactions with other objects. Examples include ``a process that has read
+\texttt{.env} must not connect to an external endpoint'' (data-flow
+contract) and ``commit only after tests have passed'' (temporal contract).
+These contracts require tracking information flow or execution ordering
+across process, file, and network boundaries.
+
+% TODO: Insert table with category breakdown and percentages once coding
+% is complete.
+
+\subsection{Implications for Enforcement}
+
+Per-action contracts can be enforced by per-event matching at any level:
+tool-call guards, seccomp filters, or eBPF kprobes. Cross-object contracts
+cannot, because they depend on state accumulated across multiple operations
+and objects. Enforcing them requires a mechanism that (1)~tracks provenance
+across process, file, and network boundaries, (2)~encodes that provenance
+as checkable state at each enforcement point, and (3)~connects violations
+back to the declared contract for corrective feedback.
+
+Labeled information-flow control satisfies all three requirements. Labels
+encode cross-object provenance as per-node bitmasks, propagation rules
+maintain the invariant across fork, exec, read, write, and connect
+operations, and source-to-sink rules check the accumulated state at each
+enforcement point. The ActPlane DSL compiles cross-object contracts
+directly into this model.
