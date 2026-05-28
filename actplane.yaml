@@ -4,7 +4,7 @@ feedback:
   path: .actplane/last-violation.txt
 
 policy: |
-  label AGENT
+  label COMMAND
 
   source SECRET = file "**/.env"
   source SECRET = file "**/.envrc"
@@ -20,8 +20,8 @@ policy: |
   # Forbid `git branch` and `git worktree` while allowing other git ops.
   # effect=kill so it fires on kernels without BPF-LSM (block needs LSM active).
   rule no-git-branch:
-    deny exec "**/git" @arg "branch"   if AGENT
-    deny exec "**/git" @arg "worktree" if AGENT
+    deny exec "**/git" @arg "branch"   if COMMAND
+    deny exec "**/git" @arg "worktree" if COMMAND
     effect kill
     reason "This workspace forbids creating git branches or worktrees; other git operations (commit/add/status/log/push) are allowed."
     remediation "Do not run `git branch` or `git worktree`; use other git commands, or ask the user to manage branches"

@@ -1,0 +1,22 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  label COMMAND
+
+  source COMMAND = exec "**"
+
+  rule reviewer-write-fence:
+    deny write file "/**" if COMMAND unless target "docs/tmp/**"
+    effect kill
+    reason "Reviewer agent may only write to docs/tmp/. This write targeted a file outside that directory."
+    remediation "Write your output to docs/tmp/ instead."
+
+  rule no-git-branch:
+    deny exec "**/git" @arg "branch"   if COMMAND
+    deny exec "**/git" @arg "worktree" if COMMAND
+    effect kill
+    reason "This workspace forbids creating git branches or worktrees."
+    remediation "Do not run git branch or git worktree."

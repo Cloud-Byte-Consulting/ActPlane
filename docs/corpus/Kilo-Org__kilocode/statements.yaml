@@ -16,7 +16,7 @@ statements:
       - ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 3
@@ -34,7 +34,7 @@ statements:
       - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 5
@@ -43,7 +43,7 @@ statements:
       - You may be running in a git worktree. All changes must be made in your current working directory — never modify files in the main repo checkout.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 6
@@ -53,7 +53,7 @@ statements:
       - **Dev**: `bun run dev` (runs from root) or `bun run --cwd packages/opencode --conditions=browser src/index.ts`
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 7
@@ -62,7 +62,7 @@ statements:
       - **Dev with params**: `bun dev -- help`
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 8
@@ -71,7 +71,7 @@ statements:
       - **Extension**: `bun run extension` (build + launch VS Code with the extension in dev mode). Pass `--no-build` to skip the build.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 9
@@ -80,7 +80,7 @@ statements:
       - **Typecheck**: `bun turbo typecheck` (uses `tsgo`, not `tsc`). Includes the JetBrains plugin — requires Java 21. Check with `java -version` before running. If missing, install via SDKMAN: `sdk install java 21-tem && sdk use java 21-tem`. If SDKMAN is not installed, see https://sdkman.io/install.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 10
@@ -89,7 +89,7 @@ statements:
       - **Test**: `bun test` from `packages/opencode/` (NOT from root -- root blocks tests)
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 11
@@ -98,7 +98,7 @@ statements:
       - **Single test**: `bun test ./test/tool/tool-define.test.ts` from `packages/opencode/`
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 12
@@ -107,7 +107,7 @@ statements:
       - **CLI build artifact size check**: after `bun run script/build.ts --single --skip-install` in `packages/opencode/`, use `du -h dist/*/*/bin/kilo` (scoped package output lives under `dist/@kilocode/`)
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 13
@@ -116,7 +116,7 @@ statements:
       - **SDK regen**: After changing server endpoints in `packages/opencode/src/server/`, run `./script/generate.ts` from root to regenerate `packages/sdk/js/`
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 14
@@ -125,7 +125,7 @@ statements:
       - **Knip** (unused exports): `bun run knip` from `packages/kilo-vscode/`. CI runs this — all exported types/functions must be imported somewhere. Remove or unexport unused exports before pushing.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 15
@@ -134,7 +134,7 @@ statements:
       - **Source links**: After adding or changing URLs in `packages/kilo-vscode/`, `packages/kilo-vscode/webview-ui/`, or `packages/opencode/src/`, run `bun run script/extract-source-links.ts` from the repo root and commit the updated `packages/kilo-docs/source-links.md`. CI runs this check — the build fails if the file is stale.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 16
@@ -143,7 +143,7 @@ statements:
       - **kilocode_change check**: `bun run check-kilocode-change` from `packages/kilo-vscode/`. CI runs this — `kilocode_change` is a marker for upstream merge conflicts and must not appear in `packages/kilo-vscode/` or `packages/kilo-ui/` (these are entirely Kilo Code additions). Remove the markers before pushing.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 17
@@ -152,7 +152,7 @@ statements:
       - **opencode annotation check**: `bun run script/check-opencode-annotations.ts` from repo root. CI runs this on PRs touching `packages/opencode/` — every Kilo-specific change in shared opencode files must be annotated with `kilocode_change` markers. Exempt paths (no markers needed): `packages/opencode/src/kilocode/`, `packages/opencode/test/kilocode/`, and any path containing `kilocode` in the name.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 18
@@ -161,7 +161,7 @@ statements:
       - **workflow allowlist**: `bun run script/check-workflows.ts` from repo root. CI runs this as part of the annotations workflow — any `.yml` / `.yaml` file added to or removed from `.github/workflows/` must be reflected in the hardcoded list in `script/check-workflows.ts`. Prevents upstream-merged workflows from silently starting to run in our CI.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 19
@@ -170,7 +170,7 @@ statements:
       - **Backend/SDK programmatic testing**: see [TESTING.md](./TESTING.md) for spawning the local main-branch backend (`bun dev serve`) and driving it via `curl` — use this instead of `kilo serve` (prod binary) when testing backend fixes.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 20
@@ -180,7 +180,7 @@ statements:
       Before saying an implementation is ready, run the smallest relevant checks that can catch lint, typecheck, and test failures for the touched package. Do not rely on manual extension launch to discover build problems. Fix failures you introduced before the final response, or state exactly which check is still failing or could not be run.
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 21
@@ -205,7 +205,7 @@ statements:
       Never run root `bun test`; the root script prints `do not run tests from root` and exits with code 1. Use package-level tests instead.
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 23
@@ -245,7 +245,7 @@ statements:
       Extension-specific settings should live in the Kilo extension settings, not default VS Code settings, unless they are intentionally VS Code-wide.
     type: directive
     topic: Architecture
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 27
@@ -255,7 +255,7 @@ statements:
       - When a task primarily touches `packages/kilo-jetbrains/`, read `packages/kilo-jetbrains/AGENTS.md` before planning or editing. It covers split-mode architecture, IntelliJ source lookup, threading fundamentals, UI guidelines, and session component architecture.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 28
@@ -286,7 +286,7 @@ statements:
       - Keep things in one function unless composable or reusable
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 30
@@ -295,7 +295,7 @@ statements:
       - Avoid unnecessary destructuring. Instead of `const { a, b } = obj`, use `obj.a` and `obj.b` to preserve context
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 31
@@ -304,7 +304,7 @@ statements:
       - Avoid `try`/`catch` where possible
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 32
@@ -313,7 +313,7 @@ statements:
       - Avoid using the `any` type
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 33
@@ -322,7 +322,7 @@ statements:
       - Prefer single word variable names where possible
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 34
@@ -331,7 +331,7 @@ statements:
       - Use Bun APIs when possible, like `Bun.file()`
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 35
@@ -340,7 +340,7 @@ statements:
       - Rely on type inference when possible; avoid explicit type annotations or interfaces unless necessary for exports or clarity
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 36
@@ -361,7 +361,7 @@ statements:
       ```
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 37
@@ -371,7 +371,7 @@ statements:
       THIS RULE IS MANDATORY FOR AGENT WRITTEN CODE.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 38
@@ -380,7 +380,7 @@ statements:
       - Use single word names by default for new locals, params, and helper functions.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 39
@@ -389,7 +389,7 @@ statements:
       - Multi-word names are allowed only when a single word would be unclear or ambiguous.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 40
@@ -398,7 +398,7 @@ statements:
       - Do not introduce new camelCase compounds when a short single-word alternative is clear.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 41
@@ -407,7 +407,7 @@ statements:
       - Before finishing edits, review touched lines and shorten newly introduced identifiers where possible.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 42
@@ -416,7 +416,7 @@ statements:
       - Good short names to prefer: `pid`, `cfg`, `err`, `opts`, `dir`, `root`, `child`, `state`, `timeout`.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 43
@@ -425,7 +425,7 @@ statements:
       - Examples to avoid unless truly required: `inputPID`, `existingClient`, `connectTimeout`, `workerPath`.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 44
@@ -449,7 +449,7 @@ statements:
       ```
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 45
@@ -476,7 +476,7 @@ statements:
       ```
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 46
@@ -499,7 +499,7 @@ statements:
       ```
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 47
@@ -509,7 +509,7 @@ statements:
       You MUST avoid using `mocks` as much as possible.
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 48
@@ -518,7 +518,7 @@ statements:
       Tests MUST test actual implementation, do not duplicate logic into a test.
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 49
@@ -540,7 +540,7 @@ statements:
       Padding makes every content change rewrite the entire table, which blows up diffs on untouched rows. Markdown files are excluded from prettier (see `.prettierignore`) so running the formatter won't re-pad them, and `script/check-md-table-padding.ts` enforces the rule in CI. Run `bun run script/check-md-table-padding.ts --fix` to auto-rewrite padded tables.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 50
@@ -550,7 +550,7 @@ statements:
       [Conventional Commits](https://www.conventionalcommits.org/) with scopes matching packages: `vscode`, `cli`, `agent-manager`, `sdk`, `ui`, `i18n`, `kilo-docs`, `gateway`, `telemetry`, `desktop`. Omit scope when spanning multiple packages.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 51
@@ -560,7 +560,7 @@ statements:
       User-facing changes (features, fixes, breaking changes) require a changeset file for release notes. Run `bunx changeset add` or manually create `.changeset/<slug>.md`. Use `patch` for bug fixes, `minor` for new features, `major` for breaking changes. See `.changeset/README.md` for details.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 52
@@ -569,7 +569,7 @@ statements:
       Changeset descriptions appear directly in release notes and are read by end users. Keep them concise and feature-oriented — describe **what changed from the user's perspective**, not implementation details. Write in imperative mood (e.g. "Support exporting conversations as markdown" not "Add a new export handler that serializes session messages to .md files").
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 53
@@ -579,7 +579,7 @@ statements:
       PR descriptions should be 2-3 lines covering **what** changed and **why**. Focus on intent and context a reviewer can't get from the diff — skip file-by-file inventories, test result summaries, and anything obvious from the code itself.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 54
@@ -589,7 +589,7 @@ statements:
       When creating or managing GitHub issues for the VS Code extension or JetBrains plugin via `gh`, load `.kilo/skills/gh-issues/SKILL.md`. It covers templates, project boards (`VS Code Extension`, `Jetbrains Plugin`), title conventions, and the `gh auth refresh -s project` recovery path.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 55
@@ -608,7 +608,7 @@ statements:
       **Very important**: when planning or coding, update shared files with OpenCode as last resort! Everything is shared code from OpenCode, except folders that contain `kilo` in the name or have a parent directory that contains `kilo` in the name. Example of kilo specific folders: `packages/opencode/src/kilocode/` and `packages/kilo-docs/`. Always look for ways to implement your feature or fix in a way that minimizes changes to shared code.
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 57
@@ -618,7 +618,7 @@ statements:
       We regularly merge upstream changes from opencode. To minimize merge conflicts and keep the sync process smooth:
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 58
@@ -630,7 +630,7 @@ statements:
          - `packages/kilo-gateway/` - The Kilo Gateway package
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 59
@@ -639,7 +639,7 @@ statements:
       2. **Minimize changes to shared files** - When you must modify files that exist in upstream opencode, keep changes as small and isolated as possible.
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 60
@@ -649,7 +649,7 @@ statements:
          Do not use these markers in files within directories with kilo in the name
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 61
@@ -658,7 +658,7 @@ statements:
       4. **Avoid restructuring upstream code** - Don't refactor or reorganize code that comes from opencode unless absolutely necessary.
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 62
@@ -667,7 +667,7 @@ statements:
       5. **Mirror new config keys to the cloud schema** - When adding a `kilocode_change` key to `Config.Info` in `packages/opencode/src/config/config.ts`, also add the matching JSON Schema entry in `apps/web/src/app/config.json/extras.ts` in the [cloud repo](https://github.com/Kilo-Org/cloud). See [CLI Config Schema](packages/kilo-docs/pages/contributing/architecture/config-schema.md) for the step-by-step.
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 63
@@ -700,7 +700,7 @@ statements:
       - JSX/TSX: use `{/* kilocode_change */}` (and `{/* kilocode_change start */}` / `end`)
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 66
@@ -709,7 +709,7 @@ statements:
       Markers are NOT needed in paths that contain `kilocode` in the name (e.g. `packages/opencode/src/kilocode/`, `packages/opencode/test/kilocode/`) — these are entirely Kilo Code additions and won't conflict with upstream.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 67
@@ -718,5 +718,5 @@ statements:
       For decision rules on when to keep changes inline vs. extract Kilo logic, marker placement guidance, and verification commands, load `.kilo/skills/kilocode-merge-minimizer/SKILL.md`.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high

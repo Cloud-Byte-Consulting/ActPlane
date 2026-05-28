@@ -41,7 +41,7 @@ const HOOK_MAX_CHARS: usize = 8000;
       # get started: write a starter policy, then validate it (no sudo needed)\n  \
       actplane init  &&  actplane check\n\n  \
       # enforce a one-line policy around a command (needs sudo for the eBPF load)\n  \
-      sudo -E actplane --rule 'label AGENT\n                       rule no-git-branch:\n                         deny exec \"**/git\" @arg \"branch\" if AGENT\n                         effect kill\n                         reason \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
+      sudo -E actplane --rule 'label COMMAND\n                       rule no-git-branch:\n                         deny exec \"**/git\" @arg \"branch\" if COMMAND\n                         effect kill\n                         reason \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
       sudo -E actplane run <your agent command>\n\n  \
       # just compile/validate a policy (no privileges needed)\n  \
@@ -185,13 +185,14 @@ const STARTER_POLICY: &str = r#"# ActPlane project policy. Constraints are enfor
 # Enforce around an agent:  sudo -E actplane run <your agent command>
 # DSL reference: docs/rule-language.md
 policy: |
-  # `label AGENT` marks the process tree launched by `actplane run` as the agent.
-  label AGENT
+  # `label COMMAND` marks the process tree launched by `actplane run`.
+  # (legacy `label AGENT` is accepted for backward compatibility.)
+  label COMMAND
 
-  # 1) The agent must not create git branches/worktrees (do it yourself on the host).
+  # 1) The command must not create git branches/worktrees (do it yourself on the host).
   rule no-git-branch:
-    deny exec "**/git" @arg "branch"   if AGENT
-    deny exec "**/git" @arg "worktree" if AGENT
+    deny exec "**/git" @arg "branch"   if COMMAND
+    deny exec "**/git" @arg "worktree" if COMMAND
     effect kill
     reason "create branches/worktrees on the host, not via the agent"
 
@@ -207,7 +208,7 @@ policy: |
 
   # 3) No commit before the tests have run in this session.
   rule test-before-commit:
-    deny exec "**/git" @arg "commit" if AGENT unless after exec "**/pytest"
+    deny exec "**/git" @arg "commit" if COMMAND unless after exec "**/pytest"
     effect kill
     reason "run the tests before committing"
 "#;
@@ -397,9 +398,10 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     let compiled = dsl::compile_str(&loaded.config.policy)?;
     let agent_label = compiled
         .labels
-        .get("AGENT")
+        .get("COMMAND")
+        .or_else(|| compiled.labels.get("AGENT"))
         .copied()
-        .ok_or("run mode requires the policy to declare or reference label AGENT")?;
+        .ok_or("run mode requires the policy to declare or reference label COMMAND (or AGENT for backward compatibility)")?;
     let feedback = feedback_paths(&loaded);
     let target_owner = target_user(cli.run_as_root);
     prepare_feedback_files(&feedback, target_owner)?;
@@ -451,7 +453,7 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     }
 
     eprintln!(
-        "ActPlane: running pid {} under AGENT label 0x{:x}; feedback {}\n",
+        "ActPlane: running pid {} under COMMAND label 0x{:x}; feedback {}\n",
         target_pid,
         agent_label,
         feedback.feedback.display()
