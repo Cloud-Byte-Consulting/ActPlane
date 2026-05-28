@@ -284,16 +284,10 @@ enforceability. The output schema:
 ```yaml
 file: "owner/repo/CLAUDE.md"
 statements:
-  - id: 0
-    lines: [1, 3]             # half-open line range [start, end) in the original file
-    text: "# Project CLAUDE.md\n\n"
-    type: structural           # structural | description | directive
-    topic: null
-
   - id: 1
-    lines: [3, 4]
-    text: "The backend uses Express with TypeScript."
-    type: description
+    lines: [1, 4]             # half-open line range [start, end), includes header + blank line
+    text: "# Project CLAUDE.md\n\nThe backend uses Express with TypeScript."
+    type: description          # description | directive
     topic: Architecture        # 16 categories from Chatlatanagulchai et al.
     # fields below apply only to directives:
     enforceability: null       # intent | action | behavior_per_event | behavior_cross_object
@@ -327,10 +321,9 @@ statements:
 The `lines` field records the half-open line range `[start, end)` in the
 original file (1-indexed). The union of all line ranges for a file covers
 lines 1 through N (total line count) with no gaps or overlaps, ensuring
-every line is assigned to exactly one statement. Structural content
-(markdown headers, blank lines, code blocks, formatting) is included as
-statements with `type: structural`. The `text` field preserves the
-original file content verbatim.
+every line is assigned to exactly one statement. The `text` field
+preserves the original file content verbatim, including any headers,
+blank lines, or formatting that fall within the line range.
 
 **Granularity rules.**
 
@@ -338,13 +331,34 @@ original file content verbatim.
   no sub-line splitting is performed. When a line contains multiple
   directives with different topics (e.g., "Never commit secrets or push
   to main directly"), the broader topic is assigned.
+- *Formatting is absorbed, not standalone.* Headers, blank lines,
+  horizontal rules, HTML comments, and decorative elements (ASCII art
+  boxes, emoji markers) belong to the statement they introduce or
+  accompany. A section header belongs to the next statement; trailing
+  blank lines belong to the preceding statement.
 - *Semantically coherent blocks are one statement.* A list or table that
   expresses a single thought (e.g., a file-structure listing, a
   dependency list, a command reference table) is one statement spanning
-  all its lines, not one statement per line.
+  all its lines, not one statement per line. If rows in a table have
+  different types (some description, some directive), each group of
+  same-type rows is a separate statement.
+- *Code blocks belong to their surrounding statement.* A code block
+  that illustrates a directive (e.g., build commands following "Run
+  these commands:") is part of that directive. A standalone code block
+  (e.g., a file tree) is part of a description.
 - *Compound directives with the same topic stay together.* "Never log,
   commit, or expose API keys" is one directive (topic: Security), not
-  three. The prompt instructs the LLM to: (a) extract every distinct
+  three.
+- *Lists of independent directives remain separate.* A list where each
+  item is a self-contained directive (e.g., "Do not create git stash /
+  Do not switch branches / Do not modify worktrees") produces one
+  statement per item, because each has independent enforceability.
+- *External references are directives.* Lines that point the agent to
+  another file ("See AGENT\_INSTRUCTIONS.md for full instructions") are
+  directives. The referenced file's content is not analyzed, but the
+  reference itself is a statement.
+- *Changelogs and version history are descriptions.* Changelog blocks
+  are one description statement spanning the entire block. The prompt instructs the LLM to: (a) extract every distinct
 statement with its line range, (b) classify each using the taxonomy
 (Axis 1: type, Axis 2: topic, Axis 3: enforceability) following the
 definitions in Sections 4.3 and 4.4, (c) assign a confidence level, and
@@ -422,14 +436,19 @@ Each statement is classified along three dimensions.
 
 | Type | Definition | Example |
 |---|---|---|
-| **Structural** | Formatting and metadata with no instructional content: headers, blank lines, code fences, horizontal rules, HTML comments, changelogs, version history, table of contents. | `## Testing`, blank lines, `` ``` ``, `<!-- version: 1.3.0 -->`, changelog entries |
 | **Description** | Factual statement about the project. Does not instruct the agent to do or avoid anything. | "The backend uses Express with TypeScript." |
 | **Directive** | Statement that instructs the agent to perform, avoid, or condition an action. | "Run tests before committing." |
 
-**Decision procedure.** If the segment is purely formatting (header, blank
-line, code fence), it is structural. If the segment can be rephrased as an
-imperative ("do X", "do not do X", "do X before Y"), it is a directive.
-Otherwise it is a description.
+There is no separate "structural" category. Formatting elements (headers,
+blank lines, horizontal rules, HTML comments, decorative ASCII art) are
+absorbed into the statement they introduce or accompany. A section header
+like `## Testing` belongs to the next statement. Blank lines between
+statements belong to the preceding statement. This ensures every line is
+classified as part of a description or directive without a third category.
+
+**Decision procedure.** If the statement (ignoring formatting) can be
+rephrased as an imperative ("do X", "do not do X", "do X before Y"), it
+is a directive. Otherwise it is a description.
 
 **Axis 2: Topic category** (reused from Chatlatanagulchai et al. 2025b).
 
