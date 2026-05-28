@@ -112,7 +112,7 @@ statements:
       Treat the parameter and dataclass field order of exported runtime APIs as a compatibility contract.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -121,7 +121,7 @@ statements:
     text: |
       - For public constructors (for example `RunConfig`, `FunctionTool`, `AgentHookContext`), preserve existing positional argument meaning. Do not insert new constructor parameters or dataclass fields in the middle of existing public order.
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -130,7 +130,7 @@ statements:
     text: |
       - When adding a new optional public field/parameter, append it to the end whenever possible and keep old fields in the same order.
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -139,7 +139,7 @@ statements:
     text: |
       - If reordering is unavoidable, add an explicit compatibility layer and regression tests that exercise the old positional call pattern.
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -148,7 +148,7 @@ statements:
     text: |
       - Prefer keyword arguments at call sites to reduce accidental breakage, but do not rely on this to justify breaking positional compatibility for public APIs.
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -449,7 +449,7 @@ statements:
 
       - Formatting and linting use `ruff`; run `make format` (applies fixes) and `make lint` (checks only).
     type: description
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -467,7 +467,7 @@ statements:
     text: |
       - Write comments as full sentences ending with a period.
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -476,7 +476,7 @@ statements:
     text: |
       - Imports are managed by Ruff and should stay sorted.
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -627,6 +627,6 @@ statements:
       - ✅ Examples are updated if behavior changes.
       - ✅ History is clean with a clear PR description.
     type: description
-    topic: Code Review
+    topic: Development Process
     enforceability: null
     confidence: high

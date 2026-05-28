@@ -91,7 +91,7 @@ statements:
     text: |
       - Do not add `# type: ignore` or `# ty: ignore`; fix the underlying type issue.
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -214,7 +214,7 @@ statements:
     text: |
       - **No type ignores**: Do not add `# type: ignore` or `# ty: ignore`. Fix the underlying type issue.
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -244,7 +244,7 @@ statements:
 
       1. **ANALYZE**: Read relevant files. Do not guess.
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -253,7 +253,7 @@ statements:
     text: |
       2. **PLAN**: Map out the logic. Identify root cause or required changes. Order changes by dependency.
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -262,7 +262,7 @@ statements:
     text: |
       3. **EXECUTE**: Fix the cause, not the symptom. Execute incrementally with clear commits.
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -271,7 +271,7 @@ statements:
     text: |
       4. **VERIFY**: Run ci checks and relevant smoke tests. Confirm the fix via logs or output.
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -280,7 +280,7 @@ statements:
     text: |
       5. **SPECIFICITY**: Do exactly as much as asked; nothing more, nothing less.
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -289,7 +289,7 @@ statements:
     text: |
       6. **PROPAGATION**: Changes impact multiple files; propagate updates correctly.
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 

@@ -179,7 +179,7 @@ statements:
       Key files: `src/cli/dispatch.ts` (dispatcher + approval handler), `src/cli/crud.ts` (generic CRUD registration), `src/cli/resources/` (per-resource definitions).
 
     type: description
-    topic: Tools
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -416,7 +416,7 @@ statements:
       Container typecheck is a separate tsconfig — if you edit `container/agent-runner/src/`, run `pnpm exec tsc -p container/agent-runner/tsconfig.json --noEmit` from root (or `bun run typecheck` from `container/agent-runner/`).
 
     type: directive
-    topic: Build System
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -436,7 +436,7 @@ statements:
       ```
 
     type: description
-    topic: Build System
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -539,7 +539,7 @@ statements:
       The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.
 
     type: description
-    topic: Build System
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -564,7 +564,7 @@ statements:
 
       - **Adding or bumping a runtime dep in `container/agent-runner/`** → edit `package.json`, then `cd container/agent-runner && bun install` and commit the updated `bun.lock`. Do not run `pnpm install` there — agent-runner is not a pnpm workspace.
     type: directive
-    topic: Dependencies
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -573,7 +573,7 @@ statements:
     text: |
       - **Bumping `@anthropic-ai/claude-agent-sdk`, `@modelcontextprotocol/sdk`, or any agent-runner runtime dep** → no `minimumReleaseAge` policy applies to this tree. Check the release date on npm, pin deliberately, never `bun update` blindly.
     type: directive
-    topic: Dependencies
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -582,7 +582,7 @@ statements:
     text: |
       - **Writing a new named-param SQL insert/update in the container** → use `$name` in both SQL and JS keys: `.run({ $id: msg.id })`. `bun:sqlite` does not auto-strip the prefix the way `better-sqlite3` does on the host. Positional `?` params work normally.
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -600,7 +600,7 @@ statements:
     text: |
       - **Adding a Node CLI the agent invokes at runtime** (like `agent-browser`, `claude-code`, `vercel`) → put it in the Dockerfile's pnpm global-install block, pinned to an exact version via a new `ARG`. Don't use `bun install -g` — that bypasses the pnpm supply-chain policy.
     type: directive
-    topic: Build System
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -609,7 +609,7 @@ statements:
     text: |
       - **Changing the Dockerfile entrypoint or the dynamic-spawn command** (`src/container-runner.ts` line ~301) → keep `exec bun ...` so signals forward cleanly. The image has no `/app/dist`; don't reintroduce a tsc build step.
     type: directive
-    topic: Build System
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -643,6 +643,6 @@ statements:
 
       `container/build.sh` reads `INSTALL_CJK_FONTS` from `.env` and passes it through as a Docker build-arg. Without CJK fonts, Chromium-rendered screenshots and PDFs containing CJK text show tofu (empty rectangles) instead of characters.
     type: directive
-    topic: Build System
+    topic: Build and Run
     enforceability: null
     confidence: high

@@ -38,7 +38,7 @@ statements:
     text: |
       - Lint: `cargo clippy --workspace --all-targets --all-features`
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -47,7 +47,7 @@ statements:
     text: |
       - Format: `cargo fmt --all`
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 

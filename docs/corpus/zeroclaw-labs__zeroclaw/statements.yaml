@@ -323,7 +323,7 @@ statements:
 
       - Do not add heavy dependencies for minor convenience.
     type: directive
-    topic: Dependencies
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -395,7 +395,7 @@ statements:
     text: |
       - Do not leave `unwrap()` / `expect()` in production paths; propagate errors or document the invariant that makes panic impossible.
     type: directive
-    topic: Error Handling
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -437,7 +437,7 @@ statements:
 
       - All user-facing output (CLI messages, tool descriptions, onboarding prompts) must use `fl!()` / Fluent strings — never bare string literals.
     type: directive
-    topic: Localization
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -446,7 +446,7 @@ statements:
     text: |
       - Log messages, `tracing::` spans/events, and panic messages stay in English with stable `error_key` fields (RFC #5653 §4.6).
     type: directive
-    topic: Localization
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -455,7 +455,7 @@ statements:
     text: |
       - Panics and `tracing::` lines are never translated.
     type: directive
-    topic: Localization
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -464,7 +464,7 @@ statements:
     text: |
       - The Wiki and internal developer docs are English only.
     type: directive
-    topic: Localization
+    topic: Implementation Details
     enforceability: null
     confidence: high
 

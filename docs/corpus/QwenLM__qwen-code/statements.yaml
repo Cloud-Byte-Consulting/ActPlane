@@ -203,7 +203,7 @@ statements:
 
       - **Module system**: ESM throughout (`"type": "module"` in all packages)
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -213,7 +213,7 @@ statements:
       - **TypeScript**: Strict mode with `noImplicitAny`, `strictNullChecks`,
         `noUnusedLocals`, `verbatimModuleSyntax`
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -223,7 +223,7 @@ statements:
       - **Formatting**: Prettier — single quotes, semicolons, trailing commas,
         2-space indent, 80-char width
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -233,7 +233,7 @@ statements:
       - **Linting**: No `any` types, consistent type imports, no relative imports
         between packages
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -252,7 +252,7 @@ statements:
     text: |
       - **Commits**: Conventional Commits (e.g., `feat(cli): Add --json flag`)
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -262,7 +262,7 @@ statements:
       - **Node.js**: Development and production both require `>=22` (Ink 7 + React 19.2 requirement)
 
     type: description
-    topic: Environment and Dependencies
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -326,7 +326,7 @@ statements:
       or manual REST calls.
 
     type: directive
-    topic: Tooling
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -378,7 +378,7 @@ statements:
       applicable.
 
     type: directive
-    topic: Pull Requests
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -388,7 +388,7 @@ statements:
       - **PR description**: explain the motivation and changes in prose. Avoid
         referencing file names or function names.
     type: directive
-    topic: Pull Requests
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -399,7 +399,7 @@ statements:
         to expect, not scripted test commands.
 
     type: directive
-    topic: Pull Requests
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -420,6 +420,6 @@ statements:
       | `.qwen/investigations/` | Structured debugging journals        |
       | `.qwen/scripts/`        | Utility scripts                      |
     type: description
-    topic: Project Structure
+    topic: Architecture
     enforceability: null
     confidence: high

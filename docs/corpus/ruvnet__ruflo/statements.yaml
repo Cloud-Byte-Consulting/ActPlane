@@ -39,7 +39,7 @@ statements:
 
       ---
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -257,7 +257,7 @@ statements:
       npx claude-flow swarm start --objective "Your task here" --strategy development
       ```
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -284,7 +284,7 @@ statements:
       | Stop swarm | `npx claude-flow swarm stop` |
 
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -305,7 +305,7 @@ statements:
       | `performance-engineer` | Optimization |
 
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -323,7 +323,7 @@ statements:
       | Cancel task | `npx claude-flow task cancel TASK_ID` |
 
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -341,7 +341,7 @@ statements:
 
       ---
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -375,7 +375,7 @@ statements:
       npx claude-flow memory store --key "hello-world-result" --value "Executed: Hello World from Swarm!" --namespace results
       ```
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -402,7 +402,7 @@ statements:
       npx claude-flow memory store --key "concurrent-result" --value "5 workers completed" --namespace results
       ```
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -421,7 +421,7 @@ statements:
       npx claude-flow memory store --key "hello-world-result" --value "Success" --namespace results
       ```
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -441,7 +441,7 @@ statements:
       npx claude-flow swarm start --objective "Implement [feature]" --strategy development
       ```
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -459,7 +459,7 @@ statements:
       npx claude-flow swarm start --objective "Fix [bug]" --strategy development
       ```
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -476,7 +476,7 @@ statements:
       npx claude-flow swarm start --objective "Security audit" --strategy development
       ```
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -492,7 +492,7 @@ statements:
 
       ---
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -540,7 +540,7 @@ statements:
     text: |
       - NEVER save to root folder
     type: directive
-    topic: File and Directory Conventions
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -595,7 +595,7 @@ statements:
       | `/scripts` | Utility scripts |
 
     type: description
-    topic: File and Directory Conventions
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -613,7 +613,7 @@ statements:
       - Performance optimization
 
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -629,7 +629,7 @@ statements:
       ---
 
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -648,7 +648,7 @@ statements:
       npx claude-flow swarm coordinate --agents N
       ```
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -667,7 +667,7 @@ statements:
       npx claude-flow agent logs AGENT_ID
       ```
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -685,7 +685,7 @@ statements:
       npx claude-flow task retry TASK_ID
       ```
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -702,7 +702,7 @@ statements:
       npx claude-flow memory init [--force]
       ```
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -721,7 +721,7 @@ statements:
       npx claude-flow hooks worker dispatch --trigger audit
       ```
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -742,7 +742,7 @@ statements:
 
       ---
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -827,7 +827,7 @@ statements:
       - Memory: `hybrid`
 
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -843,7 +843,7 @@ statements:
 
       ---
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -870,7 +870,7 @@ statements:
 
       ---
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -1021,7 +1021,7 @@ statements:
       4. REMEMBER: memory_store(key="pattern-x", value="what worked", namespace="patterns")
       ```
     type: directive
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -1072,7 +1072,7 @@ statements:
         namespace: "patterns"
       ```
     type: description
-    topic: Workflow
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -1100,7 +1100,7 @@ statements:
       npx claude-flow memory store --key "pattern-x" --value "what worked" --namespace patterns
       ```
     type: description
-    topic: Tool Usage
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -1135,7 +1135,7 @@ statements:
 
       ---
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 

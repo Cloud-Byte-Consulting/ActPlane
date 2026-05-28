@@ -155,7 +155,7 @@ statements:
       **Always on (20):** `lsp_goto_definition`, `lsp_find_references`, `lsp_symbols`, `lsp_diagnostics`, `lsp_prepare_rename`, `lsp_rename`, `grep`, `glob`, `ast_grep_search`, `ast_grep_replace`, `session_list`, `session_read`, `session_search`, `session_info`, `background_output`, `background_cancel`, `call_omo_agent`, `task` (delegate), `skill`, `skill_mcp`.
 
     type: description
-    topic: Tool Configuration
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -165,7 +165,7 @@ statements:
       > Note: `lsp_*` and `ast_grep_*` tool names are now served by built-in MCP servers (`lsp` via `packages/lsp-tools-mcp`, `ast_grep` via `packages/ast-grep-mcp`), preserving existing names through OpenCode MCP namespacing.
 
     type: description
-    topic: Tool Configuration
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -175,7 +175,7 @@ statements:
       **Conditional:** `look_at` (+1, multimodal-looker not disabled), `interactive_bash` (+1, `tmux` binary available on PATH via `isInteractiveBashEnabled()`), `task_create`/`task_get`/`task_list`/`task_update` (+4, `experimental.task_system`), `edit` (+1, `hashline_edit`), `team_create`/`team_delete`/`team_shutdown_request`/`team_approve_shutdown`/`team_reject_shutdown`/`team_send_message`/`team_task_create`/`team_task_list`/`team_task_update`/`team_task_get`/`team_status`/`team_list` (+12, `team_mode.enabled`).
 
     type: description
-    topic: Tool Configuration
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -216,7 +216,7 @@ statements:
       ```
 
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -278,7 +278,7 @@ statements:
       ```
 
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -287,7 +287,7 @@ statements:
     text: |
       - `agents`, `categories`, `claude_code`: deep merged recursively (prototype-pollution safe)
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -296,7 +296,7 @@ statements:
     text: |
       - `disabled_*` arrays: Set union (concatenated + deduplicated)
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -305,7 +305,7 @@ statements:
     text: |
       - All other fields: override replaces base value
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -314,7 +314,7 @@ statements:
     text: |
       - `mcp_env_allowlist`: **user-only** for security; walked configs cannot extend it
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -324,7 +324,7 @@ statements:
       - `migrateConfigFile()` rewrites legacy keys (idempotent via `_migrations` tracking + timestamped backups)
 
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -334,7 +334,7 @@ statements:
       Schema autocomplete: `"$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json"`
 
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -481,7 +481,7 @@ statements:
     text: |
       - **TypeScript:** strict mode, ESNext, bundler moduleResolution, `bun-types` (never `@types/node`).
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -517,7 +517,7 @@ statements:
     text: |
       - **Factory pattern:** `createXXX()` for all tools, hooks, agents.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -526,7 +526,7 @@ statements:
     text: |
       - **File naming:** kebab-case for files and directories.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -535,7 +535,7 @@ statements:
     text: |
       - **Module structure:** `index.ts` barrel exports, **no catch-all files** (`utils.ts`, `helpers.ts`, `service.ts` banned), 200 LOC soft limit per file.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -544,7 +544,7 @@ statements:
     text: |
       - **Imports:** relative within a module, barrel imports across modules (`import { log } from "./shared"`). **No path aliases in `src/`** — never `@/`. `packages/web/` is the only exception: it uses `@/*` (Next.js convention) and has its own tsconfig.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -553,7 +553,7 @@ statements:
     text: |
       - **Config format:** JSONC with comments + trailing commas, Zod v4 validation, snake_case keys.
     type: directive
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -572,7 +572,7 @@ statements:
       - **Comments:** AI slop comment patterns blocked by `comment-checker` hook (binary: `@code-yeongyu/comment-checker`). Use `// @allow` to bypass single line, `// comment-checker-disable-file` at file top to bypass file. Sparingly.
 
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -584,7 +584,7 @@ statements:
 
       - Never `as any`, `@ts-ignore`, `@ts-expect-error`.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -593,7 +593,7 @@ statements:
     text: |
       - Never suppress lint/type errors.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -602,7 +602,7 @@ statements:
     text: |
       - Never add emojis to code/comments unless user explicitly asks.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -611,7 +611,7 @@ statements:
     text: |
       - Never commit unless explicitly requested.
     type: directive
-    topic: Version Control
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -638,7 +638,7 @@ statements:
     text: |
       - Never write to existing files without reading them first (`write-existing-file-guard`).
     type: directive
-    topic: Tool Configuration
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -647,7 +647,7 @@ statements:
     text: |
       - Never use `background_cancel(all=true)` — cancel by `taskId` individually.
     type: directive
-    topic: Tool Configuration
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -665,7 +665,7 @@ statements:
     text: |
       - Never em dashes / en dashes / AI filler ("simply", "obviously", "clearly", "moreover", "furthermore") in generated content.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -674,7 +674,7 @@ statements:
     text: |
       - Never create catch-all files (`utils.ts`, `helpers.ts`, `service.ts`).
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -683,7 +683,7 @@ statements:
     text: |
       - Never empty catch blocks `catch(e) {}`.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -701,7 +701,7 @@ statements:
     text: |
       - Never dump business logic into `index.ts` — barrel exports only.
     type: directive
-    topic: Coding Patterns
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -711,7 +711,7 @@ statements:
       - Prometheus may ONLY edit `.md` files (enforced by `prometheus-md-only` hook); FORBIDDEN paths: `src/`, `package.json`, config files.
 
     type: directive
-    topic: Tool Configuration
+    topic: Build and Run
     enforceability: null
     confidence: high
 
@@ -759,7 +759,7 @@ statements:
       | `web-deploy.yml` | push to master/dev touching `packages/web/**`, `docs/**`, or the workflow file itself, OR manual dispatch | Cloudflare Workers deploy via `cloudflare/wrangler-action@v3` (requires `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets) |
 
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -771,7 +771,7 @@ statements:
 
       - **PRs into `dev` MUST use merge commits.**
     type: directive
-    topic: Version Control
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -780,7 +780,7 @@ statements:
     text: |
       - Use `gh pr merge <number> --merge --delete-branch` after CI, review-work, and Cubic pass.
     type: directive
-    topic: Version Control
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -789,7 +789,7 @@ statements:
     text: |
       - **NEVER squash merge or rebase merge** PRs in this repository, even if a generic workflow, skill, or GitHub default suggests it.
     type: directive
-    topic: Version Control
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -799,7 +799,7 @@ statements:
       - If another instruction says `--squash` or `--rebase`, this repo-level rule overrides it.
 
     type: directive
-    topic: Version Control
+    topic: Development Process
     enforceability: null
     confidence: high
 
@@ -856,7 +856,7 @@ statements:
     text: |
       - **Config migration:** idempotent via `_migrations` tracking, atomic writes with timestamped backups.
     type: description
-    topic: Configuration
+    topic: Configuration & Environment
     enforceability: null
     confidence: high
 
@@ -1009,6 +1009,6 @@ statements:
     text: |
       - **CI nuance:** PRs targeting `master` are hard-blocked — they MUST target `dev`. CI auto-commits schema changes on master push and creates a draft "next" release on dev push.
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high

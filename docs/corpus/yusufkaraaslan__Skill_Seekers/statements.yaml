@@ -199,7 +199,7 @@ statements:
       ### Formatting Rules (ruff — from pyproject.toml)
       - **Line length:** 100 characters
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -208,7 +208,7 @@ statements:
     text: |
       - **Target Python:** 3.10+
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -217,7 +217,7 @@ statements:
     text: |
       - **Enabled lint rules:** E, W, F, I, B, C4, UP, ARG, SIM
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -227,7 +227,7 @@ statements:
       - **Ignored rules:** E501 (line length handled by formatter), F541 (f-string style), ARG002 (unused method args for interface compliance), B007 (intentional unused loop vars), I001 (formatter handles imports), SIM114 (readability preference)
 
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -237,7 +237,7 @@ statements:
       ### Imports
       - Sort with isort (via ruff); `skill_seekers` is first-party
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -246,7 +246,7 @@ statements:
     text: |
       - Standard library → third-party → first-party, separated by blank lines
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -255,7 +255,7 @@ statements:
     text: |
       - Use `from __future__ import annotations` only if needed for forward refs
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -273,7 +273,7 @@ statements:
         ```
 
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -283,7 +283,7 @@ statements:
       ### Naming Conventions
       - **Files:** `snake_case.py` (e.g., `source_detector.py`, `config_validator.py`)
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -292,7 +292,7 @@ statements:
     text: |
       - **Classes:** `PascalCase` (e.g., `SkillAdaptor`, `ClaudeAdaptor`, `SourceDetector`)
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -301,7 +301,7 @@ statements:
     text: |
       - **Functions/methods:** `snake_case` (e.g., `get_adaptor()`, `detect_language()`)
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -310,7 +310,7 @@ statements:
     text: |
       - **Constants:** `UPPER_CASE` (e.g., `ADAPTORS`, `DEFAULT_CHUNK_TOKENS`, `VALID_SOURCE_TYPES`)
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -320,7 +320,7 @@ statements:
       - **Private:** prefix with `_` (e.g., `_read_existing_content()`, `_validate_unified()`)
 
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -330,7 +330,7 @@ statements:
       ### Type Hints
       - Gradual typing — add hints where practical, not enforced everywhere
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -339,7 +339,7 @@ statements:
     text: |
       - Use modern syntax: `str | None` not `Optional[str]`, `list[str]` not `List[str]`
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -348,7 +348,7 @@ statements:
     text: |
       - MyPy config: `disallow_untyped_defs = false`, `check_untyped_defs = true`, `ignore_missing_imports = true`
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -358,7 +358,7 @@ statements:
       - Tests are excluded from strict type checking (`disallow_untyped_defs = false`, `check_untyped_defs = false` for `tests.*`)
 
     type: description
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -368,7 +368,7 @@ statements:
       ### Docstrings
       - Module-level docstring on every file (triple-quoted, describes purpose)
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -377,7 +377,7 @@ statements:
     text: |
       - Google-style docstrings for public functions/classes
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -387,7 +387,7 @@ statements:
       - Include `Args:`, `Returns:`, `Raises:` sections where useful
 
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -397,7 +397,7 @@ statements:
       ### Error Handling
       - Use specific exceptions, never bare `except:`
     type: directive
-    topic: Error Handling
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -406,7 +406,7 @@ statements:
     text: |
       - Provide helpful error messages with context
     type: directive
-    topic: Error Handling
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -415,7 +415,7 @@ statements:
     text: |
       - Use `raise ValueError(...)` for invalid arguments, `raise RuntimeError(...)` for state errors
     type: directive
-    topic: Error Handling
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -424,7 +424,7 @@ statements:
     text: |
       - Guard optional dependency imports with try/except and give clear install instructions on failure
     type: directive
-    topic: Error Handling
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -434,7 +434,7 @@ statements:
       - Chain exceptions with `raise ... from e` when wrapping
 
     type: directive
-    topic: Error Handling
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -445,7 +445,7 @@ statements:
       - Use inline `# noqa: XXXX` comments (e.g., `# noqa: F401` for re-exports, `# noqa: ARG001` for required but unused params)
 
     type: directive
-    topic: Code Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -484,7 +484,7 @@ statements:
       ```
 
     type: description
-    topic: Project Structure
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -722,7 +722,7 @@ statements:
       GitHub Actions (7 workflows in `.github/workflows/`):
       - **tests.yml** — ruff + mypy lint job, then pytest matrix (Ubuntu + macOS, Python 3.10-3.12) with Codecov upload
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -731,7 +731,7 @@ statements:
     text: |
       - **release.yml** — tag-triggered: tests → version verification → PyPI publish via `uv build`
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -740,7 +740,7 @@ statements:
     text: |
       - **test-vector-dbs.yml** — tests vector DB adaptors (weaviate, chroma, faiss, qdrant)
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -749,7 +749,7 @@ statements:
     text: |
       - **docker-publish.yml** — multi-platform Docker builds (amd64, arm64) for CLI + MCP images
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -758,7 +758,7 @@ statements:
     text: |
       - **quality-metrics.yml** — quality analysis with configurable threshold
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -767,7 +767,7 @@ statements:
     text: |
       - **scheduled-updates.yml** — weekly skill updates for popular frameworks
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -777,7 +777,7 @@ statements:
       - **vector-db-export.yml** — weekly vector DB exports
 
     type: description
-    topic: CI/CD
+    topic: DevOps
     enforceability: null
     confidence: high
 
@@ -868,7 +868,7 @@ statements:
 
       - **Website:** https://skillseekersweb.com/
     type: description
-    topic: Reference
+    topic: Documentation
     enforceability: null
     confidence: high
 
@@ -877,7 +877,7 @@ statements:
     text: |
       - **Documentation:** https://skillseekersweb.com/
     type: description
-    topic: Reference
+    topic: Documentation
     enforceability: null
     confidence: high
 
@@ -886,7 +886,7 @@ statements:
     text: |
       - **PyPI:** https://pypi.org/project/skill-seekers/
     type: description
-    topic: Reference
+    topic: Documentation
     enforceability: null
     confidence: high
 
@@ -895,7 +895,7 @@ statements:
     text: |
       - **Repository:** https://github.com/yusufkaraaslan/Skill_Seekers
     type: description
-    topic: Reference
+    topic: Documentation
     enforceability: null
     confidence: high
 
@@ -904,7 +904,7 @@ statements:
     text: |
       - **Config Browser:** https://skillseekersweb.com/
     type: description
-    topic: Reference
+    topic: Documentation
     enforceability: null
     confidence: high
 
@@ -913,6 +913,6 @@ statements:
     text: |
       - **Project Board:** https://github.com/users/yusufkaraaslan/projects/2
     type: description
-    topic: Reference
+    topic: Documentation
     enforceability: null
     confidence: high

@@ -19,7 +19,7 @@ statements:
       - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
 
     type: directive
-    topic: Naming Conventions
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -29,7 +29,7 @@ statements:
       - When using format! and you can inline variables into {}, always do that.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -51,7 +51,7 @@ statements:
         - Similarly, when you spawn a process using Seatbelt (`/usr/bin/sandbox-exec`), `CODEX_SANDBOX=seatbelt` will be set on the child process. Integration tests that want to run Seatbelt themselves cannot be run under Seatbelt, so checks for `CODEX_SANDBOX=seatbelt` are also often used to early exit out of tests, as appropriate.
 
     type: directive
-    topic: Sandbox and Isolation
+    topic: Security
     enforceability: null
     confidence: high
 
@@ -61,7 +61,7 @@ statements:
       - Always collapse if statements per https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -71,7 +71,7 @@ statements:
       - Always inline format! args when possible per https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -81,7 +81,7 @@ statements:
       - Use method references over closures when possible per https://rust-lang.github.io/rust-clippy/master/index.html#redundant_closure_for_method_calls
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -91,7 +91,7 @@ statements:
       - Avoid bool or ambiguous `Option` parameters that force callers to write hard-to-read code such as `foo(false)` or `bar(None)`. Prefer enums, named methods, newtypes, or other idiomatic Rust API shapes when they keep the callsite self-documenting.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -105,7 +105,7 @@ statements:
         - You can run `just argument-comment-lint` to run the lint check locally. This is powered by Bazel, so running it the first time can be slow if Bazel is not warmed up, though incremental invocations should take <15s. Most of the time, it is best to update the PR and let CI take responsibility for checking this (or run it asynchronously in the background after submitting the PR). Note CI checks all three platforms, which the local run does not.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -115,7 +115,7 @@ statements:
       - When possible, make `match` statements exhaustive and avoid wildcard arms.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -140,7 +140,7 @@ statements:
         - Do not use `#[allow(async_fn_in_trait)]` as a shortcut around spelling the future contract explicitly.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -170,7 +170,7 @@ statements:
       - Prefer private modules and explicitly exported public crate API.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -245,7 +245,7 @@ statements:
       - Do not create small helper methods that are referenced only once.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -267,7 +267,7 @@ statements:
           trivial; prefer new modules/files and keep `chatwidget.rs` focused on orchestration.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -356,7 +356,7 @@ statements:
       See `codex-rs/tui/styles.md`.
 
     type: description
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -374,7 +374,7 @@ statements:
           - Desired: vec!["  └ ".into(), "M".red(), " ".dim(), "tui/src/app.rs".dim()]
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -387,7 +387,7 @@ statements:
       - Prefer Stylize helpers: use "text".dim(), .bold(), .cyan(), .italic(), .underlined() instead of manual Style where possible.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -397,7 +397,7 @@ statements:
       - Prefer simple conversions: use "text".into() for spans and vec![…].into() for lines; when inference is ambiguous (e.g., Paragraph::new/Cell::from), use Line::from(spans) or Span::from(text).
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -407,7 +407,7 @@ statements:
       - Computed styles: if the Style is computed at runtime, using `Span::styled` is OK (`Span::from(text).set_style(style)` is also acceptable).
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -417,7 +417,7 @@ statements:
       - Avoid hardcoded white: do not use `.white()`; prefer the default foreground (no color).
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -427,7 +427,7 @@ statements:
       - Chaining: combine helpers by chaining for readability (e.g., url.cyan().underlined()).
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -437,7 +437,7 @@ statements:
       - Single items: prefer "text".into(); use Line::from(text) or Span::from(text) only when the target type isn’t obvious from context, or when using .into() would require extra type annotations.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -447,7 +447,7 @@ statements:
       - Building lines: use vec![…].into() to construct a Line when the target type is obvious and no extra type annotations are needed; otherwise use Line::from(vec![…]).
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -457,7 +457,7 @@ statements:
       - Avoid churn: don’t refactor between equivalent forms (Span::styled ↔ set_style, Line::from ↔ .into()) without a clear readability or functional gain; follow file‑local conventions and do not introduce type annotations solely to satisfy .into().
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -467,7 +467,7 @@ statements:
       - Compactness: prefer the form that stays on one line after rustfmt; if only one of Line::from(vec![…]) or vec![…].into() avoids wrapping, choose that. If both wrap, pick the one with fewer wrapped lines.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -480,7 +480,7 @@ statements:
       - Always use textwrap::wrap to wrap plain strings.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -490,7 +490,7 @@ statements:
       - If you have a ratatui Line and you want to wrap it, use the helpers in tui/src/wrapping.rs, e.g. word_wrap_lines / word_wrap_line.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -500,7 +500,7 @@ statements:
       - If you need to indent wrapped lines, use the initial_indent / subsequent_indent options from RtOptions if you can, rather than writing custom logic.
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -511,7 +511,7 @@ statements:
 
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -736,7 +736,7 @@ statements:
       - `app-server/README.md`
 
     type: description
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -748,7 +748,7 @@ statements:
 
 
     type: description
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -758,7 +758,7 @@ statements:
       - All active API development should happen in app-server v2. Do not add new API surface area to v1.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -769,7 +769,7 @@ statements:
         `*Params` for request payloads, `*Response` for responses, and `*Notification` for notifications.
 
     type: directive
-    topic: Naming Conventions
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -779,7 +779,7 @@ statements:
       - Expose RPC methods as `<resource>/<method>` and keep `<resource>` singular (for example, `thread/read`, `app/list`).
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -789,7 +789,7 @@ statements:
       - Always expose fields as camelCase on the wire with `#[serde(rename_all = "camelCase")]` unless a tagged union or explicit compatibility requirement needs a targeted rename.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -799,7 +799,7 @@ statements:
       - Exception: config RPC payloads are expected to use snake_case to mirror config.toml keys (see the config read/write/list APIs in `app-server-protocol/src/protocol/v2.rs`).
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -809,7 +809,7 @@ statements:
       - Always set `#[ts(export_to = "v2/")]` on v2 request/response/notification types so generated TypeScript lands in the correct namespace.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -821,7 +821,7 @@ statements:
         `params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>`.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -831,7 +831,7 @@ statements:
       - Keep Rust and TS wire renames aligned. If a field or variant uses `#[serde(rename = "...")]`, add matching `#[ts(rename = "...")]`.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -842,7 +842,7 @@ statements:
         `#[serde(tag = "type", ...)]` and `#[ts(tag = "type", ...)]`.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -852,7 +852,7 @@ statements:
       - Prefer plain `String` IDs at the API boundary (do UUID parsing/conversion internally if needed).
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -862,7 +862,7 @@ statements:
       - Timestamps should be integer Unix seconds (`i64`) and named `*_at` (for example, `created_at`, `updated_at`, `resets_at`).
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -873,7 +873,7 @@ statements:
         use `#[experimental("method/or/field")]`, derive `ExperimentalApi` when field-level gating is needed, and use `inspect_params: true` in `common.rs` when only some fields of a method are experimental.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -885,7 +885,7 @@ statements:
 
 
     type: description
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -895,7 +895,7 @@ statements:
       - Every optional field must be annotated with `#[ts(optional = nullable)]`. Do not use `#[ts(optional = nullable)]` outside client->server request payloads (`*Params`).
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -905,7 +905,7 @@ statements:
       - Optional collection fields (for example `Vec`, `HashMap`) must use `Option<...>` + `#[ts(optional = nullable)]`. Do not use `#[serde(default)]` to model optional collections, and do not use `skip_serializing_if` on v2 payload fields.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -915,7 +915,7 @@ statements:
       - When you want omission to mean `false` for boolean fields, use `#[serde(default, skip_serializing_if = "std::ops::Not::not")] pub field: bool` over `Option<bool>`.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -927,7 +927,7 @@ statements:
         response fields `pub data: Vec<...>` and `pub next_cursor: Option<String>`.
 
     type: directive
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 
@@ -939,7 +939,7 @@ statements:
 
 
     type: description
-    topic: API Design
+    topic: Architecture
     enforceability: null
     confidence: high
 

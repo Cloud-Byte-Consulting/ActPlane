@@ -313,7 +313,7 @@ statements:
 
       - Follow standard Go conventions (`gofmt`, `go vet`)
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -322,7 +322,7 @@ statements:
     text: |
       - Use `strings.EqualFold` for case-insensitive comparisons
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -331,7 +331,7 @@ statements:
     text: |
       - Avoid `init()` for anything other than platform/agent registration
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -340,7 +340,7 @@ statements:
     text: |
       - Keep functions focused; extract helpers when a function exceeds ~80 lines
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
@@ -350,7 +350,7 @@ statements:
       - Naming: `New()` for constructors, `Get/Set` for accessors, avoid stuttering (`feishu.FeishuPlatform` → `feishu.Platform`)
 
     type: directive
-    topic: Coding Style
+    topic: Implementation Details
     enforceability: null
     confidence: high
 
