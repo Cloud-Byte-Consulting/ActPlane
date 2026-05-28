@@ -41,7 +41,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 3
@@ -57,7 +57,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 4
@@ -78,7 +78,7 @@ statements:
       - Standalone agent wrapper packages have been removed. Do not add docs, tests, or features that promote `ccusage-amp`, `ccusage-codex`, `ccusage-opencode`, or `ccusage-pi`.
     type: directive
     topic: Maintenance
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 6
@@ -87,7 +87,7 @@ statements:
       - Runtime libraries for bundled packages belong in `devDependencies` unless explicitly requested otherwise.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 7
@@ -96,7 +96,7 @@ statements:
       - Prefer tools provided by the Nix dev shell before falling back to ad hoc installs: `rg`, `fd`, `fzf`, `delta`, `dust`, `jq`, `gh`, `hyperfine`, `similarity`, `ast-grep`, `typos`, and `typos-lsp`. When a missing tool would be useful for repeated agent work in this repository, add it to `flake.nix`.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 8
@@ -105,7 +105,7 @@ statements:
       - The production CLI is Rust-first under `rust/crates/ccusage`. Put new runtime behavior there unless the work is specifically about npm packaging, generated schemas, docs tooling, or benchmark scripts.
     type: directive
     topic: Architecture
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 9
@@ -114,7 +114,7 @@ statements:
       - For Rust code, keep modules small, keep `pub(crate)` surfaces narrow, prefer fixture-backed parser/loader tests, and run cargo checks through the root package scripts when possible.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 10
@@ -123,7 +123,7 @@ statements:
       - TypeScript rules still apply to `.ts`, `.tsx`, `.js`, and `.jsx` package/tooling files. Use `ccusage-typescript` and `typescript-style` there, especially `satisfies` and `as const satisfies` for typed literals.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 11
@@ -132,7 +132,7 @@ statements:
       - For TypeScript package code, use `logger.ts` instead of `console.log`, use `.ts` extensions for local imports, avoid dynamic imports, and use Vitest globals without importing them.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 12
@@ -141,7 +141,7 @@ statements:
       - After code changes, run `pnpm run format`, `pnpm typecheck`, and `pnpm run test`.
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 13
@@ -150,7 +150,7 @@ statements:
       - PR branches are squash-merged by default; prefer stacked, small, revertable follow-up commits over `git commit --amend` unless explicitly requested.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 14
@@ -159,7 +159,7 @@ statements:
       - Use US English for repository-facing GitHub communication, including issue comments, PR descriptions, review replies, triage notes, and bot-directed replies.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 15
@@ -168,5 +168,5 @@ statements:
       - Do what has been asked, nothing more. Do not proactively create documentation files unless explicitly requested.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high

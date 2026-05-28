@@ -6,7 +6,7 @@ statements:
       - To regenerate the JavaScript SDK, run `./packages/sdk/js/script/build.ts`.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 2
@@ -15,7 +15,7 @@ statements:
       - ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 3
@@ -33,7 +33,7 @@ statements:
       - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 5
@@ -42,7 +42,7 @@ statements:
       - Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 6
@@ -59,7 +59,7 @@ statements:
 
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 7
@@ -73,7 +73,7 @@ statements:
       - Keep things in one function unless composable or reusable
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 8
@@ -82,7 +82,7 @@ statements:
       - Do not extract single-use helpers preemptively. Inline the logic at the call site unless the helper is reused, hides a genuinely complex boundary, or has a clear independent name that improves the caller.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 9
@@ -91,7 +91,7 @@ statements:
       - Avoid `try`/`catch` where possible
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 10
@@ -100,7 +100,7 @@ statements:
       - Avoid using the `any` type
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 11
@@ -109,7 +109,7 @@ statements:
       - Use Bun APIs when possible, like `Bun.file()`
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 12
@@ -118,7 +118,7 @@ statements:
       - Rely on type inference when possible; avoid explicit type annotations or interfaces unless necessary for exports or clarity
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 13
@@ -127,7 +127,7 @@ statements:
       - Prefer functional array methods (flatMap, filter, map) over for loops; use type guards on filter to maintain type inference downstream
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 14
@@ -137,7 +137,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 15
@@ -156,7 +156,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 16
@@ -177,7 +177,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 17
@@ -200,7 +200,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 18
@@ -227,7 +227,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 19
@@ -253,7 +253,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 20
@@ -262,7 +262,7 @@ statements:
       - Keep helpers close to the code they support, below the main export when that improves readability.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 21
@@ -271,7 +271,7 @@ statements:
       - Do not over-abstract simple expressions into many single-use helpers; extract only when it names a real concept like `requireConfig` or `readMetadata`.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 22
@@ -280,7 +280,7 @@ statements:
       - Do not return `Effect` from helpers unless they actually perform effectful work. Synchronous parsing, validation, and option building should stay synchronous.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 23
@@ -289,7 +289,7 @@ statements:
       - Prefer Effect schema helpers such as `Schema.UnknownFromJsonString` and `Schema.decodeUnknownOption` over manual `JSON.parse` wrapped in `Effect.try` when parsing untrusted JSON strings.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 24
@@ -299,7 +299,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 25
@@ -327,7 +327,7 @@ statements:
 
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 26
@@ -338,7 +338,7 @@ statements:
       - Avoid mocks as much as possible
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 27
@@ -347,7 +347,7 @@ statements:
       - Test actual implementation, do not duplicate logic into tests
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 28
@@ -357,7 +357,7 @@ statements:
 
     type: directive
     topic: Testing
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 29
@@ -368,5 +368,5 @@ statements:
       - Always run `bun typecheck` from package directories (e.g., `packages/opencode`), never `tsc` directly.
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high

@@ -40,7 +40,7 @@ statements:
 
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 3
@@ -77,7 +77,7 @@ statements:
       - **YOU MUST NOT commit or push without explicit user request.**
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 6
@@ -86,7 +86,7 @@ statements:
       - **YOU MUST NOT add `Co-Authored-By: Claude`** to any commit message.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 7
@@ -95,7 +95,7 @@ statements:
       - Always activate `.venv` before running Python scripts (check `venv/`, `.venv/`, `env/`).
     type: directive
     topic: Build and Run
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 8
@@ -104,7 +104,7 @@ statements:
       - Internal links use **relative paths** (e.g. `01-slash-commands/README.md`); anchors use `#heading-name`.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 9
@@ -113,7 +113,7 @@ statements:
       - Code fences **must** declare a language (`bash`, `python`, `json`, …) — the cross-reference check fails otherwise.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 10
@@ -122,7 +122,7 @@ statements:
       - External URLs must be reachable and stable. No ephemeral links.
     type: directive
     topic: Documentation
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 11
@@ -131,7 +131,7 @@ statements:
       - Mermaid diagrams must parse (validated pre-commit). Broken EPUB build is usually invalid Mermaid or no network to Kroki.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 12
@@ -140,7 +140,7 @@ statements:
       - Commit format: `type(scope): subject` where `scope` matches the module folder (e.g. `feat(slash-commands):`, `docs(memory):`, `fix(README):`).
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_linter
     confidence: high
 
   - id: 13
@@ -150,7 +150,7 @@ statements:
 
     type: directive
     topic: Architecture
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 14
@@ -169,7 +169,7 @@ statements:
       - For lesson edits, follow `STYLE_GUIDE.md` for structure/naming/diagrams.
     type: directive
     topic: Documentation
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 16
@@ -178,7 +178,7 @@ statements:
       - Small fixes → minimal diff. Don't rewrite a section to fix a typo.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 17
@@ -187,7 +187,7 @@ statements:
       - When adding a module page: README + templates first, then update root `README.md` index and `LEARNING-ROADMAP.md` if order/timing changes.
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 18
@@ -196,7 +196,7 @@ statements:
       - Tutorial > library: prioritize clear explanations and copy-paste examples over reusable abstractions.
     type: directive
     topic: Implementation Details
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 19
@@ -206,7 +206,7 @@ statements:
 
     type: directive
     topic: Development Process
-    enforceability: null
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 20
@@ -224,7 +224,7 @@ statements:
       - Never re-read files you just wrote or edited. You know the contents.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 22
@@ -233,7 +233,7 @@ statements:
       - Never re-run commands to "verify" unless the outcome was uncertain.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 23
@@ -242,7 +242,7 @@ statements:
       - Don't echo back large blocks of code or file contents unless asked.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 24
@@ -251,7 +251,7 @@ statements:
       - Batch related edits into single operations. Don't make 5 edits when 1 handles it.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 25
@@ -260,7 +260,7 @@ statements:
       - Skip confirmations like "I'll continue..." Just do it.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 26
@@ -269,7 +269,7 @@ statements:
       - If a task needs 1 tool call, don't use 3. Plan before acting.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high
 
   - id: 27
@@ -278,5 +278,5 @@ statements:
       - Do not summarize what you just did unless the result is ambiguous or you need additional input.
     type: directive
     topic: AI Integration
-    enforceability: null
+    enforceability: intent
     confidence: high

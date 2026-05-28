@@ -526,6 +526,22 @@ can map it to concrete system operations (e.g., "upstream" = files in
 conversation with the user (tone, explanation, reporting format), it is
 **intent**.
 
+Two clarifications for conditional directives:
+
+- *Abstractly-scoped system constraints.* A directive like "when SDK
+  changes, run the build script" is system-level if "SDK" can be
+  resolved to concrete file paths by reading the repository context
+  (e.g., `packages/sdk/**`). Genuinely vague conditions ("when
+  necessary", "when appropriate") that cannot be mapped to observable
+  state are **intent**.
+- *Exception conditions involving conversation state.* A directive like
+  "do not commit without explicit user request" has a system-level core
+  constraint (match `git commit`) with a conversation-level exception.
+  The enforceability level is determined by the core constraint
+  (**behavior per-event** in this case), not by the exception. The
+  enforcement mechanism defaults to blocking the operation; the
+  exception is handled as a permission grant.
+
 **Step 2 (for system-level directives): Does enforcement require
 inspecting file content?** If the directive imposes requirements on the
 text content of files the agent reads or writes (code style, formatting,
@@ -544,6 +560,14 @@ matching `connect(external_ip)`.
 If checking the directive requires knowing what happened before the
 current operation (which files were previously read, which commands
 previously ran, the process lineage), it is **behavior (cross-object)**.
+
+**Step 5: Compound directives.** A directive that combines multiple
+sub-constraints at different levels is classified by the strongest
+(hardest to enforce) sub-constraint. For example, "read `cli/README.md`
+and verify command help/output behavior alongside unit tests" contains
+an intent-level sub-constraint (read a file) and a cross-object
+sub-constraint (verify behavior matches tests after changes); the
+directive is classified as **behavior (cross-object)**.
 
 This procedure assigns each directive to exactly one level.
 Enforceability is included in the inter-rater reliability assessment
