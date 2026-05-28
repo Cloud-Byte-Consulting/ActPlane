@@ -1,0 +1,108 @@
+file: "HKUDS/nanobot/CLAUDE.md"
+statements:
+  - id: 1
+    lines: [1, 7]
+    text: |
+      # CLAUDE.md
+
+      This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+      ## Project Overview
+
+      nanobot is a lightweight, open-source AI agent framework written in Python with a React/TypeScript WebUI. It centers around a small agent loop that receives messages from chat channels, invokes an LLM provider, executes tools, and manages session memory.
+    type: description
+    topic: System Overview
+    enforceability: null
+    confidence: high
+
+  - id: 2
+    lines: [8, 24]
+    text: |
+
+      ## Development Commands
+
+      ```bash
+      # Python: run single test / lint
+      pytest tests/test_openai_api.py::test_function -v
+      ruff check nanobot/
+      ...
+      ```
+    type: directive
+    topic: Build and Run
+    enforceability: null
+    confidence: high
+
+  - id: 3
+    lines: [25, 59]
+    text: |
+
+      ## High-Level Architecture
+
+      ### Core Data Flow
+      ...
+      ### Key Subsystems
+      ...
+      ### Entry Points
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 4
+    lines: [60, 64]
+    text: |
+
+      ## Project-Specific Notes
+
+      - Architecture constraints: [`.agent/design.md`](.agent/design.md)
+      - Security boundaries: [`.agent/security.md`](.agent/security.md)
+      - Common gotchas: [`.agent/gotchas.md`](.agent/gotchas.md)
+    type: directive
+    topic: Documentation
+    enforceability: null
+    confidence: high
+
+  - id: 5
+    lines: [65, 68]
+    text: |
+
+      ## Branching Strategy
+
+      See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full two-branch model (`main` vs `nightly`) and PR guidelines.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 6
+    lines: [69, 75]
+    text: |
+
+      ## Code Style
+
+      - Python 3.11+, asyncio throughout.
+      - Line length: 100.
+      - Linting: `ruff` with rules E, F, I, N, W (E501 ignored).
+      - pytest with `asyncio_mode = "auto"`.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 7
+    lines: [76, 85]
+    text: |
+
+      ## Common File Locations
+
+      - Config schema: `nanobot/config/schema.py`
+      - Provider base / new provider template: `nanobot/providers/base.py`
+      - Channel base / new channel template: `nanobot/channels/base.py`
+      - Tool registry: `nanobot/agent/tools/registry.py`
+      - WebUI dev proxy config: `webui/vite.config.ts`
+      - Tests mirror the `nanobot/` package structure.
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high

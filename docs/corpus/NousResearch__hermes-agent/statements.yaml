@@ -1,0 +1,325 @@
+file: "NousResearch/hermes-agent/AGENTS.md"
+statements:
+  - id: 1
+    lines: [1, 3]
+    text: |
+      # Hermes Agent - Development Guide
+
+      Instructions for AI coding assistants and developers working on the hermes-agent codebase.
+    type: description
+    topic: System Overview
+    enforceability: null
+    confidence: high
+
+  - id: 2
+    lines: [4, 14]
+    text: |
+      ## Development Environment
+
+      ```bash
+      source .venv/bin/activate
+      ```
+
+      `scripts/run_tests.sh` probes `.venv` first, then `venv`, then ...
+    type: directive
+    topic: Build and Run
+    enforceability: null
+    confidence: high
+
+  - id: 3
+    lines: [15, 68]
+    text: |
+      ## Project Structure
+
+      File counts shift constantly — don't treat the tree below as exhaustive. ...
+
+      ```
+      hermes-agent/
+      ├── run_agent.py ...
+      ...
+      ```
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 4
+    lines: [69, 142]
+    text: |
+      ## File Dependency Chain
+      ...
+      ## AIAgent Class (run_agent.py)
+      ...
+      ### Agent Loop
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 5
+    lines: [143, 262]
+    text: |
+      ## CLI Architecture (cli.py)
+      ...
+      ### Slash Command Registry
+      ...
+      ### Adding a Slash Command
+      ...
+      ## TUI Architecture (ui-tui + tui_gateway)
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 6
+    lines: [263, 310]
+    text: |
+      ## Adding New Tools
+
+      ...follow the discovery pattern in tools/registry.py...
+      ...
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 7
+    lines: [311, 333]
+    text: |
+      ## Dependency Pinning Policy
+
+      ...pip-compile requirements ...
+      ...Never delete; max destructive action is archive...
+    type: directive
+    topic: Maintenance
+    enforceability: null
+    confidence: high
+
+  - id: 8
+    lines: [334, 397]
+    text: |
+      ## Adding Configuration
+
+      ### config.yaml options:
+      ...
+      ### .env variables (SECRETS ONLY — API keys, tokens, passwords):
+      ...
+      ### Config loaders
+      ...
+    type: description
+    topic: Configuration & Environment
+    enforceability: null
+    confidence: high
+
+  - id: 9
+    lines: [398, 486]
+    text: |
+      ## Skin/Theme System
+      ...
+      ### Adding a built-in skin
+      ...
+      ### User skins (YAML)
+      ...
+    type: description
+    topic: UI/UX
+    enforceability: null
+    confidence: high
+
+  - id: 10
+    lines: [487, 586]
+    text: |
+      ## Plugins
+      ...
+      ### General plugins
+      ...
+      ### Memory-provider plugins
+      ...
+      ### Model-provider plugins
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 11
+    lines: [587, 697]
+    text: |
+      ## Skills
+      ...
+      ### SKILL.md frontmatter
+      ...
+      ### Skill authoring standards (HARDLINE)
+      ...
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 12
+    lines: [698, 783]
+    text: |
+      ## Toolsets
+      ...
+      ## Delegation (`delegate_task`)
+      ...
+      ## Curator (skill lifecycle)
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 13
+    lines: [784, 860]
+    text: |
+      ## Cron (scheduled jobs)
+      ...
+      ## Kanban (multi-agent work queue)
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 14
+    lines: [861, 876]
+    text: |
+      ## Important Policies
+
+      ### Prompt Caching Must Not Break
+
+      ...prompt caching is load-bearing for cost/latency...
+      ...never reorder or mutate cached prefixes...
+    type: directive
+    topic: Performance
+    enforceability: null
+    confidence: high
+
+  - id: 15
+    lines: [877, 890]
+    text: |
+      ### Background Process Notifications (Gateway)
+
+      ...gateway sends notifications for long-running tasks...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 16
+    lines: [891, 946]
+    text: |
+      ## Profiles: Multi-Instance Support
+      ...
+      ### Rules for profile-safe code
+      ...always use get_hermes_home() ...
+      ...never hardcode ~/.hermes ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 17
+    lines: [947, 953]
+    text: |
+      ## Known Pitfalls
+
+      ### DO NOT hardcode `~/.hermes` paths
+
+      ...always use get_hermes_home() / display_hermes_home()...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 18
+    lines: [954, 960]
+    text: |
+      ### DO NOT introduce new `simple_term_menu` usage
+
+      ...use InquirerPy instead...
+    type: directive
+    topic: Maintenance
+    enforceability: null
+    confidence: high
+
+  - id: 19
+    lines: [961, 963]
+    text: |
+      ### DO NOT use `\033[K` (ANSI erase-to-EOL) in spinner/display code
+      ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 20
+    lines: [964, 966]
+    text: |
+      ### `_last_resolved_tool_names` is a process-global in `model_tools.py`
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 21
+    lines: [967, 969]
+    text: |
+      ### DO NOT hardcode cross-tool references in schema descriptions
+      ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 22
+    lines: [970, 988]
+    text: |
+      ### The gateway has TWO message guards — both must bypass approval/control commands
+      ...
+      ### Squash merges from stale branches silently revert recent fixes
+      ...
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 23
+    lines: [989, 993]
+    text: |
+      ### Don't wire in dead code without E2E validation
+      ...
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high
+
+  - id: 24
+    lines: [994, 1011]
+    text: |
+      ### Tests must not write to `~/.hermes/`
+
+      ...use tmp_path fixtures...
+      ...ALWAYS use `scripts/run_tests.sh`...
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high
+
+  - id: 25
+    lines: [1012, 1132]
+    text: |
+      ## Testing
+
+      ...ALWAYS use `scripts/run_tests.sh`...
+      ### Subprocess-per-test isolation
+      ...
+      ### Don't write change-detector tests
+      ...
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high

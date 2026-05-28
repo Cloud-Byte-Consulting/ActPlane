@@ -1,0 +1,350 @@
+file: "Kilo-Org/kilocode/AGENTS.md"
+statements:
+  - id: 1
+    lines: [1, 3]
+    text: |
+      # AGENTS.md
+
+      Kilo CLI is an open source AI coding agent that generates code from natural language, automates tasks, and supports 500+ AI models.
+    type: description
+    topic: System Overview
+    enforceability: null
+    confidence: high
+
+  - id: 2
+    lines: [4, 5]
+    text: |
+
+      - ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 3
+    lines: [6, 6]
+    text: "- The default branch in this repo is `main`."
+    type: description
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 4
+    lines: [7, 7]
+    text: "- Prefer automation: execute requested actions without confirmation unless blocked by missing info or safety/irreversibility."
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 5
+    lines: [8, 8]
+    text: "- You may be running in a git worktree. All changes must be made in your current working directory — never modify files in the main repo checkout."
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 6
+    lines: [9, 25]
+    text: |
+
+      ## Build and Dev
+
+      - **Dev**: `bun run dev` ...
+      - **Typecheck**: `bun turbo typecheck` ...
+      - **Test**: `bun test` from `packages/opencode/` (NOT from root -- root blocks tests)
+      ...
+    type: directive
+    topic: Build and Run
+    enforceability: null
+    confidence: high
+
+  - id: 7
+    lines: [26, 40]
+    text: |
+
+      ## Quality Checks
+
+      Before saying an implementation is ready, run the smallest relevant checks ...
+
+      | Area | Checks |
+      |---|---|
+      ...
+
+      Never run root `bun test`; the root script prints `do not run tests from root` and exits with code 1. Use package-level tests instead.
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high
+
+  - id: 8
+    lines: [41, 54]
+    text: |
+
+      ## Products
+
+      All products are clients of the **CLI** (`packages/opencode/`), ...
+
+      | Product | Package | Description |
+      ...
+
+      **Agent Manager** refers to a feature inside `packages/kilo-vscode/` ...
+      Extension-specific settings should live in the Kilo extension settings ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 9
+    lines: [55, 57]
+    text: |
+
+      ## Package Instructions
+
+      - When a task primarily touches `packages/kilo-jetbrains/`, read `packages/kilo-jetbrains/AGENTS.md` before planning or editing. ...
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 10
+    lines: [58, 74]
+    text: |
+
+      ## Monorepo Structure
+
+      Turborepo + Bun workspaces. The packages you'll work with most:
+
+      | Package | Name | Purpose |
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 11
+    lines: [75, 83]
+    text: |
+
+      ## Style Guide
+
+      - Keep things in one function unless composable or reusable
+      - Avoid unnecessary destructuring. ...
+      - Avoid `try`/`catch` where possible
+      - Avoid using the `any` type
+      - Prefer single word variable names where possible
+      - Use Bun APIs when possible, like `Bun.file()`
+      - Rely on type inference when possible ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 12
+    lines: [84, 103]
+    text: |
+
+      ### Avoid let statements
+
+      We don't like `let` statements ...
+      Prefer `const`.
+
+      Good:
+      ```ts
+      const foo = condition ? 1 : 2
+      ```
+      Bad:
+      ```ts
+      let foo
+      ...
+      ```
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 13
+    lines: [104, 115]
+    text: |
+
+      ### Naming Enforcement (Read This)
+
+      THIS RULE IS MANDATORY FOR AGENT WRITTEN CODE.
+
+      - Use single word names by default for new locals, params, and helper functions.
+      - Multi-word names are allowed only when a single word would be unclear or ambiguous.
+      ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 14
+    lines: [116, 136]
+    text: |
+
+      ### Avoid else statements
+
+      Prefer early returns or using an `iife` to avoid else statements.
+      ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 15
+    lines: [137, 162]
+    text: |
+
+      ### No empty catch blocks
+
+      Never leave a `catch` block empty. ...
+      ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 16
+    lines: [163, 183]
+    text: |
+
+      ### Prefer single word naming
+      ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 17
+    lines: [184, 188]
+    text: |
+
+      ## Testing
+
+      You MUST avoid using `mocks` as much as possible.
+      Tests MUST test actual implementation, do not duplicate logic into a test.
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high
+
+  - id: 18
+    lines: [189, 208]
+    text: |
+
+      ## Markdown Tables
+
+      Do not pad markdown table cells for column alignment. Use the compact form ...
+      ...
+      Padding makes every content change rewrite the entire table ...
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 19
+    lines: [209, 212]
+    text: |
+
+      ## Commit Conventions
+
+      [Conventional Commits](https://www.conventionalcommits.org/) with scopes matching packages: `vscode`, `cli`, `agent-manager`, `sdk`, `ui`, `i18n`, `kilo-docs`, `gateway`, `telemetry`, `desktop`. Omit scope when spanning multiple packages.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 20
+    lines: [213, 218]
+    text: |
+
+      ## Changesets
+
+      User-facing changes (features, fixes, breaking changes) require a changeset file for release notes. Run `bunx changeset add` ...
+
+      Changeset descriptions appear directly in release notes and are read by end users. Keep them concise and feature-oriented ...
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 21
+    lines: [219, 222]
+    text: |
+
+      ## Pull Requests
+
+      PR descriptions should be 2-3 lines covering **what** changed and **why**. Focus on intent and context a reviewer can't get from the diff ...
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 22
+    lines: [223, 226]
+    text: |
+
+      ## GitHub Issues
+
+      When creating or managing GitHub issues for the VS Code extension or JetBrains plugin via `gh`, load `.kilo/skills/gh-issues/SKILL.md`. ...
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 23
+    lines: [227, 252]
+    text: |
+
+      ## Fork Merge Process
+
+      Kilo CLI is a fork of [opencode](https://github.com/anomalyco/opencode).
+
+      **Very important**: when planning or coding, update shared files with OpenCode as last resort! ...
+
+      ### Minimizing Merge Conflicts
+
+      1. **Prefer `kilocode` directories** ...
+      2. **Minimize changes to shared files** ...
+      3. **Use `kilocode_change` markers** ...
+      4. **Avoid restructuring upstream code** ...
+      5. **Mirror new config keys to the cloud schema** ...
+
+      The goal is to keep our diff from upstream as small as possible ...
+    type: directive
+    topic: Maintenance
+    enforceability: null
+    confidence: high
+
+  - id: 24
+    lines: [253, 256]
+    text: |
+
+      ### Git conflict style
+
+      `bun install` sets `merge.conflictStyle=zdiff3` repo-locally ...
+    type: description
+    topic: Configuration & Environment
+    enforceability: null
+    confidence: high
+
+  - id: 25
+    lines: [257, 270]
+    text: |
+
+      ### Kilocode Change Markers
+
+      When editing shared upstream files, mark Kilo-specific lines with `kilocode_change` comments ...
+      - Single line: `const value = 42 // kilocode_change`
+      - Multi-line block: wrap with `// kilocode_change start` / `// kilocode_change end`
+      ...
+
+      Markers are NOT needed in paths that contain `kilocode` in the name ...
+
+      For decision rules ... load `.kilo/skills/kilocode-merge-minimizer/SKILL.md`.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high

@@ -1,0 +1,100 @@
+file: "HKUDS/DeepTutor/AGENTS.md"
+statements:
+  - id: 1
+    lines: [1, 8]
+    text: |
+      # DeepTutor — Agent-Native Architecture
+
+      ## Overview
+
+      DeepTutor is an **agent-native** intelligent learning companion organized
+      around a two-layer plugin model — single-shot **Tools** invoked by the
+      LLM, and multi-stage **Capabilities** that take over a turn — exposed
+      through three entry points: CLI, WebSocket API, and Python SDK.
+    type: description
+    topic: System Overview
+    enforceability: null
+    confidence: high
+
+  - id: 2
+    lines: [9, 31]
+    text: |
+
+      ## Architecture
+
+      ```
+      Entry Points: CLI (Typer) | WebSocket /api/v1/ws | Python SDK
+      ...
+      ```
+
+      All capabilities emit on a shared `StreamBus`; the orchestrator fans
+      events out to consumers. Runtime settings live in
+      `data/user/settings/*.json` — project-root `.env` files are intentionally
+      ignored.
+
+      ### Level 1 — Tools
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 3
+    lines: [32, 69]
+    text: |
+      ### Level 1 — Tools (table)
+      ...
+      ### Level 2 — Capabilities (table)
+      ...
+      All capabilities converge on `emit_capability_result()` ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 4
+    lines: [70, 92]
+    text: |
+
+      ## CLI Usage
+
+      ```bash
+      # Install
+      pip install deeptutor
+      ...
+      ```
+    type: directive
+    topic: Build and Run
+    enforceability: null
+    confidence: high
+
+  - id: 5
+    lines: [93, 111]
+    text: |
+
+      ## Key Files
+
+      | Path | Purpose |
+      | --- | --- |
+      ...
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 6
+    lines: [112, 127]
+    text: |
+
+      ## Dependency Layers
+
+      Public install paths and source extras are defined in `pyproject.toml`.
+      ...
+      ```
+      pip install deeptutor      — Full app
+      ...
+      ```
+    type: description
+    topic: Build and Run
+    enforceability: null
+    confidence: high
