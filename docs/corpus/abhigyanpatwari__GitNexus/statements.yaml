@@ -311,7 +311,6 @@ statements:
       | Work in the Storage area (51 symbols) | `.claude/skills/generated/storage/SKILL.md` |
       | Work in the Php area (48 symbols) | `.claude/skills/generated/php/SKILL.md` |
 
-      <!-- gitnexus:end -->
     type: description
     topic: AI Integration
     enforceability: null
@@ -320,6 +319,7 @@ statements:
   - id: 25
     lines: [125, 139]
     text: |
+      <!-- gitnexus:end -->
 
       ## Repo reference
 
@@ -386,7 +386,7 @@ statements:
     confidence: high
 
   - id: 29
-    lines: [162, 165]
+    lines: [162, 166]
     text: |
 
       ### Gotchas
@@ -398,7 +398,7 @@ statements:
     confidence: high
 
   - id: 30
-    lines: [165, 166]
+    lines: [166, 167]
     text: |
       - `tree-sitter-kotlin` and `tree-sitter-swift` are optional — install warnings expected.
     type: description
@@ -407,7 +407,7 @@ statements:
     confidence: high
 
   - id: 31
-    lines: [166, 168]
+    lines: [167, 168]
     text: |
       - ESLint configured via `eslint.config.mjs` (TS, React Hooks, unused-imports). No `npm run lint` script; use `npx eslint .`. Prettier runs via lint-staged. CI checks both in `ci-quality.yml`.
     type: description
