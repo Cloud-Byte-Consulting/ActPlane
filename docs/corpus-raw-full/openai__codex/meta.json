@@ -1,0 +1,33 @@
+{
+  "repo": "openai/codex",
+  "owner": "openai",
+  "name": "codex",
+  "stars": 84763,
+  "forks": 12346,
+  "open_issues": 4914,
+  "created_at": "2025-04-13T05:37:54Z",
+  "language": "Rust",
+  "license": "apache-2.0",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T05:55:24Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/openai/codex",
+  "description": "Lightweight coding agent that runs in your terminal",
+  "topics": [],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T07:42:19Z",
+  "files": [
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "4714b1b8aa43ee7e6621a1542287c0cfcd900148",
+      "byte_size": 17885,
+      "last_commit_sha": "6ad3a8350902f5825fe4172ef06cb5b506d10f3d",
+      "last_commit_date": "2026-05-22T23:46:25Z",
+      "content_sha256": "d7f4c722b70cb136a3de433d4d250a7ee9d646170e7409ca01272f596e2f98fa",
+      "raw_url": "https://raw.githubusercontent.com/openai/codex/6ad3a8350902f5825fe4172ef06cb5b506d10f3d/AGENTS.md"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "repo": "anomalyco/opencode",
+  "owner": "anomalyco",
+  "name": "opencode",
+  "stars": 164179,
+  "forks": 19412,
+  "open_issues": 5993,
+  "created_at": "2025-04-30T20:08:00Z",
+  "language": "TypeScript",
+  "license": "mit",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T07:43:37Z",
+  "default_branch": "dev",
+  "html_url": "https://github.com/anomalyco/opencode",
+  "description": "The open source coding agent.",
+  "topics": [],
+  "seed": true,
+  "domain": "",
+  "retrieved_at": "2026-05-23T07:42:19Z",
+  "files": [
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "8e7ff342b5d2587687d9d9db312b6e7c1cd19f4f",
+      "byte_size": 4441,
+      "last_commit_sha": "f5a8202b41aa8f8cdc4ead902fba800882ea4e34",
+      "last_commit_date": "2026-05-20T20:54:29Z",
+      "content_sha256": "d0356370683c0f2a8eb358474139380efe221486fba64a5f4e90dba466adc76e",
+      "raw_url": "https://raw.githubusercontent.com/anomalyco/opencode/f5a8202b41aa8f8cdc4ead902fba800882ea4e34/AGENTS.md"
+    }
+  ]
+}

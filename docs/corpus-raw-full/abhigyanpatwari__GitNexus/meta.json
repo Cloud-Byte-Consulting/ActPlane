@@ -1,0 +1,43 @@
+{
+  "repo": "abhigyanpatwari/GitNexus",
+  "owner": "abhigyanpatwari",
+  "name": "GitNexus",
+  "stars": 39813,
+  "forks": 4539,
+  "open_issues": 295,
+  "created_at": "2025-08-02T23:20:31Z",
+  "language": "TypeScript",
+  "license": "other",
+  "fork": false,
+  "archived": false,
+  "pushed_at": "2026-05-23T07:17:10Z",
+  "default_branch": "main",
+  "html_url": "https://github.com/abhigyanpatwari/GitNexus",
+  "description": "GitNexus: The Zero-Server Code Intelligence Engine -       GitNexus is a client-side knowledge graph creator that runs entirely in your browser. Drop in a GitHub repo or ZIP file, and get an interactive knowledge graph wit a built in Graph RAG Agent. Perfect for code exploration",
+  "topics": [],
+  "seed": false,
+  "domain": "",
+  "retrieved_at": "2026-05-23T07:42:19Z",
+  "files": [
+    {
+      "family": "CLAUDE.md",
+      "path": "CLAUDE.md",
+      "blob_sha": "70b3f1a36346ecb257b1025ed678ba53ec75b3a3",
+      "byte_size": 7337,
+      "last_commit_sha": "b37974fdac0bbbbcc3f1f9057af8c1fc213d2f37",
+      "last_commit_date": "2026-05-19T05:23:13Z",
+      "content_sha256": "76ac662d3c498fd34ca88ae316a3c39e645f064d4242da83f27a17f34d2fb5c4",
+      "raw_url": "https://raw.githubusercontent.com/abhigyanpatwari/GitNexus/b37974fdac0bbbbcc3f1f9057af8c1fc213d2f37/CLAUDE.md"
+    },
+    {
+      "family": "AGENTS.md",
+      "path": "AGENTS.md",
+      "blob_sha": "7971154aa5c2024d2ea0f38b62d594d7f125e8f1",
+      "byte_size": 10639,
+      "last_commit_sha": "51e667808aea7ed5a5872514aae6b8a5fd28737c",
+      "last_commit_date": "2026-05-23T06:24:35Z",
+      "content_sha256": "9d36b412f37fe324d5d1f445b40bd7be424f89519529f206fad3dc2b1e125df7",
+      "raw_url": "https://raw.githubusercontent.com/abhigyanpatwari/GitNexus/51e667808aea7ed5a5872514aae6b8a5fd28737c/AGENTS.md"
+    }
+  ]
+}

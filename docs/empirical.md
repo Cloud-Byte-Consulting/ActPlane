@@ -206,22 +206,30 @@ where CLAUDE.md was added experimentally or contains minimal content.
 The full list of 15 search queries is recorded in the replication package
 (`queries.log`).
 
-**Filtering.** From the search results, we apply four exclusion criteria:
+**Filtering.** From the search results, we apply five exclusion criteria:
 
 1. **Non-code repositories.** Repositories whose primary language is
    null or Markdown, or whose name/topics match documentation patterns
    (awesome-lists, tutorials, prompt collections, skill catalogs).
 2. **Fake-star filtering.** The AI agent ecosystem has significant
-   star inflation. We exclude repositories where forks > 0.8 × stars
+   star inflation. We exclude repositories where forks > 0.8 x stars
    (fork-bot signal), stars > 40k with open issues < 20 (no community),
    or age < 2 months with stars > 40k (implausible growth). A manual
    blocklist covers confirmed fake/SEO repositories.
-3. **Inactive repositories.** Repositories with no push activity within
-   2 weeks of the snapshot date are excluded, ensuring the corpus reflects
-   projects under active development with agents.
-4. **Trivial content.** Instruction files smaller than 500 bytes (pointer
-   files, empty stubs) are excluded. Where CLAUDE.md and AGENTS.md are
-   byte-identical, the duplicate is counted once.
+3. **Recency.** Repositories created before 2025 are excluded. Coding
+   agents with full tool access (Claude Code, Codex CLI) became widely
+   available in 2025; repositories created earlier may have added
+   instruction files retroactively rather than as part of an
+   agent-native development workflow.
+4. **Activity.** Repositories with no push activity within 2 weeks of the
+   snapshot date are excluded, ensuring the corpus reflects projects
+   under active development with agents.
+5. **Trivial content.** Instruction files smaller than 500 bytes (pointer
+   files, empty stubs) are excluded at the repository level (a repository
+   is excluded only if all its instruction files are < 500 bytes; a
+   repository with one pointer file and one substantive file is retained).
+   Where CLAUDE.md and AGENTS.md are byte-identical, the duplicate is
+   counted once.
 
 Critically, we do **not** exclude repositories based on whether they
 contain behavioral directives. Repositories with zero directives (all
@@ -231,19 +239,22 @@ denominator.
 All exclusions are logged with reasons (`exclusions.log`) for
 reproducibility.
 
-**Snapshot.** All files were collected on [DATE]. Repository metadata
-(stars, primary language, creation date, last push date) was recorded at
-collection time.
+**Snapshot.** All files were collected on 2026-05-23 (UTC). Repository
+metadata (stars, primary language, creation date, last push date) was
+recorded at collection time.
 
-**Corpus statistics.** [TODO: fill]
+**Corpus statistics.**
 
 | Statistic | Value |
 |---|---|
-| Repositories | TODO |
-| Instruction files (after dedup) | TODO |
-| Total lines | TODO |
-| Median file size (bytes) | TODO |
-| Primary languages represented | TODO |
+| Repositories | 64 |
+| Instruction files (after dedup) | 84 |
+| Total lines | 16,256 |
+| Total bytes | 1,136,161 |
+| Median file size | 7,052 bytes |
+| Mean file size | 13,525 bytes |
+| Star range | 9,772 -- 374,052 |
+| Primary languages | TypeScript (25), Python (21), Rust (8), Go (5), other (5) |
 
 ### 4.2 Statement Extraction and Classification
 
@@ -321,15 +332,19 @@ every line is assigned to exactly one statement. Structural content
 statements with `type: structural`. The `text` field preserves the
 original file content verbatim.
 
-**Granularity rule.** The minimum unit is a line. Each line belongs to
-exactly one statement; no sub-line splitting is performed. Multiple
-consecutive lines may form a single statement, but a single line is
-never split across statements. When a line contains multiple directives
-with different topics (e.g., "Never commit secrets or push to main
-directly"), the broader topic is assigned (Development Process rather
-than Security). This avoids subjective sub-line segmentation at the
-cost of slight topic imprecision, which we consider an acceptable
-trade-off for mechanical verifiability. The prompt instructs the LLM to: (a) extract every distinct
+**Granularity rules.**
+
+- *Minimum unit is a line.* Each line belongs to exactly one statement;
+  no sub-line splitting is performed. When a line contains multiple
+  directives with different topics (e.g., "Never commit secrets or push
+  to main directly"), the broader topic is assigned.
+- *Semantically coherent blocks are one statement.* A list or table that
+  expresses a single thought (e.g., a file-structure listing, a
+  dependency list, a command reference table) is one statement spanning
+  all its lines, not one statement per line.
+- *Compound directives with the same topic stay together.* "Never log,
+  commit, or expose API keys" is one directive (topic: Security), not
+  three. The prompt instructs the LLM to: (a) extract every distinct
 statement with its line range, (b) classify each using the taxonomy
 (Axis 1: type, Axis 2: topic, Axis 3: enforceability) following the
 definitions in Sections 4.3 and 4.4, (c) assign a confidence level, and
@@ -407,7 +422,7 @@ Each statement is classified along three dimensions.
 
 | Type | Definition | Example |
 |---|---|---|
-| **Structural** | Markdown formatting with no semantic content: headers, blank lines, code fences, horizontal rules. | `## Testing`, blank lines, `` ``` `` |
+| **Structural** | Formatting and metadata with no instructional content: headers, blank lines, code fences, horizontal rules, HTML comments, changelogs, version history, table of contents. | `## Testing`, blank lines, `` ``` ``, `<!-- version: 1.3.0 -->`, changelog entries |
 | **Description** | Factual statement about the project. Does not instruct the agent to do or avoid anything. | "The backend uses Express with TypeScript." |
 | **Directive** | Statement that instructs the agent to perform, avoid, or condition an action. | "Run tests before committing." |
 
