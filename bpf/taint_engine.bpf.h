@@ -161,10 +161,10 @@ const volatile struct taint_inval taint_invals[MAX_TAINT_INVALS] = {};
  * scalars: every table loop runs via bpf_loop(), whose callback is then verified
  * exactly ONCE (a frozen/known count would make the verifier simulate per
  * iteration and -E2BIG at scale). Slots: 0=rules 1=sources 2=xforms 3=gates
- * 4=invals. */
+ * 4=invals 5=labels. */
 struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__uint(max_entries, 5);
+	__uint(max_entries, 6);
 	__type(key, __u32);
 	__type(value, __u32);
 } ts_counts SEC(".maps");
@@ -249,10 +249,8 @@ static __always_inline __u64 te_fnv1a(const char *s)
 	__u64 h = 0xcbf29ce484222325ULL;
 	TAINT_UNROLL
 	for (int i = 0; i < TAINT_PAT_LEN; i++) {
-		char c = s[i];
-		if (c == '\0')
-			break;
-		h ^= (unsigned char)c;
+		unsigned char c = (unsigned char)s[i];
+		h ^= c;
 		h *= 0x100000001b3ULL;
 	}
 	return h;
@@ -311,60 +309,120 @@ static __always_inline void te_record_proc_prov(pid_t pid, __u64 label,
 	bpf_map_update_elem(&ts_proc_prov, &key, p, BPF_ANY);
 }
 
-static __always_inline void te_record_proc_prov_mask(pid_t pid, __u64 labels,
-						     unsigned int op,
-						     const char *target, __u32 ip)
+struct te_record_proc_prov_ctx {
+	pid_t pid;
+	__u64 labels;
+	unsigned int op;
+	const char *target;
+	__u32 ip;
+};
+static int te_record_proc_prov_cb(__u32 i, void *vc)
 {
-	for (int i = 0; i < MAX_TAINT_LABELS; i++) {
-		__u64 bit = 1ULL << i;
-		if (labels & bit)
-			te_record_proc_prov(pid, bit, op, target, ip);
-	}
+	struct te_record_proc_prov_ctx *c = vc;
+	if (i >= MAX_TAINT_LABELS)
+		return 1;
+	__u64 bit = 1ULL << i;
+	if (c->labels & bit)
+		te_record_proc_prov(c->pid, bit, c->op, c->target, c->ip);
+	return 0;
+}
+static __noinline void te_record_proc_prov_mask(pid_t pid, __u64 labels,
+						unsigned int op,
+						const char *target, __u32 ip)
+{
+	struct te_record_proc_prov_ctx c = {
+		.pid = pid,
+		.labels = labels,
+		.op = op,
+		.target = target,
+		.ip = ip,
+	};
+	bpf_loop(te_count(5), te_record_proc_prov_cb, &c, 0);
 }
 
-static __always_inline void te_copy_proc_prov(pid_t from, pid_t to, __u64 labels)
+struct te_copy_proc_prov_ctx { pid_t from, to; __u64 labels; };
+static int te_copy_proc_prov_cb(__u32 i, void *vc)
 {
-	for (int i = 0; i < MAX_TAINT_LABELS; i++) {
-		__u64 bit = 1ULL << i;
-		if (!(labels & bit))
-			continue;
-		struct te_prov *p = te_lookup_proc_prov(from, bit);
-		if (!p)
-			continue;
-		struct pid_label_id key = { .pid = to, .label = bit };
-		bpf_map_update_elem(&ts_proc_prov, &key, p, BPF_ANY);
-	}
+	struct te_copy_proc_prov_ctx *c = vc;
+	if (i >= MAX_TAINT_LABELS)
+		return 1;
+	__u64 bit = 1ULL << i;
+	if (!(c->labels & bit))
+		return 0;
+	struct te_prov *p = te_lookup_proc_prov(c->from, bit);
+	if (!p)
+		return 0;
+	struct pid_label_id key = { .pid = c->to, .label = bit };
+	bpf_map_update_elem(&ts_proc_prov, &key, p, BPF_ANY);
+	return 0;
+}
+static __noinline void te_copy_proc_prov(pid_t from, pid_t to, __u64 labels)
+{
+	struct te_copy_proc_prov_ctx c = { .from = from, .to = to, .labels = labels };
+	bpf_loop(te_count(5), te_copy_proc_prov_cb, &c, 0);
 }
 
-static __always_inline void te_copy_file_prov_to_proc(pid_t pid, struct file_id *fid,
-						      __u64 labels)
+struct te_copy_file_to_proc_ctx {
+	pid_t pid;
+	struct file_id fid;
+	__u64 labels;
+};
+static int te_copy_file_prov_to_proc_cb(__u32 i, void *vc)
 {
-	for (int i = 0; i < MAX_TAINT_LABELS; i++) {
-		__u64 bit = 1ULL << i;
-		if (!(labels & bit))
-			continue;
-		struct file_label_id fk = { .fid = *fid, .label = bit };
-		struct te_prov *p = bpf_map_lookup_elem(&ts_file_prov, &fk);
-		if (!p)
-			continue;
-		struct pid_label_id pk = { .pid = pid, .label = bit };
-		bpf_map_update_elem(&ts_proc_prov, &pk, p, BPF_ANY);
-	}
+	struct te_copy_file_to_proc_ctx *c = vc;
+	if (i >= MAX_TAINT_LABELS)
+		return 1;
+	__u64 bit = 1ULL << i;
+	if (!(c->labels & bit))
+		return 0;
+	struct file_label_id fk = { .fid = c->fid, .label = bit };
+	struct te_prov *p = bpf_map_lookup_elem(&ts_file_prov, &fk);
+	if (!p)
+		return 0;
+	struct pid_label_id pk = { .pid = c->pid, .label = bit };
+	bpf_map_update_elem(&ts_proc_prov, &pk, p, BPF_ANY);
+	return 0;
+}
+static __noinline void te_copy_file_prov_to_proc(pid_t pid, struct file_id *fid,
+						 __u64 labels)
+{
+	struct te_copy_file_to_proc_ctx c = {
+		.pid = pid,
+		.fid = *fid,
+		.labels = labels,
+	};
+	bpf_loop(te_count(5), te_copy_file_prov_to_proc_cb, &c, 0);
 }
 
-static __always_inline void te_copy_proc_prov_to_file(pid_t pid, struct file_id *fid,
-						      __u64 labels)
+struct te_copy_proc_to_file_ctx {
+	pid_t pid;
+	struct file_id fid;
+	__u64 labels;
+};
+static int te_copy_proc_prov_to_file_cb(__u32 i, void *vc)
 {
-	for (int i = 0; i < MAX_TAINT_LABELS; i++) {
-		__u64 bit = 1ULL << i;
-		if (!(labels & bit))
-			continue;
-		struct te_prov *p = te_lookup_proc_prov(pid, bit);
-		if (!p)
-			continue;
-		struct file_label_id fk = { .fid = *fid, .label = bit };
-		bpf_map_update_elem(&ts_file_prov, &fk, p, BPF_ANY);
-	}
+	struct te_copy_proc_to_file_ctx *c = vc;
+	if (i >= MAX_TAINT_LABELS)
+		return 1;
+	__u64 bit = 1ULL << i;
+	if (!(c->labels & bit))
+		return 0;
+	struct te_prov *p = te_lookup_proc_prov(c->pid, bit);
+	if (!p)
+		return 0;
+	struct file_label_id fk = { .fid = c->fid, .label = bit };
+	bpf_map_update_elem(&ts_file_prov, &fk, p, BPF_ANY);
+	return 0;
+}
+static __noinline void te_copy_proc_prov_to_file(pid_t pid, struct file_id *fid,
+						 __u64 labels)
+{
+	struct te_copy_proc_to_file_ctx c = {
+		.pid = pid,
+		.fid = *fid,
+		.labels = labels,
+	};
+	bpf_loop(te_count(5), te_copy_proc_prov_to_file_cb, &c, 0);
 }
 
 static __always_inline void te_add_labels(pid_t pid, __u64 add)
@@ -412,8 +470,14 @@ static int te_inval_cb(__u32 i, void *vc)
 	if (i >= MAX_TAINT_INVALS)
 		return 1;
 	struct taint_inval iv = taint_invals[i];
-	if (iv.op == c->op && taint_match(iv.match, c->target, iv.pat))
+	if (iv.op != c->op)
+		return 0;
+	if (iv.op == TOP_EXEC) {
+		if (taint_exec_match(iv.match, c->target, iv.pat))
+			c->hits |= (1ULL << i);
+	} else if (taint_match(iv.match, c->target, iv.pat)) {
 		c->hits |= (1ULL << i);
+	}
 	return 0;
 }
 static __noinline __u64 te_inval_hits(unsigned int op, const char *target)
@@ -511,7 +575,7 @@ static int te_exec_src_cb(__u32 i, void *vc)
 	if (i >= MAX_TAINT_SOURCES)
 		return 1;
 	struct taint_source s = taint_sources[i];
-	if (s.kind == TSRC_EXEC && taint_match(s.match, c->comm, s.pat))
+	if (s.kind == TSRC_EXEC && taint_exec_match(s.match, c->comm, s.pat))
 		c->add |= s.label;
 	return 0;
 }
@@ -521,7 +585,7 @@ static int te_exec_xform_cb(__u32 i, void *vc)
 	if (i >= MAX_TAINT_XFORMS)
 		return 1;
 	struct taint_xform x = taint_xforms[i];
-	if (taint_match(x.match, c->comm, x.gate)) {
+	if (taint_exec_match(x.match, c->comm, x.gate)) {
 		if (x.add)
 			c->add |= x.label;
 		else
@@ -535,7 +599,7 @@ static int te_exec_gate_cb(__u32 i, void *vc)
 	if (i >= MAX_TAINT_GATES)
 		return 1;
 	struct taint_gate g = taint_gates[i];
-	if (taint_match(g.match, c->comm, g.pat))
+	if (taint_exec_match(g.match, c->comm, g.pat))
 		c->gbits |= g.bit;
 	return 0;
 }
@@ -747,7 +811,9 @@ static __always_inline int te_cond_satisfied(const struct taint_rule *r, pid_t p
 	if (r->cond_kind == TCOND_AFTER)
 		return te_after_satisfied(r, pid);
 	/* TCOND_TARGET */
-	int m = taint_match(r->cond_match, target, r->cond_pat);
+	int m = r->op == TOP_EXEC ?
+		taint_exec_match(r->cond_match, target, r->cond_pat) :
+		taint_match(r->cond_match, target, r->cond_pat);
 	return r->cond_neg ? !m : m;
 }
 
@@ -769,8 +835,12 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 	}
 	if (!taint_mask_ok(e->labels, r.req, r.forbid))
 		return -1;
-	if (!taint_match(r.match, e->target, r.target))
+	if (e->op == TOP_EXEC) {
+		if (!taint_exec_match(r.match, e->target, r.target))
+			return -1;
+	} else if (!taint_match(r.match, e->target, r.target)) {
 		return -1;
+	}
 	if (e->op == TOP_EXEC && r.arg[0] != '\0') {
 		/* Match against the pre-tokenized arg slots. Re-look-up the per-CPU
 		 * scratch here so the verifier keeps the map_value bound (a pointer

@@ -38,6 +38,7 @@ const MAX_RULES: usize = 128;
 const MAX_XFORMS: usize = 64;
 const MAX_GATES: usize = 64;
 const MAX_INVALS: usize = 64;
+const MAX_TAINT_LABELS: usize = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -269,7 +270,8 @@ impl Loader {
             .map_err(|e| err(format!("Ebpf::load: {e}")))?;
 
         // Loop counts in a (non-frozen) map so the verifier analyzes each
-        // bpf_loop callback once. Slots: 0=rules 1=sources 2=xforms 3=gates 4=invals.
+        // bpf_loop callback once. Slots: 0=rules 1=sources 2=xforms 3=gates
+        // 4=invals 5=labels.
         {
             let mut counts: Array<_, u32> = Array::try_from(
                 bpf.map_mut("ts_counts")
@@ -282,6 +284,7 @@ impl Loader {
                 cfg.n_xforms,
                 cfg.n_gates,
                 cfg.n_invals,
+                MAX_TAINT_LABELS as u32,
             ];
             for (i, v) in vals.iter().enumerate() {
                 counts

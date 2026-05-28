@@ -241,13 +241,14 @@ int main(int argc, char **argv)
 	if (err) { fprintf(stderr, "Failed to load BPF skeleton\n"); goto cleanup; }
 
 	/* Loop counts in a (non-frozen) map so the verifier checks each bpf_loop
-	 * callback once, not once per table entry. Slots: 0=rules 1=sources 2=xforms 3=gates. */
+	 * callback once, not once per table entry. Slots: 0=rules 1=sources
+	 * 2=xforms 3=gates 4=invals 5=labels. */
 	{
-		__u32 ks[5] = {0, 1, 2, 3, 4};
-		__u32 vs[5] = { cfg.n_rules, cfg.n_sources, cfg.n_xforms,
-				cfg.n_gates, cfg.n_invals };
+		__u32 ks[6] = {0, 1, 2, 3, 4, 5};
+		__u32 vs[6] = { cfg.n_rules, cfg.n_sources, cfg.n_xforms,
+				cfg.n_gates, cfg.n_invals, MAX_TAINT_LABELS };
 		int cfd = bpf_map__fd(skel->maps.ts_counts);
-		for (int i = 0; i < 5; i++) {
+		for (int i = 0; i < 6; i++) {
 			if (bpf_map_update_elem(cfd, &ks[i], &vs[i], BPF_ANY) < 0) {
 				fprintf(stderr, "failed to set loop count %d: %s\n", i, strerror(errno));
 				err = -1; goto cleanup;

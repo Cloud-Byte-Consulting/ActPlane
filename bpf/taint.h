@@ -290,6 +290,20 @@ static __always_inline int taint_match(unsigned int kind, const char *text,
 	}
 }
 
+/* Exec-side patterns are matched against comm/basename and the compiler only
+ * lowers them to exact, prefix, or any. Keep suffix out of exec verifier paths:
+ * taint_suffix is intentionally more expensive because it supports path/host
+ * suffix globs for dotfiles and internal domains. */
+static __always_inline int taint_exec_match(unsigned int kind, const char *text,
+					    const char *pat)
+{
+	switch (kind) {
+	case TAINT_MATCH_PREFIX: return taint_prefix(text, pat);
+	case TAINT_MATCH_ANY:    return 1;
+	default:                 return taint_streq(text, pat);
+	}
+}
+
 /* boolean label predicate: required bits all set, forbidden bits all clear */
 static __always_inline int taint_mask_ok(unsigned long long labels,
 					 unsigned long long req,

@@ -60,6 +60,9 @@ struct Cli {
     /// the target back to SUDO_UID/SUDO_GID.
     #[arg(long, global = true)]
     run_as_root: bool,
+    /// Internal flag: set by auto-elevation to prevent recursive sudo.
+    #[arg(long, global = true, hide = true)]
+    internal_elevated: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -316,7 +319,7 @@ fn check_policy(cli: &Cli) -> Result<i32> {
 }
 
 async fn watch_policy(cli: &Cli) -> Result<i32> {
-    require_bpf_caps()?;
+    require_bpf_caps_or_elevate(cli.internal_elevated)?;
     let loaded = load_policy(cli)?;
     let compiled = dsl::compile_str(&loaded.config.policy)?;
     let feedback = feedback_paths(&loaded);
@@ -364,13 +367,11 @@ async fn watch_policy(cli: &Cli) -> Result<i32> {
     Ok(0)
 }
 
-/// Loading the eBPF enforcer needs root or CAP_BPF + CAP_SYS_ADMIN. Check up front
-/// and fail with an actionable message instead of a bare "Permission denied".
-fn require_bpf_caps() -> Result<()> {
+/// Check whether we have BPF capabilities (root or CAP_BPF + CAP_SYS_ADMIN).
+fn have_bpf_caps() -> bool {
     if unsafe { libc::geteuid() } == 0 {
-        return Ok(());
+        return true;
     }
-    // CapEff bits: CAP_SYS_ADMIN = 21, CAP_BPF = 39.
     let eff = std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|s| {
@@ -380,20 +381,55 @@ fn require_bpf_caps() -> Result<()> {
         })
         .unwrap_or(0);
     let has = |bit: u32| eff & (1u64 << bit) != 0;
-    if has(39) && has(21) {
+    has(39) && has(21)
+}
+
+/// If we lack BPF caps, try passwordless sudo to re-exec ourselves elevated.
+/// Returns Ok(()) if we already have caps; otherwise re-execs or exits with an error.
+fn require_bpf_caps_or_elevate(already_elevated: bool) -> Result<()> {
+    if have_bpf_caps() {
         return Ok(());
     }
-    eprintln!(
-        "actplane: this command loads an eBPF enforcer, which needs root \
-         (or CAP_BPF + CAP_SYS_ADMIN).\n\
-         \n  Re-run with sudo, e.g.:   sudo -E actplane <same args>\n\
-         \n  (sudo-launched ActPlane drops the target command back to your user automatically.)"
-    );
-    std::process::exit(1);
+    if already_elevated {
+        eprintln!("actplane: still lacks BPF caps after elevation attempt");
+        std::process::exit(1);
+    }
+    // Try passwordless sudo
+    let probe = std::process::Command::new("sudo")
+        .args(["-n", "true"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    match probe {
+        Ok(s) if s.success() => {
+            // Re-exec under sudo with --internal-elevated to prevent recursion
+            let exe = std::env::current_exe()
+                .unwrap_or_else(|_| PathBuf::from("actplane"));
+            let args: Vec<String> = std::env::args().collect();
+            // Build: sudo -E <exe> --internal-elevated <original args[1..]>
+            let mut cmd = std::process::Command::new("sudo");
+            cmd.arg("-E").arg(&exe).arg("--internal-elevated");
+            for arg in &args[1..] {
+                cmd.arg(arg);
+            }
+            eprintln!("actplane: auto-elevating via passwordless sudo ...");
+            let status = cmd.status().map_err(|e| format!("sudo re-exec: {e}"))?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        _ => {
+            eprintln!(
+                "actplane: this command loads an eBPF enforcer, which needs root \
+                 (or CAP_BPF + CAP_SYS_ADMIN).\n\
+                 \n  Re-run with sudo, e.g.:   sudo -E actplane <same args>\n\
+                 \n  (sudo-launched ActPlane drops the target command back to your user automatically.)"
+            );
+            std::process::exit(1);
+        }
+    }
 }
 
 async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
-    require_bpf_caps()?;
+    require_bpf_caps_or_elevate(cli.internal_elevated)?;
     let loaded = load_policy(cli)?;
     let compiled = dsl::compile_str(&loaded.config.policy)?;
     let agent_label = compiled
