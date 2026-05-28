@@ -290,7 +290,7 @@ statements:
     type: description          # description | directive
     topic: Architecture        # 16 categories from Chatlatanagulchai et al.
     # fields below apply only to directives:
-    enforceability: null       # intent | action | behavior_per_event | behavior_cross_object
+    enforceability: null       # intent | behavior_linter | behavior_per_event | behavior_cross_object
     confidence: null           # high | medium | low
 
   - id: 2
@@ -469,86 +469,92 @@ topic categories that prior studies report.
 
 **Axis 3: Enforceability** (new, applied only to directives).
 
-Assessed using the intent/action/behavior framework via the decision
-procedure in Section 4.4. Levels: intent, action, behavior (per-event),
-behavior (cross-object).
+Each directive is classified by the type of mechanism required to enforce
+it. The key distinction is between directives related to the agent's
+observable system behavior (any interaction with files, commands, or
+network) and directives that exist purely at the conversation level.
+
+| Level | Definition | Example |
+|---|---|---|
+| **Intent** | Directive governs only the agent's communication, reasoning strategy, or output presentation. No system-level observable counterpart. | "Always explain your reasoning." / "Be concise." / "Report the full URL at end of task." |
+| **Behavior (linter)** | Directive imposes requirements on the *content* of files the agent reads or writes. Enforcement requires inspecting file content, not just the file-access event itself. | "Prefer `const` over `let`." / "Use type hints." / "Commit format: `type(scope): message`." |
+| **Behavior (per-event)** | Directive can be checked by matching a single system operation (command execution, file access, network connection) against a pattern. An agent reading the repository context can determine the concrete pattern. | "Do not run `rm -rf`." / "Never push to main." / "Do not create git worktree." / "Never modify vendor/ files." |
+| **Behavior (cross-object)** | Directive requires state accumulated across multiple system operations and objects. | "A process that read `.env` must not connect to external endpoints." / "Run tests before committing." / "Only modify DB through the migration tool." |
 
 ### 4.4 Enforceability Assessment
 
-For each directive, we assess the minimum enforcement level required using
-the intent/action/behavior framework and the following decision procedure.
+For each directive, we assess enforceability using the following decision
+procedure.
 
-**Step 1 (Action): Can the directive be checked from the tool-call record
-alone?** A directive is enforceable at the *action* level if it can be
-expressed as a predicate over a single tool-call record (tool name and
-arguments), without reference to prior tool calls or OS-level state.
-Example: "do not call the `delete_file` tool" is action-level. "Do not
-delete files outside the working directory" is not, because the agent may
-use `run_command("rm ...")` instead of `delete_file`.
+**Step 1: Does the directive relate to any system-level behavior?**
+A directive relates to system-level behavior if it concerns commands
+executed, files accessed or modified, network connections, or process
+lifecycle. Even if stated abstractly (e.g., "never modify upstream
+source"), it is system-level if an agent reading the repository context
+can map it to concrete system operations (e.g., "upstream" = files in
+`vendor/` directory). If the directive relates ONLY to the agent's
+conversation with the user (tone, explanation, reporting format), it is
+**intent**.
 
-**Step 2 (Behavior, per-event): Can the directive be checked from a single
-OS event?** A directive is enforceable at *behavior, per-event* if it can
-be expressed as a predicate over a single system call and its arguments,
-but not over a single tool-call record. Example: "do not execute `rm -rf`"
-requires matching `execve("rm", ["-rf", ...])` regardless of which tool
-call produced it.
+**Step 2 (for system-level directives): Does enforcement require
+inspecting file content?** If the directive imposes requirements on the
+text content of files the agent reads or writes (code style, formatting,
+naming conventions, commit message format), it is **behavior (linter)**.
+The distinguishing feature: enforcement requires reading the file and
+parsing its content, not just observing the file-access system call.
 
-**Step 3 (Behavior, cross-object): Does the directive require state across
-multiple OS events?** A directive is enforceable at *behavior, cross-object*
-if checking it requires state accumulated across multiple system calls and
-objects (processes, files, network endpoints). Example: "a process that has
-read `.env` must not connect to an external endpoint" requires tracking
-which files the process has read (accumulated state) and checking at the
-`connect` event.
+**Step 3: Can violation be detected from a single system operation?**
+If the directive can be checked by matching one command execution, one
+file access, or one network connection against a pattern derivable from
+the repository context, it is **behavior (per-event)**. Examples:
+matching `execve("git", ["worktree", ...])`, matching `open("vendor/...")`,
+matching `connect(external_ip)`.
 
-**Step 4 (Intent only): Is the directive only enforceable by LLM
-compliance?** A directive is *intent-only* if it cannot be expressed as a
-predicate over any observable system event. Example: "prefer descriptive
-variable names" requires understanding code semantics, not system events.
+**Step 4: Does detection require state across multiple operations?**
+If checking the directive requires knowing what happened before the
+current operation (which files were previously read, which commands
+previously ran, the process lineage), it is **behavior (cross-object)**.
 
-**Assignment rule.** When a directive's enforceability depends on the tool
-path the agent takes (e.g., "do not push to main" is action-level if done
-via a dedicated tool call, but behavior-level if done via `bash -c`), we
-assign the minimum level at which the directive can be *reliably enforced
-across all tool paths*. This maps directly to the intent-behavior gap: the
-gap between action and behavior is precisely the set of directives that
-are action-level for some tool paths but behavior-level for others.
-
-This procedure assigns each directive to exactly one level. Enforceability
-is included in the inter-rater reliability assessment (Section 4.6).
+This procedure assigns each directive to exactly one level.
+Enforceability is included in the inter-rater reliability assessment
+(Section 4.6).
 
 ### 4.5 Worked Examples
 
 The following examples illustrate the full annotation pipeline from raw
 text to final labels.
 
-| Raw text | Lines | Axis 1 | Axis 2 (Topic) | Axis 3 (Enforceability) | Rationale |
-|---|---|---|---|---|---|
-| "The backend uses Express with TypeScript." | [3,3] | Description | Architecture | — | Factual; no imperative. |
-| "Prefer `const` over `let`." | [12,12] | Directive | Implementation Details | Intent | Code idiom; no syscall signal. |
-| "Run `npm install` before `npm run dev`." | [8,8] | Directive | Build and Run | Action | Tool-call argument matching suffices. |
-| "Always explain your reasoning before making changes." | [45,45] | Directive | AI Integration | Intent | Agent-user interaction; no syscall signal. |
-| "Run the full test suite before committing." | [15,15] | Directive | Testing | Behavior (cross-object) | Requires tracking test execution before commit. |
-| "Never commit secrets or credentials." | [22,24] | Directive | Security | Behavior (cross-object) | Requires tracking file reads (secret source) before commit/push. |
-| "Do not execute `rm -rf`." | [31,31] | Directive | Development Process | Behavior (per-event) | Single `execve` match. |
-| "Do not push to main directly." | [18,18] | Directive | Development Process | Behavior (cross-object) | Action-level via tool call, but behavior-level via `bash -c`. Assignment rule: behavior. |
+| Raw text | Axis 1 | Axis 2 (Topic) | Axis 3 (Enforceability) | Rationale |
+|---|---|---|---|---|
+| "The backend uses Express with TypeScript." | Description | Architecture | — | Factual; no imperative. |
+| "Always explain your reasoning before making changes." | Directive | AI Integration | Intent | Purely agent-user communication. |
+| "Be concise in responses." | Directive | AI Integration | Intent | Purely output style. |
+| "Report the full URL at end of task." | Directive | AI Integration | Intent | Purely output format. |
+| "Prefer `const` over `let`." | Directive | Implementation Details | Behavior (linter) | Requires inspecting written JS file content. |
+| "Use type hints for all function signatures." | Directive | Implementation Details | Behavior (linter) | Requires inspecting written Python file content. |
+| "Commit format: `type(scope): message`" | Directive | Development Process | Behavior (linter) | Requires inspecting commit message text. |
+| "Do not execute `rm -rf`." | Directive | Development Process | Behavior (per-event) | Single `execve` match. |
+| "Do not create git worktree." | Directive | Development Process | Behavior (per-event) | Single `execve("git", ["worktree", ...])` match. |
+| "Never push to main directly." | Directive | Development Process | Behavior (per-event) | Match `execve("git", ["push", ..., "main"])`. |
+| "Never modify upstream source code." | Directive | Development Process | Behavior (per-event) | Agent can determine upstream = `vendor/` paths from repo context. Match `open("vendor/...", O_WRONLY)`. |
+| "Do not update dependencies without approval." | Directive | Maintenance | Behavior (per-event) | Match writes to `package.json`, `Cargo.toml`, etc. |
+| "Run the full test suite before committing." | Directive | Testing | Behavior (cross-object) | Requires tracking that test process executed before commit. |
+| "Never commit secrets or credentials." | Directive | Security | Behavior (cross-object) | Requires tracking file reads (`.env` source) before commit/push. |
+| "Only modify DB through the migration tool." | Directive | Development Process | Behavior (cross-object) | Requires tracking process lineage (migration tool in ancestry). |
 
-Two additional edge cases:
+Edge cases:
 
-| Raw text | Lines | Axis 1 | Axis 2 (Topic) | Axis 3 | Rationale |
-|---|---|---|---|---|---|
-| "We use Jest. Always run `jest --coverage` before committing." | [9,9] | Split: Description + Directive | Testing / Testing | — / Behavior (cross-object) | Hybrid: split at sentence boundary into two statements. |
-| "Do not make changes without explaining them first." | [52,52] | Directive | AI Integration | Intent | Agent-user interaction; "explaining" has no syscall signal. |
+| Raw text | Axis 1 | Topic | Enforceability | Rationale |
+|---|---|---|---|---|
+| "We use Jest. Always run `jest --coverage` before committing." | Split: Description + Directive | Testing / Testing | — / Behavior (cross-object) | Hybrid: two statements at sentence boundary. |
+| "Do not make changes without explaining them first." | Directive | AI Integration | Intent | "Explaining" is purely conversational. |
+| "When answering questions, verify in code; do not guess." | Directive | AI Integration | Intent | Reasoning strategy, no system observable. |
 
-The "push to main" example illustrates an enforceability ambiguity: the
-level depends on whether the agent uses the tool API or a shell. Per the
-assignment rule in Section 4.4, we assign behavior-level (reliable across
-all tool paths).
-
-Note that the same topic category (e.g., Testing, Development Process)
-can contain both descriptions and directives, and directives at different
-enforceability levels. This is precisely the cross-tabulation that prior
-file-level studies cannot produce.
+Note that the same topic category (e.g., Development Process) can
+contain directives at every enforceability level: linter ("commit
+format"), per-event ("don't create worktree"), cross-object ("only
+through migration tool"). This is precisely the cross-tabulation that
+prior file-level studies cannot produce.
 
 ### 4.6 Inter-Rater Reliability
 
@@ -558,7 +564,7 @@ statements. We report:
 - Cohen's kappa for Axis 1 (description vs. directive).
 - Cohen's kappa for Axis 2 (topic category, 16 categories).
 - Cohen's kappa for Axis 3 (enforceability: intent, action, behavior).
-- Cohen's kappa for per-event vs. cross-object (within behavior).
+- Cohen's kappa for behavior sub-level (linter vs. per-event vs. cross-object).
 
 Target: kappa >= 0.7 (substantial agreement) for all dimensions. If kappa
 falls below 0.6 for any dimension, we refine the coding guide and re-code.

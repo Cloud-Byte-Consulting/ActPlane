@@ -1,0 +1,306 @@
+file: "charmbracelet/crush/AGENTS.md"
+statements:
+  - id: 1
+    lines: [1, 12]
+    text: |
+      # Crush Development Guide
+
+      ## Project Overview
+
+      Crush is a terminal-based AI coding assistant built in Go by
+      [Charm](https://charm.land). It connects to LLMs and gives them tools to read,
+      write, and execute code. It supports multiple providers (Anthropic, OpenAI,
+      Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with
+      LSPs for code intelligence, and supports extensibility via MCP servers and
+      agent skills.
+
+      The module path is `github.com/charmbracelet/crush`.
+    type: description
+    topic: System Overview
+    enforceability: null
+    confidence: high
+
+  - id: 2
+    lines: [13, 51]
+    text: |
+
+      ## Architecture
+
+      ```
+      main.go                            CLI entry point (cobra via internal/cmd)
+      internal/
+        app/app.go                       Top-level wiring: DB, config, agents, LSP, MCP, events
+        ...
+      ```
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 3
+    lines: [52, 63]
+    text: |
+
+      ### Key Dependency Roles
+
+      - **`charm.land/fantasy`**: LLM provider abstraction layer. ...
+      - **`charm.land/bubbletea/v2`**: TUI framework powering the interactive UI.
+      - **`charm.land/lipgloss/v2`**: Terminal styling.
+      - **`charm.land/glamour/v2`**: Markdown rendering in the terminal.
+      - **`charm.land/catwalk`**: Snapshot/golden-file testing for TUI components.
+      - **`sqlc`**: Generates Go code from SQL queries in `internal/db/sql/`.
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 4
+    lines: [64, 86]
+    text: |
+
+      ### Key Patterns
+
+      - **Config is a Service**: accessed via `config.Service`, not global state.
+      - **Tools are self-documenting**: each tool has a `.go` implementation and a
+        `.md` description file in `internal/agent/tools/`.
+      - **System prompts are Go templates**: ...
+      - **Context files**: Crush reads AGENTS.md, CRUSH.md, CLAUDE.md, GEMINI.md ...
+      - **Persistence**: SQLite + sqlc. ...
+      - **Pub/sub**: ...
+      - **Hooks**: ...
+      - **CGO disabled**: builds with `CGO_ENABLED=0` and `GOEXPERIMENT=greenteagc`.
+    type: description
+    topic: Architecture
+    enforceability: null
+    confidence: high
+
+  - id: 5
+    lines: [87, 101]
+    text: |
+
+      ## Build/Test/Lint Commands
+
+      - **Build**: `go build .` or `go run .`
+      - **Test**: `task test` or `go test ./...` (run single test:
+        `go test ./internal/llm/prompt -run TestGetContextFromPaths`)
+      - **Update Golden Files**: `go test ./... -update` ...
+      - **Lint**: `task lint:fix`
+      - **Format**: `task fmt` (`gofumpt -w .`)
+      - **Modernize**: `task modernize` ...
+      - **Dev**: `task dev` (runs with profiling enabled)
+    type: directive
+    topic: Build and Run
+    enforceability: null
+    confidence: high
+
+  - id: 6
+    lines: [102, 106]
+    text: |
+
+      ## Code Style Guidelines
+
+      - **Imports**: Use `goimports` formatting, group stdlib, external, internal
+        packages.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 7
+    lines: [107, 108]
+    text: |
+      - **Formatting**: Use gofumpt (stricter than gofmt), enabled in
+        golangci-lint.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 8
+    lines: [109, 110]
+    text: |
+      - **Naming**: Standard Go conventions — PascalCase for exported, camelCase
+        for unexported.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 9
+    lines: [111, 112]
+    text: |
+      - **Types**: Prefer explicit types, use type aliases for clarity (e.g.,
+        `type AgentName string`).
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 10
+    lines: [113, 114]
+    text: |
+      - **Error handling**: Return errors explicitly, use `fmt.Errorf` for
+        wrapping.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 11
+    lines: [115, 116]
+    text: |
+      - **Context**: Always pass `context.Context` as first parameter for
+        operations.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 12
+    lines: [117, 118]
+    text: |
+      - **Interfaces**: Define interfaces in consuming packages, keep them small
+        and focused.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 13
+    lines: [119, 121]
+    text: |
+      - **Structs**: Use struct embedding for composition, group related fields.
+      - **Constants**: Use typed constants with iota for enums, group in const
+        blocks.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 14
+    lines: [122, 125]
+    text: |
+      - **Testing**: Use testify's `require` package, parallel tests with
+        `t.Parallel()`, `t.SetEnv()` to set environment variables. Always use
+        `t.Tempdir()` when in need of a temporary directory. This directory does
+        not need to be removed.
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high
+
+  - id: 15
+    lines: [126, 126]
+    text: "- **JSON tags**: Use snake_case for JSON field names."
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 16
+    lines: [127, 128]
+    text: |
+      - **File permissions**: Use octal notation (0o755, 0o644) for file
+        permissions.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 17
+    lines: [129, 131]
+    text: |
+      - **Log messages**: Log messages must start with a capital letter (e.g.,
+        "Failed to save session" not "failed to save session").
+        - This is enforced by `task lint:log` which runs as part of `task lint`.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 18
+    lines: [132, 134]
+    text: |
+      - **Comments**: End comments in periods unless comments are at the end of the
+        line.
+
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 19
+    lines: [135, 157]
+    text: |
+      ## Testing with Mock Providers
+
+      When writing tests that involve provider configurations, use the mock
+      providers to avoid API calls:
+
+      ```go
+      func TestYourFunction(t *testing.T) {
+          ...
+      }
+      ```
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high
+
+  - id: 20
+    lines: [158, 166]
+    text: |
+
+      ## Formatting
+
+      - ALWAYS format any Go code you write.
+        - First, try `gofumpt -w .`.
+        - If `gofumpt` is not available, use `goimports`.
+        - If `goimports` is not available, use `gofmt`.
+        - You can also use `task fmt` to run `gofumpt -w .` on the entire project,
+          as long as `gofumpt` is on the `PATH`.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 21
+    lines: [167, 171]
+    text: |
+
+      ## Comments
+
+      - Comments that live on their own lines should start with capital letters and
+        end with periods. Wrap comments at 78 columns.
+    type: directive
+    topic: Implementation Details
+    enforceability: null
+    confidence: high
+
+  - id: 22
+    lines: [172, 178]
+    text: |
+
+      ## Committing
+
+      - ALWAYS use semantic commits (`fix:`, `feat:`, `chore:`, `refactor:`,
+        `docs:`, `sec:`, etc).
+      - Try to keep commits to one line, not including your attribution. Only use
+        multi-line commits when additional context is truly necessary.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 23
+    lines: [179, 184]
+    text: |
+
+      ## Working on the TUI (UI)
+
+      Anytime you need to work on the TUI, read `internal/ui/AGENTS.md` before
+      starting work.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
