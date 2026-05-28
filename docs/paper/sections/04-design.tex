@@ -48,18 +48,29 @@ binary, a file source labels files matching a path pattern, and an endpoint
 source labels network endpoints matching an address range. Labels propagate
 through fixed transfer functions:
 
+Let $L(x)$ denote the label bitmask of node $x$. Labels propagate through
+fixed transfer functions:
+
 \begin{itemize}
-\item \textbf{fork}: child inherits parent's labels.
-\item \textbf{exec}: process absorbs labels from the executed file and
-matching exec sources.
-\item \textbf{read}: process absorbs labels from the file it reads.
-\item \textbf{write}: file absorbs labels from the writing process.
-\item \textbf{connect}: endpoint absorbs labels from the connecting process.
+\item \textbf{fork}$(p \to c)$: $L(c) := L(c) \cup L(p)$.
+\item \textbf{exec}$(p, f)$: $L(p) := L(p) \cup L(f) \cup S(f)$, where
+$S(f)$ is the set of source labels matching $f$.
+\item \textbf{read}$(p, f)$: $L(p) := L(p) \cup L(f)$.
+\item \textbf{write}$(p, f)$: $L(f) := L(f) \cup L(p)$.
+\item \textbf{connect}$(p, e)$: $L(e) := L(e) \cup L(p)$.
 \end{itemize}
 
-These transfer functions maintain a provenance invariant: if a process
+All transfer functions are monotonic: labels accumulate and are never
+removed by propagation. The only mechanism that removes a label is an
+explicit \emph{declassify} directive in the DSL, which clears specified
+labels when the agent executes a designated gate binary (e.g., a redaction
+tool). This monotonicity bounds over-tainting: a node's label set grows
+at most to the union of all source labels reachable through observed flow
+edges.
+
+These transfer functions maintain a provenance invariant: if a process $p$
 carries label $\ell$, then information from some source tagged with $\ell$
-has reached that process through observed OS-level flow edges.
+has reached $p$ through observed OS-level flow edges.
 
 \subsubsection{Rules and Effects}
 
@@ -146,11 +157,27 @@ temporal (after) gate state.
 \item \texttt{ts\_endp}: IPv4 address $\to$ label bitmask.
 \end{itemize}
 
+BPF map entries are keyed by tid (one entry per Linux thread) for
+\texttt{ts\_proc} and by path hash or IPv4 address for object maps.
+Updates use atomic BPF helper operations; concurrent reads from different
+CPUs observe a consistent label bitmask per entry.
+
 Tracepoint programs handle process lifecycle events (fork, exec, exit) and
-observation-compatible file and connect events. BPF-LSM programs attach to
+post-operation file and connect events. BPF-LSM programs attach to
 \texttt{bprm\_check\_security}, \texttt{file\_open}, and
 \texttt{socket\_connect} for pre-operation enforcement. When BPF-LSM is not
 active, the loader uses tracepoint mode and disables block-effect rules.
+In tracepoint mode, hooks fire after the operation commits; a
+\texttt{connect} tracepoint observes an already-established connection.
+This is why \texttt{effect block} requires BPF-LSM: only LSM hooks
+provide a pre-operation verdict. Tracepoint mode supports \texttt{audit}
+(post-operation observation) and \texttt{kill} (post-operation task
+termination).
+
+The current implementation supports up to 32 sources, 32 rules, 16
+transforms, and 16 gates per policy. Rule evaluation uses
+\texttt{bpf\_loop} for bounded iteration, which the eBPF verifier accepts
+for policies exceeding 100 rules.
 
 \subsubsection{Unified Event Handling}
 
@@ -173,7 +200,7 @@ structured payload to \texttt{.actplane/last-violation.txt}.
 Agent integration uses a post-tool hook. The \texttt{actplane feedback-hook}
 subcommand reads new bytes from the violation file and returns them as
 \texttt{additionalContext} to compatible agent
-runtimes~\cite{agentsight}. The hook is a transport bridge: it does not
+runtimes~\cite{agentsight}. The hook is a read-only relay: it does not
 re-evaluate policy in userspace. The kernel is the sole authority for rule
 matches; userspace formats the result so the agent can select an alternative
 execution path.

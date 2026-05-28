@@ -17,16 +17,20 @@ instruction files such as \texttt{CLAUDE.md} and
 do not push directly to \texttt{main}; run tests before committing; never
 expose secrets to the network. These contracts differ from coding-style
 directives (e.g., ``prefer \texttt{const} over \texttt{let}'') in that they
-have an observable process and syscall footprint.
+produce observable effects at the system-call boundary.
 
 \subsection{The Intent--Behavior Gap}
 
 An agent's execution spans three abstraction levels.
 
-\textbf{Intent} is the set of contracts the agent declares it will follow:
-goals and self-constraints expressed in natural language or formalized in a
-policy DSL.
-
+\textbf{Intent} is the agent's own goals and self-constraints---what it
+declares it will and will not do. 
+% In ActPlane's design, the agent
+% formalizes its intent in a compact DSL, just as a program formalizes its
+% capability intent via \texttt{pledge()}~\cite{openbsd-pledge}. ActPlane
+% does not infer intent from the agent's behavior (cf.\ AgentSight's
+% passive observation~\cite{agentsight}); it receives intent as an active
+% declaration that the agent itself writes and maintains.
 \textbf{Action} is the tool calls the agent issues through its runtime
 (\texttt{read\_file}, \texttt{run\_command}, \texttt{edit\_file}), mediated
 by the agent framework.
@@ -44,7 +48,7 @@ intermediate level.
 
 Enforcement placed at the intent level (prompt instructions) is
 probabilistic: LLM compliance degrades with context length and task
-complexity. Enforcement placed at the action level (tool-call
+complexity~\cite{liu2024lost}. Enforcement placed at the action level (tool-call
 guards~\cite{wang2025agentspec,shi2025progent}) is deterministic but
 bypassable: it intercepts tool calls, not the OS behavior they produce.
 Enforcement placed at the behavior level (syscall filters,
@@ -52,6 +56,23 @@ sandboxes~\cite{pasquier2018camquery,ciliumtetragon}) is complete but
 returns opaque \texttt{-EPERM} failures with no connection to the agent's
 declared contracts. Each level addresses a different part of the stack;
 none spans the full gap from intent to behavior.
+
+A cooperative agent does not intentionally bypass tool-layer guards, but
+the opacity of the action-to-behavior mapping causes unintentional bypass
+in routine operation. Three representative scenarios illustrate this.
+(1)~An agent calls \texttt{run\_command("npm~test")}; the test harness
+internally invokes \texttt{git~push} to a staging server. The tool-call
+guard sees \texttt{npm~test}---a permitted action---while the kernel
+observes the forbidden \texttt{git~push} behavior.
+(2)~An agent calls \texttt{read\_file(".env")} to inspect a configuration
+value, then later calls \texttt{run\_command("curl~api.example.com")}.
+Each tool call is individually permitted, but the combination constitutes
+secret exfiltration---a cross-object violation visible only to an enforcer
+that tracks information flow from file read to network connect.
+(3)~An agent writes a Python script containing
+\texttt{subprocess.run(["git",~"push",~"--force"])} and executes it. The
+tool-call guard sees \texttt{run\_command("python~script.py")}; the kernel
+observes the nested \texttt{execve("git",~["push",~"--force"])}.
 
 \subsection{Threat Model}
 
@@ -73,6 +94,11 @@ through tools, shells, or subprocesses---is the monitored domain.
 ActPlane does not defend against an agent that deliberately exploits kernel
 vulnerabilities or manipulates the eBPF loader. Such attacks require
 \texttt{CAP\_BPF} or root privileges that the agent does not hold.
+Side-channel inference (deducing policy rules from \texttt{-EPERM}
+patterns), deliberate label pollution (triggering over-tainting to cause
+denial of service), and feedback-oracle attacks (using remediation strings
+to restructure an approach toward a forbidden goal through compliant steps)
+all require adversarial intent and are outside this threat model.
 
 
 \section{Corpus Study}
