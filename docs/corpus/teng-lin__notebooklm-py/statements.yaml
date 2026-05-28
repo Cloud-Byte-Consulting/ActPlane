@@ -65,7 +65,7 @@ statements:
     confidence: high
 
   - id: 5
-    lines: [31, 35]
+    lines: [31, 36]
     text: |
 
       ## Testing Guidelines
@@ -78,9 +78,8 @@ statements:
     confidence: high
 
   - id: 6
-    lines: [35, 39]
+    lines: [36, 40]
     text: |
-
       ## Commit, PR, and Agent Notes
 
       Follow the existing commit style: `feat(cli): ...`, `fix(cli): ...`, `refactor(test): ...`, `style: ...`. PRs should include a short summary, linked issue when relevant, and the commands run locally.
@@ -91,13 +90,36 @@ statements:
     confidence: high
 
   - id: 7
-    lines: [39, 44]
+    lines: [40, 42]
     text: |
-
       For Codex or other parallel agents:
 
+    type: description
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 8
+    lines: [42, 43]
+    text: |
       - Prefer `--json` output and pass explicit notebook IDs instead of relying on `notebooklm use`.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 9
+    lines: [43, 44]
+    text: |
       - Isolate concurrent runs with `NOTEBOOKLM_PROFILE=agent-<id>` so each agent gets its own context file under `~/.notebooklm/profiles/<name>/`. Fall back to `NOTEBOOKLM_HOME=/tmp/agent-<id>` only when separate home directories are required.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 10
+    lines: [44, 45]
+    text: |
       - In headless environments where Playwright login is impractical, authenticate with `notebooklm login --browser-cookies <browser>` (requires `pip install "notebooklm-py[cookies]"`).
     type: directive
     topic: AI Integration

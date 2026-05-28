@@ -336,6 +336,17 @@ after stripping whitespace) for every `statements.yaml` file.
 
 **Granularity rules.**
 
+- *Default: one line, one statement.* When source lines are
+  independently meaningful (e.g., list items, standalone sentences),
+  each line is a separate statement by default. Lines are merged into
+  a single statement only when they form a single coherent thought that
+  cannot be meaningfully split: a sentence continued across lines, a
+  code block with its introductory text, a describtive list of files
+  or a multi-line directive that
+  expresses one constraint. The burden of proof is on merging, not on
+  splitting. In particular, a list of directives under a shared section
+  header (e.g., "Style Guide / General Principles") produces one
+  statement per list item, not one statement for the entire section.
 - *Minimum unit is a line.* Each line belongs to exactly one statement;
   no sub-line splitting is performed. When a line contains multiple
   directives with different topics (e.g., "Never commit secrets or push
@@ -350,18 +361,25 @@ after stripping whitespace) for every `statements.yaml` file.
   dependency list, a command reference table) is one statement spanning
   all its lines, not one statement per line. If rows in a table have
   different types (some description, some directive), each group of
-  same-type rows is a separate statement.
+  same-type rows is a separate statement. This rule applies only to
+  descriptive enumerations (directory listings, dependency tables); it
+  does not override the default split for independent directives.
 - *Code blocks belong to their surrounding statement.* A code block
   that illustrates a directive (e.g., build commands following "Run
   these commands:") is part of that directive. A standalone code block
   (e.g., a file tree) is part of a description.
 - *Compound directives with the same topic stay together.* "Never log,
   commit, or expose API keys" is one directive (topic: Security), not
-  three.
+  three. This applies only when a single sentence expresses multiple
+  related constraints; separate list items are separate statements even
+  if they share the same topic.
 - *Lists of independent directives remain separate.* A list where each
   item is a self-contained directive (e.g., "Do not create git stash /
   Do not switch branches / Do not modify worktrees") produces one
   statement per item, because each has independent enforceability.
+  This is the common case for markdown list items under a section
+  header; merging list items into one statement requires explicit
+  justification (e.g., they jointly define a single workflow step).
 - *External references are directives.* Lines that point the agent to
   another file ("See AGENT\_INSTRUCTIONS.md for full instructions") are
   directives. The referenced file's content is not analyzed, but the

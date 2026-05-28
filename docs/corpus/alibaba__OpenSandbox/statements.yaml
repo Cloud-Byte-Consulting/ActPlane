@@ -36,35 +36,115 @@ statements:
     confidence: high
 
   - id: 3
-    lines: [18, 30]
+    lines: [18, 21]
     text: |
 
       ## Routing
 
       - For `server/**`, or lifecycle server behavior, sandbox creation flow, or user-visible server config, read `server/AGENTS.md`.
-      - For `sdks/**`, or SDK generation, handwritten adapters, or cross-language SDK alignment, read `sdks/AGENTS.md`.
-      - For `specs/**`, or API contract, schema, or example changes, read `specs/AGENTS.md`.
-      - For `kubernetes/**`, or CRDs, controller behavior, task execution, Helm/Kustomize deployment, pool scheduling, pause/resume snapshots, or Kind e2e tests, read `kubernetes/AGENTS.md`.
-      - For cross-cutting changes spanning spec, server, and SDKs, start with `specs/AGENTS.md` and then read affected consumer guides.
-      - For runtime component changes under `components/**`, read the nearest `README.md` or `DEVELOPMENT.md`; keep component APIs aligned with `specs/` and SDK consumers.
-      - For CLI changes under `cli/**`, read `cli/README.md` and verify command help/output behavior alongside unit tests.
-      - For cross-language e2e tests under `tests/**`, read the language-local README and keep test assumptions aligned with current server and SDK behavior.
-      - For areas without a local `AGENTS.md`, use the nearest `README.md`, `DEVELOPMENT.md`, and CI workflow as the next source of truth.
-
     type: directive
     topic: AI Integration
     enforceability: null
     confidence: high
 
   - id: 4
-    lines: [30, 37]
+    lines: [21, 22]
     text: |
+      - For `sdks/**`, or SDK generation, handwritten adapters, or cross-language SDK alignment, read `sdks/AGENTS.md`.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 5
+    lines: [22, 23]
+    text: |
+      - For `specs/**`, or API contract, schema, or example changes, read `specs/AGENTS.md`.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 6
+    lines: [23, 24]
+    text: |
+      - For `kubernetes/**`, or CRDs, controller behavior, task execution, Helm/Kustomize deployment, pool scheduling, pause/resume snapshots, or Kind e2e tests, read `kubernetes/AGENTS.md`.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 7
+    lines: [24, 25]
+    text: |
+      - For cross-cutting changes spanning spec, server, and SDKs, start with `specs/AGENTS.md` and then read affected consumer guides.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 8
+    lines: [25, 26]
+    text: |
+      - For runtime component changes under `components/**`, read the nearest `README.md` or `DEVELOPMENT.md`; keep component APIs aligned with `specs/` and SDK consumers.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 9
+    lines: [26, 27]
+    text: |
+      - For CLI changes under `cli/**`, read `cli/README.md` and verify command help/output behavior alongside unit tests.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 10
+    lines: [27, 28]
+    text: |
+      - For cross-language e2e tests under `tests/**`, read the language-local README and keep test assumptions aligned with current server and SDK behavior.
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 11
+    lines: [28, 31]
+    text: |
+      - For areas without a local `AGENTS.md`, use the nearest `README.md`, `DEVELOPMENT.md`, and CI workflow as the next source of truth.
 
       ## Working Principles
 
+    type: directive
+    topic: AI Integration
+    enforceability: null
+    confidence: high
+
+  - id: 12
+    lines: [31, 34]
+    text: |
+
       - Think before coding: state assumptions, surface ambiguity, and ask or push back when the request has conflicting interpretations.
       - Simplicity first: implement the smallest solution that satisfies the request; avoid speculative features, one-off abstractions, and unnecessary configurability.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 13
+    lines: [34, 35]
+    text: |
       - Surgical changes: touch only files and lines needed for the task, match local style, and do not refactor or delete unrelated pre-existing code.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 14
+    lines: [35, 37]
+    text: |
       - Goal-driven execution: translate non-trivial work into verifiable success criteria, add or update focused tests when behavior changes, and loop until checks pass or blockers are clear.
 
     type: directive
@@ -72,8 +152,8 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 5
-    lines: [37, 52]
+  - id: 15
+    lines: [37, 43]
     text: |
 
       ## Guardrails
@@ -81,60 +161,179 @@ statements:
       Always:
 
       - Keep changes focused on the user request.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 16
+    lines: [43, 44]
+    text: |
       - Treat `specs/*` as public contract sources.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 17
+    lines: [44, 45]
+    text: |
       - Keep spec, implementation, SDKs, docs, examples, config, and CLI behavior aligned when user-visible behavior changes.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 18
+    lines: [45, 46]
+    text: |
       - When changing `specs/*`, also update or verify affected server, SDK, docs, and release outputs when practical.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 19
+    lines: [46, 47]
+    text: |
       - When changing CRDs or Kubernetes public behavior, update or verify generated manifests, Helm/Kustomize deployment output, server Kubernetes integration, and docs when practical.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 20
+    lines: [47, 48]
+    text: |
       - Prefer additive, backward-compatible changes for public interfaces.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 21
+    lines: [48, 49]
+    text: |
       - Regenerate derived outputs when the source-of-truth file changes.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 22
+    lines: [49, 50]
+    text: |
       - Update tests when behavior changes or bugs are fixed.
+    type: directive
+    topic: Testing
+    enforceability: null
+    confidence: high
+
+  - id: 23
+    lines: [50, 51]
+    text: |
       - Mention unrun or blocked verification in the final handoff.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 24
+    lines: [51, 53]
+    text: |
       - Prefer file-scoped or package-scoped checks before full-suite validation.
 
     type: directive
-    topic: Development Process
+    topic: Testing
     enforceability: null
     confidence: high
 
-  - id: 6
-    lines: [52, 59]
+  - id: 25
+    lines: [53, 55]
     text: |
-
       Ask first:
 
       - Breaking public API, SDK, config, protocol, or CLI changes
-      - Breaking CRD, annotation, label, Helm values, or Kubernetes deployment changes
-      - Intentional drift between a public contract and its implementation
-      - User-visible config or behavior changes without a clear migration story
-
     type: directive
     topic: Development Process
     enforceability: null
     confidence: high
 
-  - id: 7
-    lines: [59, 64]
+  - id: 26
+    lines: [55, 56]
     text: |
+      - Breaking CRD, annotation, label, Helm values, or Kubernetes deployment changes
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 27
+    lines: [56, 57]
+    text: |
+      - Intentional drift between a public contract and its implementation
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 28
+    lines: [57, 60]
+    text: |
+      - User-visible config or behavior changes without a clear migration story
 
       Never:
 
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 29
+    lines: [60, 62]
+    text: |
+
       - Edit generated output as the only fix.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 30
+    lines: [62, 65]
+    text: |
       - Mix unrelated component work into the same change.
+
+      ## Review Focus
 
     type: directive
     topic: Development Process
     enforceability: null
     confidence: high
 
-  - id: 8
-    lines: [64, 71]
+  - id: 31
+    lines: [65, 68]
     text: |
-
-      ## Review Focus
 
       - Prioritize breaking changes in specs, SDK interfaces, config, CLI behavior, and protocols.
       - Flag protocol changes that are unnecessary, inconsistent, or hard to implement.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 32
+    lines: [68, 69]
+    text: |
       - Flag changes that break source-of-truth boundaries or intended layering.
+    type: directive
+    topic: Development Process
+    enforceability: null
+    confidence: high
+
+  - id: 33
+    lines: [69, 71]
+    text: |
       - Call out missing tests and compatibility risks explicitly.
     type: directive
     topic: Development Process

@@ -60,7 +60,7 @@ statements:
     confidence: high
 
   - id: 7
-    lines: [12, 14]
+    lines: [12, 15]
     text: |
       - For Nx plugin best practices, check `node_modules/@nx/<plugin>/PLUGIN.md`. Not all plugins have this file - proceed without it if unavailable.
 
