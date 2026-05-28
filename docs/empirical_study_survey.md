@@ -19,16 +19,33 @@ arXiv:2509.14744.
 
 ### Methodology
 
-- Collected **253 CLAUDE.md** files from **242 GitHub repositories** via the
-  GitHub API, filtering for repos with >= 20 commits after CLAUDE.md
-  introduction (collection window: 2025-02-24 to 2025-06-16).
-- Two-phase content analysis:
-  1. Extracted all H1/H2 section titles; three LLMs (Claude, Gemini, ChatGPT)
-     generated candidate labels; authors curated to 20 labels.
-  2. Two inspectors independently labeled each file (multi-label); 1,228
-     assignments with 113 disagreements resolved by a third inspector.
-     Final scheme: **15 content categories**.
-- No formal inter-rater agreement coefficient (Cohen's kappa) reported.
+**Data collection.** 253 CLAUDE.md files from 242 GitHub repositories,
+collected via GitHub API (case-insensitive search for files named
+`Claude.md`). Collection window: 2025-02-24 to 2025-06-16. Filtering
+criterion: repositories must have at least 20 commits after introducing
+their CLAUDE.md file.
+
+**Label creation (Phase 1).** Extracted all H1/H2 section headings from
+the 253 files. Prompted three LLMs (Claude, Gemini, ChatGPT) to generate
+candidate labels from the headings. One author selected and consolidated
+labels; two authors reviewed. Started with 80 candidate labels,
+consolidated to 20, finalized at **15 content categories**.
+
+**Label assignment (Phase 2).** Two inspectors (paper authors, not
+external annotators) independently assigned labels to each file.
+**Unit of analysis: whole file** (multi-label per file). Total: 1,228
+label assignments across 253 files. 113 disagreement instances (~9.2%
+conflict rate). Resolution: "a third inspector joined the discussion and
+collaborated with the initial two to reach a consensus on the final
+labels."
+
+**Inter-rater reliability: no formal metric reported.** No Cohen's kappa,
+no Krippendorff's alpha, no percent-agreement statistic. The only
+quantitative information is the 113/1,228 disagreement count.
+
+**Methodological gaps.** LLM-assisted label creation without validation
+of LLM suggestions; informal consensus resolution; labeling at file
+granularity (not section or instruction level); no external annotators.
 
 ### Key findings
 
@@ -77,18 +94,46 @@ November 2025.
 
 ### Methodology
 
-- **2,303 agent context files** from **1,925 repositories** across three tools:
-  - Claude Code: 922 CLAUDE.md
-  - OpenAI Codex: 694 AGENTS.md
-  - GitHub Copilot: 687 copilot-instructions.md
-- Sourced from 8,370 repos with >= 5 stars (AIDev dataset).
-- Manual labeling of a 332-file Claude Code subset (80.3% initial agreement;
-  disagreements resolved by third inspector).  **16 content categories.**
-- Automated classification of the full corpus using GPT-5 (micro-avg
-  F1 = 0.79; strongest on Testing 0.94, Architecture 0.93, Build&Run 0.92;
-  weakest on Project Management 0.42, AI Integration 0.48).
-- Maintenance analysis via commit history (5,655 + 2,767 + 2,237 commits).
-- Readability: Flesch Reading Ease (FRE).
+**Data collection.** 2,303 agent context files from 1,925 repositories
+across three tools: Claude Code (922 CLAUDE.md), OpenAI Codex (694
+AGENTS.md), GitHub Copilot (687 copilot-instructions.md). Filtered from
+8,370 repos with at least 5 GitHub stars (AIDev dataset).
+
+**Label creation.** Same two-stage approach as Paper 1, expanded to 16
+categories. Phase 1 used Claude Opus 4.1, Gemini 2.5 Pro, and GPT-5 to
+generate candidate labels from section headings. Authors curated to 16
+final categories (added "Debugging" vs. Paper 1's 15).
+
+**Manual labeling.** 332 Claude Code files manually labeled by three
+inspectors with "programming experience ranging from 4 to 17 years."
+**How the 332-file subset was selected is not documented in the paper**
+(no mention of random or stratified sampling). Two inspectors independently
+assigned labels to each file. Total: 2,227 label assignments before
+resolution. 438 instances of disagreement (**80.3% raw agreement rate**).
+Resolution: third inspector consensus. **No Cohen's kappa or formal
+reliability metric reported.**
+
+**Automated classification.** GPT-5 used as a multi-label binary
+classifier on the full 2,303 files. Prompt contained "(i) the full context
+file content and (ii) a concise description and representative examples for
+each category." **The exact prompt is not disclosed in the paper** (stated
+to be in the replication package). Validated against the 332 manually
+labeled files as ground truth.
+
+GPT-5 per-category F1: Testing 0.94, Architecture 0.93, Build & Run 0.92,
+System Overview 0.89, Implementation Details 0.89, Development Process 0.83,
+Configuration & Environment 0.75, Security 0.74, DevOps 0.72, Performance
+0.71, Debugging 0.71, Documentation 0.57, UI/UX 0.56, Maintenance 0.56,
+AI Integration 0.48, Project Management 0.42. **Micro-average F1: 0.79.**
+
+**Maintenance analysis.** Commit history: 5,655 (Claude) + 2,767 (Codex) +
+2,237 (Copilot) commits analyzed. Readability: Flesch Reading Ease (FRE).
+
+**Methodological gaps.** No formal reliability metric beyond raw agreement;
+332-file sample selection undocumented; GPT-5 prompt not disclosed in paper;
+per-category F1 varies from 0.42 to 0.94 (weakest categories are exactly
+those most relevant to behavioral contracts: AI Integration 0.48, Project
+Management 0.42); unit of analysis is file-level.
 
 ### Key findings
 
@@ -154,14 +199,32 @@ Code Projects."  In *1st International Workshop on Agentic Engineering (AGENT
 
 ### Methodology
 
-- Searched GitHub for repos with CLAUDE.md files (Aug 28--30, 2025); from 4,724
-  results, filtered to top-100 most popular repos (>= 100 stars, English,
-  non-tutorial).
-- Retrieved **328 CLAUDE.md files** (including referenced memory-bank files).
-- Extracted **2,492 level-2 section titles**; one author grouped them into
-  semantic categories, two others verified.
-- Applied **FP-Max** algorithm (min support 0.15) for maximal frequent itemset
-  mining to find co-occurrence patterns.
+**Data collection.** Searched GitHub for repos containing CLAUDE.md files
+(Aug 28--30, 2025). From 4,724 results, filtered to top-100 most popular
+repos (>=100 stars, English, non-tutorial/non-awesome-list). Retrieved 328
+CLAUDE.md files (including referenced memory-bank files; 45 detected).
+
+**Section extraction.** Automated markdown parsing extracted 2,492 level-2
+section titles. For 36 files without level-2 sections, level-1 headings
+were used instead. **Unit of analysis: section title** (not full section
+content, not individual instructions).
+
+**Classification.** Verbatim from paper: "These sections were then manually
+analyzed by one of the authors, who grouped them into semantically related
+categories according to the software engineering concerns and practices they
+refer to...Next, a meeting was held with two other authors, who inspected
+the proposed classification and confirmed it." That is: **single coder,
+two meeting-based verifiers. No named coding methodology** (no open coding,
+no thematic analysis, no card sorting). No quantitative inter-rater
+reliability metric of any kind.
+
+**Co-occurrence analysis.** Applied FP-Max algorithm (min support 0.15) for
+maximal frequent itemset mining on the category assignments.
+
+**Methodological gaps.** Single-coder classification is the weakest design
+among the five studies. The "verification" is qualitative confirmation in a
+meeting, not independent coding. Classification operates on section titles
+only, not section content, so instructions within sections are invisible.
 
 ### Key findings
 
@@ -217,15 +280,36 @@ co-located with ICSE 2026, ACM.  arXiv:2601.20404.
 
 ### Methodology
 
-- Used **OpenAI Codex** (gpt-5.2-codex model) on **10 repositories**,
-  **124 pull requests** (merged, <= 100 LoC changed, <= 5 files).
-- Paired experiment: each PR task executed with and without AGENTS.md in
-  isolated Docker containers.
-- Metrics: wall-clock runtime (seconds), token consumption (input, cached
-  input, output).
-- Statistical test: Wilcoxon signed-rank (p < 0.05).
-- AGENTS.md files were filtered to contain coding conventions, architecture,
-  and project description (based on prior taxonomy).
+**Agent.** OpenAI Codex (gpt-5.2-codex model). Verbatim: Codex was
+"selected because it is specifically designed for software engineering
+tasks." Not Claude Code.
+
+**Dataset.** 10 repositories (randomly sampled from 26 qualifying repos),
+124 pull requests (up to 15 merged PRs per repo). PR inclusion criteria:
+<=100 LoC changes, <=5 modified files, merged status, created after
+AGENTS.md introduction, code-only changes. AGENTS.md files were
+pre-existing in the repositories, not created by the researchers.
+
+**Experimental design.** Paired within-task comparison: each PR task
+executed once with and once without AGENTS.md present, in isolated Docker
+containers with identical repo snapshots. Independent variable: presence of
+AGENTS.md. Dependent variables: wall-clock runtime (seconds), token
+consumption (input, cached input, output).
+
+**Statistical test.** Wilcoxon signed-rank test (p < 0.05).
+
+**Sanity check.** Verbatim: "we randomly sampled 50 PR tasks and inspected
+the corresponding agent outputs, comparing them against the human-written
+merged pull requests, to confirm that they resulted in non-empty,
+non-trivial code changes consistent with the intended task, rather than
+aborted runs or random edits." This verifies outputs were non-trivial,
+**not** that AGENTS.md instructions were followed.
+
+**What was explicitly not measured.** Verbatim: "A comprehensive evaluation
+of the output quality, e.g., the semantic correctness or the functional
+equivalence to the merged PR, is beyond the scope of this paper." And:
+"whether agent-produced changes are correct, maintainable, or aligned with
+developer intent" remains unmeasured.
 
 ### Key findings
 
@@ -264,12 +348,31 @@ arXiv:2604.14228, April 2026.  Code: github.com/VILA-Lab/Dive-into-Claude-Code.
 
 ### Methodology
 
-- Reverse-engineered Claude Code v2.1.88 TypeScript source (publicly
-  available on npm).
-- Mapped architecture into **7 functional components** and traced **5 core
-  values** through **13 design principles** to implementation choices.
-- Compared against OpenClaw (open-source multi-channel agent gateway) across
-  6 dimensions.
+**This is a design-space analysis, not an empirical study.** The paper
+reverse-engineered the publicly available TypeScript source code of Claude
+Code v2.1.88 (obtained from an external GitHub mirror / npm). Verbatim:
+"Our analysis is grounded primarily in the source code, supplemented by
+official Anthropic documentation and selected community analysis."
+
+**Scope.** Mapped the architecture into 7 functional components and traced
+5 core values through 13 design principles to implementation choices.
+Compared against OpenClaw (open-source multi-channel agent gateway) across
+6 dimensions.
+
+**No original empirical data.** No benchmarks, no user studies, no
+experiments. All statistics cited in the paper are sourced from Anthropic's
+internal data:
+- "93% approval rate": Verbatim -- "Anthropic's auto-mode analysis found
+  that users approve approximately 93% of permission prompts." Citation
+  points to Anthropic's own documentation, not an independent measurement.
+- "132 engineers" survey: Also Anthropic's internal data.
+- "20% to 40%" auto-approve trajectory: Also cited from Anthropic
+  longitudinal data.
+
+**Methodological gaps.** Static analysis of one version only (v2.1.88);
+no runtime experiments; no access to Anthropic's server-side system prompt
+or model weights; all quantitative claims are Anthropic's, not
+independently verified.
 
 ### Key findings
 
@@ -289,8 +392,9 @@ arXiv:2604.14228, April 2026.  Code: github.com/VILA-Lab/Dive-into-Claude-Code.
 6. bypassPermissions (minimal prompting, safety-critical checks preserved)
 7. bubble (internal subagent escalation)
 
-- Users approve **93% of permission prompts** -- approval fatigue undermines
-  interactive confirmation as sole safety mechanism.
+- Liu et al. cite Anthropic's internal data that users approve **93% of
+  permission prompts** (not independently measured). This suggests
+  approval fatigue undermines interactive confirmation as a safety mechanism.
 - Seven independent defense-in-depth layers: tool pre-filtering, deny-first
   rule evaluation, permission mode constraints, auto-mode ML classifier,
   shell sandboxing, session-scoped permissions, hook-based interception.
@@ -352,14 +456,16 @@ The five studies converge on a consistent picture:
    is present, with comparable task completion.
 
 7. **Interactive confirmation degenerates to rubber-stamping.** Liu et al.
-   report that users approve 93% of permission prompts in Claude Code. This
-   means the primary interactive enforcement mechanism provides negligible
-   filtering in practice. Combined with the finding that CLAUDE.md is treated
-   as context rather than policy (Liu et al.: "violations rely on the model
-   respecting instructions; there are no hard deny/allow gates for CLAUDE.md
+   cite Anthropic's internal data showing that users approve 93% of
+   permission prompts in Claude Code (the statistic is Anthropic's, not an
+   independent measurement by Liu et al.). This means the primary
+   interactive enforcement mechanism provides negligible filtering in
+   practice. Combined with the finding that CLAUDE.md is treated as context
+   rather than policy (Liu et al.: "violations rely on the model respecting
+   instructions; there are no hard deny/allow gates for CLAUDE.md
    directives"), these data points establish that today's harnesses have no
-   effective behavioral enforcement: prompt-level compliance is probabilistic,
-   and interactive confirmation is near-universally approved.
+   effective behavioral enforcement: prompt-level compliance is
+   probabilistic, and interactive confirmation is near-universally approved.
 
 8. **Efficiency gains are documented; correctness enforcement is not.**
    Lulla et al. measured that instruction files reduce runtime by 29%, but
@@ -490,8 +596,9 @@ patterns are information flow in the strict DIFC sense.
   correctness or compliance.  Their sanity check verifies non-trivial output,
   not adherence to AGENTS.md instructions.
 - Liu et al. (2026) documents the *mechanism* (permission system, deny rules)
-  but provides no empirical violation rate data beyond the 93% approval rate
-  statistic (which measures user behavior, not agent compliance).
+  but provides no empirical violation rate data beyond citing Anthropic's
+  93% approval rate statistic (which measures user behavior, not agent
+  compliance, and is not independently verified).
 
 **This is the central gap.** All five studies assume instructions are followed
 or do not ask the question. None provides empirical evidence on violation
@@ -565,6 +672,84 @@ does not answer.
    mediation (mandatory tool routing, 20 repos). All three require
    cross-object state tracking and cut across the existing topic-based
    taxonomies.
+
+---
+
+## 7. Methodology Comparison Across Studies
+
+The following table compares the empirical methodology of all five prior
+studies and ActPlane's corpus analysis along key dimensions. This is intended
+as a reference for positioning ActPlane's methodology in the paper.
+
+### 7.1 Methodology comparison table
+
+| Dimension | Chatlatanagulchai (2025a) | Chatlatanagulchai et al. (2025b) | Santos et al. (2025) | Lulla et al. (2026) | Liu et al. (2026) | **ActPlane** |
+|---|---|---|---|---|---|---|
+| **Venue** | PROFES (SE) | arXiv (SE) | AGENT/ICSE (SE) | JAWs/ICSE (SE) | arXiv (systems) | OSDI/ATC (systems) |
+| **Corpus size** | 253 files / 242 repos | 2,303 files / 1,925 repos | 328 files / 100 repos | 10 repos / 124 PRs | 1 system (Claude Code) | 228 files / 144 repos |
+| **Sampling** | GitHub API, >=20 commits after CLAUDE.md | AIDev dataset, >=5 stars | GitHub search, top-100 by stars | 10 curated repos | Single system reverse-eng. | GitHub search, top by stars, excl. doc-only |
+| **Classification method** | LLM-generated labels, 2 inspectors manual | 332 manual (selection method undocumented) + GPT-5 auto (F1=0.79, prompt not disclosed in paper) | 1 author classified, 2 verified in meeting; no named coding methodology | N/A (efficiency, not content) | Source code reading; all statistics cited from Anthropic internal data | Keyword+regex (automated) |
+| **Inter-rater reliability** | No kappa; 113/1228 disagreements (3rd resolves) | No kappa; 80.3% raw agreement only | **None** (single coder + qualitative meeting verification) | N/A | N/A | **Not yet done** |
+| **Classification granularity** | File-level (15 topic categories) | File-level (16 topic categories) | Section-title-level (9 concerns) | N/A | Component-level | **Line-level** (D1-D7 dimensions) |
+| **Precision/recall reported?** | No | LLM F1 per category (0.42-0.94) | No | N/A | N/A | **Not yet done** |
+| **Compliance measured?** | No | No | No | No (efficiency only) | No (mechanism only) | Planned (C1-C4 experiment) |
+| **Taxonomy axis** | Topic (what it's about) | Topic (what it's about) | SE concern (what it's about) | N/A | Architecture | **Speech act** (what it demands) |
+| **Behavioral contracts distinguished?** | No | No (noted examples, not quantified) | No | No | No | **Yes** (D1: style vs contract) |
+
+### 7.2 Key observations
+
+**No study reports Cohen's kappa.** All three corpus studies (Chatlatanagulchai
+2025a, 2025b; Santos 2025) resolve disagreements by consensus (third inspector
+or reviewer) rather than reporting a reliability coefficient. ActPlane's
+planned D1-D7 coding with kappa would be an improvement over the field
+baseline, but the field baseline itself does not require kappa.
+
+**Automated classification is standard.** Chatlatanagulchai et al. (2025b) use
+GPT-5 to classify 2,303 files after manually labeling only 332 (14%). The
+reported F1 ranges from 0.42 (Project Management) to 0.94 (Testing). This
+sets a precedent: LLM-based classification with manual spot-check is accepted
+at SE venues. ActPlane's keyword+regex approach is less sophisticated but
+operates at line-level rather than file-level granularity.
+
+**Sample sizes vary widely.** Lulla et al. use only 10 repos / 124 PRs and
+are published at ICSE. Santos et al. use 100 repos. ActPlane's 144 repos is
+in the upper range for this literature.
+
+**File-level vs line-level.** All prior studies classify at file level or
+section-title level ("this file contains Architecture content"). ActPlane's
+corpus analysis classifies at line level ("this specific sentence is a
+behavioral contract about secrets"). This is a finer granularity but requires
+higher precision to be credible, since individual lines are noisier than
+file-level topic classifications.
+
+### 7.3 Implications for ActPlane's paper
+
+1. **Kappa is not required by the field.** No prior study in this space
+   reports kappa. Including it would be an improvement, not a requirement.
+   For an OSDI systems paper (where the corpus is motivation, not the
+   contribution), kappa is a nice-to-have.
+
+2. **LLM-based classification is an accepted methodology.** Using an LLM
+   (Claude, GPT) to classify line-level candidates, with a manual
+   spot-check sample for precision estimation, would be at least as
+   rigorous as Chatlatanagulchai et al. (2025b) and more rigorous than
+   Santos et al. (2025).
+
+3. **The minimum viable methodology for OSDI motivation** is:
+   (a) automated extraction (already done: keyword+regex),
+   (b) manual precision spot-check on a random sample of 50-100 candidates,
+   (c) representative quotes from real files (already done),
+   (d) honest upper-bound/lower-bound framing (already done).
+   This exceeds what CamQuery, Capsicum, or pledge did for motivation.
+
+4. **The recommended methodology for a stronger contribution** is:
+   (a) LLM classification of all candidates (category + confidence),
+   (b) manual coding of a stratified sample (50-100) by two annotators,
+   (c) Cohen's kappa on the sample,
+   (d) precision and recall estimates.
+   This would match or exceed the rigor of Chatlatanagulchai et al. (2025b)
+   and make the corpus study defensible as a standalone contribution at an
+   SE venue if needed.
 
 ---
 
