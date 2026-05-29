@@ -2,10 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-**Define behavioral contracts for your AI agent in DSL; `observe` and `enforce` them
+**Define behavioral control contracts for your AI agent in DSL; `observe` and `enforce` them
 in the kernel with eBPF.** 
 
-ActPlane sits below the tool layer, so a rule holds
+ActPlane sits below the tool layer, so a rule holds infomation-flow constraints
 across every process, file access, and network connection the agent touches, no
 matter what tool, subprocess, or direct syscall it uses to get there.
 

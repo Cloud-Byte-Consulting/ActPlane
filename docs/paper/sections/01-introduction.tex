@@ -62,8 +62,16 @@ encoding execution history as checkable state: when a process reads a file
 labeled \texttt{SECRET}, the process acquires that label; when it forks, the
 child inherits it. When a labeled subject violates a rule, ActPlane returns
 semantic feedback to the agent, specifying which contract was violated, why,
-and what alternative path satisfies it. Unlike prior work that enforces at a
-single layer~(\S\ref{sec:related}), ActPlane unifies cross-event
+and what alternative path satisfies it. 
+ActPlane serves as the control plane for the harness: it compiles
+intent-level contracts into behavior-level rules (the policy path) and
+translates behavior-level violations back into intent-level feedback (the
+feedback path); the eBPF kernel hooks form the data plane. Each rule
+independently selects audit (observe and notify), block (pre-operation
+denial), or kill (post-operation termination).
+
+Unlike prior work that enforces at a single
+layer~(\S\ref{sec:related}), ActPlane unifies cross-event
 information-flow observation and enforcement with semantic feedback at the
 OS level, where contracts survive context loss and cannot be bypassed below
 the tool API.
