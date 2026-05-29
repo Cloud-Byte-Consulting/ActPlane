@@ -478,10 +478,8 @@ corpus, we report:
   (estimates classification stability).
 
 **Manual validation.** A stratified random sample of 200 statements
-(stratified by LLM-assigned type and subtype) is independently coded by
-two human annotators using the same taxonomy. We report Cohen's kappa for
-Axis 1 (description vs. directive), Axis 2 (topic category), and
-Axis 3 (enforceability level). Disagreements are resolved by discussion; the
+(stratified by LLM-assigned type and subtype) is independently examed by
+ human annotators using the same taxonomy. Disagreements are resolved by discussion; the
 resolution and rationale are recorded.
 
 ### 4.3 Taxonomy
