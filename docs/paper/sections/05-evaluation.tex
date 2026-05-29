@@ -1,7 +1,7 @@
 \section{Evaluation}
 \label{sec:evaluation}
 
-The evaluation measures five properties: bypass coverage, corrective-feedback
+The evaluation measures five properties: bypass coverage, semantic-feedback
 effectiveness, false-positive rate, runtime overhead, and coverage over
 real-world contracts.
 
@@ -18,14 +18,14 @@ We execute the same forbidden operation through five paths: (1)~direct tool
 call, (2)~nested shell string (\texttt{bash~-c}), (3)~Python
 \texttt{subprocess}, (4)~compiled helper binary, and (5)~direct
 \texttt{execve} from generated C code. For each path, we record whether
-ActPlane detects the violation and whether the corrective feedback payload
+ActPlane detects the violation and whether the semantic feedback payload
 is delivered to the agent.
 
 % TODO: Insert coverage matrix table.
 
 \subsection{Feedback and Recovery (RQ2)}
 
-Does corrective feedback improve agent task completion and reduce repeated
+Does semantic feedback improve agent task completion and reduce repeated
 violations compared with enforcement without feedback?
 
 We run agent tasks under four conditions: (C1)~prompt-only, in which the
@@ -36,7 +36,7 @@ but no structured reason; (C4)~enforcement with feedback, in which the operation
 fails and ActPlane injects the rule name, reason, and remediation into the
 agent's context.
 
-The primary comparison is C3 vs.\ C4: the marginal benefit of corrective
+The primary comparison is C3 vs.\ C4: the marginal benefit of semantic
 feedback. The C1-to-C2 comparison measures how often prompt-only contracts
 are violated. The C2-to-C3 comparison isolates the effect of enforcement
 from observation.
@@ -95,7 +95,7 @@ and can deny operations that violate a policy. ActPlane shares this
 label-propagation model but differs in three respects: it targets
 cooperative AI agents rather than adversarial intrusions, compiles an
 agent-oriented source/sink DSL rather than general provenance queries, and
-returns corrective feedback to the violating actor. The implementation
+returns semantic feedback to the violating actor. The implementation
 differs as well: ActPlane uses the eBPF/BPF-LSM substrate rather than a
 loadable kernel module.
 
@@ -141,7 +141,7 @@ of content taxonomy, maintenance practices, and effect on task
 efficiency~\cite{chatlatanagulchai2025manifests,chatlatanagulchai2025agentreadmes,
 santos2025claudeconfig,lulla2026agentsmd}. ActPlane's corpus study
 (\S\ref{sec:corpus}) asks a different question: which instructions
-constitute cross-object information-flow contracts, and which of those can
+constitute cross-event information-flow contracts, and which of those can
 be enforced at the OS level?
 
 

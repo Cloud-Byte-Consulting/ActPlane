@@ -67,7 +67,7 @@ observes the forbidden \texttt{git~push} behavior.
 (2)~An agent calls \texttt{read\_file(".env")} to inspect a configuration
 value, then later calls \texttt{run\_command("curl~api.example.com")}.
 Each tool call is individually permitted, but the combination constitutes
-secret exfiltration, a cross-object violation visible only to an enforcer
+secret exfiltration, a cross-event violation visible only to an enforcer
 that tracks information flow from file read to network connect.
 (3)~An agent writes a Python script containing
 \texttt{subprocess.run(["git",~"push",~"--force"])} and executes it. The
@@ -105,7 +105,7 @@ all require adversarial intent and are outside this threat model.
 \label{sec:corpus}
 
 This section characterizes behavioral contracts in real agent instruction
-files and identifies the subset that requires cross-object information-flow
+files and identifies the subset that requires cross-event information-flow
 enforcement.
 
 \subsection{Methodology}
@@ -123,7 +123,7 @@ positives under normal use, (D6)~robust to naming and path variation, and
 Two annotators independently coded the full set; we report Cohen's
 $\kappa$ for inter-rater reliability.
 
-\subsection{Per-Action vs.\ Cross-Object Contracts}
+\subsection{Per-Action vs.\ Cross-Event Contracts}
 
 Behavioral contracts fall into two categories that differ in enforcement
 requirements.
@@ -133,7 +133,7 @@ execution history. Examples include ``do not execute \texttt{rm~-rf}'' and
 ``do not run \texttt{git branch}.'' These contracts can be enforced by
 matching a single system call or tool call against a static rule.
 
-\textbf{Cross-object contracts} constrain an operation based on prior
+\textbf{Cross-event contracts} constrain an operation based on prior
 interactions with other objects. Examples include ``a process that has read
 \texttt{.env} must not connect to an external endpoint'' (data-flow
 contract) and ``commit only after tests have passed'' (temporal contract).
@@ -146,16 +146,16 @@ across process, file, and network boundaries.
 \subsection{Implications for Enforcement}
 
 Per-action contracts can be enforced by per-event matching at any level:
-tool-call guards, seccomp filters, or eBPF kprobes. Cross-object contracts
+tool-call guards, seccomp filters, or eBPF kprobes. Cross-event contracts
 cannot, because they depend on state accumulated across multiple operations
 and objects. Enforcing them requires a mechanism that (1)~tracks provenance
 across process, file, and network boundaries, (2)~encodes that provenance
 as checkable state at each enforcement point, and (3)~connects violations
-back to the declared contract for corrective feedback.
+back to the declared contract for semantic feedback.
 
 Labeled information-flow control satisfies all three requirements. Labels
-encode cross-object provenance as per-node bitmasks, propagation rules
+encode cross-event provenance as per-node bitmasks, propagation rules
 maintain the invariant across fork, exec, read, write, and connect
 operations, and source-to-sink rules check the accumulated state at each
-enforcement point. The ActPlane DSL compiles cross-object contracts
+enforcement point. The ActPlane DSL compiles cross-event contracts
 directly into this model.
