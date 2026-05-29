@@ -41,7 +41,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 3

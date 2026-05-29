@@ -9,9 +9,14 @@ policy: |
   source COMMAND = exec "**"
 
   rule reviewer-write-fence:
-    deny write file "/**" if COMMAND unless target "docs/tmp/**"
+    deny write file "docs/**" if COMMAND unless target "docs/tmp/**"
+    deny write file "collector/**" if COMMAND
+    deny write file "bpf/**" if COMMAND
+    deny write file "actplane.yaml" if COMMAND
+    deny write file "CLAUDE.md" if COMMAND
+    deny write file ".claude/**" if COMMAND
     effect kill
-    reason "Reviewer agent may only write to docs/tmp/. This write targeted a file outside that directory."
+    reason "Reviewer agent may only write to docs/tmp/. This write targeted a protected file."
     remediation "Write your output to docs/tmp/ instead."
 
   rule no-git-branch:

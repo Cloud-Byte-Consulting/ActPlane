@@ -60,7 +60,7 @@ statements:
       When working on OpenAI API or OpenAI platform integrations in this repo (Responses API, tools, streaming, Realtime API, auth, models, rate limits, MCP, Agents SDK or ChatGPT Apps SDK), use `$openai-knowledge` to pull authoritative docs via the OpenAI Developer Docs MCP server (and guide setup if it is not configured).
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 5
@@ -365,7 +365,7 @@ statements:
       8. When reporting code changes as complete (after substantial code work), invoke `$pr-draft-summary` as the final handoff step unless the task falls under the documented skip cases.
     type: directive
     topic: Development Process
-    enforceability: behavior_per_event
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 31

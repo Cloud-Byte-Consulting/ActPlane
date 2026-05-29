@@ -526,7 +526,7 @@ can map it to concrete system operations (e.g., "upstream" = files in
 conversation with the user (tone, explanation, reporting format), it is
 **intent**.
 
-Two clarifications for conditional directives:
+Three clarifications for conditional directives:
 
 - *Abstractly-scoped system constraints.* A directive like "when SDK
   changes, run the build script" is system-level if "SDK" can be
@@ -534,6 +534,13 @@ Two clarifications for conditional directives:
   (e.g., `packages/sdk/**`). Genuinely vague conditions ("when
   necessary", "when appropriate") that cannot be mapped to observable
   state are **intent**.
+- *Agent tool calls are observable operations.* MCP tool invocations,
+  skill calls, and other agent-framework tool calls produce IPC or
+  network events and are therefore system-level, not intent. A pure
+  tool-routing preference ("use `nx_workspace` tool first") is
+  **behavior (per-event)**. An ordering constraint on tool calls
+  ("call `fetch-docs` MCP tool before writing integration code") is
+  **behavior (cross-object)**.
 - *Exception conditions involving conversation state.* A directive like
   "do not commit without explicit user request" has a system-level core
   constraint (match `git commit`) with a conversation-level exception.

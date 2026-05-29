@@ -516,7 +516,7 @@ statements:
       6. **Complete**: `bd close <id> --reason "Done"`
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 39
@@ -571,7 +571,7 @@ statements:
       - ✅ Check `bd ready` before asking "what should I work on?"
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 44

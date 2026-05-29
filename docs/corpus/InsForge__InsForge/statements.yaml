@@ -98,7 +98,7 @@ statements:
       Before writing or editing any InsForge integration code, you **MUST** call the `fetch-docs` MCP tool to get the latest SDK documentation. This ensures you have accurate, up-to-date implementation patterns.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 7

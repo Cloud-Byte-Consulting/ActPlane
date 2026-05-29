@@ -370,7 +370,7 @@ statements:
 
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 19

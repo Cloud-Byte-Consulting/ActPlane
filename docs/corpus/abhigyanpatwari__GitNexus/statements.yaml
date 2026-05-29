@@ -208,7 +208,7 @@ statements:
       - When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 18
@@ -218,7 +218,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 19

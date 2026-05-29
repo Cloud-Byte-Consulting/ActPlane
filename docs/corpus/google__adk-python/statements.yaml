@@ -21,7 +21,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 3
@@ -31,7 +31,7 @@ statements:
         - Read `.agents/skills/adk-architecture/SKILL.md` for full instructions.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 4
@@ -41,7 +41,7 @@ statements:
         - Read `.agents/skills/adk-style/SKILL.md` for full instructions.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 5
@@ -51,7 +51,7 @@ statements:
         - Read `.agents/skills/adk-git/SKILL.md` for full instructions.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 6
@@ -61,7 +61,7 @@ statements:
         - Read `.agents/skills/adk-sample-creator/SKILL.md` for full instructions.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 7

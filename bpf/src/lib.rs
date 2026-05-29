@@ -39,6 +39,10 @@ const MAX_XFORMS: usize = 64;
 const MAX_GATES: usize = 64;
 const MAX_INVALS: usize = 64;
 const MAX_TAINT_LABELS: usize = 64;
+const M_SUFFIX: u8 = 2;
+const SRC_EXEC: u8 = 0;
+const OP_EXEC: u8 = 0;
+const C_TARGET: u8 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -229,6 +233,63 @@ fn err(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, msg.into())
 }
 
+fn validate_config(cfg: &CConfig) -> io::Result<()> {
+    for (i, s) in cfg
+        .sources
+        .iter()
+        .take((cfg.n_sources as usize).min(MAX_SOURCES))
+        .enumerate()
+    {
+        if s.kind == SRC_EXEC && s.m == M_SUFFIX {
+            return Err(err(format!("config source[{i}]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix")));
+        }
+    }
+    for (i, x) in cfg
+        .xforms
+        .iter()
+        .take((cfg.n_xforms as usize).min(MAX_XFORMS))
+        .enumerate()
+    {
+        if x.m == M_SUFFIX {
+            return Err(err(format!("config xform[{i}]: suffix exec matches are unsupported; use exact/prefix exec patterns")));
+        }
+    }
+    for (i, g) in cfg
+        .gates
+        .iter()
+        .take((cfg.n_gates as usize).min(MAX_GATES))
+        .enumerate()
+    {
+        if g.m == M_SUFFIX {
+            return Err(err(format!("config gate[{i}]: suffix exec matches are unsupported; use exact/prefix exec patterns")));
+        }
+    }
+    for (i, iv) in cfg
+        .invals
+        .iter()
+        .take((cfg.n_invals as usize).min(MAX_INVALS))
+        .enumerate()
+    {
+        if iv.op == OP_EXEC && iv.m == M_SUFFIX {
+            return Err(err(format!("config inval[{i}]: suffix exec matches are unsupported; use exact/prefix exec patterns")));
+        }
+    }
+    for (i, r) in cfg
+        .rules
+        .iter()
+        .take((cfg.n_rules as usize).min(MAX_RULES))
+        .enumerate()
+    {
+        if r.op == OP_EXEC && r.m == M_SUFFIX {
+            return Err(err(format!("config rule[{i}]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix")));
+        }
+        if r.op == OP_EXEC && r.cond_kind == C_TARGET && r.cond_match == M_SUFFIX {
+            return Err(err(format!("config rule[{i}]: suffix exec target conditions are unsupported; use exact/prefix exec patterns")));
+        }
+    }
+    Ok(())
+}
+
 pub struct Loader {
     bpf: Ebpf,
     enforce: bool,
@@ -247,6 +308,7 @@ impl Loader {
         // Owned, aligned copy so we can borrow fields for set_global.
         let cfg: Box<CConfig> =
             Box::new(unsafe { std::ptr::read_unaligned(config_blob.as_ptr() as *const CConfig) });
+        validate_config(&cfg)?;
 
         let enforce = bpf_lsm_active();
         let enforce_mode: u32 = if enforce { 1 } else { 0 };

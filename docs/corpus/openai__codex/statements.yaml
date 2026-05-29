@@ -279,7 +279,7 @@ statements:
 
     type: directive
     topic: Build and Run
-    enforceability: intent
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 26

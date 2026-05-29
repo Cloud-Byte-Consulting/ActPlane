@@ -97,6 +97,62 @@ static bool config_has_effect(const struct taint_config *cfg, unsigned int effec
 	return false;
 }
 
+static int validate_config(const struct taint_config *cfg)
+{
+	for (unsigned int i = 0; i < cfg->n_sources && i < MAX_TAINT_SOURCES; i++) {
+		if (cfg->sources[i].kind == TSRC_EXEC &&
+		    cfg->sources[i].match == TAINT_MATCH_SUFFIX) {
+			fprintf(stderr,
+				"config source[%u]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix\n",
+				i);
+			return -1;
+		}
+	}
+	for (unsigned int i = 0; i < cfg->n_xforms && i < MAX_TAINT_XFORMS; i++) {
+		if (cfg->xforms[i].match == TAINT_MATCH_SUFFIX) {
+			fprintf(stderr,
+				"config xform[%u]: suffix exec matches are unsupported; use exact/prefix exec patterns\n",
+				i);
+			return -1;
+		}
+	}
+	for (unsigned int i = 0; i < cfg->n_gates && i < MAX_TAINT_GATES; i++) {
+		if (cfg->gates[i].match == TAINT_MATCH_SUFFIX) {
+			fprintf(stderr,
+				"config gate[%u]: suffix exec matches are unsupported; use exact/prefix exec patterns\n",
+				i);
+			return -1;
+		}
+	}
+	for (unsigned int i = 0; i < cfg->n_invals && i < MAX_TAINT_INVALS; i++) {
+		if (cfg->invals[i].op == TOP_EXEC &&
+		    cfg->invals[i].match == TAINT_MATCH_SUFFIX) {
+			fprintf(stderr,
+				"config inval[%u]: suffix exec matches are unsupported; use exact/prefix exec patterns\n",
+				i);
+			return -1;
+		}
+	}
+	for (unsigned int i = 0; i < cfg->n_rules && i < MAX_TAINT_RULES; i++) {
+		if (cfg->rules[i].op == TOP_EXEC &&
+		    cfg->rules[i].match == TAINT_MATCH_SUFFIX) {
+			fprintf(stderr,
+				"config rule[%u]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix\n",
+				i);
+			return -1;
+		}
+		if (cfg->rules[i].op == TOP_EXEC &&
+		    cfg->rules[i].cond_kind == TCOND_TARGET &&
+		    cfg->rules[i].cond_match == TAINT_MATCH_SUFFIX) {
+			fprintf(stderr,
+				"config rule[%u]: suffix exec target conditions are unsupported; use exact/prefix exec patterns\n",
+				i);
+			return -1;
+		}
+	}
+	return 0;
+}
+
 static int handle_event(void *ctx, void *data, size_t sz)
 {
 	const struct event *e = data;
@@ -192,6 +248,8 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	if (load_config(env.config, &cfg))
+		return 1;
+	if (validate_config(&cfg))
 		return 1;
 	enforce = bpf_lsm_active();
 

@@ -299,7 +299,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 23
@@ -312,7 +312,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 24
@@ -352,7 +352,7 @@ statements:
         work or the behavior seems impossible.
     type: directive
     topic: Testing
-    enforceability: intent
+    enforceability: behavior_per_event
     confidence: high
 
   - id: 27
