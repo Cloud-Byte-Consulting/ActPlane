@@ -364,7 +364,7 @@ statements:
 
     type: directive
     topic: Development Process
-    enforceability: behavior_per_event
+    enforceability: intent
     confidence: high
 
   - id: 25
@@ -573,7 +573,7 @@ statements:
       - Use the best sub-agent for the task as per their descriptions
     type: directive
     topic: Development Process
-    enforceability: behavior_per_event
+    enforceability: intent
     confidence: high
 
   - id: 47

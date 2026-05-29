@@ -399,7 +399,7 @@ statements:
       > Skills are located in `.claude/skills/` and contain project conventions that apply to **all** agents and contributors. Every agent working in this repository must read and follow the relevant skill files when the task matches their scope.
     type: directive
     topic: AI Integration
-    enforceability: behavior_per_event
+    enforceability: intent
     confidence: high
 
   - id: 36

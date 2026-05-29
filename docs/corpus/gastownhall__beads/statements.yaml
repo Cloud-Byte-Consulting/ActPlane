@@ -516,7 +516,7 @@ statements:
       6. **Complete**: `bd close <id> --reason "Done"`
     type: directive
     topic: AI Integration
-    enforceability: behavior_per_event
+    enforceability: behavior_cross_object
     confidence: high
 
   - id: 39
