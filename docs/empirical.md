@@ -7,23 +7,31 @@ files (CLAUDE.md, AGENTS.md). Prior empirical studies classify these files
 by topic at file or section granularity, but do not distinguish
 descriptions from directives and do not assess enforceability. We present
 the first statement-level analysis: 2,152 statements extracted from 64
-open-source repositories, each classified by content type (description
-vs. directive), topic (12 categories), and enforceability (4 levels).
+highly popular open-source repositories, each classified by content type
+(description vs. directive), topic (12 categories), and enforceability
+(4 levels).
 
-Three findings challenge prevailing assumptions. First, **63% of
-statements are directives**, not documentation — instruction files are
-predominantly behavioral contracts. Second, **81% of directives involve
-system-observable behavior**, yet the most widely deployed enforcement
-mechanism (linters) covers only 57%; adding per-event OS-level matching
-raises coverage to 86%. Third, **14% of directives require cross-object
-state tracking** (ordering constraints, cross-file consistency, multi-step
-workflows) that no currently deployed agent enforcement system addresses.
-At the repository level, **78% of projects contain at least one
-cross-object directive**, and **48% require all four enforcement layers**
-simultaneously. These cross-object directives concentrate in Development
-Process (43%) and map directly to information-flow control primitives.
+Four findings emerge in a layered progression. First, **instruction
+files are behavioral contracts, not documentation**: 63% of statements
+are directives, though this majority is in
+visible at line level (48%)
+because directives are terse (3.6 lines) while descriptions are verbose
+(6.7 lines). Second, **file-level topic analysis systematically
+distorts the picture**: Architecture ranks first by file prevalence in
+prior studies but is 78% description; the true directive-dense topics
+are Development Process (87% directive) and Implementation Details
+(85%). Third, **81% of directives involve system-observable behavior**,
+but they require different enforcement mechanisms: linter-level content
+inspection (38%), per-event OS matching (29%), and cross-object state
+tracking (14%). Fourth, **the enforcement gap is wider than the
+directive-level percentages suggest**: 94% of repositories need
+per-event OS enforcement, 78% need cross-object information-flow
+tracking, and 48% need all four enforcement layers simultaneously.
+
 Our annotated dataset and three-axis taxonomy provide a quantitative
-foundation for agent harness engineering.
+foundation for agent harness engineering — not just what topics
+developers address, but what specific rules they write and which
+mechanisms each rule requires.
 
 ---
 
@@ -45,22 +53,24 @@ file level or section-heading level, asking "what topics does this file
 cover?" None extracts individual rules, distinguishes descriptions from
 directives, or assesses whether individual rules are machine-enforceable.
 
-This gap matters for two reasons. First, instruction files are not just
-documentation — we find that 63% of their content consists of directives
-(behavioral constraints), not descriptions. File-level studies that
-classify a file as "Architecture" cannot distinguish a file with 20
-architecture descriptions from one with 20 architecture directives.
-Second, the emerging field of agent harness engineering requires knowing
-not just what topics developers address but which specific rules they
-write and which can be enforced by deterministic mechanisms. We find that
-81% of directives involve system-observable behavior, but the most widely
-deployed enforcement mechanism (linters) covers only 57%. A further 14%
-require cross-object state tracking — ordering constraints, cross-file
-consistency checks, multi-step workflows — that no currently deployed
-agent enforcement system addresses. At the repository level, 78% of
-projects contain at least one such cross-object directive, 94% need
-per-event OS-level matching, and 48% require all four enforcement
-layers simultaneously.
+This gap matters at multiple levels. First, instruction files are not
+documentation — 63% of their content consists of directives (behavioral
+constraints), not descriptions. File-level studies that classify a file
+as "Architecture" cannot distinguish 20 architecture descriptions from
+20 architecture directives; indeed, we find Architecture is 78%
+description, while the true directive-dense topics (Development Process,
+Implementation Details) are underrepresented at file level. Second, the
+vast majority of these directives (81%) concern system-observable
+behavior — commands executed, files accessed, processes spawned — not
+just conversational tone. Yet they require different enforcement
+mechanisms: linter-level content inspection covers 38% of directives,
+per-event OS matching covers another 29%, and 14% require cross-object
+state tracking across multiple operations. Third, the enforcement gap
+is wider than directive-level percentages suggest: at the repository
+level, 94% of projects need per-event OS enforcement, 78% need
+cross-object information-flow tracking, and 48% need all four layers
+simultaneously. No currently deployed agent enforcement system covers
+the cross-object layer.
 
 This paper addresses these gaps with a statement-level analysis. We make
 three contributions:
