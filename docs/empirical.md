@@ -8,8 +8,8 @@ by topic at file or section granularity, but do not distinguish
 descriptions from directives and do not assess enforceability. We present
 the first statement-level analysis: 2,152 statements extracted from 64
 highly popular open-source repositories, each classified by content type
-(description vs. directive), topic (12 categories), and enforceability
-(4 levels).
+(description vs. directive), topic (12 categories), and enforcement
+level (4 levels: semantic-only, content, per-event, cross-event).
 
 Four findings emerge in a layered progression. First, **instruction
 files are behavioral contracts, not documentation**: 63% of statements
@@ -21,11 +21,11 @@ distorts the picture**: Architecture ranks first by file prevalence in
 prior studies but is 78% description; the true directive-dense topics
 are Development Process (87% directive) and Implementation Details
 (85%). Third, **81% of directives involve system behavior**,
-but they require different enforcement mechanisms: linter-level content
-inspection (38%), per-event OS matching (29%), and cross-object state
+but they require different enforcement mechanisms: content-level
+inspection (38%), per-event OS matching (29%), and cross-event state
 tracking (14%). Fourth, **the enforcement gap is wider than the
 directive-level percentages suggest**: 94% of repositories need
-per-event OS enforcement, 78% need cross-object information-flow
+per-event OS enforcement, 78% need cross-event information-flow
 tracking, and 48% need all four enforcement layers simultaneously.
 
 Our annotated dataset and three-axis taxonomy provide a quantitative
@@ -64,13 +64,13 @@ vast majority of these directives (81%) concern system-observable
 behavior — commands executed, files accessed, processes spawned — not
 just conversational tone. Yet they require different enforcement
 mechanisms: linter-level content inspection covers 38% of directives,
-per-event OS matching covers another 29%, and 14% require cross-object
+per-event OS matching covers another 29%, and 14% require cross-event
 state tracking across multiple operations. Third, the enforcement gap
 is wider than directive-level percentages suggest: at the repository
 level, 94% of projects need per-event OS enforcement, 78% need
-cross-object information-flow tracking, and 48% need all four layers
+cross-event information-flow tracking, and 48% need all four layers
 simultaneously. No currently deployed agent enforcement system covers
-the cross-object layer.
+the cross-event layer.
 
 This paper addresses these gaps with a statement-level analysis. We make
 three contributions:
@@ -78,15 +78,15 @@ three contributions:
 1. A **statement-level taxonomy** that classifies individual statements
    extracted from instruction files along three axes: content type
    (description vs. directive), topic (12 categories adapted from
-   Chatlatanagulchai et al.), and enforceability (intent, linter,
-   per-event, cross-object).
+   Chatlatanagulchai et al.), and enforcement level (semantic-only,
+   content, per-event, cross-event).
 
 2. A **statement-level corpus** of 2,152 statements extracted from
    instruction files in 64 projects, annotated along all three axes and
    released as a public dataset.
 
 3. An **enforceability analysis** that identifies a concrete enforcement
-   gap: 14% of directives require cross-object state tracking at the
+   gap: 14% of directives require cross-event state tracking at the
    OS level, concentrated in Development Process (ordering constraints
    like "run tests before committing") and Testing (cross-file
    consistency like "update tests when behavior changes"). These
@@ -193,24 +193,30 @@ Prior studies report file-level prevalence ("77% of files contain Build/Run
 content") but not directive counts. RQ3 measures the number of directives
 per project, enabling distribution analysis (median, mean, skewness).
 
-**RQ4 (Enforceability): Which directives are enforceable, and at what
-level?**
-Following the intent/action/behavior framework, we assess each directive
-at three levels:
-- **Intent**: the directive can only be followed if the LLM retains it in
-  context and complies probabilistically.
-- **Action**: the directive can be checked deterministically by inspecting
-  tool-call names and arguments at the agent-framework boundary.
-- **Behavior**: the directive can be checked by observing OS-level
-  operations (system calls) and their provenance across the process tree.
-Within behavior-level directives, we further distinguish *per-event*
-(checkable from a single system call) from *cross-object* (requiring
-state accumulated across multiple events and objects).
+**RQ4 (Enforcement level): Which directives are system-enforceable, and
+at what level?**
+We assess each directive using a waterfall decision procedure (Section
+4.4) that assigns it to one of four enforcement levels, ordered by
+mechanism complexity:
+- **Semantic-only**: no system-level observable counterpart; enforcement
+  depends entirely on model compliance.
+- **Content**: enforceable by inspecting the content of files the agent
+  reads or writes (code style, naming, formatting).
+- **Per-event**: enforceable by matching a single system operation
+  (command execution, file access, network connection) against a pattern.
+- **Cross-event**: enforceable only by tracking state accumulated across
+  multiple system operations (ordering, lineage, cross-file consistency).
+
+Action-level enforcement (tool-call guards) is not a separate level in
+our taxonomy because it is bypassable: agents can reach the same OS
+effects through subprocesses, `bash -c`, or direct syscalls, bypassing
+the tool-call boundary. Our taxonomy classifies by the *minimum
+unbypassable mechanism* required.
 
 **RQ5 (Enforcement requirements): What enforcement mechanisms do different
 directive types require?**
 For each directive subtype, we characterize the minimum enforcement level
-required and the fraction that requires cross-object state tracking. This
+required and the fraction that requires cross-event state tracking. This
 enables a layered view of which directives are addressable by existing
 mechanisms and which require mechanisms not yet deployed in practice.
 
@@ -319,7 +325,7 @@ statements:
     type: description          # description | directive
     topic: Architecture        # 16 categories from Chatlatanagulchai et al.
     # fields below apply only to directives:
-    enforceability: null       # intent | behavior_linter | behavior_per_event | behavior_cross_object
+    enforceability: null       # semantic_only | content | per_event | cross_event
     confidence: null           # high | medium | low
 
   - id: 2
@@ -327,7 +333,7 @@ statements:
     text: "Run the full test suite before committing."
     type: directive
     topic: Testing
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 3
@@ -335,7 +341,7 @@ statements:
     text: "Never commit secrets or credentials. Use environment variables for all sensitive configuration."
     type: directive
     topic: Security
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 4
@@ -343,7 +349,7 @@ statements:
     text: "Prefer const over let."
     type: directive
     topic: Implementation Details
-    enforceability: intent
+    enforceability: content
     confidence: high
 ```
 
@@ -416,7 +422,7 @@ after stripping whitespace) for every `statements.yaml` file.
 - *Changelogs and version history are descriptions.* Changelog blocks
   are one description statement spanning the entire block. The prompt instructs the LLM to: (a) extract every distinct
 statement with its line range, (b) classify each using the taxonomy
-(Axis 1: type, Axis 2: topic, Axis 3: enforceability) following the
+(Axis 1: type, Axis 2: topic, Axis 3: enforcement level) following the
 definitions in Sections 4.3 and 4.4, (c) assign a confidence level, and
 (d) preserve the original text verbatim.
 
@@ -471,34 +477,82 @@ what fraction of statements are descriptions vs. directives? This
 directly answers how behavioral directives are distributed across the
 topic categories that prior studies report.
 
-**Axis 3: Enforceability** (new, applied only to directives).
+**Axis 3: Enforcement level** (new, applied only to directives).
 
-Each directive is classified by the type of mechanism required to enforce
-it. The key distinction is between directives related to the agent's
-observable system behavior (any interaction with files, commands, or
-network) and directives that exist purely at the conversation level.
+Each directive is classified by the enforcement mechanism it requires.
+The classification follows a waterfall decision procedure (Figure 0):
+each directive enters at the top and exits at the first level whose
+predicate it satisfies.
+
+```
+Directive
+  │
+  ▼
+┌─────────────────────────────────────┐
+│ Q1: Involves system-level behavior? │
+│ (files / commands / network)        │
+└──────────┬──────────────────────────┘
+           │
+      No ──┼──► semantic-only
+           │    "Be concise." / "Explain reasoning."
+      Yes  │
+           ▼
+┌─────────────────────────────────────┐
+│ Q2: Requires file content           │
+│     inspection?                     │
+│ (code style / naming / format)      │
+└──────────┬──────────────────────────┘
+           │
+      Yes ─┼──► content
+           │    "Prefer const over let." / "Use type hints."
+      No   │
+           ▼
+┌─────────────────────────────────────┐
+│ Q3: Decidable from a single         │
+│     system operation?               │
+│ (one execve / open / connect)       │
+└──────────┬──────────────────────────┘
+           │
+      Yes ─┼──► per-event
+           │    "Never push to main." / "Don't rm -rf."
+      No   │
+           ▼
+┌─────────────────────────────────────┐
+│ Q4: Requires state across           │
+│     multiple operations?            │
+│ (history / lineage / ordering)      │
+└──────────┬──────────────────────────┘
+           │
+      Yes ─┼──► cross-event
+                "Run tests before committing."
+                "Process that read .env must not connect."
+```
+*Figure 0. Enforcement-level waterfall. Each directive exits at the
+first matching level; the four levels are mutually exclusive and ordered
+by enforcement complexity.*
 
 | Level | Definition | Example |
 |---|---|---|
-| **Intent** | Directive governs only the agent's communication, reasoning strategy, or output presentation. No system-level observable counterpart. | "Always explain your reasoning." / "Be concise." / "Report the full URL at end of task." |
-| **Behavior (linter)** | Directive imposes requirements on the *content* of files the agent reads or writes. Enforcement requires inspecting file content, not just the file-access event itself. | "Prefer `const` over `let`." / "Use type hints." / "Commit format: `type(scope): message`." |
-| **Behavior (per-event)** | Directive can be checked by matching a single system operation (command execution, file access, network connection) against a pattern. An agent reading the repository context can determine the concrete pattern. | "Do not run `rm -rf`." / "Never push to main." / "Do not create git worktree." / "Never modify vendor/ files." |
-| **Behavior (cross-object)** | Directive requires state accumulated across multiple system operations and objects. | "A process that read `.env` must not connect to external endpoints." / "Run tests before committing." / "Only modify DB through the migration tool." |
+| **Semantic-only** | Directive governs only the agent's reasoning, communication, or output presentation. No system-level observable counterpart. | "Always explain your reasoning." / "Be concise." / "Report the full URL at end of task." |
+| **Content** | Directive imposes requirements on the *content* of files the agent reads or writes. Enforcement requires inspecting file content, not just the file-access event itself. | "Prefer `const` over `let`." / "Use type hints." / "Commit format: `type(scope): message`." |
+| **Per-event** | Directive can be checked by matching a single system operation (command execution, file access, network connection) against a pattern. An agent reading the repository context can determine the concrete pattern. | "Do not run `rm -rf`." / "Never push to main." / "Do not create git worktree." / "Never modify vendor/ files." |
+| **Cross-event** | Directive requires state accumulated across multiple system operations. | "A process that read `.env` must not connect to external endpoints." / "Run tests before committing." / "Only modify DB through the migration tool." |
 
-### 4.4 Enforceability Assessment
+### 4.4 Enforcement-Level Assessment
 
-For each directive, we assess enforceability using the following decision
-procedure.
+For each directive, we assess the enforcement level using the waterfall
+decision procedure shown in Figure 0. The directive enters at Q1 and
+exits at the first level whose predicate it satisfies.
 
-**Step 1: Does the directive relate to any system-level behavior?**
+**Q1: Does the directive relate to any system-level behavior?**
 A directive relates to system-level behavior if it concerns commands
 executed, files accessed or modified, network connections, or process
 lifecycle. Even if stated abstractly (e.g., "never modify upstream
 source"), it is system-level if an agent reading the repository context
 can map it to concrete system operations (e.g., "upstream" = files in
 `vendor/` directory). If the directive relates ONLY to the agent's
-conversation with the user (tone, explanation, reporting format), it is
-**intent**.
+reasoning, communication, or output presentation, it is
+**semantic-only**.
 
 Three clarifications for conditional directives:
 
@@ -507,51 +561,51 @@ Three clarifications for conditional directives:
   resolved to concrete file paths by reading the repository context
   (e.g., `packages/sdk/**`). Genuinely vague conditions ("when
   necessary", "when appropriate") that cannot be mapped to observable
-  state are **intent**.
+  state are **semantic-only**.
 - *Agent tool calls are observable operations.* MCP tool invocations,
   skill calls, and other agent-framework tool calls produce IPC or
-  network events and are therefore system-level, not intent. A pure
-  tool-routing preference ("use `nx_workspace` tool first") is
-  **behavior (per-event)**. An ordering constraint on tool calls
-  ("call `fetch-docs` MCP tool before writing integration code") is
-  **behavior (cross-object)**.
+  network events and are therefore system-level, not semantic-only. A
+  pure tool-routing preference ("use `nx_workspace` tool first") is
+  **per-event**. An ordering constraint on tool calls ("call
+  `fetch-docs` MCP tool before writing integration code") is
+  **cross-event**.
 - *Exception conditions involving conversation state.* A directive like
   "do not commit without explicit user request" has a system-level core
   constraint (match `git commit`) with a conversation-level exception.
-  The enforceability level is determined by the core constraint
-  (**behavior per-event** in this case), not by the exception. The
-  enforcement mechanism defaults to blocking the operation; the
-  exception is handled as a permission grant.
+  The enforcement level is determined by the core constraint
+  (**per-event** in this case), not by the exception. The enforcement
+  mechanism defaults to blocking the operation; the exception is handled
+  as a permission grant.
 
-**Step 2 (for system-level directives): Does enforcement require
-inspecting file content?** If the directive imposes requirements on the
-text content of files the agent reads or writes (code style, formatting,
-naming conventions, commit message format), it is **behavior (linter)**.
-The distinguishing feature: enforcement requires reading the file and
-parsing its content, not just observing the file-access system call.
+**Q2 (for system-level directives): Does enforcement require inspecting
+file content?** If the directive imposes requirements on the text content
+of files the agent reads or writes (code style, formatting, naming
+conventions, commit message format), it is **content**. The
+distinguishing feature: enforcement requires reading the file and parsing
+its content, not just observing the file-access system call.
 
-**Step 3: Can violation be detected from a single system operation?**
+**Q3: Can violation be detected from a single system operation?**
 If the directive can be checked by matching one command execution, one
 file access, or one network connection against a pattern derivable from
-the repository context, it is **behavior (per-event)**. Examples:
-matching `execve("git", ["worktree", ...])`, matching `open("vendor/...")`,
+the repository context, it is **per-event**. Examples: matching
+`execve("git", ["worktree", ...])`, matching `open("vendor/...")`,
 matching `connect(external_ip)`.
 
-**Step 4: Does detection require state across multiple operations?**
+**Q4: Does detection require state across multiple operations?**
 If checking the directive requires knowing what happened before the
 current operation (which files were previously read, which commands
-previously ran, the process lineage), it is **behavior (cross-object)**.
+previously ran, the process lineage), it is **cross-event**.
 
-**Step 5: Compound directives.** A directive that combines multiple
+**Compound directives.** A directive that combines multiple
 sub-constraints at different levels is classified by the strongest
 (hardest to enforce) sub-constraint. For example, "read `cli/README.md`
 and verify command help/output behavior alongside unit tests" contains
-an intent-level sub-constraint (read a file) and a cross-object
+a semantic-only sub-constraint (read a file) and a cross-event
 sub-constraint (verify behavior matches tests after changes); the
-directive is classified as **behavior (cross-object)**.
+directive is classified as **cross-event**.
 
 This procedure assigns each directive to exactly one level.
-Enforceability is included in the inter-rater reliability assessment
+Enforcement level is included in the inter-rater reliability assessment
 (Section 4.6).
 
 ### 4.5 Worked Examples
@@ -559,35 +613,35 @@ Enforceability is included in the inter-rater reliability assessment
 The following examples illustrate the full annotation pipeline from raw
 text to final labels.
 
-| Raw text | Axis 1 | Axis 2 (Topic) | Axis 3 (Enforceability) | Rationale |
+| Raw text | Axis 1 | Axis 2 (Topic) | Axis 3 (Enforcement level) | Rationale |
 |---|---|---|---|---|
 | "The backend uses Express with TypeScript." | Description | Architecture | — | Factual; no imperative. |
-| "Always explain your reasoning before making changes." | Directive | AI Integration | Intent | Purely agent-user communication. |
-| "Be concise in responses." | Directive | AI Integration | Intent | Purely output style. |
-| "Report the full URL at end of task." | Directive | AI Integration | Intent | Purely output format. |
-| "Prefer `const` over `let`." | Directive | Implementation Details | Behavior (linter) | Requires inspecting written JS file content. |
-| "Use type hints for all function signatures." | Directive | Implementation Details | Behavior (linter) | Requires inspecting written Python file content. |
-| "Commit format: `type(scope): message`" | Directive | Development Process | Behavior (linter) | Requires inspecting commit message text. |
-| "Do not execute `rm -rf`." | Directive | Development Process | Behavior (per-event) | Single `execve` match. |
-| "Do not create git worktree." | Directive | Development Process | Behavior (per-event) | Single `execve("git", ["worktree", ...])` match. |
-| "Never push to main directly." | Directive | Development Process | Behavior (per-event) | Match `execve("git", ["push", ..., "main"])`. |
-| "Never modify upstream source code." | Directive | Development Process | Behavior (per-event) | Agent can determine upstream = `vendor/` paths from repo context. Match `open("vendor/...", O_WRONLY)`. |
-| "Do not update dependencies without approval." | Directive | Maintenance | Behavior (per-event) | Match writes to `package.json`, `Cargo.toml`, etc. |
-| "Run the full test suite before committing." | Directive | Testing | Behavior (cross-object) | Requires tracking that test process executed before commit. |
-| "Never commit secrets or credentials." | Directive | Security | Behavior (cross-object) | Requires tracking file reads (`.env` source) before commit/push. |
-| "Only modify DB through the migration tool." | Directive | Development Process | Behavior (cross-object) | Requires tracking process lineage (migration tool in ancestry). |
+| "Always explain your reasoning before making changes." | Directive | AI Integration | Semantic-only | Purely agent-user communication. |
+| "Be concise in responses." | Directive | AI Integration | Semantic-only | Purely output style. |
+| "Report the full URL at end of task." | Directive | AI Integration | Semantic-only | Purely output format. |
+| "Prefer `const` over `let`." | Directive | Implementation Details | Content | Requires inspecting written JS file content. |
+| "Use type hints for all function signatures." | Directive | Implementation Details | Content | Requires inspecting written Python file content. |
+| "Commit format: `type(scope): message`" | Directive | Development Process | Content | Requires inspecting commit message text. |
+| "Do not execute `rm -rf`." | Directive | Development Process | Per-event | Single `execve` match. |
+| "Do not create git worktree." | Directive | Development Process | Per-event | Single `execve("git", ["worktree", ...])` match. |
+| "Never push to main directly." | Directive | Development Process | Per-event | Match `execve("git", ["push", ..., "main"])`. |
+| "Never modify upstream source code." | Directive | Development Process | Per-event | Agent can determine upstream = `vendor/` paths from repo context. Match `open("vendor/...", O_WRONLY)`. |
+| "Do not update dependencies without approval." | Directive | Maintenance | Per-event | Match writes to `package.json`, `Cargo.toml`, etc. |
+| "Run the full test suite before committing." | Directive | Testing | Cross-event | Requires tracking that test process executed before commit. |
+| "Never commit secrets or credentials." | Directive | Security | Cross-event | Requires tracking file reads (`.env` source) before commit/push. |
+| "Only modify DB through the migration tool." | Directive | Development Process | Cross-event | Requires tracking process lineage (migration tool in ancestry). |
 
 Edge cases:
 
-| Raw text | Axis 1 | Topic | Enforceability | Rationale |
+| Raw text | Axis 1 | Topic | Enforcement level | Rationale |
 |---|---|---|---|---|
-| "We use Jest. Always run `jest --coverage` before committing." | Split: Description + Directive | Testing / Testing | — / Behavior (cross-object) | Hybrid: two statements at sentence boundary. |
-| "Do not make changes without explaining them first." | Directive | AI Integration | Intent | "Explaining" is purely conversational. |
-| "When answering questions, verify in code; do not guess." | Directive | AI Integration | Intent | Reasoning strategy, no system observable. |
+| "We use Jest. Always run `jest --coverage` before committing." | Split: Description + Directive | Testing / Testing | — / Cross-event | Hybrid: two statements at sentence boundary. |
+| "Do not make changes without explaining them first." | Directive | AI Integration | Semantic-only | "Explaining" is purely conversational. |
+| "When answering questions, verify in code; do not guess." | Directive | AI Integration | Semantic-only | Reasoning strategy, no system observable. |
 
 Note that the same topic category (e.g., Development Process) can
-contain directives at every enforceability level: linter ("commit
-format"), per-event ("don't create worktree"), cross-object ("only
+contain directives at every enforcement level: content ("commit
+format"), per-event ("don't create worktree"), cross-event ("only
 through migration tool"). This is precisely the cross-tabulation that
 prior file-level studies cannot produce.
 
@@ -598,8 +652,7 @@ statements. We report:
 
 - Cohen's kappa for Axis 1 (description vs. directive).
 - Cohen's kappa for Axis 2 (topic category, 16 categories).
-- Cohen's kappa for Axis 3 (enforceability: intent, action, behavior).
-- Cohen's kappa for behavior sub-level (linter vs. per-event vs. cross-object).
+- Cohen's kappa for Axis 3 (enforcement level: semantic-only, content, per-event, cross-event).
 
 Target: kappa >= 0.7 (substantial agreement) for all dimensions. If kappa
 falls below 0.6 for any dimension, we refine the coding guide and re-code.
@@ -790,21 +843,21 @@ directives per repository to cover the corpus.
 
 #### 5.4.1 RQ4a: What fraction of directives are system-enforceable?
 
-Of the 1,361 directives, 1,104 (81.1%) relate to observable system
-behavior. Only 257 (18.9%) are pure intent (conversation tone, reasoning
-strategy, output format) with no system-level counterpart.
+Of the 1,361 directives, 1,096 (80.5%) relate to observable system
+behavior. Only 265 (19.5%) are semantic-only (reasoning strategy,
+communication style, output format) with no system-level counterpart.
 
 | Level | Count | % |
 |---|---|---|
-| Intent | 257 | 18.9% |
-| Behavior (linter) | 515 | 37.8% |
-| Behavior (per-event) | 400 | 29.4% |
-| Behavior (cross-object) | 189 | 13.9% |
-| **Behavior total** | **1,104** | **81.1%** |
+| Semantic-only | 265 | 19.5% |
+| Content | 516 | 37.9% |
+| Per-event | 391 | 28.7% |
+| Cross-event | 189 | 13.9% |
+| **System-enforceable total** | **1,096** | **80.5%** |
 
 ![RQ4a](tmp/fig7_rq4a_enforceability_overall.png)
-*Figure 7. Enforceability distribution across all 1,361 directives.
-81.1% involve system-observable behavior.*
+*Figure 7. Enforcement-level distribution across all 1,361 directives.
+80.5% involve system-observable behavior.*
 *(Script: `docs/tmp/fig_all_rqs.py`)*
 
 **Takeaway.** The vast majority of instruction-file directives are not
@@ -815,13 +868,13 @@ five directives is fundamentally limited to model compliance.
 #### 5.4.2 RQ4b: How does enforceability vary across topics?
 
 Figure 8 shows the absolute enforceability breakdown by topic.
-Development Process contributes the most cross-object directives (82),
+Development Process contributes the most cross-event directives (82),
 followed by Testing (27) and Architecture (22). Implementation Details
-is dominated by linter-level directives (264 of 334, 79.0%).
+is dominated by content-level directives (264 of 334, 79.0%).
 
 ![RQ4b](tmp/fig8_rq4b_topic_enforceability.png)
 *Figure 8. Enforceability breakdown by topic (absolute counts).
-Development Process has the most cross-object directives.*
+Development Process has the most cross-event directives.*
 
 #### 5.4.3 RQ4c: What is the enforceability profile of each topic?
 
@@ -833,24 +886,24 @@ Topics cluster into four archetypes.*
 
 Four archetypes emerge:
 
-- **Linter-dominant** (Implementation Details 79.0% linter): coding
+- **Content-dominant** (Implementation Details 79.0% content): coding
   style, naming conventions, type annotations. Enforcement requires
   parsing file content but not tracking state across operations.
 - **Per-event-dominant** (Build and Run 62.1%, DevOps 57.1%): command
   constraints, file-path restrictions, tool-choice rules. Enforcement
   matches a single system call against a pattern.
-- **Cross-object-heavy** (Development Process 22.1% cross-object,
+- **Cross-event-heavy** (Development Process 22.1% cross-event,
   Testing 19.4%): ordering constraints ("run tests before committing"),
   cross-file consistency ("update docs when behavior changes"). These
-  require an information-flow engine that tracks state across objects.
-- **Intent-heavy** (AI Integration 36.5% intent): agent routing,
-  delegation strategy, tool preferences. These have no system-level
-  enforcement path.
+  require an information-flow engine that tracks state across events.
+- **Semantic-only-heavy** (AI Integration 36.5% semantic-only): agent
+  routing, delegation strategy, tool preferences. These have no
+  system-level enforcement path.
 
 **Takeaway.** Enforceability is not a property of the directive alone —
-it depends on the topic. The same file may contain linter rules
+it depends on the topic. The same file may contain content rules
 (Implementation Details), per-event constraints (Build and Run), and
-cross-object workflows (Development Process). A harness that supports
+cross-event workflows (Development Process). A harness that supports
 only one enforcement mechanism leaves significant gaps in the others.
 
 #### 5.4.4 RQ4d: How much do successive enforcement layers cover?
@@ -859,35 +912,35 @@ Figure 10 shows the cumulative coverage as enforcement layers are added:
 
 ![RQ4d](tmp/fig10_rq4d_cumulative_coverage.png)
 *Figure 10. Cumulative directive coverage by enforcement layer.
-Linters alone cover 56.7%; adding per-event matching reaches 86.1%;
-cross-object IFC closes the remaining 13.9%.*
+Linters alone cover 57.4%; adding per-event matching reaches 86.1%;
+cross-event IFC closes the remaining 13.9%.*
 
 | Layer | Cumulative | Marginal |
 |---|---|---|
 | None | 0% | — |
-| + Intent (model compliance) | 18.9% | 18.9% |
-| + Linter (file content inspection) | 56.7% | 37.8% |
-| + Per-event (single-operation matching) | 86.1% | 29.4% |
-| + Cross-object (IFC engine) | 100% | 13.9% |
+| + Semantic-only (model compliance) | 19.5% | 19.5% |
+| + Content (file content inspection) | 57.4% | 37.9% |
+| + Per-event (single-operation matching) | 86.1% | 28.7% |
+| + Cross-event (IFC engine) | 100% | 13.9% |
 
 **Takeaway.** Linter tools (the most widely deployed enforcement
-mechanism for coding agents) cover only 56.7% of directives. Adding
+mechanism for coding agents) cover only 57.4% of directives. Adding
 per-event syscall matching (as provided by ActPlane's basic rules)
-raises coverage to 86.1%. The remaining 13.9% — cross-object
+raises coverage to 86.1%. The remaining 13.9% — cross-event
 directives requiring state across multiple operations — are exactly the
 gap that labeled information-flow control addresses. No existing
 deployed mechanism covers this layer.
 
-#### 5.4.5 RQ4e: Where do cross-object directives concentrate?
+#### 5.4.5 RQ4e: Where do cross-event directives concentrate?
 
-The 189 cross-object directives are not uniformly distributed. Figure 11
+The 189 cross-event directives are not uniformly distributed. Figure 11
 shows their concentration by topic.
 
-![RQ4e](tmp/fig11_rq4e_cross_object_by_topic.png)
+![RQ4e](tmp/fig11_rq4e_cross_event_by_topic.png)
 *Figure 11. Cross-object directives by topic. Development Process
-accounts for 43.4% of all cross-object directives.*
+accounts for 43.4% of all cross-event directives.*
 
-Development Process alone accounts for 82 of 189 cross-object directives
+Development Process alone accounts for 82 of 189 cross-event directives
 (43.4%). Common patterns include:
 - **Ordering**: "run tests before committing" (temporal gate)
 - **Cross-file consistency**: "update docs when behavior changes"
@@ -895,7 +948,7 @@ Development Process alone accounts for 82 of 189 cross-object directives
 - **Multi-step workflows**: "12-step release checklist" (sequential
   procedure with verification)
 - **Conditional updates**: "if you change specs, also update SDK and
-  docs" (triggered cross-object)
+  docs" (triggered cross-event)
 
 These map directly to ActPlane's DSL constructs: `after` for temporal
 gates, label propagation for cross-file tracking, and `since` for
@@ -907,11 +960,11 @@ Figure 12 shows each repository's enforceability breakdown.
 
 ![RQ4f](tmp/fig12_rq4f_repo_profiles.png)
 *Figure 12. Per-repository enforceability profile, sorted by directive
-count. Each bar shows the mix of intent (gray), linter (blue), per-event
-(green), and cross-object (red).*
+count. Each bar shows the mix of semantic-only (gray), content (blue),
+per-event (green), and cross-event (red).*
 
 At the repository level, 78% of projects (49/63) contain at least one
-cross-object directive, 94% (59/63) need per-event enforcement, and
+cross-event directive, 94% (59/63) need per-event enforcement, and
 48% (30/63) require all four enforcement layers simultaneously.
 
 #### 5.4.7 RQ4g: What fraction of repos need each enforcement layer?
@@ -921,7 +974,7 @@ directive at each enforcement level.
 
 ![RQ4g](tmp/fig13_rq4g_repo_requirements.png)
 *Figure 13. Fraction of repos requiring each enforcement layer. 94%
-need per-event (eBPF/LSM), 78% need cross-object (IFC engine), 48%
+need per-event (eBPF/LSM), 78% need cross-event (IFC engine), 48%
 need all four layers simultaneously.*
 *(Script: `docs/tmp/fig_all_rqs.py`)*
 
@@ -936,35 +989,35 @@ layer, cannot bypass).*
 
 | Layer | Mechanism | Coverage | Bypassable? |
 |---|---|---|---|
-| Intent | Model compliance | 18.9% | N/A (no enforcement) |
-| Linter | eBPF write hook + userspace linter | 37.8% | **No** (kernel intercepts write, triggers linter) |
-| Per-event | eBPF/LSM hook | 29.4% | **No** (kernel intercepts every syscall) |
-| Cross-object | eBPF + IFC label propagation | 13.9% | **No** (kernel tracks state across objects) |
+| Semantic-only | Model compliance | 19.5% | N/A (no enforcement) |
+| Content | eBPF write hook + userspace linter | 37.9% | **No** (kernel intercepts write, triggers linter) |
+| Per-event | eBPF/LSM hook | 28.7% | **No** (kernel intercepts every syscall) |
+| Cross-event | eBPF + IFC label propagation | 13.9% | **No** (kernel tracks state across events) |
 
-All three behavior layers can be made un-bypassable by hooking at the
-kernel level via eBPF/LSM. The key insight is that even linter
+All three system-enforceable layers can be made un-bypassable by hooking
+at the kernel level via eBPF/LSM. The key insight is that even content
 enforcement — traditionally a tool-layer mechanism that agents can
 bypass by writing files directly — becomes un-bypassable when the
 kernel intercepts every `write` syscall and triggers a userspace linter
 before the write completes. The three layers differ in complexity:
 
-- **Linter**: the kernel hooks `file_open(O_WRONLY)` and notifies a
+- **Content**: the kernel hooks `file_open(O_WRONLY)` and notifies a
   userspace linter daemon that inspects the written content (code style,
   naming, secret detection). The linter returns allow/deny.
 - **Per-event**: the kernel matches a single syscall against a pattern
   (e.g., `deny write file "vendor/**"` requires only a `file_open`
   hook with path matching). No userspace roundtrip needed.
-- **Cross-object**: the kernel maintains label state across operations
+- **Cross-event**: the kernel maintains label state across operations
   (e.g., `deny exec git @arg commit unless after exec pytest` tracks
   whether pytest ran in this session). Label propagation across
   fork/exec/read/write/connect.
 
-**Takeaway.** Cross-object enforcement is not a niche requirement — it
+**Takeaway.** Cross-event enforcement is not a niche requirement — it
 affects 78% of repositories. Nearly half of all projects (48%) require
 all four enforcement layers simultaneously. Repositories have distinct
-enforceability profiles: code-style-heavy projects (openai/codex: 76.3%
-linter) differ sharply from workflow-heavy projects (openclaw: 36.6%
-per-event, 14.5% cross-object). A one-size-fits-all enforcement approach
+enforcement profiles: code-style-heavy projects (openai/codex: 76.3%
+content) differ sharply from workflow-heavy projects (openclaw: 36.6%
+per-event, 14.5% cross-event). A one-size-fits-all enforcement approach
 leaves systematic gaps; the right mechanism depends on the project's
 directive mix.
 
@@ -997,13 +1050,13 @@ Details (334). File-level analysis cannot make this distinction.
 
 The cumulative coverage curve (Figure 10) identifies a concrete
 enforcement gap. Linter tools — the most widely deployed enforcement
-mechanism for coding agents — cover 56.7% of directives. Adding
+mechanism for coding agents — cover 57.4% of directives. Adding
 per-event syscall matching raises coverage to 86.1%. But 189 directives
-(13.9%) require cross-object state tracking: knowing what files were
+(13.9%) require cross-event state tracking: knowing what files were
 previously read, what commands previously ran, or whether a multi-file
 update is consistent.
 
-These cross-object directives are concentrated in Development Process
+These cross-event directives are concentrated in Development Process
 (43.4%) and involve four recurring patterns:
 
 1. **Temporal ordering** (e.g., "run tests before committing"):
@@ -1028,24 +1081,25 @@ the motivation for labeled information-flow control at the OS level.
 The enforceability profiles (Figure 9) suggest that an effective agent
 harness must be layered:
 
-- **Intent layer** (18.9% of directives): irreducible — these depend on
-  model compliance. Examples: "be concise", "explain your reasoning",
-  "prefer the lightest-weight path." No deterministic mechanism can
-  enforce these; the harness can only inject them as context.
-- **Linter layer** (37.8%): code style, naming, formatting, commit
+- **Semantic-only layer** (19.5% of directives): irreducible — these
+  depend on model compliance. Examples: "be concise", "explain your
+  reasoning", "prefer the lightest-weight path." No deterministic
+  mechanism can enforce these; the harness can only inject them as
+  context.
+- **Content layer** (37.9%): code style, naming, formatting, commit
   message structure. Existing tools (ruff, clippy, eslint, oxlint)
   already cover this; the harness contribution is ensuring they run.
-- **Per-event layer** (29.4%): command restrictions, file-path
+- **Per-event layer** (28.7%): command restrictions, file-path
   constraints, tool-choice rules. Enforceable by matching a single
   syscall or tool call against a pattern. This is ActPlane's basic
   rule model.
-- **Cross-object layer** (13.9%): ordering, consistency, workflow
+- **Cross-event layer** (13.9%): ordering, consistency, workflow
   constraints. Requires label propagation across process/file/network
   boundaries. This is ActPlane's IFC engine.
 
 The layered view explains why no single mechanism suffices. A project
-with 70% linter directives (e.g., openai/codex) benefits most from
-linter integration. A project with 22% cross-object directives (e.g.,
+with 70% content directives (e.g., openai/codex) benefits most from
+content-inspection integration. A project with 22% cross-event directives (e.g.,
 Development Process-heavy repos) needs an IFC engine. The harness must
 compose mechanisms, not replace one with another.
 
@@ -1062,11 +1116,11 @@ each producing a written review document with specific per-statement
 disagreements.
 
 The Codex review identified four systematic patterns: (1) MCP/skill
-tool-call directives systematically under-classified as intent instead
-of per-event/cross-object, (2) content-sensitive prohibitions
-over-classified as per-event when linter-level content inspection is
+tool-call directives systematically under-classified as semantic-only
+instead of per-event/cross-event, (2) content-sensitive prohibitions
+over-classified as per-event when content-level inspection is
 required, (3) temporal ordering constraints under-recognized as
-cross-object, and (4) compound workflow statements sometimes
+cross-event, and (4) compound workflow statements sometimes
 over-compressed. Patterns (1) and (3) led to 51 reclassifications after
 manual verification of each change. Patterns (2) and (4) were reviewed
 and mostly rejected with documented reasoning (see
@@ -1102,13 +1156,13 @@ infrastructure surrounding a model as a first-class engineering concern.
 Several systems enforce behavioral contracts on agents:
 
 - **AgentSpec** compiles dataflow policies to tool-call-level guards.
-  Our findings suggest this covers the per-event layer (29.4% of
-  directives) but not the cross-object layer (13.9%) because tool-call
+  Our findings suggest this covers the per-event layer (28.7% of
+  directives) but not the cross-event layer (13.9%) because tool-call
   interception cannot track accumulated state.
 - **Invariant** enforces guardrails at the tool-call boundary with
   pre/post-condition checks. Similar coverage to AgentSpec.
 - **CaMeL** uses capability-based security with information-flow
-  tracking at the application layer. It addresses cross-object
+  tracking at the application layer. It addresses cross-event
   constraints but operates above the OS, leaving syscall-level bypasses
   possible.
 - **FIDES** and **Progent** provide formal verification frameworks for
@@ -1125,17 +1179,17 @@ system objects. In-kernel IFC systems include:
 
 - **CamQuery** (CCS 2018): propagates confidentiality labels across
   process/file/network in-kernel via Linux Provenance Modules. It
-  demonstrates that cross-object label tracking is feasible in-kernel
+  demonstrates that cross-event label tracking is feasible in-kernel
   but uses a kernel module (not eBPF) and targets security auditing,
   not agent enforcement.
 - **CamFlow**: whole-system provenance capture with label propagation.
   Detect-only; no enforcement.
 - **Tetragon**: eBPF-based runtime enforcement with process lineage
   tracking. Supports single-channel blocking but lacks the multi-label
-  boolean logic needed for cross-object agent constraints.
+  boolean logic needed for cross-event agent constraints.
 - **SLEUTH/SPADE**: provenance-based intrusion detection. Detect-only.
 
-Our cross-object directives (13.9%) map to IFC primitives: temporal
+Our cross-event directives (13.9%) map to IFC primitives: temporal
 ordering maps to lineage gates, cross-file consistency maps to label
 propagation, and conditional triggers map to taint-and-check patterns.
 This empirical mapping validates the design space that systems like
@@ -1188,7 +1242,7 @@ ActPlane target.
 This paper presents the first statement-level analysis of agent
 instruction files, extracting 2,152 statements from 64 repositories and
 classifying each along three axes: content type, topic, and
-enforceability.
+enforcement level.
 
 **RQ1 (Content types).** 63.2% of statements are directives by count,
 but only 47.9% by line count, because directives are terse (3.6
@@ -1206,12 +1260,12 @@ distortion.
 (median 15). The top 10 repos account for 40.6% of all directives,
 indicating a right-skewed distribution.
 
-**RQ4 (Enforceability).** 81.1% of directives involve system-observable
-behavior. Linter-level enforcement covers 37.8%, per-event matching
-covers an additional 29.4%, and the remaining 13.9% require cross-object
+**RQ4 (Enforcement level).** 80.5% of directives involve system-observable
+behavior. Content-level enforcement covers 37.9%, per-event matching
+covers an additional 28.7%, and the remaining 13.9% require cross-event
 state tracking. Although 13.9% sounds modest at the directive level,
 78% of repositories contain at least one such directive, and 48% require
-all four enforcement layers simultaneously. This cross-object gap —
+all four enforcement layers simultaneously. This cross-event gap —
 concentrated in Development Process (ordering constraints, cross-file
 consistency) — is the enforcement gap that no currently deployed
 mechanism addresses.

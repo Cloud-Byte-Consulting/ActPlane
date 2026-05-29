@@ -9,7 +9,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 2
@@ -42,7 +42,7 @@ statements:
       - For `server/**`, or lifecycle server behavior, sandbox creation flow, or user-visible server config, read `server/AGENTS.md`.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 4
@@ -51,7 +51,7 @@ statements:
       - For `sdks/**`, or SDK generation, handwritten adapters, or cross-language SDK alignment, read `sdks/AGENTS.md`.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 5
@@ -60,7 +60,7 @@ statements:
       - For `specs/**`, or API contract, schema, or example changes, read `specs/AGENTS.md`.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 6
@@ -69,7 +69,7 @@ statements:
       - For `kubernetes/**`, or CRDs, controller behavior, task execution, Helm/Kustomize deployment, pool scheduling, pause/resume snapshots, or Kind e2e tests, read `kubernetes/AGENTS.md`.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 7
@@ -78,7 +78,7 @@ statements:
       - For cross-cutting changes spanning spec, server, and SDKs, start with `specs/AGENTS.md` and then read affected consumer guides.
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 8
@@ -87,7 +87,7 @@ statements:
       - For runtime component changes under `components/**`, read the nearest `README.md` or `DEVELOPMENT.md`; keep component APIs aligned with `specs/` and SDK consumers.
     type: directive
     topic: AI Integration
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 9
@@ -96,7 +96,7 @@ statements:
       - For CLI changes under `cli/**`, read `cli/README.md` and verify command help/output behavior alongside unit tests.
     type: directive
     topic: AI Integration
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 10
@@ -105,7 +105,7 @@ statements:
       - For cross-language e2e tests under `tests/**`, read the language-local README and keep test assumptions aligned with current server and SDK behavior.
     type: directive
     topic: AI Integration
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 11
@@ -115,7 +115,7 @@ statements:
 
     type: directive
     topic: AI Integration
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 12
@@ -126,7 +126,7 @@ statements:
       - Think before coding: state assumptions, surface ambiguity, and ask or push back when the request has conflicting interpretations.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 13
@@ -135,7 +135,7 @@ statements:
       - Simplicity first: implement the smallest solution that satisfies the request; avoid speculative features, one-off abstractions, and unnecessary configurability.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 14
@@ -144,7 +144,7 @@ statements:
       - Surgical changes: touch only files and lines needed for the task, match local style, and do not refactor or delete unrelated pre-existing code.
     type: directive
     topic: Development Process
-    enforceability: behavior_linter
+    enforceability: semantic_only
     confidence: high
 
   - id: 15
@@ -154,7 +154,7 @@ statements:
 
     type: directive
     topic: Development Process
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 16
@@ -167,7 +167,7 @@ statements:
       - Keep changes focused on the user request.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 17
@@ -176,7 +176,7 @@ statements:
       - Treat `specs/*` as public contract sources.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 18
@@ -185,7 +185,7 @@ statements:
       - Keep spec, implementation, SDKs, docs, examples, config, and CLI behavior aligned when user-visible behavior changes.
     type: directive
     topic: Development Process
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 19
@@ -194,7 +194,7 @@ statements:
       - When changing `specs/*`, also update or verify affected server, SDK, docs, and release outputs when practical.
     type: directive
     topic: Development Process
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 20
@@ -203,7 +203,7 @@ statements:
       - When changing CRDs or Kubernetes public behavior, update or verify generated manifests, Helm/Kustomize deployment output, server Kubernetes integration, and docs when practical.
     type: directive
     topic: Development Process
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 21
@@ -212,7 +212,7 @@ statements:
       - Prefer additive, backward-compatible changes for public interfaces.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 22
@@ -221,7 +221,7 @@ statements:
       - Regenerate derived outputs when the source-of-truth file changes.
     type: directive
     topic: Development Process
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 23
@@ -230,7 +230,7 @@ statements:
       - Update tests when behavior changes or bugs are fixed.
     type: directive
     topic: Testing
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 24
@@ -239,7 +239,7 @@ statements:
       - Mention unrun or blocked verification in the final handoff.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 25
@@ -249,7 +249,7 @@ statements:
 
     type: directive
     topic: Testing
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 26
@@ -260,7 +260,7 @@ statements:
       - Breaking public API, SDK, config, protocol, or CLI changes
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 27
@@ -269,7 +269,7 @@ statements:
       - Breaking CRD, annotation, label, Helm values, or Kubernetes deployment changes
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 28
@@ -278,7 +278,7 @@ statements:
       - Intentional drift between a public contract and its implementation
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 29
@@ -288,7 +288,7 @@ statements:
 
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 30
@@ -299,7 +299,7 @@ statements:
       - Edit generated output as the only fix.
     type: directive
     topic: Development Process
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 31
@@ -309,7 +309,7 @@ statements:
 
     type: directive
     topic: Development Process
-    enforceability: behavior_cross_object
+    enforceability: cross_event
     confidence: high
 
   - id: 32
@@ -320,7 +320,7 @@ statements:
       - Prioritize breaking changes in specs, SDK interfaces, config, CLI behavior, and protocols.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 33
@@ -329,7 +329,7 @@ statements:
       - Flag protocol changes that are unnecessary, inconsistent, or hard to implement.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 34
@@ -338,7 +338,7 @@ statements:
       - Flag changes that break source-of-truth boundaries or intended layering.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
 
   - id: 35
@@ -347,5 +347,5 @@ statements:
       - Call out missing tests and compatibility risks explicitly.
     type: directive
     topic: Development Process
-    enforceability: intent
+    enforceability: semantic_only
     confidence: high
