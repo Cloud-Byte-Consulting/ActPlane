@@ -423,61 +423,8 @@ definitions in Sections 4.3 and 4.4, (c) assign a confidence level, and
 **Pass 2: Cross-validation.** A second LLM call reads the original file
 together with the Pass 1 YAML and directly updates it: adding missed
 statements, removing false extractions, and correcting classifications.
-Each change is annotated with a `_review` field for auditability:
 
-```yaml
-file: "owner/repo/CLAUDE.md"
-_review:
-  pass1_count: 47
-  added: 1
-  removed: 1
-  modified: 1
-statements:
-  - id: 2
-    lines: [15, 16]
-    text: "Run the full test suite before committing."
-    type: directive
-    topic: Testing
-    enforceability: behavior_cross_object
-    confidence: high
-
-  # added by Pass 2 (was merged into id 14 in Pass 1)
-  - id: 48
-    lines: [67, 70]
-    text: "Treat external input as untrusted."
-    type: directive
-    topic: Security
-    enforceability: behavior_cross_object
-    confidence: medium
-    _review: "added: missed by Pass 1, embedded in security paragraph"
-
-  # modified by Pass 2
-  - id: 7
-    lines: [28, 29]
-    text: "Always run linter before pushing."
-    type: directive
-    topic: Development Process  # was: Implementation Details
-    enforceability: behavior_cross_object
-    confidence: medium
-    _review: "modified topic: Implementation Details -> Development Process"
-
-  # id 12 removed by Pass 2 (was a code example, not a statement)
-```
-
-The `_review` metadata block records Pass 2 statistics; per-statement
-`_review` fields record individual changes. Statements without a
-`_review` field were unchanged from Pass 1.
-
-**Methodological metrics from the two-pass pipeline.** For the full
-corpus, we report:
-- Pass 2 addition rate: fraction of statements missed by Pass 1
-  (estimates extraction recall).
-- Pass 2 removal rate: fraction of Pass 1 extractions rejected
-  (estimates extraction precision).
-- Pass 2 modification rate: fraction of classifications changed
-  (estimates classification stability).
-
-**Manual validation.** A stratified random sample of 200 statements
+**Manual validation.** A stratified random sample of 100 statements
 (stratified by LLM-assigned type and subtype) is independently examed by
  human annotators using the same taxonomy. Disagreements are resolved by discussion; the
 resolution and rationale are recorded.
