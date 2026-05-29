@@ -1,9 +1,11 @@
-# ActPlane: OS-Enforced AI Agent Harnesses with eBPF
+# ActPlane: Programmable OS-Level Control Plane for Agent Harnesses with eBPF
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-**Write behavioral contracts for your AI agent in YAML; observe and enforce them
-in the kernel with eBPF.** ActPlane sits below the tool layer, so a rule holds
+**Define behavioral contracts for your AI agent in DSL; `observe` and `enforce` them
+in the kernel with eBPF.** 
+
+ActPlane sits below the tool layer, so a rule holds
 across every process, file access, and network connection the agent touches, no
 matter what tool, subprocess, or direct syscall it uses to get there.
 
