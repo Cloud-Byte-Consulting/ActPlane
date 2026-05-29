@@ -20,7 +20,7 @@ because directives are terse (3.6 lines) while descriptions are verbose
 distorts the picture**: Architecture ranks first by file prevalence in
 prior studies but is 78% description; the true directive-dense topics
 are Development Process (87% directive) and Implementation Details
-(85%). Third, **81% of directives involve system-observable behavior**,
+(85%). Third, **81% of directives involve system behavior**,
 but they require different enforcement mechanisms: linter-level content
 inspection (38%), per-event OS matching (29%), and cross-object state
 tracking (14%). Fourth, **the enforcement gap is wider than the
