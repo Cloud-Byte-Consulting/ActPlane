@@ -21,7 +21,7 @@
 \begin{abstract}
 AI coding agents require harnesses to enforce behavioral contracts
 for effective and safe operation: do not
-leak secrets, run tests before committing, only write tmp dir.
+leak secrets, run tests before committing, only write to tmp dir.
 Agents operate at three levels:
 \emph{intent} (semantic goals and reasoning), \emph{action} (tool calls),
 and \emph{behavior} (OS operations: file access, process execution). 
@@ -39,11 +39,12 @@ from intent.
 
 ActPlane provides enforcement for agent harnesses to bridge the 
 intent--behavior gap: allowing
-agents to transform semantic information into declarative behavioral 
-contracts DSL, ActPlane enforces them as
+agents to transform semantic information flow
+into a declarative behavioral-contracts
+DSL; ActPlane enforces them through
 OS-level information-flow analysis and semantic feedback. 
 We implement ActPlane with eBPF 
-and evaluate on the contracts from empirical study,
+and evaluate on the contracts from the empirical study,
 showing that ActPlane can enforce complex contracts with low overhead and
 provide actionable feedback to agents.
 \end{abstract}
