@@ -19,13 +19,14 @@
   \country{}}
 
 \begin{abstract}
-AI coding agents are guided by natural-language instruction files that express
+AI coding agents are emplowing
 behavioral contracts: do not leak secrets, run tests before committing, use
-only sanctioned tools. These contracts are declared at the level of
-\emph{intent}, what the agent should and should not do, but their effects
-occur as \emph{behavior}: actual OS operations such as file access, process
-execution, and network connections. Between the two sits the agent's
-\emph{action} layer: tool calls that map intent to OS behavior. However, existing agent harness enforcement operates at a single level, 
+only sanctioned tools. The Agents operate at three levels: intent (semantic goals and 
+reasoning), action (tool calls), and behavior 
+(operations: file access, process execution, network connections). 
+ behavioral contracts that span all three levels, from
+conversational constraints to system constraints, However, 
+existing agent harness enforcement operates at a single level, 
 leaving an \emph{intent--behavior gap}:
 intent-level prompts are forgettable and probabilistic;
 action-level guards check tool calls but miss effects that reach the OS through
