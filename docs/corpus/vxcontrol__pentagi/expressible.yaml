@@ -1,0 +1,34 @@
+- statement_id: 14
+  text: '### Adding a New LLM Provider
+
+
+    1. Create `backend/pkg/providers/<name>/<name>.go` implementing the `provider.Provider` interface.
+
+    2. Add a new `Provider<Name> ProviderType` constant and `DefaultProviderName<Name>` in `pkg/providers/provider/provider.go`.
+
+    3. Register the provider in `pkg/providers/providers.go` (`DefaultProviderConfig`, `NewProvider`, `buildProviderFromConfig`,
+    `GetProvider`).
+
+    4. Add the new type to the `Valid()` whitelist in `pkg/server/models/providers.go` — **without this step, the REST API
+    returns 422 Unprocessable Entity**.
+
+    5. Add the env var key to `pkg/config/config.go` (e.g., `<NAME>_API_KEY`, `<NAME>_SERVER_URL`).
+
+    6. Add the new `PROVIDER_TYPE` enum value via a goose migration in `backend/migrations/sql/`.
+
+    7. Add the provider icon in `frontend/src/components/icons/<name>.tsx` and register it in `frontend/src/components/icons/provider-icon.tsx`.
+
+    8. Update the GraphQL schema/types and frontend settings page if needed.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 15
+  text: '### Code Generation
+
+
+    When modifying `backend/pkg/graph/schema.graphqls`, re-run the gqlgen command to regenerate resolver stubs. When modifying
+    REST handler annotations, re-run swag to update Swagger docs. When modifying `frontend/src/graphql/*.graphql` query files,
+    re-run `npm run graphql:generate` to update TypeScript types.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null

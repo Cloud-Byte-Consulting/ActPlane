@@ -1,0 +1,42 @@
+- statement_id: 8
+  text: '### 4. Implementation Requirements
+
+
+    After plan approval:
+
+    - Write clean, minimal code that solves the problem
+
+    - **Tests are MANDATORY** for new functions/methods/classes
+
+    - Tests must verify actual behavior, not just mock everything
+
+    - Avoid over-engineering - solve the current problem, not hypothetical future ones'
+  enforceability: cross_event
+  topic: Development Process
+  rule: null
+- statement_id: 9
+  text: '### 5. Post-Implementation Checklist
+
+
+    After implementation is complete:
+
+    1. Run the test suite and verify tests pass
+
+    2. Check if documentation needs updates (`docs/`, README files, docstrings)
+
+    3. Check if examples need updates (`examples/` directories)
+
+    4. Prepare a PR description following `.github/pull_request_template.md`'
+  enforceability: cross_event
+  topic: Development Process
+  rule: null
+- statement_id: 21
+  text: '- Don''t implement features without explicit approval'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 24
+  text: '- Don''t skip documentation updates'
+  enforceability: cross_event
+  topic: Documentation
+  rule: null

@@ -1,0 +1,146 @@
+- statement_id: 5
+  text: '- You may be running in a git worktree. All changes must be made in your current working directory — never modify
+    files in the main repo checkout.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 6
+  text: '## Build and Dev
+
+    - **Dev**: `bun run dev` (runs from root) or `bun run --cwd packages/opencode --conditions=browser src/index.ts`'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 7
+  text: '- **Dev with params**: `bun dev -- help`'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 8
+  text: '- **Extension**: `bun run extension` (build + launch VS Code with the extension in dev mode). Pass `--no-build` to
+    skip the build.'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 9
+  text: '- **Typecheck**: `bun turbo typecheck` (uses `tsgo`, not `tsc`). Includes the JetBrains plugin — requires Java 21.
+    Check with `java -version` before running. If missing, install via SDKMAN: `sdk install java 21-tem && sdk use java 21-tem`.
+    If SDKMAN is not installed, see https://sdkman.io/install.'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 10
+  text: '- **Test**: `bun test` from `packages/opencode/` (NOT from root -- root blocks tests)'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 11
+  text: '- **Single test**: `bun test ./test/tool/tool-define.test.ts` from `packages/opencode/`'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 12
+  text: '- **CLI build artifact size check**: after `bun run script/build.ts --single --skip-install` in `packages/opencode/`,
+    use `du -h dist/*/*/bin/kilo` (scoped package output lives under `dist/@kilocode/`)'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 13
+  text: '- **SDK regen**: After changing server endpoints in `packages/opencode/src/server/`, run `./script/generate.ts` from
+    root to regenerate `packages/sdk/js/`'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null
+- statement_id: 14
+  text: '- **Knip** (unused exports): `bun run knip` from `packages/kilo-vscode/`. CI runs this — all exported types/functions
+    must be imported somewhere. Remove or unexport unused exports before pushing.'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null
+- statement_id: 15
+  text: '- **Source links**: After adding or changing URLs in `packages/kilo-vscode/`, `packages/kilo-vscode/webview-ui/`,
+    or `packages/opencode/src/`, run `bun run script/extract-source-links.ts` from the repo root and commit the updated `packages/kilo-docs/source-links.md`.
+    CI runs this check — the build fails if the file is stale.'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null
+- statement_id: 16
+  text: '- **kilocode_change check**: `bun run check-kilocode-change` from `packages/kilo-vscode/`. CI runs this — `kilocode_change`
+    is a marker for upstream merge conflicts and must not appear in `packages/kilo-vscode/` or `packages/kilo-ui/` (these
+    are entirely Kilo Code additions). Remove the markers before pushing.'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null
+- statement_id: 17
+  text: '- **opencode annotation check**: `bun run script/check-opencode-annotations.ts` from repo root. CI runs this on PRs
+    touching `packages/opencode/` — every Kilo-specific change in shared opencode files must be annotated with `kilocode_change`
+    markers. Exempt paths (no markers needed): `packages/opencode/src/kilocode/`, `packages/opencode/test/kilocode/`, and
+    any path containing `kilocode` in the name.'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 18
+  text: '- **workflow allowlist**: `bun run script/check-workflows.ts` from repo root. CI runs this as part of the annotations
+    workflow — any `.yml` / `.yaml` file added to or removed from `.github/workflows/` must be reflected in the hardcoded
+    list in `script/check-workflows.ts`. Prevents upstream-merged workflows from silently starting to run in our CI.'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 20
+  text: '## Quality Checks
+
+    Before saying an implementation is ready, run the smallest relevant checks that can catch lint, typecheck, and test failures
+    for the touched package. Do not rely on manual extension launch to discover build problems. Fix failures you introduced
+    before the final response, or state exactly which check is still failing or could not be run.'
+  enforceability: cross_event
+  topic: Testing
+  rule: null
+- statement_id: 22
+  text: Never run root `bun test`; the root script prints `do not run tests from root` and exits with code 1. Use package-level
+    tests instead.
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 26
+  text: Extension-specific settings should live in the Kilo extension settings, not default VS Code settings, unless they
+    are intentionally VS Code-wide.
+  enforceability: per_event
+  topic: Architecture
+  rule: null
+- statement_id: 51
+  text: '## Changesets
+
+    User-facing changes (features, fixes, breaking changes) require a changeset file for release notes. Run `bunx changeset
+    add` or manually create `.changeset/<slug>.md`. Use `patch` for bug fixes, `minor` for new features, `major` for breaking
+    changes. See `.changeset/README.md` for details.'
+  enforceability: cross_event
+  topic: Development Process
+  rule: null
+- statement_id: 56
+  text: '**Very important**: when planning or coding, update shared files with OpenCode as last resort! Everything is shared
+    code from OpenCode, except folders that contain `kilo` in the name or have a parent directory that contains `kilo` in
+    the name. Example of kilo specific folders: `packages/opencode/src/kilocode/` and `packages/kilo-docs/`. Always look for
+    ways to implement your feature or fix in a way that minimizes changes to shared code.'
+  enforceability: per_event
+  topic: Maintenance
+  rule: null
+- statement_id: 58
+  text: "1. **Prefer `kilocode` directories** - Place Kilo-specific code in dedicated directories whenever possible:\n   -\
+    \ `packages/opencode/src/kilocode/` - Kilo-specific source code\n   - `packages/opencode/test/kilocode/` - Kilo-specific\
+    \ tests\n   - `packages/kilo-gateway/` - The Kilo Gateway package"
+  enforceability: per_event
+  topic: Maintenance
+  rule: null
+- statement_id: 61
+  text: 4. **Avoid restructuring upstream code** - Don't refactor or reorganize code that comes from opencode unless absolutely
+    necessary.
+  enforceability: per_event
+  topic: Maintenance
+  rule: null
+- statement_id: 62
+  text: 5. **Mirror new config keys to the cloud schema** - When adding a `kilocode_change` key to `Config.Info` in `packages/opencode/src/config/config.ts`,
+    also add the matching JSON Schema entry in `apps/web/src/app/config.json/extras.ts` in the [cloud repo](https://github.com/Kilo-Org/cloud).
+    See [CLI Config Schema](packages/kilo-docs/pages/contributing/architecture/config-schema.md) for the step-by-step.
+  enforceability: cross_event
+  topic: Maintenance
+  rule: null

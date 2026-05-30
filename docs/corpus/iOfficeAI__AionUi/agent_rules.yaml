@@ -1,0 +1,75 @@
+- statement_id: 16
+  text: '- Global styles only in `src/renderer/styles/`'
+  enforceability: per_event
+  topic: Implementation Details
+  rule: null
+- statement_id: 24
+  text: '## Testing
+
+
+    **Framework**: Vitest 4 (`vitest.config.ts`). Run `bun run test` before every commit. Coverage target ≥ 80%.'
+  enforceability: cross_event
+  topic: Testing
+  rule: null
+- statement_id: 26
+  text: '## Code Quality
+
+
+    **During development** — auto-fix as you edit:
+
+
+    ```bash
+
+    bun run lint:fix       # auto-fix lint issues in .ts / .tsx (oxlint)
+
+    bun run format         # auto-format .ts / .tsx / .css / .json / .md (oxfmt)
+
+    bunx tsc --noEmit      # verify no type errors
+
+    ```'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 27
+  text: '**Before every PR** — run the full CI check locally to catch everything CI catches (end-of-file, trailing whitespace,
+    all file types):
+
+
+    ```bash
+
+    # One-time setup
+
+    npm install -g @j178/prek
+
+
+    # Replicate exact CI check (read-only — does not auto-fix)
+
+    prek run --from-ref origin/main --to-ref HEAD
+
+    ```
+
+
+    > Note: `prek` uses `lint` (check only) and `format:check` (check only) — it will fail if there are issues but won''t
+    fix them.
+
+    > If prek reports formatting or lint issues, run the auto-fix commands above first, then re-run prek to verify.'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null
+- statement_id: 28
+  text: '**i18n validation:** If your changes touch `src/renderer/`, `locales/`, or `src/common/config/i18n`, run:
+
+
+    ```bash
+
+    bun run i18n:types
+
+    node scripts/check-i18n.js
+
+    ```
+
+
+    Both commands must complete without errors before opening a PR. The `oss-pr` skill enforces this automatically.'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null

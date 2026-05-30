@@ -1,0 +1,358 @@
+- statement_id: 5
+  text: '- Fix/triage answers need source, tests, current/shipped behavior, and dependency contract proof.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 7
+  text: '- Live-verify when feasible. Never print secrets.'
+  enforceability: per_event
+  topic: Security
+  expressible: null
+- statement_id: 8
+  text: '- Missing deps: `pnpm install`, retry once, then report first actionable error.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 11
+  text: '- New channel/plugin/app/doc surface: update `.github/labeler.yml` + GH labels.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 12
+  text: '- New `AGENTS.md`: add sibling `CLAUDE.md` symlink; edit `AGENTS.md` only.'
+  enforceability: per_event
+  topic: AI Integration
+  expressible: null
+- statement_id: 18
+  text: '- Plugin prod code: no core `src/**`, `src/plugin-sdk-internal/**`, other plugin `src/**`, or relative outside package.'
+  enforceability: per_event
+  topic: Architecture
+  expressible: null
+- statement_id: 24
+  text: '- Externalizing a bundled plugin: update package excludes, official catalogs, docs, tests, and prove core runtime
+    paths resolve installed plugin roots before root-dep removal.'
+  enforceability: cross_event
+  topic: Architecture
+  expressible: null
+- statement_id: 25
+  text: '- Legacy config repair belongs in `openclaw doctor --fix`, not startup/load-time core migrations. Runtime paths use
+    canonical contracts.'
+  enforceability: per_event
+  topic: Architecture
+  expressible: null
+- statement_id: 29
+  text: '- Public plugin SDK/API is the compat exception. New API first, old path only via named compat/deprecation metadata,
+    docs, warnings when useful, tests for old+new, planned removal.'
+  enforceability: cross_event
+  topic: Architecture
+  expressible: null
+- statement_id: 30
+  text: '- Migrate internal/bundled callers to modern API in the same change. Do not let internal compat become permanent
+    architecture.'
+  enforceability: cross_event
+  topic: Architecture
+  expressible: null
+- statement_id: 35
+  text: '- Gateway protocol changes: additive first; incompatible needs versioning/docs/client follow-through.'
+  enforceability: cross_event
+  topic: Architecture
+  expressible: null
+- statement_id: 37
+  text: '- Config contract: exported types, schema/help, metadata, baselines, docs aligned. Retired public keys stay retired;
+    compat in raw migration/doctor only.'
+  enforceability: cross_event
+  topic: Architecture
+  expressible: null
+- statement_id: 41
+  text: '- Package manager/runtime: repo defaults only. No swaps without approval.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 42
+  text: '- Install: `pnpm install` (keep Bun lock/patches aligned if touched).'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 43
+  text: '- Sharp/Homebrew libvips source-build fail: `SHARP_IGNORE_GLOBAL_LIBVIPS=1 pnpm install`.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 45
+  text: '- Tests in a normal source checkout: `pnpm test <path-or-filter> [vitest args...]`, `pnpm test:changed`, `pnpm test:serial`,
+    `pnpm test:coverage`; never raw `vitest`.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 46
+  text: '- Tests in a Codex worktree or linked/sparse checkout: avoid direct local `pnpm test*`; use `node scripts/run-vitest.mjs
+    <path-or-filter>` for tiny explicit-file proof, or Crabbox/Testbox for anything broader.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 48
+  text: '- Checks in a Codex worktree or linked/sparse checkout: avoid direct local `pnpm check*`; use `node scripts/crabbox-wrapper.mjs
+    run ... --shell -- "pnpm check:changed"` so pnpm runs inside Testbox, not locally.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 50
+  text: '- Typecheck: `tsgo` lanes only (`pnpm tsgo*`, `pnpm check:test-types`); never add `tsc --noEmit`, `typecheck`, `check:types`.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 51
+  text: '- Formatting: `oxfmt`, not Prettier. Use repo wrappers (`pnpm format:*`, `pnpm lint:*`, `scripts/run-oxlint.mjs`).'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 52
+  text: '- Build before push when build output, packaging, lazy/module boundaries, dynamic imports, or published surfaces
+    can change.'
+  enforceability: cross_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 55
+  text: '- Small/narrow tests, lints, format checks, and type probes are fine locally only in a healthy normal checkout.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 56
+  text: '- In Codex worktrees, direct local `pnpm test*`, `pnpm check*`, `pnpm crabbox:run`, and `scripts/committer` can trigger
+    pnpm dependency reconciliation or install prompts. Prefer `node` wrappers locally and Crabbox/Testbox for pnpm-gated proof.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 57
+  text: '- Full suites, broad changed gates, Docker/package/E2E/live/cross-OS proof, or anything that bogs down the Mac: Crabbox/Testbox.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 59
+  text: '- Before handoff/push: prove touched surface. Before landing to `main`: issue proof plus appropriate full/broad proof
+    unless scope is clearly narrow.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 60
+  text: '- Pre-land/pre-commit code changes: use `$autoreview` until no accepted/actionable findings remain, unless equivalent
+    manual review already done, trivial/docs-only, or user opts out.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 62
+  text: '- Do not land related failing format/lint/type/build/tests. If unrelated on latest `origin/main`, say so with scoped
+    proof.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 63
+  text: '- Docs/changelog-only and CI/workflow metadata-only: `git diff --check` plus relevant docs/workflow sanity; escalate
+    only if scripts/config/generated/package/runtime behavior changed.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 64
+  text: '- Prompt snapshots: CI truth is Linux Node 24. If macOS local passes but CI drifts, reproduce/generate in Linux before
+    rerun.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 66
+  text: '- Pasted GitHub issue/PR: first `git status -sb`; if dirty, yell; then `git push` + `git pull --ff-only`.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 67
+  text: '- PR refs: `gh pr view/diff` or `gh api`, not web search. Prefer `gitcrawl` for maintainer discovery; missing/stale
+    `gitcrawl` falls through to live `gh`, not contributor setup. Verify live with `gh` before mutation.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 69
+  text: '- No unsolicited PR comments/reviews/labels/retitles/rebases/fixups/landing. Exception: close/duplicate action that
+    needs a reason comment after explicit close/sweep/landing request.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 74
+  text: '- Changelog: PR landings/fixes need one unless pure test/internal. Do not mention missing changelog as a review finding;
+    Codex handles it during fix/landing.'
+  enforceability: cross_event
+  topic: Documentation
+  expressible: null
+- statement_id: 75
+  text: '- PR verification: before merge, post exact local commands, CI/Testbox run IDs, before/after proof when used, and
+    known proof gaps.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 76
+  text: '- Issue fixed on `main` with proof: comment proof + commit/PR, then close.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 77
+  text: '- After landing or requested close/sweep: search duplicates; comment proof + canonical commit/PR/release before closing.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 79
+  text: '- `ship` that fixes an issue: after push, comment proof + commit link, then close the issue.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 80
+  text: '- GH comments with backticks, `$`, or shell snippets: use heredoc/body file, not inline double-quoted `--body`.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 83
+  text: '- PR artifacts/screenshots: attach to PR/comment/external artifact store. Do not commit `.github/pr-assets`.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 84
+  text: '- CI polling: exact SHA, relevant checks only, minimal fields. Skip routine noise (`Auto response`, `Labeler`, docs
+    agents, performance/stale). Logs only after failure/completion or concrete need.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 95
+  text: '- Dynamic import: no static+dynamic import for same prod module. Use `*.runtime.ts` lazy boundary. After edits: `pnpm
+    build`; check `[INEFFECTIVE_DYNAMIC_IMPORT]`.'
+  enforceability: cross_event
+  topic: Implementation Details
+  expressible: null
+- statement_id: 96
+  text: '- Cycles: keep `pnpm check:import-cycles` + architecture/madge green.'
+  enforceability: per_event
+  topic: Implementation Details
+  expressible: null
+- statement_id: 106
+  text: '- Do not edit baseline/inventory/ignore/snapshot/expected-failure files to silence checks without explicit approval.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 107
+  text: '- Do not run independent `pnpm test`/Vitest commands concurrently in one worktree; Vitest cache races with `ENOTEMPTY`.
+    Group one command or use distinct `OPENCLAW_VITEST_FS_MODULE_CACHE_PATH`.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 108
+  text: '- Test workers max 16. Memory pressure: `OPENCLAW_VITEST_MAX_WORKERS=1 pnpm test`.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 112
+  text: '- Codex harness upgrade (`extensions/codex/package.json` `@openai/codex`): refresh `docs/plugins/codex-harness.md`
+    model snapshot from the new harness `model/list`.'
+  enforceability: cross_event
+  topic: Documentation
+  expressible: null
+- statement_id: 115
+  text: '- Contributor PR authors should not edit `CHANGELOG.md`; maintainer/AI adds entries during landing/merge.'
+  enforceability: per_event
+  topic: Documentation
+  expressible: null
+- statement_id: 117
+  text: '## Git
+
+
+    - Commit via `scripts/committer "<msg>" <file...>`; stage intended files only.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 119
+  text: '- No manual stash/autostash unless explicit. No branch/worktree changes unless requested.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 120
+  text: '- `main`: no merge commits; rebase on latest `origin/main` before push. After one green run plus clean rebase sanity,
+    do not chase moving `main` with repeated full gates.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 121
+  text: '- User says `commit`: your changes only. `commit all`: all changes in grouped chunks. `push`: may `git pull --rebase`
+    first.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 122
+  text: '- User says `ship it`: changelog if needed, commit intended changes, pull --rebase, push.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 123
+  text: '- Do not delete/rename unexpected files; ask if blocking, else ignore.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 125
+  text: '## Security / Release
+
+
+    - Never commit real phone numbers, videos, credentials, live config.'
+  enforceability: per_event
+  topic: Security
+  expressible: null
+- statement_id: 127
+  text: '- Dependency patches/overrides/vendor changes need explicit approval. `pnpm-workspace.yaml` patched dependencies
+    use exact versions only.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 129
+  text: '- Carbon pins owner-only: do not change `@buape/carbon` unless Shadow (`@thewilloftheshadow`, verified by `gh`) asks.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 130
+  text: '- Releases/publish/version bumps need explicit approval. Use `$openclaw-release-maintainer`.'
+  enforceability: per_event
+  topic: DevOps
+  expressible: null
+- statement_id: 133
+  text: '## Platform / Ops
+
+
+    - Before simulator/emulator testing, check real iOS/Android devices.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 136
+  text: '- Mac gateway: dev watch = `pnpm gateway:watch`; managed installs = `openclaw gateway restart/status --deep`; logs
+    = `./scripts/clawlog.sh`. No launchd/ad-hoc tmux.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 137
+  text: '- Mac app permission testing: stable app path + real signing identity required. No `--no-sign`, `SIGN_IDENTITY=-`,
+    or raw debug binary; TCC prompts/listing won''t stick.'
+  enforceability: per_event
+  topic: Testing
+  expressible: null
+- statement_id: 141
+  text: '- ClawSweeper ops: `$clawsweeper`. Deployed hook sessions may post one concise `#clawsweeper` note only when surprising/actionable/risky;
+    if using message tool, reply exactly `NO_REPLY`.'
+  enforceability: per_event
+  topic: DevOps
+  expressible: null
+- statement_id: 143
+  text: '- Rebrand/migration/config warnings: run `openclaw doctor`.'
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 144
+  text: '- Never edit `node_modules`.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 145
+  text: '- Local-only `.agents` ignores: `.git/info/exclude`, not repo `.gitignore`.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null

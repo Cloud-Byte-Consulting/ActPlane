@@ -1,0 +1,18 @@
+- statement_id: 16
+  text: 'Before concluding: zero pending tasks, tests passing, verifier evidence collected.
+
+    </execution_protocols>'
+  enforceability: cross_event
+  topic: AI Integration
+  expressible: null
+- statement_id: 21
+  text: '## Setup
+
+
+    Say "setup omc" or run `/oh-my-claudecode:omc-setup`.
+
+
+    <!-- OMC:END -->'
+  enforceability: per_event
+  topic: AI Integration
+  expressible: null

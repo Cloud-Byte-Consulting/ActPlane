@@ -1,0 +1,47 @@
+- statement_id: 17
+  text: '## Build/Test/Lint Commands
+
+
+    - **Build**: `go build .` or `go run .`'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 18
+  text: "- **Test**: `task test` or `go test ./...` (run single test:\n  `go test ./internal/llm/prompt -run TestGetContextFromPaths`)"
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 19
+  text: "- **Update Golden Files**: `go test ./... -update` (regenerates `.golden`\n  files when test output changes)\n  -\
+    \ Update specific package:\n    `go test ./internal/tui/components/core -update` (in this case,\n    we're updating \"\
+    core\")"
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 20
+  text: '- **Lint**: `task lint:fix`'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 21
+  text: '- **Format**: `task fmt` (`gofumpt -w .`)'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 22
+  text: "- **Modernize**: `task modernize` (runs `modernize` which makes code\n  simplifications)"
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 23
+  text: '- **Dev**: `task dev` (runs with profiling enabled)'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 39
+  text: "## Formatting\n\n- ALWAYS format any Go code you write.\n  - First, try `gofumpt -w .`.\n  - If `gofumpt` is not\
+    \ available, use `goimports`.\n  - If `goimports` is not available, use `gofmt`.\n  - You can also use `task fmt` to run\
+    \ `gofumpt -w .` on the entire project,\n    as long as `gofumpt` is on the `PATH`."
+  enforceability: cross_event
+  topic: Implementation Details
+  expressible: null

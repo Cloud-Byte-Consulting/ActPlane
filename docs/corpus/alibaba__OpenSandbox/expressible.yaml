@@ -1,0 +1,62 @@
+- statement_id: 8
+  text: '- For runtime component changes under `components/**`, read the nearest `README.md` or `DEVELOPMENT.md`; keep component
+    APIs aligned with `specs/` and SDK consumers.'
+  enforceability: cross_event
+  topic: AI Integration
+  expressible: null
+- statement_id: 9
+  text: '- For CLI changes under `cli/**`, read `cli/README.md` and verify command help/output behavior alongside unit tests.'
+  enforceability: cross_event
+  topic: AI Integration
+  expressible: null
+- statement_id: 10
+  text: '- For cross-language e2e tests under `tests/**`, read the language-local README and keep test assumptions aligned
+    with current server and SDK behavior.'
+  enforceability: cross_event
+  topic: AI Integration
+  expressible: null
+- statement_id: 15
+  text: '- Goal-driven execution: translate non-trivial work into verifiable success criteria, add or update focused tests
+    when behavior changes, and loop until checks pass or blockers are clear.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 18
+  text: '- Keep spec, implementation, SDKs, docs, examples, config, and CLI behavior aligned when user-visible behavior changes.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 19
+  text: '- When changing `specs/*`, also update or verify affected server, SDK, docs, and release outputs when practical.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 20
+  text: '- When changing CRDs or Kubernetes public behavior, update or verify generated manifests, Helm/Kustomize deployment
+    output, server Kubernetes integration, and docs when practical.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 22
+  text: '- Regenerate derived outputs when the source-of-truth file changes.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 23
+  text: '- Update tests when behavior changes or bugs are fixed.'
+  enforceability: cross_event
+  topic: Testing
+  expressible: null
+- statement_id: 30
+  text: 'Never:
+
+
+    - Edit generated output as the only fix.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 31
+  text: '- Mix unrelated component work into the same change.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null

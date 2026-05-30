@@ -1,0 +1,51 @@
+- statement_id: 5
+  text: '- Do not update dependencies casually. Version bumps, patched dependencies, overrides, or vendored dependency changes
+    require explicit approval.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 8
+  text: '- Use `uv` for Python execution and package management. Do not use `python` or `python3` directly unless the user
+    explicitly asks for it.
+
+    - Prefer `uv run` for scripts and tests, and `uv pip` for package operations.'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 10
+  text: '- Do not create, apply, or drop `git stash` entries unless explicitly requested.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 11
+  text: '- Do not create, remove, or modify `git worktree` checkouts unless explicitly requested.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 12
+  text: '- Do not switch branches or check out a different branch unless explicitly requested.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 13
+  text: '- When the user says `push`, you may `git pull --rebase` to integrate latest changes, but never discard other in-progress
+    work.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 14
+  text: '- When the user says `commit`, commit only your changes. When the user says `commit all`, commit everything in grouped
+    chunks.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 17
+  text: '- If staged and unstaged diffs are formatting-only, resolve them without asking.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 18
+  text: '- If a commit or push was already requested, include formatting-only follow-up changes in that same commit when practical.'
+  enforceability: cross_event
+  topic: Development Process
+  rule: null

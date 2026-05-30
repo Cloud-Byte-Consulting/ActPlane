@@ -1,0 +1,28 @@
+- statement_id: 28
+  text: '- New sandbox providers: add a module under `agent/integrations/` and wire it into `SANDBOX_FACTORIES` in `agent/utils/sandbox.py`.
+    See `CUSTOMIZATION.md`.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 29
+  text: '- New tools: add to `agent/tools/`, export from `agent/tools/__init__.py`, add to the `tools=[...]` list in `server.py:get_agent`
+    (or `reviewer.py` for reviewer-only tools).'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 30
+  text: '- New middleware: add to `agent/middleware/`, export from `agent/middleware/__init__.py`, add to the `middleware=[...]`
+    list in `server.py:get_agent` — order is significant (see the stack above).'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 31
+  text: '- New dashboard endpoints: add to `agent/dashboard/routes.py`. The router is auto-mounted on the FastAPI app.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 32
+  text: '- New graphs: register the entrypoint in `langgraph.json` under `graphs`.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null

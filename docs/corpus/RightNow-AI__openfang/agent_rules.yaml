@@ -1,0 +1,66 @@
+- statement_id: 2
+  text: '## Build & Verify Workflow
+
+    After every feature implementation, run ALL THREE checks:
+
+    ```bash
+
+    cargo build --workspace --lib          # Must compile (use --lib if exe is locked)
+
+    cargo test --workspace                 # All tests must pass (currently 1744+)
+
+    cargo clippy --workspace --all-targets -- -D warnings  # Zero warnings
+
+    ```'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null
+- statement_id: 3
+  text: '## MANDATORY: Live Integration Testing
+
+    **After implementing any new endpoint, feature, or wiring change, you MUST run live integration tests.** Unit tests alone
+    are not enough — they can pass while the feature is actually dead code. Live tests catch:
+
+    - Missing route registrations in server.rs
+
+    - Config fields not being deserialized from TOML
+
+    - Type mismatches between kernel and API layers
+
+    - Endpoints that compile but return wrong/empty data'
+  enforceability: cross_event
+  topic: Testing
+  rule: null
+- statement_id: 4
+  text: "### How to Run Live Integration Tests\n\n#### Step 1: Stop any running daemon\n```bash\ntasklist | grep -i openfang\n\
+    taskkill //PID <pid> //F\n# Wait 2-3 seconds for port to release\nsleep 3\n```\n\n#### Step 2: Build fresh release binary\n\
+    ```bash\ncargo build --release -p openfang-cli\n```\n\n#### Step 3: Start daemon with required API keys\n```bash\nGROQ_API_KEY=<key>\
+    \ target/release/openfang.exe start &\nsleep 6  # Wait for full boot\ncurl -s http://127.0.0.1:4200/api/health  # Verify\
+    \ it's up\n```\nThe daemon command is `start` (not `daemon`).\n\n#### Step 4: Test every new endpoint\n```bash\n# GET\
+    \ endpoints — verify they return real data, not empty/null\ncurl -s http://127.0.0.1:4200/api/<new-endpoint>\n\n# POST/PUT\
+    \ endpoints — send real payloads\ncurl -s -X POST http://127.0.0.1:4200/api/<endpoint> \\\n  -H \"Content-Type: application/json\"\
+    \ \\\n  -d '{\"field\": \"value\"}'\n\n# Verify write endpoints persist — read back after writing\ncurl -s -X PUT http://127.0.0.1:4200/api/<endpoint>\
+    \ -d '...'\ncurl -s http://127.0.0.1:4200/api/<endpoint>  # Should reflect the update\n```\n\n#### Step 5: Test real LLM\
+    \ integration\n```bash\n# Get an agent ID\ncurl -s http://127.0.0.1:4200/api/agents | python3 -c \"import sys,json; print(json.load(sys.stdin)[0]['id'])\"\
+    \n\n# Send a real message (triggers actual LLM call to Groq/OpenAI)\ncurl -s -X POST \"http://127.0.0.1:4200/api/agents/<id>/message\"\
+    \ \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"message\": \"Say hello in 5 words.\"}'\n```\n\n#### Step 6:\
+    \ Verify side effects\nAfter an LLM call, verify that any metering/cost/usage tracking updated:\n```bash\ncurl -s http://127.0.0.1:4200/api/budget\
+    \       # Cost should have increased\ncurl -s http://127.0.0.1:4200/api/budget/agents  # Per-agent spend should show\n\
+    ```\n\n#### Step 7: Verify dashboard HTML\n```bash\n# Check that new UI components exist in the served HTML\ncurl -s http://127.0.0.1:4200/\
+    \ | grep -c \"newComponentName\"\n# Should return > 0\n```\n\n#### Step 8: Cleanup\n```bash\ntasklist | grep -i openfang\n\
+    taskkill //PID <pid> //F\n```"
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 6
+  text: '## Architecture Notes
+
+    - **Don''t touch `openfang-cli`** — user is actively building the interactive CLI'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 9
+  text: '- New routes must be registered in `server.rs` router AND implemented in `routes.rs`'
+  enforceability: cross_event
+  topic: Architecture
+  rule: null

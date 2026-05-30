@@ -1,0 +1,100 @@
+- statement_id: 19
+  text: '- Keep clippy clean with zero warnings.'
+  enforceability: per_event
+  topic: Implementation Details
+  rule: null
+- statement_id: 22
+  text: '## Database, Setup, and Config Rules
+
+
+    - New persistence behavior must support both PostgreSQL and libSQL.'
+  enforceability: cross_event
+  topic: Configuration & Environment
+  rule: null
+- statement_id: 23
+  text: '- Add new DB operations to the shared DB trait first, then implement both backends.'
+  enforceability: cross_event
+  topic: Configuration & Environment
+  rule: null
+- statement_id: 25
+  text: '- If onboarding or setup behavior changes, update `src/setup/README.md` in the same branch.'
+  enforceability: cross_event
+  topic: Configuration & Environment
+  rule: null
+- statement_id: 28
+  text: '- Do not weaken bearer-token auth, webhook auth, CORS/origin checks, body limits, rate limits, allowlists, or secret-handling
+    guarantees.'
+  enforceability: per_event
+  topic: Security
+  rule: null
+- statement_id: 29
+  text: '- Treat Docker containers and external services as untrusted.'
+  enforceability: per_event
+  topic: Security
+  rule: null
+- statement_id: 33
+  text: '## Tools, Channels, and Extensions
+
+
+    - Use a built-in Rust tool for core internal capabilities tightly coupled to the runtime.'
+  enforceability: per_event
+  topic: Architecture
+  rule: null
+- statement_id: 34
+  text: '- Use WASM tools or WASM channels for sandboxed extensions and plugin-style integrations.'
+  enforceability: per_event
+  topic: Architecture
+  rule: null
+- statement_id: 35
+  text: '- Use MCP for external server integrations when the capability belongs outside the main binary.'
+  enforceability: per_event
+  topic: Architecture
+  rule: null
+- statement_id: 37
+  text: '## Docs, Parity, and Testing
+
+
+    - If behavior changes, update the relevant docs/specs in the same branch.'
+  enforceability: cross_event
+  topic: Documentation
+  rule: null
+- statement_id: 38
+  text: '- If you change implementation status for any feature tracked in `FEATURE_PARITY.md`, update that file in the same
+    branch.'
+  enforceability: cross_event
+  topic: Documentation
+  rule: null
+- statement_id: 39
+  text: '- Do not open a PR that changes feature behavior without checking `FEATURE_PARITY.md` for needed status updates (`❌`,
+    `🚧`, `✅`, notes, and priorities).'
+  enforceability: cross_event
+  topic: Documentation
+  rule: null
+- statement_id: 45
+  text: '- Avoid unrelated file churn and generated-file edits unless required.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 46
+  text: '- Respect a dirty worktree and never revert user changes you did not make.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 47
+  text: '## Before Finishing
+
+
+    - Confirm whether behavior changes require updates to `FEATURE_PARITY.md`, specs, API docs, or `CHANGELOG.md`.'
+  enforceability: cross_event
+  topic: Development Process
+  rule: null
+- statement_id: 48
+  text: '- Run the most targeted tests/checks that cover the change.'
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 49
+  text: '- Re-check security-sensitive paths when touching auth, secrets, network listeners, sandboxing, or approvals.'
+  enforceability: cross_event
+  topic: Security
+  rule: null

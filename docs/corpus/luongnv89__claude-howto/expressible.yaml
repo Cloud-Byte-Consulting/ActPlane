@@ -1,0 +1,63 @@
+- statement_id: 2
+  text: '## Critical commands
+
+
+    ```bash
+
+    # Quality gate (also runs on commit via pre-commit hooks)
+
+    pre-commit run --all-files
+
+
+    # Tests
+
+    pytest scripts/tests/ -v
+
+
+    # EPUB build (calls Kroki.io API to render Mermaid — needs network)
+
+    uv run scripts/build_epub.py
+
+
+    # Python tooling
+
+    ruff check scripts/ && ruff format scripts/
+
+    mypy scripts/ --ignore-missing-imports
+
+    bandit -c scripts/pyproject.toml -r scripts/ --exclude scripts/tests/
+
+    ```
+
+
+    Pre-commit runs 5 checks: markdown-lint, cross-references, mermaid-syntax, link-check, build-epub (on `.md` changes).
+    All must pass.'
+  enforceability: cross_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 5
+  text: '- **YOU MUST NOT commit or push without explicit user request.**'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 7
+  text: '- Always activate `.venv` before running Python scripts (check `venv/`, `.venv/`, `env/`).'
+  enforceability: cross_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 13
+  text: '- Do not reorganize the `01-`–`10-` numbering. The order is the curriculum.'
+  enforceability: per_event
+  topic: Architecture
+  expressible: null
+- statement_id: 17
+  text: '- When adding a module page: README + templates first, then update root `README.md` index and `LEARNING-ROADMAP.md`
+    if order/timing changes.'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 19
+  text: '- If a quality check fails, fix the underlying issue. Don''t bypass with `--no-verify`.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null

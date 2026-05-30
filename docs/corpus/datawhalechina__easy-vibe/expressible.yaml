@@ -1,0 +1,23 @@
+- statement_id: 2
+  text: '## Build, Test, and Development Commands
+
+
+    This repo is a VitePress (Vue 3) documentation project. Requires Node.js **>= 18**.
+
+
+    ```bash
+
+    npm install
+
+    npm run dev      # start local docs server (hot reload)
+
+    npm run build    # production build (use as CI-style check)
+
+    npm run preview  # preview the built site locally
+
+    npm run format   # run Prettier on the whole repo
+
+    ```'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null

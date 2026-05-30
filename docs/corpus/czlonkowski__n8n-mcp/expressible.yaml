@@ -1,0 +1,68 @@
+- statement_id: 2
+  text: '> **Note:** This file is committed to a public OSS repository. Never add sensitive information (API keys, internal
+    URLs, credentials, private infrastructure details) here.'
+  enforceability: per_event
+  topic: Security
+  expressible: null
+- statement_id: 21
+  text: '## Memories and Notes for Development
+
+
+    ### Development Workflow Reminders
+
+    - When you make changes to MCP server, you need to ask the user to reload it before you test'
+  enforceability: cross_event
+  topic: Development Process
+  expressible: null
+- statement_id: 25
+  text: '### Testing Best Practices
+
+    - Always run `npm run build` before testing changes'
+  enforceability: cross_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 26
+  text: '- Use `npm run dev` to rebuild database after package updates'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 27
+  text: '- Check coverage with `npm run test:coverage`'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 33
+  text: '### Performance Considerations
+
+    - Use `get_node_essentials()` instead of `get_node_info()` for faster responses'
+  enforceability: per_event
+  topic: Implementation Details
+  expressible: null
+- statement_id: 37
+  text: '- When you use sub-agents, do not allow them to commit and push. That should be done by you'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 38
+  text: '### Development Best Practices
+
+    - Run typecheck and lint after every code change'
+  enforceability: cross_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 40
+  text: NEVER create files unless they're absolutely necessary for achieving your goal.
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 41
+  text: ALWAYS prefer editing an existing file to creating a new one.
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 42
+  text: NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly
+    requested by the User.
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null

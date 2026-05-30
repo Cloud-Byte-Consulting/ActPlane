@@ -1,0 +1,179 @@
+- statement_id: 7
+  text: '## Code Quality
+
+
+    - Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to
+    investigate or audit. Do not rely on search snippets for broad changes.'
+  enforceability: cross_event
+  topic: Implementation Details
+  rule: null
+- statement_id: 12
+  text: '- Never remove or downgrade code to fix type errors from outdated deps; upgrade the dep instead.'
+  enforceability: per_event
+  topic: Implementation Details
+  rule: null
+- statement_id: 17
+  text: '- Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead.'
+  enforceability: per_event
+  topic: Implementation Details
+  rule: null
+- statement_id: 18
+  text: '## Commands
+
+
+    - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing.
+    Does not run tests.'
+  enforceability: cross_event
+  topic: Build and Run
+  rule: null
+- statement_id: 19
+  text: '- Never run `npm run build` or `npm test` unless requested by the user.'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 20
+  text: '- Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present.
+    For all non-e2e tests, run `./test.sh` from the repo root. Otherwise run specific tests from the package root: `node ../../node_modules/vitest/dist/cli.js
+    --run test/specific.test.ts`.'
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 21
+  text: '- If you create or modify a test file, run it and iterate on test or implementation until it passes.'
+  enforceability: cross_event
+  topic: Testing
+  rule: null
+- statement_id: 22
+  text: '- For `packages/coding-agent/test/suite/`, use `test/suite/harness.ts` + the faux provider. No real provider APIs,
+    keys, or paid tokens.'
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 23
+  text: '- Put issue-specific regressions under `packages/coding-agent/test/suite/regressions/` named `<issue-number>-<short-slug>.test.ts`.'
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 24
+  text: '- For ad-hoc scripts, `write` them to a temp file (e.g. `/tmp`), run, edit if needed, remove when done. Don''t embed
+    multi-line scripts in `bash` commands.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 25
+  text: '- Never commit unless the user asks.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 26
+  text: '## Dependency and Install Security
+
+
+    - Treat npm dep and lockfile changes as reviewed code. Direct external deps stay pinned to exact versions.'
+  enforceability: per_event
+  topic: Security
+  rule: null
+- statement_id: 27
+  text: '- Hydrate/update locally with `npm install --ignore-scripts`; clean/CI-style with `npm ci --ignore-scripts`. Don''t
+    run lifecycle scripts unless the user asks.'
+  enforceability: per_event
+  topic: Security
+  rule: null
+- statement_id: 28
+  text: '- If dep metadata changes, refresh `package-lock.json` with `npm install --package-lock-only --ignore-scripts`.'
+  enforceability: per_event
+  topic: Security
+  rule: null
+- statement_id: 29
+  text: '- If `packages/coding-agent/npm-shrinkwrap.json` needs regen, run `node scripts/generate-coding-agent-shrinkwrap.mjs`
+    (verify with `--check` or `npm run check`). New deps with lifecycle scripts require review and an explicit allowlist entry
+    in that script; never add one silently.'
+  enforceability: per_event
+  topic: Security
+  rule: null
+- statement_id: 30
+  text: '- Pre-commit blocks lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1`. Don''t bypass unless the user wants the
+    lockfile change committed.'
+  enforceability: per_event
+  topic: Security
+  rule: null
+- statement_id: 32
+  text: 'Committing:
+
+
+    - Only commit files YOU changed in THIS session.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 33
+  text: '- Stage explicit paths (`git add <path1> <path2>`); never `git add -A` / `git add .`.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 34
+  text: '- Before committing, run `git status` and verify you are only staging your files.'
+  enforceability: cross_event
+  topic: Development Process
+  rule: null
+- statement_id: 35
+  text: '- `packages/ai/src/models.generated.ts` may always be included alongside your files.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 36
+  text: 'Never run (destroys other agents'' work or bypasses checks):
+
+
+    - `git reset --hard`, `git checkout .`, `git clean -fd`, `git stash`, `git add -A`, `git add .`, `git commit --no-verify`.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 37
+  text: 'If rebase conflicts occur:
+
+
+    - Resolve conflicts only in files you modified.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 39
+  text: '- Never force push.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 42
+  text: 'When posting issue/PR comments:
+
+
+    - Write the comment to a temp file and post with `gh issue/pr comment --body-file` (never multi-line markdown via `--body`).'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 50
+  text: '- Released version sections (e.g. `## [0.12.2]`) are immutable; never modify them.'
+  enforceability: per_event
+  topic: Documentation
+  rule: null
+- statement_id: 54
+  text: "1. **Update CHANGELOGs**: ask the user whether they ran the `/cl` prompt on the latest commit on `main`. If not,\
+    \ they must run `/cl` first to audit and update each package's `[Unreleased]` section before releasing.\n\n2. **Local\
+    \ smoke test**: build an unpublished release and smoke test from outside the repo (so it can't resolve workspace files):\n\
+    \   ```bash\n   npm run release:local -- --out /tmp/pi-local-release --force\n   cd /tmp\n   /tmp/pi-local-release/node/pi\
+    \ --help\n   /tmp/pi-local-release/node/pi --version\n   /tmp/pi-local-release/node/pi\n   /tmp/pi-local-release/bun/pi\
+    \ --help\n   /tmp/pi-local-release/bun/pi --version\n   ```\n   Verify startup, model/account listing, and at least one\
+    \ real prompt with the intended default provider. Failures are release blockers unless the user explicitly accepts the\
+    \ risk.\n\n3. **Brief the user on the WebAuthn flow before running anything**. Print exactly the following message and\
+    \ then stop and wait for the user to confirm in their next message:\n\n   ```\n   Before I run the release script, read\
+    \ this carefully:\n\n   - `npm publish` uses WebAuthn 2FA.\n   - A login URL will appear in the live bash output in this\
+    \ TUI. I will NOT see it until the command exits.\n   - You must watch the bash output, cmd/ctrl-click the URL, log in\
+    \ in the browser, and select the \"don't ask again for N minutes\" option so publish can continue.\n   - This may happen\
+    \ more than once during the release.\n\n   Reply \"ready\" once you have read this and are watching the bash output. I\
+    \ will not run the release script until you do.\n   ```\n\n   Do not proceed to step 4 until the user explicitly confirms.\n\
+    \n4. **Run the release script**:\n   ```bash\n   npm run release:patch    # fixes + additions\n   npm run release:minor\
+    \    # breaking changes\n   ```\n   Do not pass a `timeout` to the bash tool for this call. If publish fails partway,\
+    \ stop and report to the user what happened (which package failed, the error output) along with possible solutions. Never\
+    \ rerun the version bump on your own.\n\n5. **After publish succeeds**:\n   - Add fresh `## [Unreleased]` sections to\
+    \ package changelogs.\n   - Commit with `Add [Unreleased] section for next cycle`.\n   - Push `main` and the release tag."
+  enforceability: cross_event
+  topic: DevOps
+  rule: null

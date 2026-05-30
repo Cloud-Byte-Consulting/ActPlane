@@ -1,0 +1,59 @@
+- statement_id: 3
+  text: '## Installation
+
+
+    ### 🚨 CRITICAL: Follow these steps in order
+
+
+    ### Step 1: Download Template
+
+
+    Use the `download-template` MCP tool to create a new project with your backend URL and anon key pre-configured.'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 4
+  text: '### Step 2: Install SDK
+
+
+    ```bash
+
+    npm install @insforge/sdk@latest
+
+    ```'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 6
+  text: '## Getting Detailed Documentation
+
+
+    ### 🚨 CRITICAL: Always Fetch Documentation Before Writing Code
+
+
+    Before writing or editing any InsForge integration code, you **MUST** call the `fetch-docs` MCP tool to get the latest
+    SDK documentation. This ensures you have accurate, up-to-date implementation patterns.'
+  enforceability: cross_event
+  topic: AI Integration
+  expressible: null
+- statement_id: 10
+  text: '### Use MCP Tools for Infrastructure:
+
+
+    - Project scaffolding (`download-template`) - Download starter templates with InsForge integration
+
+    - Backend setup and metadata (`get-backend-metadata`)
+
+    - Database schema management (`run-raw-sql`, `get-table-schema`)
+
+    - Storage bucket creation (`create-bucket`, `list-buckets`, `delete-bucket`)
+
+    - Serverless function deployment (`create-function`, `update-function`, `delete-function`)'
+  enforceability: per_event
+  topic: Implementation Details
+  expressible: null
+- statement_id: 17
+  text: '- **EXTRA IMPORTANT**: Use Tailwind CSS 3.4 (do not upgrade to v4). Lock these dependencies in `package.json`'
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null

@@ -1,0 +1,23 @@
+- statement_id: 1
+  text: '## uv package manager by default
+
+
+    This project uses the `uv` package manager.
+
+
+    - To add a dependency, run `uv add <package>`.
+
+    - To run a script, run `uv run <script>`.
+
+    - To examine dependencies, consult the `pyproject.toml` file.'
+  enforceability: per_event
+  topic: Build and Run
+  rule: null
+- statement_id: 2
+  text: '## Testing
+
+
+    - Always run tests before committing. The test command is `uv run prek run --all-files`.'
+  enforceability: cross_event
+  topic: Testing
+  rule: null

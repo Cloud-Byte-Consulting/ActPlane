@@ -1,0 +1,79 @@
+- statement_id: 2
+  text: '## Skills
+
+
+    This repo ships AI agent skills via [vercel-labs/skills](https://github.com/vercel-labs/skills). Install them before writing
+    compositions — they encode framework-specific patterns that generic docs don''t cover.
+
+
+    ```bash
+
+    npx skills add heygen-com/hyperframes
+
+    ```'
+  enforceability: cross_event
+  topic: AI Integration
+  expressible: null
+- statement_id: 3
+  text: '## Build & Test
+
+
+    ```bash
+
+    bun install     # Install dependencies (NOT pnpm — do not create pnpm-lock.yaml)
+
+    bun run build   # Build all packages
+
+    bun run test    # Run all tests
+
+    ```'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null
+- statement_id: 4
+  text: '### Linting & Formatting
+
+
+    Uses **oxlint** and **oxfmt** (not eslint, not prettier, not biome).
+
+
+    ```bash
+
+    bunx oxlint <files>        # Lint
+
+    bunx oxfmt <files>         # Format
+
+    bunx oxfmt --check <files> # Check formatting (CI / pre-commit)
+
+    ```
+
+
+    Always lint and format changed files before committing. Lefthook pre-commit hooks enforce this automatically.'
+  enforceability: per_event
+  topic: Implementation Details
+  expressible: null
+- statement_id: 5
+  text: '### Composition Validation
+
+
+    After creating or editing any `.html` composition:
+
+
+    ```bash
+
+    npx hyperframes lint       # Static HTML structure check
+
+    npx hyperframes validate   # Runtime check (headless Chrome — catches JS errors, missing assets)
+
+    ```
+
+
+    Both must pass before previewing or considering work complete.'
+  enforceability: cross_event
+  topic: Testing
+  expressible: null
+- statement_id: 10
+  text: '- **Package manager**: bun (not pnpm, not npm for workspace operations)'
+  enforceability: per_event
+  topic: Build and Run
+  expressible: null

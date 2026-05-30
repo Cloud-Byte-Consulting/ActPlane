@@ -1,0 +1,278 @@
+- statement_id: 10
+  text: 'Before implementing work, opening a PR, or merging/closing a PR, run the PR
+
+    preflight:
+
+    ```bash
+
+    scripts/pr-preflight.sh --search "<topic keywords>" --repo gastownhall/beads
+
+    scripts/pr-preflight.sh <pr-number> --repo gastownhall/beads
+
+    ```'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 15
+  text: '## Agent Warning: Interactive Commands
+
+
+    **DO NOT use `bd edit`** - it opens an interactive editor ($EDITOR) which AI agents cannot use.
+
+
+    Use `bd update` with flags instead:
+
+    ```bash
+
+    bd update <id> --description "new description"
+
+    bd update <id> --title "new title"
+
+    bd update <id> --design "design notes"
+
+    bd update <id> --notes "additional notes"
+
+    bd update <id> --acceptance "acceptance criteria"
+
+
+    # Use stdin for descriptions with special characters (backticks, !, nested quotes)
+
+    echo ''Description with `backticks` and "quotes"'' | bd create "Title" --description=-
+
+    echo ''Updated text'' | bd update <id> --description=-
+
+    ```'
+  enforceability: per_event
+  topic: AI Integration
+  rule: null
+- statement_id: 16
+  text: '## Testing Commands (No Ambiguity)
+
+
+    - Default local test command: `make test` (or `./scripts/test.sh`).'
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 17
+  text: '- Opt-in ICU regex path: `make test-icu-path` (or `./scripts/test-icu-path.sh ./...`).'
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 19
+  text: '- For package- or test-scoped shipped-config CGO runs, prefer:
+
+    ```bash
+
+    CGO_ENABLED=1 go test -tags gms_pure_go ./cmd/bd/...
+
+    CGO_ENABLED=1 go test -tags gms_pure_go -run ''^TestName$'' ./cmd/bd/...
+
+    ```'
+  enforceability: per_event
+  topic: Testing
+  rule: null
+- statement_id: 20
+  text: '## Non-Interactive Shell Commands
+
+
+    **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
+
+
+    Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the
+    agent to hang indefinitely waiting for y/n input.
+
+
+    **Use these forms instead:**
+
+    ```bash
+
+    # Force overwrite without prompting
+
+    cp -f source dest           # NOT: cp source dest
+
+    mv -f source dest           # NOT: mv source dest
+
+    rm -f file                  # NOT: rm file
+
+
+    # For recursive operations
+
+    rm -rf directory            # NOT: rm -r directory
+
+    cp -rf source dest          # NOT: cp -r source dest
+
+    ```'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 21
+  text: '**Other commands that may prompt:**
+
+    - `scp` - use `-o BatchMode=yes` for non-interactive'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 22
+  text: '- `ssh` - use `-o BatchMode=yes` to fail instead of prompting'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 23
+  text: '- `apt-get` - use `-y` flag'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 24
+  text: '- `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 25
+  text: "## Landing the Plane (Session Completion)\n\n**When ending a work session**, you MUST complete ALL steps below. Work\
+    \ is NOT complete until `git push` succeeds.\n\n**MANDATORY WORKFLOW:**\n\n1. **File issues for remaining work** - Create\
+    \ issues for anything that needs follow-up\n2. **Run quality gates** (if code changed) - Tests, linters, builds\n3. **Update\
+    \ issue status** - Close finished work, update in-progress items\n4. **PUSH TO REMOTE** - This is MANDATORY:\n   ```bash\n\
+    \   git pull --rebase\n   git push\n   git status  # MUST show \"up to date with origin\"\n   ```\n5. **Clean up** - Clear\
+    \ stashes, prune remote branches\n6. **Verify** - All changes committed AND pushed\n7. **Hand off** - Provide context\
+    \ for next session"
+  enforceability: cross_event
+  topic: Development Process
+  rule: null
+- statement_id: 26
+  text: '**CRITICAL RULES:**
+
+    - Work is NOT complete until `git push` succeeds'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 27
+  text: '- NEVER stop before pushing - that leaves work stranded locally'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 29
+  text: '- If push fails, resolve and retry until it succeeds'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 30
+  text: '<!-- BEGIN BEADS INTEGRATION -->
+
+    ## Issue Tracking with bd (beads)
+
+
+    **IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other
+    tracking methods.'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 32
+  text: '### Quick Start
+
+
+    **Check for ready work:**
+
+
+    ```bash
+
+    bd ready --json
+
+    ```'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 33
+  text: '**Create new issues:**
+
+
+    ```bash
+
+    bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
+
+    bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
+
+
+    # Use stdin for descriptions with special characters (backticks, !, nested quotes)
+
+    echo ''Description with `backticks` and "quotes"'' | bd create "Title" --description=- --json
+
+    ```'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 34
+  text: '**Claim and update:**
+
+
+    ```bash
+
+    bd update <id> --claim --json
+
+    bd update bd-42 --priority 1 --json
+
+    ```'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 35
+  text: '**Complete work:**
+
+
+    ```bash
+
+    bd close bd-42 --reason "Completed" --json
+
+    ```'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 38
+  text: "### Workflow for AI Agents\n\n1. **Check ready work**: `bd ready` shows unblocked issues\n2. **Read execution metadata\
+    \ first**: before deciding local vs delegated work, model, or reasoning level, inspect structured metadata:\n   ```bash\n\
+    \   bd show <id> --json | jq '.[0] | {id,title,metadata,description,notes}'\n   ```\n   The execution metadata keys `execution_agent_type`,\
+    \ `execution_suggested_model`, `execution_reasoning_effort`, `execution_mode`, and `execution_parallel_group` are authoritative\
+    \ hints when present. Use description and notes as fallback context.\n3. **Claim your task atomically**: `bd update <id>\
+    \ --claim`\n4. **Work on it**: Implement, test, document\n5. **Discover new work?** Create linked issue:\n   - `bd create\
+    \ \"Found bug\" --description=\"Details about what was found\" -p 1 --deps discovered-from:<parent-id>`\n6. **Complete**:\
+    \ `bd close <id> --reason \"Done\"`"
+  enforceability: cross_event
+  topic: AI Integration
+  rule: null
+- statement_id: 40
+  text: '### Important Rules
+
+
+    - ✅ Use bd for ALL task tracking'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 41
+  text: '- ✅ Always use `--json` flag for programmatic use'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 42
+  text: '- ✅ Link discovered work with `discovered-from` dependencies'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 43
+  text: '- ✅ Check `bd ready` before asking "what should I work on?"'
+  enforceability: cross_event
+  topic: Development Process
+  rule: null
+- statement_id: 44
+  text: '- ❌ Do NOT create markdown TODO lists'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 45
+  text: '- ❌ Do NOT use external issue trackers'
+  enforceability: per_event
+  topic: Development Process
+  rule: null
+- statement_id: 46
+  text: '- ❌ Do NOT duplicate tracking systems'
+  enforceability: per_event
+  topic: Development Process
+  rule: null

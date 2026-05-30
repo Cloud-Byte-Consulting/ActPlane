@@ -1,0 +1,45 @@
+- statement_id: 16
+  text: '## Important
+
+
+    No need to edit the changelog ever, it''s generated automatically.'
+  enforceability: per_event
+  topic: Development Process
+  expressible: null
+- statement_id: 17
+  text: '## Daily Maintenance
+
+
+    Run a daily version check across all package manifests and upgrade every dependency to its latest version — including
+    major version bumps. Staying on the latest is the goal; do not skip majors.'
+  enforceability: cross_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 18
+  text: '- Check `package.json` (root) and all nested `package.json` files (e.g. `plugin/`, `openclaw/`) for outdated dependencies
+    via `npm outdated`.'
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 19
+  text: '- Upgrade every package to `latest` (use `npm install <pkg>@latest` for each, or `npx npm-check-updates -u && npm
+    install`). Bump majors too.'
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 20
+  text: '- Run `npm audit fix` to resolve advisories.'
+  enforceability: per_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 21
+  text: '- After upgrades, run `npm run build-and-sync` and verify the worker starts and tests pass. Fix any breakage caused
+    by major bumps in the same change.'
+  enforceability: cross_event
+  topic: Maintenance
+  expressible: null
+- statement_id: 22
+  text: '- Commit the updated `package.json` and `package-lock.json` files.'
+  enforceability: cross_event
+  topic: Maintenance
+  expressible: null
