@@ -17,25 +17,25 @@ Because LLM compliance is inherently
 probabilistic~\cite{liu2024lost}, enforcement cannot reside inside the
 model~\cite{langchain-harness,fowler-harness}.
 
-% ¶3: Gap — single-level enforcement leaves an intent–behavior gap
-Existing agent harness observation and enforcement operates at a single level, leaving an
-\emph{intent--behavior gap}. An agent's execution spans three abstraction
-levels: \emph{intent} (what the agent declares it will and will not do),
-\emph{action} (the tool calls it issues through its runtime), and
-\emph{behavior} (the actual OS operations, including \texttt{open}, \texttt{execve},
-and \texttt{connect}, that
-result)~\cite{agentsight}. The mapping from action to behavior is many-to-many
-and opaque: a single \texttt{run\_command("make")} can trigger hundreds of
-system calls, and the same \texttt{git~push} can be reached through a direct
-tool call, a \texttt{bash~-c} string, a Python subprocess, or a compiled
-helper. Intent-level enforcement (prompt instructions) is probabilistic.
-Action-level enforcement (tool-call
-guards~\cite{wang2025agentspec,shi2025progent}) is deterministic but
-bypassable: it checks tool calls, not the OS behavior they produce.
-Behavior-level enforcement (kernel-level enforcers such as CamQuery and
-Tetragon~\cite{pasquier2018camquery,ciliumtetragon}) is unbypassable but
-returns failures disconnected from intent. No single
-level bridges the gap.
+% ¶3: Gap — semantic gap between intent and system actions
+These policies require connecting intent-level declarations
+to system-level actions, yet existing approaches operate on only one side
+of this \emph{semantic gap}.
+Prompt constraints and tool-call
+guards~\cite{wang2025agentspec,shi2025progent} operate at the intent
+level but lose coverage when agents shell out or spawn subprocesses:
+a single \texttt{run\_command("make")} triggers hundreds of system calls,
+and the same \texttt{git~push} can be reached through a tool call, a
+\texttt{bash~-c} string, a Python subprocess, or a compiled binary.
+OS-level enforcement is unbypassable but sits on the opposite side of
+the gap: per-operation sandboxes (seccomp, Landlock,
+Tetragon~\cite{ciliumtetragon}) lack cross-event state, and
+information-flow systems (Flume,
+CamFlow~\cite{flume,pasquier2018camquery}) track cross-event provenance
+but lack temporal constraints, semantic feedback, and a policy lifecycle
+adapted to non-deterministic agents.
+All OS-level approaches require policies to be statically pre-written
+and return opaque errors with no connection to declared intent.
 
 % ¶4: Insight — policies are cross-event information flow
 Real behavioral policies frequently require cross-event information-flow
@@ -52,9 +52,8 @@ feedback components at the application layer, where they cannot connect behavior
 
 % ¶5: System — ActPlane bridges intent and behavior
 ActPlane is a programmable OS-level control plane for agent harnesses that
-bridges intent and behavior. Agents and developers declare behavioral
-policies in a compact DSL, a form of voluntary confinement analogous to
-\texttt{pledge()} in OpenBSD~\cite{openbsd-pledge}.
+bridges the semantic gap. Agents and developers declare behavioral
+policies in a compact DSL.
 ActPlane compiles these declarations into labeled information-flow rules and
 loads them into an eBPF/BPF-LSM backend. Named
 labels propagate across process, file, and network objects at kernel hooks,
@@ -85,7 +84,7 @@ the tool API.
 This paper makes three contributions.
 
 \begin{enumerate}
-\item It defines the \emph{intent--behavior gap} for AI agents and grounds it
+\item It defines the \emph{semantic gap} for AI agents and grounds it
 with a corpus study of instruction files from 50~popular projects, showing
 that cross-event information-flow policies are pervasive in real agent
 instruction files.
