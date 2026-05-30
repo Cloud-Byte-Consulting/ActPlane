@@ -13,6 +13,10 @@ As agents gain autonomy, they require harnesses to enforce behavioral
 policies. Projects encode such policies in instruction files such
 as \texttt{CLAUDE.md} and
 \texttt{AGENTS.md}~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}.
+Our empirical study of 64~projects extracts 2{,}152 statements and finds
+that 63\% are behavioral directives, 80\% of which involve system-level
+behavior, and 78\% of projects require cross-event state tracking
+(\S\ref{sec:empirical}).
 Because LLM compliance is inherently
 probabilistic~\cite{liu2024lost}, enforcement cannot reside inside the
 model~\cite{langchain-harness,fowler-harness}.
@@ -60,7 +64,7 @@ This paper makes three contributions.
 
 \begin{enumerate}
 \item It defines the \emph{semantic gap} for AI agents and grounds it
-with a corpus study of instruction files from 64~popular projects, showing
+with an empirical study of instruction files from 64~popular projects, showing
 that cross-event information-flow policies are pervasive in real agent
 instruction files.
 
@@ -71,8 +75,8 @@ behavior across process, file, and network boundaries and providing
 semantic feedback that reconnects behavior-level rule matches to intent-level
 remediation.
 
-\item It evaluates ActPlane on bypass coverage across five tool paths, agent
-guided completion rate under four feedback conditions, false positives under benign
-workloads, and per-event overhead, comparing against action-level and
-behavior-level baselines.
+\item It evaluates ActPlane on DSL expressiveness over 580 OS-level
+directives from the empirical study, agent translation correctness,
+system correctness across bypass paths, per-event overhead, and
+feedback effectiveness on Terminal-Bench tasks.
 \end{enumerate}

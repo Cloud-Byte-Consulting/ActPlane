@@ -85,21 +85,24 @@ optional condition (target allow-list, lineage gate, or temporal after-gate).
 
 \begin{figure}[t]
 \begin{verbatim}
-source AGENT = exec "**/claude"
+source AGENT = exec "claude"
 source SECRET = file "**/.env"
 
-rule no-secret-egress:
-  block connect endpoint "*" if SECRET
-  because "secret-derived data must stay local; run the redactor first"
+# Per-event: from CoplayDev/unity-mcp
+rule no-push-main:
+  kill exec "git" "push" "main" if AGENT
+  because "Do not push to main; open a PR instead."
 
-rule no-agent-git:
-  kill exec "git" if AGENT
-  because "agent must not invoke git directly"
+# Cross-event: from chenhg5/cc-connect
+rule tests-before-commit:
+  block exec "git" "commit"
+    if AGENT unless after exec "go" since write "**/*.go"
+  because "Run `go test ./...` before committing."
 \end{verbatim}
-\caption{Two ActPlane policy rules. The first uses BPF-LSM pre-operation
-denial; the second uses harness-level termination. Exec target patterns
-without \texttt{/} are implicitly basename-matched.}
-\Description{Code listing of two ActPlane rules.}
+\caption{Two ActPlane rules drawn from real projects. The first is a
+per-event rule (single \texttt{execve} match); the second is a
+cross-event rule requiring temporal state (\texttt{after\ldots since}).}
+\Description{Code listing of two ActPlane rules from real projects.}
 \label{fig:policy-example}
 \end{figure}
 

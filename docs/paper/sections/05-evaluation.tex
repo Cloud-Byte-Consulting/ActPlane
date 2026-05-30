@@ -1,80 +1,80 @@
 \section{Evaluation}
 \label{sec:evaluation}
 
-The evaluation measures five properties: bypass coverage, semantic-feedback
-effectiveness, false-positive rate, runtime overhead, and coverage over
-real-world policies.
+All evaluation rules are drawn from the empirical study corpus (64~real
+projects, 580 OS-level directives). No synthesized or abstract rules.
+The evaluation answers five questions.
 
 \subsection{Experimental Setup}
 
-% TODO: Fill in agent versions, kernel version, hardware, policy set.
+% TODO: Fill in agent versions, kernel version, hardware.
 
-\subsection{Bypass Coverage (RQ1)}
+\subsection{DSL Expressiveness (RQ1)}
 
-Does the OS-level harness match the same rule condition regardless of
-the tool path through which the agent triggers it?
+How many real-world OS-level directives can the ActPlane DSL express?
 
-We execute the same forbidden operation through five paths: (1)~direct tool
-call, (2)~nested shell string (\texttt{bash~-c}), (3)~Python
-\texttt{subprocess}, (4)~compiled helper binary, and (5)~direct
-\texttt{execve} from generated C code. For each path, we record whether
-ActPlane matches the rule condition and whether the semantic feedback payload
-is delivered to the agent.
+Of the 1{,}361 directives in the empirical study, 580 are OS-level
+(391 per-event + 189 cross-event). For each, we assess whether the DSL
+can express the directive. We report coverage by enforcement level and
+by cross-event pattern type (temporal ordering, cross-file consistency,
+conditional execution, data flow, lineage mediation).
 
-% TODO: Insert coverage matrix table.
+% TODO: Insert coverage funnel table.
 
-\subsection{Feedback and Recovery (RQ2)}
+\subsection{Agent Translation Correctness (RQ2)}
 
-Does semantic feedback improve agent task completion and reduce repeated
-rule matches compared with enforcement without feedback?
+Can an LLM agent correctly translate natural-language directives into
+ActPlane DSL rules?
 
-We run agent tasks under four conditions: (C1)~prompt-only, in which the
-policy is stated in the prompt but not enforced; (C2)~notify, in which ActPlane
-reports rule matches but does not fail operations; (C3)~enforcement without
-feedback, in which the operation fails with \texttt{-EPERM} or \texttt{SIGKILL}
-but no structured reason; (C4)~enforcement with feedback, in which the operation
-fails and ActPlane injects the rule name, reason, and remediation into the
-agent's context.
+An LLM agent reads each directive together with the project's instruction
+file, source tree, and the DSL reference, and produces a candidate rule.
+One author reviews each output and classifies it as correct (TP),
+incorrect (FP), or missed (FN). We report precision and recall by
+enforcement level.
 
-The primary comparison is C3 vs.\ C4: the marginal benefit of semantic
-feedback. The C1-to-C2 comparison measures how often prompt-only policies
-are matched. The C2-to-C3 comparison isolates the effect of enforcement
-from observation.
+% TODO: Insert translation correctness table.
 
-% TODO: Insert results table.
+\subsection{System Correctness and Bypass Coverage (RQ3)}
 
-\subsection{False Positives (RQ3)}
+Does ActPlane correctly match rule conditions, and does it catch bypass
+paths that tool-layer guards miss?
 
-Do benign tasks and sanctioned policy paths (declassification, gate
-mediation, temporal gates) proceed without spurious harness intervention?
+For each confirmed-correct rule from RQ2, an LLM agent generates a
+violation trace (tool calls that should trigger the rule) and a compliant
+trace (correct-path tool calls that should not). Each trace is executed
+under four systems: (1)~per-call tool-layer guard,
+(2)~sequence-aware tool-layer guard, (3)~per-event eBPF (ActPlane
+with label propagation disabled), and (4)~full ActPlane. We report
+match rate and false-positive rate per system, broken down by per-event
+vs.\ cross-event rules.
 
-% TODO: Insert false-positive results.
+% TODO: Insert comparative coverage table.
 
 \subsection{Overhead (RQ4)}
 
 What is the per-event and end-to-end cost of label propagation and rule
 checking?
 
-We measure per-event latency for fork, exec, open, write, and connect
-operations with and without ActPlane attached, and report p50 and p99
-latencies. We also measure wall-clock time for representative agent tasks
-and BPF map memory consumption as a function of rule count and active
-process count.
+We measure per-syscall latency (fork, exec, open, write, connect) under
+rule counts of 1, 10, 32, and 100, reporting p50 and p99 latencies.
+We replay recorded agent traces under each configuration to measure
+end-to-end overhead. We also report BPF map memory consumption as a
+function of rule count and active process count.
 
-% TODO: Insert latency table and overhead figures.
+% TODO: Insert latency and overhead tables.
 
-\subsection{Corpus Coverage (RQ5)}
+\subsection{Feedback Effectiveness (RQ5)}
 
-How many real-world policies from the corpus study
-(\S\ref{sec:corpus}) are enforceable by ActPlane?
+Does ActPlane's semantic feedback improve agent task completion?
 
-We apply the D1--D7 coding dimensions to each extracted policy and
-report the fraction that is observable at the syscall boundary (D3),
-expressible in the ActPlane DSL (D4), enforceable without false positives
-(D5), and temptable in a realistic agent task (D7). We report inter-rater
-agreement (Cohen's $\kappa$) for each dimension.
+We run 89 Terminal-Bench~tasks under three conditions: (B1)~no ActPlane,
+(B2)~ActPlane enforcement without feedback (bare \texttt{-EPERM}), and
+(B3)~ActPlane enforcement with semantic feedback. A strong model generates
+per-task DSL rules; a weaker model executes tasks. We report task
+completion rate, guided completion rate (fraction of rule matches after
+which the agent completes the task), and repeat-match rate.
 
-% TODO: Insert corpus coverage funnel table.
+% TODO: Insert Terminal-Bench results table.
 
 
 \section{Related Work}
@@ -139,8 +139,8 @@ Recent empirical studies characterize \texttt{CLAUDE.md},
 \texttt{AGENTS.md}, and related agent instruction files along dimensions
 of content taxonomy, maintenance practices, and effect on task
 efficiency~\cite{chatlatanagulchai2025manifests,chatlatanagulchai2025agentreadmes,
-santos2025claudeconfig,lulla2026agentsmd}. ActPlane's corpus study
-(\S\ref{sec:corpus}) asks a different question: which instructions
+santos2025claudeconfig,lulla2026agentsmd}. ActPlane's empirical study
+(\S\ref{sec:empirical}) asks a different question: which instructions
 constitute cross-event information-flow policies, and which of those can
 be enforced at the OS level?
 
