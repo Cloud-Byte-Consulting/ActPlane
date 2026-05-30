@@ -21,8 +21,8 @@ All evaluation rules are drawn from the empirical study corpus
 
 | RQ | Question | What it proves | Experiment type |
 |---|---|---|---|
-| **RQ1** | How many real-world directives can the ActPlane DSL express? | Expressiveness — bridges empirical study to system | Classification + translation |
-| **RQ2** | Do translated rules enforce correctly on real repo paths? | Correctness — TP/FP/FN on ground truth | End-to-end enforcement |
+| **RQ1** | How many real-world directives can the ActPlane DSL express, and can an LLM translate them? | Expressiveness — DSL coverage + LLM as practical translator | LLM translation + classification |
+| **RQ2** | Are LLM-generated DSL rules semantically correct? | Translation quality — LLM can serve as the directive-to-DSL compiler | LLM generation vs human ground truth + enforcement |
 | **RQ3** | Does OS-level enforcement cover bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
 | **RQ4** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Performance measurement |
 | **RQ5** | Does the semantic feedback channel work end-to-end? | Feedback loop — viable for cooperative agents | Case study + prior evidence |
@@ -78,7 +78,25 @@ per_event (391) + cross_event (189) = **580 OS-level directives**.
 
 ### 4.2 Translation Procedure
 
-Each of the 580 OS-level directives is assessed for expressibility:
+Each of the 580 OS-level directives is translated by an LLM and
+independently assessed by human annotators.
+
+#### Step 1: LLM Translation
+
+Each directive is presented to the LLM (model, temperature, prompt
+template TBD) along with:
+- the directive text and its source repository context (README, directory
+  structure, build system)
+- the ActPlane DSL reference grammar and 5 few-shot examples covering
+  per-event and cross-event patterns
+
+The LLM produces a candidate DSL rule or reports "not translatable" with
+a reason.
+
+#### Step 2: Human Ground-Truth Classification
+
+Two annotators independently classify each directive into one of three
+expressibility tiers:
 
 1. **Directly translatable**: the directive text maps mechanically to an
    ActPlane DSL rule (pattern match, label, gate).
@@ -88,8 +106,32 @@ Each of the 580 OS-level directives is assessed for expressibility:
 3. **Not translatable**: the directive requires content inspection, external
    system interaction, or a DSL primitive that does not exist.
 
-Translation is performed by one author; a second author independently
-reviews disputed items.
+Inter-rater agreement is measured with Cohen's κ.
+
+#### Step 3: Ambiguous Directive Handling
+
+Many directives are under-specified (e.g., "run tests before committing"
+does not specify which test runner or which test scope). For these:
+
+- Annotators define an **acceptable range**: a set of DSL rules that are
+  all reasonable interpretations (e.g., `after exec "**/pytest"`,
+  `after exec "**/npm" @arg "test"`, or `after exec "**/make" @arg "test"`
+  are all acceptable for "run tests").
+- The LLM-generated rule is judged correct if it falls within the
+  acceptable range.
+- Directives where annotators cannot agree on any acceptable range are
+  classified as **irreducibly ambiguous** and reported separately.
+
+#### Step 4: Failure Attribution
+
+When the LLM fails to produce a correct rule, the failure is attributed
+to one of:
+- **DSL limitation**: the directive is expressible in principle but the
+  DSL lacks the required primitive (feeds back into RQ1 coverage).
+- **LLM error**: the DSL can express the constraint but the LLM
+  misunderstood the directive or the DSL grammar.
+- **Ambiguity**: the directive is too vague for any translator (human or
+  LLM) to produce a single correct rule without additional context.
 
 ### 4.3 Per-Event Directive Translation Examples
 
@@ -125,14 +167,31 @@ reviews disputed items.
 
 ---
 
-## 5. RQ1: Expressiveness (Corpus Coverage Funnel)
+## 5. RQ1: Expressiveness (Corpus Coverage + LLM Translation)
 
 ### 5.1 Method
 
-For all 580 OS-level directives (391 per-event + 189 cross-event), classify
-each as directly translatable, approximately translatable, or not
-translatable, and provide the translated DSL rule or the reason for
-non-translatability.
+For all 580 OS-level directives (391 per-event + 189 cross-event):
+
+1. **Human ground truth**: two annotators independently classify each
+   directive as directly translatable, approximately translatable, or not
+   translatable (see §4.2 Step 2). For ambiguous directives, annotators
+   define an acceptable range of correct DSL rules (see §4.2 Step 3).
+   Report Cohen's κ for inter-rater agreement.
+
+2. **LLM translation**: the LLM translates each directive following the
+   pipeline in §4.2 Step 1. For each directive, record whether the LLM
+   produced a syntactically valid DSL rule, whether the rule falls within
+   the human-defined acceptable range, and the failure attribution
+   (DSL limitation / LLM error / ambiguity) when it does not.
+
+RQ1 reports two complementary metrics:
+- **DSL coverage**: fraction of directives that are expressible in the
+  DSL (from human classification). This measures the language's reach.
+- **LLM translation rate**: fraction of expressible directives that the
+  LLM successfully translates into a correct DSL rule. This measures
+  practical usability — whether the DSL can be used without manual
+  rule authoring.
 
 ### 5.2 Expected Results
 
@@ -163,7 +222,8 @@ Coverage funnel (by directive count):
 | cross-event | ~77 | ~50 | ~62 | 189 |
 | **OS-level total** | **~427** | **~80** | **~73** | **580** |
 
-**Figure 1: Coverage funnel diagram** — funnel from 1361 to 580 to 427 to 507
+**Figure 1: Coverage funnel diagram** — funnel from 1361 to 580 to
+DSL-expressible to LLM-successfully-translated
 
 **Table 2: Cross-event pattern breakdown** (9 patterns x expressibility)
 
@@ -179,29 +239,59 @@ Coverage funnel (by directive count):
 | Read-before-write | 6 | NONE | needs `after read` |
 | Semantic cross-event | 3 | NONE | reasoning layer |
 
+**Table 2b: LLM Translation Success** (by expressibility tier)
+
+| Tier | Directives | LLM correct | LLM incorrect | LLM "not translatable" |
+|---|---|---|---|---|
+| Directly translatable | ~427 | | | |
+| Approximately translatable | ~80 | | | |
+| Not translatable | ~73 | — | — | |
+| **Total** | **580** | | | |
+
+**Table 2c: LLM Failure Attribution** (for incorrect translations)
+
+| Failure type | Count | % of failures |
+|---|---|---|
+| DSL limitation | | |
+| LLM error (misunderstood directive) | | |
+| LLM error (misunderstood DSL grammar) | | |
+| Irreducible ambiguity | | |
+
 **Figure 2: Per-event directives by topic** — bar chart showing 391 per-event
-directives by topic category and translatability ratio
+directives by topic category, translatability ratio, and LLM success rate
 
 ---
 
-## 6. RQ2: Correctness (Real Rules on Real Repos)
+## 6. RQ2: LLM Translation Correctness
 
-### 6.1 Method
+### 6.1 Goal
 
-From the directly-translatable set identified in RQ1, draw a
+RQ1 measures whether the LLM produces a rule that falls within the
+human-defined acceptable range (semantic match). RQ2 goes further: it
+tests whether LLM-generated rules **actually enforce correctly** when
+loaded into ActPlane on real repository directory structures.
+
+This evaluates the full pipeline: directive → LLM → DSL rule → compiler
+→ eBPF enforcement. A rule that is semantically reasonable but uses wrong
+paths, wrong argument patterns, or wrong label logic will produce false
+positives or false negatives here.
+
+### 6.2 Method
+
+From the LLM-translated rules that passed RQ1's semantic check, draw a
 **stratified sample** of N rules (covering all pattern types and major
-topics) and test enforcement on **real repository directory structures**.
+topics). For each sampled rule:
 
-#### Test Environment Setup
-
-For each sampled rule:
 1. Clone the source repository (or extract its directory skeleton).
-2. Translate the directive into an ActPlane DSL rule in `actplane.yaml`.
-3. Verify compilation with `actplane check`.
-4. Design a **violation scenario** (operation sequence that triggers
+2. Load the **LLM-generated** DSL rule (not a human-corrected version)
+   into `actplane.yaml`.
+3. Verify compilation with `actplane check`. Record compilation failures
+   separately.
+4. Design a **violation scenario** (operation sequence that should trigger
    the rule) and a **compliant scenario** (normal operation that must not
-   trigger the rule).
-5. Execute under `sudo actplane run -- <scenario>` and record violation events.
+   trigger the rule), based on the human ground-truth interpretation.
+5. Execute under `sudo actplane run -- <scenario>` and record violation
+   events.
 
 #### Sampling Strategy
 
@@ -220,8 +310,8 @@ Each rule x 2 scenarios (violation + compliant) = **86 test cases**.
 
 **Rule**: "Run tests before committing" (from OpenPipe/ART)
 
+LLM-generated DSL (example):
 ```yaml
-# actplane.yaml
 policy: |
   source AGENT = exec "**/claude"
   rule test-before-commit:
@@ -241,6 +331,7 @@ policy: |
 
 **Rule**: "If you change ConfigToml, run write-config-schema" (from openai/codex)
 
+LLM-generated DSL (example):
 ```yaml
 policy: |
   source AGENT = exec "**/claude"
@@ -256,9 +347,21 @@ policy: |
 Tested on openai/codex's actual directory structure (clone repo, edit
 config_toml, attempt commit).
 
-### 6.2 Required Figures and Tables
+### 6.3 Failure Modes
 
-**Table 3: Enforcement Correctness Matrix**
+When an LLM-generated rule produces incorrect enforcement:
+
+| Failure mode | Example |
+|---|---|
+| Wrong path pattern | LLM writes `"**/test"` but repo uses `"**/pytest"` |
+| Wrong argument | LLM writes `@arg "push"` instead of `@arg "commit"` |
+| Missing label / source | LLM omits a required `source` declaration |
+| Over-broad pattern | LLM writes `"**/*"` where directive specifies a subdirectory |
+| Wrong condition type | LLM uses `lineage-includes` where `after exec` is needed |
+
+### 6.4 Required Figures and Tables
+
+**Table 3: End-to-End Enforcement Correctness of LLM-Generated Rules**
 
 | Category | Test cases | TP | FP | FN | Precision | Recall |
 |---|---|---|---|---|---|---|
@@ -269,7 +372,12 @@ config_toml, attempt commit).
 | **Total** | **86** | | | | | |
 
 **Table 4: Per-rule detail** — each tested rule's source repo, original
-directive text, DSL rule, and TP/FP/FN result
+directive text, LLM-generated DSL rule, human ground-truth rule, and
+TP/FP/FN result
+
+**Table 4b: LLM-generated vs human-authored rule comparison** — for
+rules where LLM enforcement differs from expected, show the LLM rule
+alongside the human ground-truth rule and identify the failure mode
 
 ---
 
@@ -476,14 +584,17 @@ violation, feedback delivery, and recovery sequence for F1
 
 ## 10. Summary of Figures and Tables
 
-### Tables (9)
+### Tables (12)
 
 | # | Content | RQ |
 |---|---|---|
 | T1 | Corpus coverage funnel (enforcement level x expressibility) | RQ1 |
 | T2 | Cross-event pattern breakdown (9 patterns x expressibility) | RQ1 |
-| T3 | Enforcement correctness matrix (TP/FP/FN) | RQ2 |
-| T4 | Per-rule enforcement detail (43 rules x result) | RQ2 |
+| T2b | LLM translation success (by expressibility tier) | RQ1 |
+| T2c | LLM failure attribution | RQ1 |
+| T3 | End-to-end enforcement correctness of LLM-generated rules (TP/FP/FN) | RQ2 |
+| T4 | Per-rule detail (43 rules: directive, LLM rule, ground truth, result) | RQ2 |
+| T4b | LLM vs human rule comparison for mismatches | RQ2 |
 | T5 | Bypass coverage matrix (6 rules x 5 paths x 2 systems) | RQ3 |
 | T6 | Per-syscall latency (5 syscalls x 5 configurations) | RQ4 |
 | T7 | End-to-end agent task overhead | RQ4 |
@@ -494,8 +605,8 @@ violation, feedback delivery, and recovery sequence for F1
 
 | # | Content | RQ |
 |---|---|---|
-| F1 | Coverage funnel diagram | RQ1 |
-| F2 | Per-event directives by topic (bar chart) | RQ1 |
+| F1 | Coverage funnel diagram (corpus → DSL-expressible → LLM-translated) | RQ1 |
+| F2 | Per-event directives by topic (bar chart, with LLM success overlay) | RQ1 |
 | F3 | Bypass coverage comparison (grouped bar) | RQ3 |
 | F4 | Per-syscall overhead (bar chart, baseline vs AP) | RQ4 |
 | F5 | Overhead vs rule count (line chart) | RQ4 |
@@ -505,26 +616,37 @@ violation, feedback delivery, and recovery sequence for F1
 
 ## 11. Implementation Plan
 
-### Phase 1: Rule Translation (RQ1)
+### Phase 1: Expressiveness + LLM Translation (RQ1)
 
 **Input**: 580 OS-level directives (391 per-event + 189 cross-event)
-**Output**: expressibility classification for each directive + translated
-DSL rules for translatable ones
-**Effort**: ~2 days (per-directive classification + translation sample)
-**Produces**: Table 1, Table 2, Figure 1, Figure 2
+**Steps**:
+1. Two annotators independently classify each directive (directly /
+   approximately / not translatable) and define acceptable rule ranges
+   for ambiguous directives
+2. Compute Cohen's κ for inter-rater agreement
+3. Run LLM translation pipeline on all 580 directives (model, prompt
+   template, few-shot examples TBD)
+4. Compare LLM output against human ground truth; attribute failures
+   (DSL limitation / LLM error / ambiguity)
+**Output**: expressibility classification + LLM translation success rate +
+failure attribution breakdown
+**Effort**: ~3 days (annotation 2d + LLM pipeline 1d)
+**Produces**: Table 1, Table 2, Table 2b, Table 2c, Figure 1, Figure 2
 
-### Phase 2: Correctness Testing (RQ2)
+### Phase 2: LLM Translation Correctness (RQ2)
 
-**Input**: 43 sampled rules + corresponding repo directory structures
+**Input**: 43 sampled LLM-generated rules + corresponding repo directory
+structures + human ground-truth rules
 **Steps**:
 1. Clone repos for all 43 sampled rules (or extract directory skeletons)
-2. Write actplane.yaml for each rule
-3. Design violation + compliant scenario scripts for each rule
-4. Run `sudo actplane run -- bash scenario.sh`, collect violation logs
-5. Compare expected vs actual results
-
+2. Load LLM-generated DSL rules (not human-corrected) into actplane.yaml
+3. Record compilation success/failure
+4. Design violation + compliant scenario scripts based on human ground
+   truth interpretation
+5. Run `sudo actplane run -- bash scenario.sh`, collect violation logs
+6. Compare expected vs actual; classify failure modes for mismatches
 **Effort**: ~3 days
-**Produces**: Table 3, Table 4
+**Produces**: Table 3, Table 4, Table 4b
 
 ### Phase 3: Bypass Testing (RQ3)
 
