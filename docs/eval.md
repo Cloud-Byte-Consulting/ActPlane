@@ -110,6 +110,8 @@ docs/corpus/{repo}/
   agent_rules.yaml       # NEW (RQ2): agent-generated DSL rules (may be wrong)
 
 docs/corpus-evaluated/{repo}/
+  repo/                  # shallow clone of the source repo (--depth=1, gitignored)
+                         #   fetched by script/clone-corpus-repos.sh
   expressible.yaml       # NEW (RQ1): human expressibility labels (ground truth)
   agent_rules.yaml       # NEW (RQ2 eval): copy of agent_rules.yaml,
                          #   human-corrected (wrong rules fixed)
@@ -118,13 +120,15 @@ docs/corpus-evaluated/{repo}/{statement_id}/
                          # NEW (RQ3): one directory per confirmed-correct rule
   meta.json              # context: repo, statement_id, text, enforceability, topic
   rule.dsl               # corrected DSL rule (plain text)
-  env/                   # directory skeleton simulating the source repo layout
-                         #   (git-tracked files: mkdir + touch, committed as-is)
-  trigger.sh             # trigger trace (shell script for kernel baselines)
+  trigger.sh             # trigger trace (shell script, run from ../repo/)
   trigger.toolcalls.jsonl    # same trace as tool-call list (for TL baselines)
   compliant.sh           # compliant trace (should NOT trigger)
   compliant.toolcalls.jsonl
 ```
+
+Source repos are cloned with `script/clone-corpus-repos.sh` (~4-5 GB
+total, `--depth=1`). They are gitignored via
+`docs/corpus-evaluated/.gitignore`.
 
 #### File Formats
 
