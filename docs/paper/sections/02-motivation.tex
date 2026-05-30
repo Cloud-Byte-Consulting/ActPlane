@@ -1,7 +1,7 @@
 \section{Background and Motivation}
 \label{sec:motivation}
 
-\subsection{Agent Harnesses and Behavioral Contracts}
+\subsection{Agent Harnesses and Behavioral Policies}
 
 An agent harness is the non-model infrastructure that mediates between an LLM
 agent and its execution
@@ -9,14 +9,14 @@ environment~\cite{langchain-harness,fowler-harness}. Harness components
 include tool dispatch, memory management, orchestration, observation,
 enforcement, and feedback. This paper focuses on the observation,
 enforcement, and feedback components: the mechanisms that ensure an
-agent's behavioral contracts hold at runtime.
+agent's behavioral policies hold at runtime.
 
-Behavioral contracts are constraints that govern an agent's observable
+Behavioral policies are constraints that govern an agent's observable
 effects rather than its internal reasoning. Projects encode them in
 instruction files such as \texttt{CLAUDE.md} and
 \texttt{AGENTS.md}~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}:
 do not push directly to \texttt{main}; run tests before committing; never
-expose secrets to the network. These contracts differ from coding-style
+expose secrets to the network. These policies differ from coding-style
 directives (e.g., ``prefer \texttt{const} over \texttt{let}'') in that they
 produce observable effects at the system-call boundary.
 
@@ -43,7 +43,7 @@ The mapping from action to behavior is many-to-many and opaque. A single
 \texttt{run\_command("make")} triggers hundreds of system calls. The same
 \texttt{git push} can be reached through a direct tool call, a
 \texttt{bash~-c} string, a Python \texttt{subprocess}, or a compiled helper
-binary. This opacity creates an \emph{intent--behavior gap}: contracts
+binary. This opacity creates an \emph{intent--behavior gap}: policies
 declared at the intent level cannot be reliably enforced at a single
 intermediate level.
 
@@ -55,7 +55,7 @@ bypassable: it intercepts tool calls, not the OS behavior they produce.
 Enforcement placed at the behavior level (syscall filters,
 sandboxes~\cite{pasquier2018camquery,ciliumtetragon}) is complete but
 returns opaque \texttt{-EPERM} failures with no connection to the agent's
-declared contracts. Each level addresses a different part of the stack;
+declared policies. Each level addresses a different part of the stack;
 none spans the full gap from intent to behavior.
 
 A cooperative agent does not intentionally bypass tool-layer guards, but
@@ -80,7 +80,7 @@ observes the nested \texttt{execve("git",~["push",~"--force"])}.
 ActPlane targets a \emph{cooperative but probabilistic} agent. The agent is
 not adversarial: it does not attempt to defeat the enforcement mechanism
 through obfuscation or exploitation. However, because LLM inference is
-inherently stochastic, the agent may trigger any given contract rule with
+inherently stochastic, the agent may trigger any given policy rule with
 non-zero probability at each step, regardless of context length or prompt
 design. Over a long session with many steps, the cumulative probability of
 at least one rule match approaches certainty.
@@ -105,7 +105,7 @@ all require adversarial intent and are outside this threat model.
 \section{Corpus Study}
 \label{sec:corpus}
 
-This section characterizes behavioral contracts in real agent instruction
+This section characterizes behavioral policies in real agent instruction
 files and identifies the subset that requires cross-event information-flow
 observation and enforcement.
 
@@ -117,28 +117,28 @@ to exclude documentation-only repositories. From these files we extracted
 866 candidate imperative statements using keyword matching (``never,''
 ``must,'' ``do not,'' ``before,'' ``only'') and manually coded each
 statement along seven dimensions: (D1)~coding style vs.\ behavioral
-contract, (D2)~contract category, (D3)~observable at the syscall boundary,
+rule, (D2)~rule category, (D3)~observable at the syscall boundary,
 (D4)~expressible in the ActPlane DSL, (D5)~enforceable without false
 positives under normal use, (D6)~robust to naming and path variation, and
 (D7)~temptable (likely to be triggered by an agent in a realistic task).
 Two annotators independently coded the full set; we report Cohen's
 $\kappa$ for inter-rater reliability.
 
-\subsection{Per-Action vs.\ Cross-Event Contracts}
+\subsection{Per-Action vs.\ Cross-Event Policies}
 
-Behavioral contracts fall into two categories that differ in enforcement
+Behavioral policies fall into two categories that differ in enforcement
 requirements.
 
-\textbf{Per-action contracts} constrain a single operation independently of
+\textbf{Per-action policies} constrain a single operation independently of
 execution history. Examples include ``do not execute \texttt{rm~-rf}'' and
-``do not run \texttt{git branch}.'' These contracts can be enforced by
+``do not run \texttt{git branch}.'' These policies can be enforced by
 matching a single system call or tool call against a static rule.
 
-\textbf{Cross-event contracts} constrain an operation based on prior
+\textbf{Cross-event policies} constrain an operation based on prior
 interactions with other objects. Examples include ``a process that has read
 \texttt{.env} must not connect to an external endpoint'' (data-flow
-contract) and ``commit only after tests have passed'' (temporal contract).
-These contracts require tracking information flow or execution ordering
+rule) and ``commit only after tests have passed'' (temporal rule).
+These policies require tracking information flow or execution ordering
 across process, file, and network boundaries.
 
 % TODO: Insert table with category breakdown and percentages once coding
@@ -146,18 +146,18 @@ across process, file, and network boundaries.
 
 \subsection{Implications for Observation and Enforcement}
 
-Per-action contracts can be observed and enforced by per-event matching at
+Per-action policies can be observed and enforced by per-event matching at
 any level: tool-call guards, seccomp filters, or eBPF kprobes. Cross-event
-contracts cannot, because they depend on state accumulated across multiple
+policies cannot, because they depend on state accumulated across multiple
 operations and objects. Observing and enforcing them requires a mechanism
 that (1)~tracks provenance across process, file, and network boundaries,
 (2)~encodes that provenance as checkable state at each observation and
 enforcement point, and (3)~connects rule matches back to the declared
-contract for semantic feedback.
+rule for semantic feedback.
 
 Labeled information-flow control satisfies all three requirements. Labels
 encode cross-event provenance as per-node bitmasks, propagation rules
 maintain the invariant across fork, exec, read, write, and connect
 operations, and source-to-sink rules check the accumulated state at each
-enforcement point. The ActPlane DSL compiles cross-event contracts
+enforcement point. The ActPlane DSL compiles cross-event policies
 directly into this model.

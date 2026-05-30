@@ -2,7 +2,7 @@
 \label{sec:design}
 
 ActPlane is a programmable OS-level control plane for agent harnesses. It
-compiles behavioral contracts into labeled information-flow rules at OS
+compiles behavioral policies into labeled information-flow rules at OS
 kernel hooks, observing and enforcing agent behavior and returning semantic
 feedback when a rule is matched. Figure~\ref{fig:architecture} summarizes
 the pipeline.
@@ -98,7 +98,7 @@ rule no-agent-git:
   effect kill
   reason "agent must not invoke git directly"
 \end{verbatim}
-\caption{Two ActPlane contract rules. The first uses BPF-LSM pre-operation
+\caption{Two ActPlane policy rules. The first uses BPF-LSM pre-operation
 denial; the second uses harness-level termination.}
 \Description{Code listing of two ActPlane rules.}
 \label{fig:policy-example}
@@ -121,12 +121,12 @@ is post-operation termination.
 When multiple rules match the same event, the strongest effect applies in
 the order kill $>$ block $>$ audit.
 
-\subsubsection{Contract Language Scope}
+\subsubsection{Policy Language Scope}
 
 The DSL is not a general-purpose mandatory access control policy. Its
 primitives map to recurring agent workflow patterns: ``after tests,''
 ``through a review tool,'' ``data derived from untrusted input,'' and
-``read-only sub-agent.'' The grammar is small so that contract authors can
+``read-only sub-agent.'' The grammar is small so that policy authors can
 translate natural-language instructions into source/sink/gate shapes without
 security-policy expertise.
 

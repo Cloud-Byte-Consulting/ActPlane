@@ -12,7 +12,7 @@ highly popular open-source repositories, each classified by content type
 level (4 levels: semantic-only, content, per-event, cross-event).
 
 Four findings emerge in a layered progression. First, **instruction
-files are behavioral contracts, not documentation**: 63% of statements
+files are behavioral policies, not documentation**: 63% of statements
 are directives, though this majority is in
 visible at line level (48%)
 because directives are terse (3.6 lines) while descriptions are verbose
@@ -718,7 +718,7 @@ dominate by line count even when directives dominate by statement count.*
 *(Script: `docs/tmp/fig_all_rqs.py`)*
 
 **Takeaway.** By statement count, instruction files are predominantly
-behavioral contracts (63.2% directive). By line count, descriptions
+behavioral policies (63.2% directive). By line count, descriptions
 slightly outnumber directives (52.1% vs 47.9%). The discrepancy reveals
 that directives are dense, short rules while descriptions are verbose
 context blocks. File-level and line-level analyses see a balanced
@@ -1153,7 +1153,7 @@ annotation is the first to address all three.
 
 The agent harness concept (Agent = Model + Harness) frames the
 infrastructure surrounding a model as a first-class engineering concern.
-Several systems enforce behavioral contracts on agents:
+Several systems enforce behavioral policies on agents:
 
 - **AgentSpec** compiles dataflow policies to tool-call-level guards.
   Our findings suggest this covers the per-event layer (28.7% of

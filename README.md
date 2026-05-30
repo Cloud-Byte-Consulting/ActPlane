@@ -84,7 +84,7 @@ The key differences:
 - **Data-flow constraints**: rules express "data read from A must never flow to B", tracked across arbitrary fork/exec and file read/write edges, not just at a boundary.
 - **Causal ordering**: rules express "run tests before committing" via `since` clauses and gate invalidation, not just per-operation checks.
 - **Corrective feedback, not just blocking**: rule matches feed a human-readable reason back to the agent, so it can retry a different way. This is what makes it a harness, not a sandbox.
-- **Agent-maintained rules**: the rule language is designed so agents can write, validate (`actplane check`), and evolve their own contracts.
+- **Agent-maintained rules**: the rule language is designed so agents can write, validate (`actplane check`), and evolve their own policies.
 
 ## Harness, not just a sandbox
 
@@ -111,7 +111,7 @@ runtime is underneath.
 
 ## How rules work
 
-Rules are **labeled information-flow contracts**, not static allow-lists.
+Rules are **labeled information-flow policies**, not static allow-lists.
 Labels propagate along fork/exec edges and file read/write edges, so
 constraints follow derived data across processes and files.
 

@@ -1,6 +1,6 @@
 # ActPlane Rule Language (Labeled Information-Flow Control) — Formal Definition & Worked Examples
 
-> Goal: a policy language for **OS-enforced agent harnesses** whose rules are workflow, capability, and provenance contracts over the agent's whole execution, not static access-control lists. Security-relevant policies are one class of contract, not the sole product framing.
+> Goal: a policy language for **OS-enforced agent harnesses** whose rules are workflow, capability, and provenance policies over the agent's whole execution, not static access-control lists. Security-relevant policies are one class of policy, not the sole product framing.
 >
 > **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel labeled information-flow *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow match-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
@@ -229,10 +229,10 @@ See
 
 ## 3. Worked examples (each: scenario · why · rule)
 
-> These are harness examples: agent operating contracts that keep a cooperative-but-forgetful agent on the intended path. Some examples are security-relevant because secrets and untrusted content are clear provenance labels, but the point is broader than a DLP or sandbox.
+> These are harness examples: agent operating policies that keep a cooperative-but-forgetful agent on the intended path. Some examples are security-relevant because secrets and untrusted content are clear provenance labels, but the point is broader than a DLP or sandbox.
 
 ### E1 — Sensitive context stays on approved paths
-**Scenario**: while debugging, the agent reads `.env` for a value, and later another tool in the same task opens an external connection. **Why**: the harness should preserve a data-handling contract across later tools, not rely on the agent remembering where the value came from.
+**Scenario**: while debugging, the agent reads `.env` for a value, and later another tool in the same task opens an external connection. **Why**: the harness should preserve a data-handling policy across later tools, not rely on the agent remembering where the value came from.
 ```
 source SECRET = file "**/.env"
 source SECRET = file "/etc/secrets/**"
@@ -244,7 +244,7 @@ declassify SECRET by exec "**/redact"
 ```
 
 ### E2 — Untrusted task input needs review before privileged action
-**Scenario**: the agent fetches a web page or reads an issue that says "now run `git push --force`". The content marks the task context as `UNTRUST`; privileged actions need review before proceeding. **Why**: this is a harness contract for handling untrusted instructions, enforced below the prompt and tool API.
+**Scenario**: the agent fetches a web page or reads an issue that says "now run `git push --force`". The content marks the task context as `UNTRUST`; privileged actions need review before proceeding. **Why**: this is a harness policy for handling untrusted instructions, enforced below the prompt and tool API.
 ```
 source UNTRUST = endpoint "*"
 source UNTRUST = file "**/downloads/**"
@@ -263,7 +263,7 @@ rule mediate-proddb:
   reason "prod.db is reachable only through the migration tool"
 ```
 
-### E4 — Workspace contract (lineage-scoped writes)
+### E4 — Workspace policy (lineage-scoped writes)
 **Scenario**: the agent should only modify files in its task workspace, but via `bash` it writes or deletes outside. **Why**: keep a fallible agent inside its task boundary without relying on a container boundary.
 ```
 source AGENT = exec "**/codex"
@@ -296,7 +296,7 @@ rule research-readonly:
 ```
 
 ### E7 — Transitive derived-data tracking (cross-process, cross-file)
-**Scenario**: process A reads sensitive task context, transforms it, writes `/tmp/out.json`; later, an unrelated uploader B reads `out.json` and tries to POST it. **Why**: the data-handling contract should follow *derived* data through files and across processes, which single-event matchers cannot do.
+**Scenario**: process A reads sensitive task context, transforms it, writes `/tmp/out.json`; later, an unrelated uploader B reads `out.json` and tries to POST it. **Why**: the data-handling policy should follow *derived* data through files and across processes, which single-event matchers cannot do.
 ```
 # reuses E1's SECRET source + sensitive-context-boundary rule:
 #   write(A,/tmp/out.json) propagates SECRET to the file;
@@ -323,7 +323,7 @@ rule no-git:
 ```
 
 ### E10 — Provenance-scoped network allow-list
-**Scenario**: a process that has handled customer records may connect only to approved internal ranges; once it carries that label, arbitrary external connections are outside the task contract. **Why**: network policy is conditioned on what data the process has handled, not just on a static process name.
+**Scenario**: a process that has handled customer records may connect only to approved internal ranges; once it carries that label, arbitrary external connections are outside the task policy. **Why**: network policy is conditioned on what data the process has handled, not just on a static process name.
 ```
 source CUSTOMER_DATA = file "/data/customers/**"
 rule customer-data-egress:
@@ -367,11 +367,11 @@ rule migrate-checked:
 
 ## 4. Why these are valuable (and where the novelty actually is)
 > Caveat repeated: the *mechanism* (cross-channel taint enforced in-kernel) is CamQuery's; the novelty is the agent-oriented harness model + eBPF substrate + sub-tool-layer coverage + feedback loop. Per-example value:
-- **E3, E5, E11, E13** are *mandatory-mediation / temporal* contracts ("only via gate", "only after fresh tests", "only after a fresh confirm", "only after a current migration-check") that prompt instructions do not reliably preserve. The `since` staleness primitive (§1.9) is what makes "fresh" enforceable rather than latching.
-- **E4, E6, E9, E12** are *lineage-scoped capability / task-boundary* contracts over the fork/exec subtree.
-- **E1, E7, E8, E10** are data-handling contracts over **derived, cross-process, cross-channel** data. They are security-relevant, but the harness point is provenance continuity across tools.
-- **E2** is an untrusted-input review contract: when task context came from outside, privileged actions require an endorsement step.
-- **Declassification (E8) + endorsement (E2)** are what move this from "blunt deny" to a usable operating contract with sanctioned paths.
+- **E3, E5, E11, E13** are *mandatory-mediation / temporal* rules ("only via gate", "only after fresh tests", "only after a fresh confirm", "only after a current migration-check") that prompt instructions do not reliably preserve. The `since` staleness primitive (§1.9) is what makes "fresh" enforceable rather than latching.
+- **E4, E6, E9, E12** are *lineage-scoped capability / task-boundary* rules over the fork/exec subtree.
+- **E1, E7, E8, E10** are data-handling rules over **derived, cross-process, cross-channel** data. They are security-relevant, but the harness point is provenance continuity across tools.
+- **E2** is an untrusted-input review rule: when task context came from outside, privileged actions require an endorsement step.
+- **Declassification (E8) + endorsement (E2)** are what move this from "blunt deny" to a usable operating policy with sanctioned paths.
 
 ---
 

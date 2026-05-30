@@ -6,7 +6,7 @@ Demonstrate ActPlane's value as an OS-level agent harness control plane along
 three dimensions:
 
 1. **Expressiveness**: the DSL can express real per-event and cross-event
-   behavioral contracts from production projects.
+   behavioral policies from production projects.
 2. **Correctness**: an LLM agent can translate natural-language directives into
    correct DSL rules that observe and enforce correctly on real repository
    directory structures.
@@ -19,12 +19,12 @@ All evaluation rules are drawn from the empirical study corpus
 
 ### Expected Headline Results (for paper intro)
 
-We evaluate ActPlane on all the 580 system-level behavioral contracts drawn from
+We evaluate ActPlane on all the 580 system-level behavioral policies drawn from
 the empirical study of 64 real projects. ActPlane's DSL can express
-~XX% (~85+%?) of these contracts; an LLM agent correctly translates ~XX%
+~XX% (~85+%?) of these policies; an LLM agent correctly translates ~XX%
 (~70+%?) of the expressible directives into valid DSL rules with ~XX%
 (~90+%?) precision on enforcement test cases. ActPlane matches
-contract conditions across all five execution paths — direct tool
+rule conditions across all five execution paths — direct tool
 call, shell wrapper, Python subprocess, compiled binary, and script
 indirection — where tool-layer guards catch only direct tool calls
 (30/30 vs ~6/30). Per-event overhead is ~XX µs (~1–5?) at p99 with
@@ -43,7 +43,7 @@ semantic feedback improves post-match guided completion rate by ~XX pp
 |---|---|---|---|
 | **RQ1** | How many real-world directives can the ActPlane DSL express, and can an LLM agent translate them? | Expressiveness — DSL coverage + LLM agent as practical translator | Agent translation + classification |
 | **RQ2** | Are agent-generated DSL rules semantically correct? | Translation quality — LLM agent can serve as the directive-to-DSL compiler | Agent generation vs human ground truth + harness testing |
-| **RQ3** | Does OS-level harness match contract conditions across bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
+| **RQ3** | Does OS-level harness match rule conditions across bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
 | **RQ4** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Performance measurement |
 | **RQ5** | Does the ActPlane harness with semantic feedback improve agent task completion? | End-to-end system value — strong model rules + OS-level harness + feedback uplift weak model | Terminal-Bench benchmark (89 tasks x 3 conditions) |
 
@@ -375,7 +375,7 @@ each output and classifies it (§4.2 Step 2):
 ### 7.1 Goal
 
 RQ3 evaluates the core IFC and eBPF engine on realistic agent
-workloads: does ActPlane correctly match contract conditions, and
+workloads: does ActPlane correctly match rule conditions, and
 what fraction of rule matches do comparable systems miss?
 
 ### 7.2 Method
@@ -440,7 +440,7 @@ Total: ~N rules × 2 traces = ~2N test cases (expected ~800).
 | **TL-1 (per-call)** | Python script: each tool call checked independently against the rule set | AgentSpec (ICSE 2026), Progent (arXiv 2026) | Tool-layer misses indirect paths and cross-event flows |
 | **TL-N (sequence-aware)** | Python script: sliding window of last N tool calls checked for patterns | AgentSpec, Progent | Even smart tool-layer can't see below the tool API |
 | **Per-event eBPF** | ActPlane with label propagation disabled (per-event matching only) | Tetragon (system), eBPF-PATROL (arXiv 2025), OAMAC (arXiv 2026) | Per-event kernel catches all paths but not cross-event flows |
-| **ActPlane** | Full system (label propagation + rule checking) | — | Cross-channel IFC covers all contract types |
+| **ActPlane** | Full system (label propagation + rule checking) | — | Cross-channel IFC covers all rule types |
 
 #### Step 4: Execute
 
@@ -606,7 +606,7 @@ For each of the 89 tasks, a strong model (e.g., Claude) reads:
 - the test script that defines success
 
 and generates a set of ActPlane DSL rules that encode behavioral
-contracts a project owner would reasonably set. Examples:
+policies a project owner would reasonably set. Examples:
 
 | Task type | Example rules |
 |---|---|
@@ -681,7 +681,7 @@ showing per-task guided completion with vs without feedback
 | T1 | Corpus coverage funnel (expressible vs not expressible) | RQ1 |
 | T2 | Cross-event pattern breakdown (9 patterns x expressibility) | RQ1 |
 | T2b | agent translation correctness (TP/FP/FN per level) | RQ2 |
-| T3 | Comparative coverage (contract class x system) | RQ3 |
+| T3 | Comparative coverage (rule class x system) | RQ3 |
 | T6 | Per-syscall latency (5 syscalls x 5 configurations) | RQ4 |
 | T7 | End-to-end agent task overhead | RQ4 |
 | T8 | BPF map memory consumption | RQ4 |

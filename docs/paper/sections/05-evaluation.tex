@@ -3,7 +3,7 @@
 
 The evaluation measures five properties: bypass coverage, semantic-feedback
 effectiveness, false-positive rate, runtime overhead, and coverage over
-real-world contracts.
+real-world policies.
 
 \subsection{Experimental Setup}
 
@@ -11,14 +11,14 @@ real-world contracts.
 
 \subsection{Bypass Coverage (RQ1)}
 
-Does the OS-level harness match the same contract condition regardless of
+Does the OS-level harness match the same rule condition regardless of
 the tool path through which the agent triggers it?
 
 We execute the same forbidden operation through five paths: (1)~direct tool
 call, (2)~nested shell string (\texttt{bash~-c}), (3)~Python
 \texttt{subprocess}, (4)~compiled helper binary, and (5)~direct
 \texttt{execve} from generated C code. For each path, we record whether
-ActPlane matches the contract condition and whether the semantic feedback payload
+ActPlane matches the rule condition and whether the semantic feedback payload
 is delivered to the agent.
 
 % TODO: Insert coverage matrix table.
@@ -29,7 +29,7 @@ Does semantic feedback improve agent task completion and reduce repeated
 rule matches compared with enforcement without feedback?
 
 We run agent tasks under four conditions: (C1)~prompt-only, in which the
-contract is stated in the prompt but not enforced; (C2)~audit, in which ActPlane
+policy is stated in the prompt but not enforced; (C2)~audit, in which ActPlane
 reports rule matches but does not fail operations; (C3)~enforcement without
 feedback, in which the operation fails with \texttt{-EPERM} or \texttt{SIGKILL}
 but no structured reason; (C4)~enforcement with feedback, in which the operation
@@ -37,7 +37,7 @@ fails and ActPlane injects the rule name, reason, and remediation into the
 agent's context.
 
 The primary comparison is C3 vs.\ C4: the marginal benefit of semantic
-feedback. The C1-to-C2 comparison measures how often prompt-only contracts
+feedback. The C1-to-C2 comparison measures how often prompt-only policies
 are matched. The C2-to-C3 comparison isolates the effect of enforcement
 from observation.
 
@@ -45,7 +45,7 @@ from observation.
 
 \subsection{False Positives (RQ3)}
 
-Do benign tasks and sanctioned contract paths (declassification, gate
+Do benign tasks and sanctioned policy paths (declassification, gate
 mediation, temporal gates) proceed without spurious harness intervention?
 
 % TODO: Insert false-positive results.
@@ -65,10 +65,10 @@ process count.
 
 \subsection{Corpus Coverage (RQ5)}
 
-How many real-world contracts from the corpus study
+How many real-world policies from the corpus study
 (\S\ref{sec:corpus}) are enforceable by ActPlane?
 
-We apply the D1--D7 coding dimensions to each extracted contract and
+We apply the D1--D7 coding dimensions to each extracted policy and
 report the fraction that is observable at the syscall boundary (D3),
 expressible in the ActPlane DSL (D4), enforceable without false positives
 (D5), and temptable in a realistic agent task (D7). We report inter-rater
@@ -141,7 +141,7 @@ of content taxonomy, maintenance practices, and effect on task
 efficiency~\cite{chatlatanagulchai2025manifests,chatlatanagulchai2025agentreadmes,
 santos2025claudeconfig,lulla2026agentsmd}. ActPlane's corpus study
 (\S\ref{sec:corpus}) asks a different question: which instructions
-constitute cross-event information-flow contracts, and which of those can
+constitute cross-event information-flow policies, and which of those can
 be enforced at the OS level?
 
 
@@ -149,13 +149,13 @@ be enforced at the OS level?
 \label{sec:conclusion}
 
 ActPlane provides a programmable OS-level control plane for agent harnesses.
-It compiles agent-declared behavioral contracts into eBPF/BPF-LSM labeled
+It compiles agent-declared behavioral policies into eBPF/BPF-LSM labeled
 information-flow rules, propagates labels across process, file, and endpoint
 objects at kernel hooks, and returns kernel-detected rule matches as semantic
 feedback to the agent. By supporting audit, pre-operation denial, and
 harness-level termination with structured remediation, ActPlane enables
-agents to complete tasks after contract rule matches rather than fail opaquely.
+agents to complete tasks after policy rule matches rather than fail opaquely.
 ActPlane unifies labeled information-flow observation and enforcement with
-an agent-oriented contract language and a feedback loop on the eBPF/BPF-LSM
+an agent-oriented policy language and a feedback loop on the eBPF/BPF-LSM
 substrate, bridging the intent--behavior gap that single-level harnesses
 leave open.

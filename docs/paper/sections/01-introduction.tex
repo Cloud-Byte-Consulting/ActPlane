@@ -8,9 +8,9 @@ access to shells, source trees, package managers, and external APIs,
 autonomously writing code, running tests, and managing infrastructure across
 extended sessions.
 
-% ¶2: Agents need deterministic harnesses to enforce behavioral contracts
+% ¶2: Agents need deterministic harnesses to enforce behavioral policies
 As agents gain autonomy, they require harnesses to enforce behavioral
-contracts. Projects encode such contracts in instruction files such
+policies. Projects encode such policies in instruction files such
 as \texttt{CLAUDE.md} and
 \texttt{AGENTS.md}~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}.
 Because LLM compliance is inherently
@@ -37,15 +37,15 @@ Tetragon~\cite{pasquier2018camquery,ciliumtetragon}) is unbypassable but
 returns failures disconnected from intent. No single
 level bridges the gap.
 
-% ¶4: Insight — contracts are cross-event information flow
-Real behavioral contracts frequently require cross-event information-flow
-tracking that no single enforcement level provides. A contract like ``never
+% ¶4: Insight — policies are cross-event information flow
+Real behavioral policies frequently require cross-event information-flow
+tracking that no single enforcement level provides. A rule like ``never
 expose secrets to the network'' is not a predicate on one system call; it
 requires knowing that the current process previously read a secret file and
-now attempts a network connection. A contract like ``run tests before
+now attempts a network connection. A rule like ``run tests before
 committing'' requires knowing that a test process executed before a commit
 process in the same session. A corpus study of instruction files from
-50~popular projects confirms that such cross-event, cross-temporal contracts
+50~popular projects confirms that such cross-event, cross-temporal policies
 are pervasive, yet today's agent
 harnesses~\cite{langchain-harness,fowler-harness} keep their enforcement and
 feedback components at the application layer, where they cannot connect behavior to intent.
@@ -53,7 +53,7 @@ feedback components at the application layer, where they cannot connect behavior
 % ¶5: System — ActPlane bridges intent and behavior
 ActPlane is a programmable OS-level control plane for agent harnesses that
 bridges intent and behavior. Agents and developers declare behavioral
-contracts in a compact DSL, a form of voluntary confinement analogous to
+policies in a compact DSL, a form of voluntary confinement analogous to
 \texttt{pledge()} in OpenBSD~\cite{openbsd-pledge}.
 ActPlane compiles these declarations into labeled information-flow rules and
 loads them into an eBPF/BPF-LSM backend. Named
@@ -61,10 +61,10 @@ labels propagate across process, file, and network objects at kernel hooks,
 encoding execution history as checkable state: when a process reads a file
 labeled \texttt{SECRET}, the process acquires that label; when it forks, the
 child inherits it. When a labeled subject matches a rule, ActPlane returns
-semantic feedback to the agent, specifying which contract condition was matched, why,
+semantic feedback to the agent, specifying which rule condition was matched, why,
 and what alternative path satisfies it. 
 ActPlane serves as the control plane for the harness: it compiles
-intent-level contracts into behavior-level rules (the policy path) and
+intent-level policies into behavior-level rules (the policy path) and
 translates behavior-level rule matches back into intent-level feedback (the
 feedback path); the eBPF kernel hooks form the data plane. Each rule
 independently selects audit (observe and notify), block (pre-operation
@@ -73,7 +73,7 @@ denial), or kill (post-operation termination).
 Unlike prior work that enforces at a single
 layer~(\S\ref{sec:related}), ActPlane unifies cross-event
 information-flow observation and enforcement with semantic feedback at the
-OS level, where contracts survive context loss and cannot be bypassed below
+OS level, where policies survive context loss and cannot be bypassed below
 the tool API.
 
 % ¶7: Results — TODO: replace with headline numbers
@@ -87,11 +87,11 @@ This paper makes three contributions.
 \begin{enumerate}
 \item It defines the \emph{intent--behavior gap} for AI agents and grounds it
 with a corpus study of instruction files from 50~popular projects, showing
-that cross-event information-flow contracts are pervasive in real agent
+that cross-event information-flow policies are pervasive in real agent
 instruction files.
 
 \item It presents ActPlane, a programmable OS-level control plane for agent
-harnesses that compiles agent-declared behavioral contracts into
+harnesses that compiles agent-declared behavioral policies into
 eBPF/BPF-LSM labeled information-flow rules, observing and enforcing agent
 behavior across process, file, and network boundaries and providing
 semantic feedback that reconnects behavior-level rule matches to intent-level
