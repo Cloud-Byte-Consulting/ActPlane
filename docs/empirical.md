@@ -304,14 +304,14 @@ structure (list items, paragraphs, sentences) produces poor results:
 instruction files vary widely in formatting; a single list item may
 contain multiple directives ("never commit secrets or push to main");
 and context is often interleaved with directives in the same paragraph.
-We therefore use LLM-based extraction, which identifies semantic
+We therefore use LLM-agent-based extraction, which identifies semantic
 boundaries rather than syntactic ones.
 
-**Extraction method.** We use a two-pass LLM pipeline. Both passes use
+**Extraction method.** We use a two-pass LLM agent pipeline. Both passes use
 model (Claude Opus 4.6) with temperature 0 and a fixed random seed for
 reproducibility. The full prompts are included in the replication package.
 
-**Pass 1: Extraction + classification.** The LLM reads the complete
+**Pass 1: Extraction + classification.** The LLM agent reads the complete
 instruction file and outputs a structured YAML document. Each extracted
 statement is classified along both taxonomy axes and assessed for
 enforceability. The output schema:
@@ -420,18 +420,18 @@ after stripping whitespace) for every `statements.yaml` file.
   directives. The referenced file's content is not analyzed, but the
   reference itself is a statement.
 - *Changelogs and version history are descriptions.* Changelog blocks
-  are one description statement spanning the entire block. The prompt instructs the LLM to: (a) extract every distinct
+  are one description statement spanning the entire block. The prompt instructs the LLM agent to: (a) extract every distinct
 statement with its line range, (b) classify each using the taxonomy
 (Axis 1: type, Axis 2: topic, Axis 3: enforcement level) following the
 definitions in Sections 4.3 and 4.4, (c) assign a confidence level, and
 (d) preserve the original text verbatim.
 
-**Pass 2: Cross-validation.** A second LLM call reads the original file
+**Pass 2: Cross-validation.** A second LLM agent call reads the original file
 together with the Pass 1 YAML and directly updates it: adding missed
 statements, removing false extractions, and correcting classifications.
 
 **Manual validation.** A stratified random sample of 100 statements
-(stratified by LLM-assigned type and subtype) is independently examed by
+(stratified by agent-assigned type and subtype) is independently examed by
  human annotators using the same taxonomy. Disagreements are resolved by discussion; the
 resolution and rationale are recorded.
 
@@ -1106,7 +1106,7 @@ compose mechanisms, not replace one with another.
 ### 6.4 Annotation Methodology and Validation
 
 Statement extraction and Axis 1/2 classification were performed
-manually by one author and cross-validated by an independent LLM review
+manually by one author and cross-validated by an independent LLM agent review
 pass (OpenAI Codex CLI with GPT-5.5), operating under an ActPlane write-fence policy
 that restricted the reviewer to `docs/tmp/` output only (a worked
 example of the system under study). Enforceability annotation (Axis 3)
@@ -1208,9 +1208,9 @@ ActPlane target.
 - Enforceability is assessed via the decision procedure in Section 4.4,
   not by empirical testing against deployed enforcement systems. The
   assessment reflects the authors' understanding of existing mechanisms.
-- LLM-assisted classification introduces model-specific bias. Different
-  LLMs may segment and classify differently; no sensitivity analysis
-  across models is performed.
+- LLM-agent-assisted classification introduces model-specific bias.
+  Different LLM agents may segment and classify differently; no
+  sensitivity analysis across models is performed.
 - **Researcher bias.** The authors also develop an OS-level enforcement
   system (ActPlane). The taxonomy and enforceability criteria may be
   unintentionally skewed toward enforceable directives. We mitigate this
@@ -1287,7 +1287,7 @@ mechanisms.
 | **Corpus** | 253 files / 242 repos | 2,303 files | 328 files / 100 repos | 10 repos / 124 PRs | 1 tool (Claude Code) | 84 files / 64 repos |
 | **Unit** | File | File | Section heading | PR | — | **Statement** |
 | **Taxonomy** | 15 topics | 16 topics | 9 SE concerns | — | — | **12 topics + desc/dir + enforceability** |
-| **Classification** | 2 coders + tie-breaker | 2 coders (80.3% agree) + GPT-5 | 1 coder + meeting | — | — | **1 coder + LLM cross-validation + independent review** |
+| **Classification** | 2 coders + tie-breaker | 2 coders (80.3% agree) + GPT-5 | 1 coder + meeting | — | — | **1 coder + LLM agent cross-validation + independent review** |
 | **Reliability** | 9.2% disagree (no kappa) | 80.3% raw (no kappa) | None (meeting) | — | — | **Independent Codex + Claude review, 5-8% estimated error** |
 | **Enforceability** | No | No | No | No | No | **Yes (4-level decision procedure)** |
 | **Granularity** | File | File | Section title | PR | — | **Statement (line-range, verbatim text)** |

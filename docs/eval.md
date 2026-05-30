@@ -7,7 +7,7 @@ three dimensions:
 
 1. **Expressiveness**: the DSL can express real per-event and cross-event
    behavioral contracts from production projects.
-2. **Correctness**: an LLM can translate natural-language directives into
+2. **Correctness**: an LLM agent can translate natural-language directives into
    correct DSL rules that observe and enforce correctly on real repository
    directory structures.
 3. **Practicality**: harness observation and enforcement is unbypassable,
@@ -19,22 +19,21 @@ All evaluation rules are drawn from the empirical study corpus
 
 ### Expected Headline Results (for paper intro)
 
-- **RQ1 (Expressiveness)**: ActPlane's DSL can express ~XX% (~85+%?) of
-  the 580 OS-level behavioral contracts from the empirical corpus.
-- **RQ2 (LLM Translation)**: an LLM correctly translates ~XX% (~70+%?)
-  of expressible directives into valid DSL rules; LLM-generated rules
-  achieve ~XX% (~90+%?) precision and ~XX% (~85+%?) recall on harness
-  test cases.
-- **RQ3 (Bypass Coverage)**: ActPlane detects violations across all 5
-  execution paths (30/30); tool-layer guards detect only direct tool
-  calls (~6/30).
-- **RQ4 (Overhead)**: per-event overhead is ~XX µs (~1–5?) at p99 with
-  32 rules; end-to-end agent task overhead is <XX% (~5%?).
-- **RQ5 (Feedback Effectiveness)**: on Terminal-Bench, a weak model with
-  ActPlane harness (strong-model rules + observation/enforcement + feedback) achieves
-  ~XX% (~+10–15pp?) higher task completion than the same model without
-  harness; semantic feedback improves recovery rate by ~XX% (~+20pp?)
-  over enforcement-only.
+We evaluate ActPlane on all the 580 system-level behavioral contracts drawn from
+the empirical study of 64 real projects. ActPlane's DSL can express
+~XX% (~85+%?) of these contracts; an LLM agent correctly translates ~XX%
+(~70+%?) of the expressible directives into valid DSL rules with ~XX%
+(~90+%?) precision on enforcement test cases. ActPlane detects
+contract violations across all five execution paths — direct tool
+call, shell wrapper, Python subprocess, compiled binary, and script
+indirection — where tool-layer guards catch only direct tool calls
+(30/30 vs ~6/30). Per-event overhead is ~XX µs (~1–5?) at p99 with
+32 active rules; end-to-end agent task overhead is under XX% (~5%?).
+On Terminal-Bench (89 CLI tasks), a weak open-source model running
+under ActPlane with strong-model-generated rules achieves ~XX pp
+(~+10–15?) higher task completion than the same model unassisted;
+semantic feedback improves post-violation recovery rate by ~XX pp
+(~+20?) over bare enforcement.
 
 ---
 
@@ -42,8 +41,8 @@ All evaluation rules are drawn from the empirical study corpus
 
 | RQ | Question | What it proves | Experiment type |
 |---|---|---|---|
-| **RQ1** | How many real-world directives can the ActPlane DSL express, and can an LLM translate them? | Expressiveness — DSL coverage + LLM as practical translator | LLM translation + classification |
-| **RQ2** | Are LLM-generated DSL rules semantically correct? | Translation quality — LLM can serve as the directive-to-DSL compiler | LLM generation vs human ground truth + harness testing |
+| **RQ1** | How many real-world directives can the ActPlane DSL express, and can an LLM agent translate them? | Expressiveness — DSL coverage + LLM agent as practical translator | Agent translation + classification |
+| **RQ2** | Are agent-generated DSL rules semantically correct? | Translation quality — LLM agent can serve as the directive-to-DSL compiler | Agent generation vs human ground truth + harness testing |
 | **RQ3** | Does OS-level harness detect violations across bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
 | **RQ4** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Performance measurement |
 | **RQ5** | Does the ActPlane harness with semantic feedback improve agent task completion? | End-to-end system value — strong model rules + OS-level harness + feedback uplift weak model | Terminal-Bench benchmark (89 tasks x 3 conditions) |
@@ -99,26 +98,26 @@ per_event (391) + cross_event (189) = **580 OS-level directives**.
 
 ### 4.2 Translation Procedure
 
-Translation is a single pass: the LLM translates all 580 directives,
+Translation is a single pass: the LLM agent translates all 580 directives,
 then one author reviews each result. The same review simultaneously
 produces the RQ1 expressibility classification and the RQ2 translation
 correctness judgment.
 
-#### Step 1: LLM Translation
+#### Step 1: Agent Translation
 
-Each directive is presented to the LLM (model, temperature, prompt
+Each directive is presented to the LLM agent (model, temperature, prompt
 template TBD) along with:
 - the directive text and its source repository context (README, directory
   structure, build system)
 - the ActPlane DSL reference grammar and few-shot examples covering
   per-event and cross-event patterns
 
-The LLM produces a candidate DSL rule or reports "not translatable"
+The agent produces a candidate DSL rule or reports "not translatable"
 with a reason.
 
 #### Step 2: Human Review
 
-One author reviews each LLM output and records two judgments:
+One author reviews each agent output and records two judgments:
 
 1. **Expressibility (for RQ1)**: can the DSL express this directive?
    Binary: expressible or not expressible. For ambiguous directives
@@ -126,12 +125,12 @@ One author reviews each LLM output and records two judgments:
    runner), the author defines an **acceptable range** of correct DSL
    rules. The classification criteria are documented for reproducibility.
 
-2. **Translation correctness (for RQ2)**: did the LLM produce a correct
+2. **Translation correctness (for RQ2)**: did the agent produce a correct
    rule? Three outcomes:
-   - **TP**: LLM produced a rule and it is correct (matches ground truth
+   - **TP**: the agent produced a rule and it is correct (matches ground truth
      or falls within the acceptable range)
-   - **FP**: LLM produced a rule but it is incorrect
-   - **FN**: LLM reported "not translatable" but the directive is
+   - **FP**: the agent produced a rule but it is incorrect
+   - **FN**: the agent reported "not translatable" but the directive is
      actually expressible in the DSL
 
 ### 4.3 Per-Event Directive Translation Examples
@@ -173,12 +172,12 @@ One author reviews each LLM output and records two judgments:
 ### 5.1 Method
 
 For all 580 OS-level directives (391 per-event + 189 cross-event), the
-author reviews each LLM translation output (§4.2) and determines
+author reviews each agent translation output (§4.2) and determines
 whether the DSL can express the directive: **expressible** or **not
 expressible**.
 
-The LLM output serves as a starting point for the author's review, but
-the final expressibility judgment is the author's. If the LLM reports
+The agent output serves as a starting point for the author's review, but
+the final expressibility judgment is the author's. If the agent reports
 "not translatable" but the author determines the DSL can express the
 directive, it is classified as expressible.
 
@@ -235,18 +234,18 @@ directives by topic category and translatability ratio
 
 ---
 
-## 6. RQ2: LLM Translation Correctness
+## 6. RQ2: Agent Translation Correctness
 
 ### 6.1 Goal
 
-RQ2 evaluates whether an LLM can correctly translate natural-language
+RQ2 evaluates whether an LLM agent can correctly translate natural-language
 directives into ActPlane DSL rules. This measures the practical
-usability of the system: in deployment, the LLM is the translator.
+usability of the system: in deployment, the LLM agent is the translator.
 
 The evaluation has two layers:
-1. **Translation correctness** (all 580 directives): does the LLM
+1. **Translation correctness** (all 580 directives): does the agent
    produce a correct rule, judged by human review (§4.2 Step 2)?
-2. **Harness correctness** (stratified sample): do the LLM-generated
+2. **Harness correctness** (stratified sample): do the agent-generated
    rules actually observe and enforce correctly when loaded into ActPlane
    on real repository directory structures?
 
@@ -254,14 +253,14 @@ The evaluation has two layers:
 
 #### Layer 1: Translation Correctness (all 580 directives)
 
-The LLM translates all 580 directives (§4.2 Step 1). The author reviews
+The agent translates all 580 directives (§4.2 Step 1). The author reviews
 each output and classifies it (§4.2 Step 2):
 
-- **TP**: LLM produced a rule and it is correct
-- **FP**: LLM produced a rule but it is incorrect
-- **FN**: LLM reported "not translatable" but the DSL can express it
+- **TP**: the agent produced a rule and it is correct
+- **FP**: the agent produced a rule but it is incorrect
+- **FN**: the agent reported "not translatable" but the DSL can express it
 
-**Table 2b: LLM Translation Correctness**
+**Table 2b: Agent Translation Correctness**
 
 | | Expressible (from RQ1) | Not expressible | Total |
 |---|---|---|---|
@@ -277,12 +276,12 @@ each output and classifies it (§4.2 Step 2):
 
 #### Layer 2: Harness Testing (stratified sample)
 
-From the LLM-translated rules that are TP, draw a **stratified sample**
+From the agent-translated rules that are TP, draw a **stratified sample**
 of N rules (covering all pattern types and major topics). For each
 sampled rule:
 
 1. Clone the source repository (or extract its directory skeleton).
-2. Load the **LLM-generated** DSL rule (not a human-corrected version)
+2. Load the **agent-generated** DSL rule (not a human-corrected version)
    into `actplane.yaml`.
 3. Verify compilation with `actplane check`. Record compilation failures
    separately.
@@ -309,7 +308,7 @@ Each rule x 2 scenarios (violation + compliant) = **86 test cases**.
 
 **Rule**: "Run tests before committing" (from OpenPipe/ART)
 
-LLM-generated DSL (example):
+agent-generated DSL (example):
 ```yaml
 policy: |
   source AGENT = exec "**/claude"
@@ -330,7 +329,7 @@ policy: |
 
 **Rule**: "If you change ConfigToml, run write-config-schema" (from openai/codex)
 
-LLM-generated DSL (example):
+agent-generated DSL (example):
 ```yaml
 policy: |
   source AGENT = exec "**/claude"
@@ -348,19 +347,19 @@ config_toml, attempt commit).
 
 ### 6.3 Failure Modes
 
-When an LLM-generated rule produces incorrect harness behavior:
+When an agent-generated rule produces incorrect harness behavior:
 
 | Failure mode | Example |
 |---|---|
-| Wrong path pattern | LLM writes `"**/test"` but repo uses `"**/pytest"` |
-| Wrong argument | LLM writes `@arg "push"` instead of `@arg "commit"` |
-| Missing label / source | LLM omits a required `source` declaration |
-| Over-broad pattern | LLM writes `"**/*"` where directive specifies a subdirectory |
-| Wrong condition type | LLM uses `lineage-includes` where `after exec` is needed |
+| Wrong path pattern | the agent writes `"**/test"` but repo uses `"**/pytest"` |
+| Wrong argument | the agent writes `@arg "push"` instead of `@arg "commit"` |
+| Missing label / source | the agent omits a required `source` declaration |
+| Over-broad pattern | the agent writes `"**/*"` where directive specifies a subdirectory |
+| Wrong condition type | the agent uses `lineage-includes` where `after exec` is needed |
 
 ### 6.4 Required Figures and Tables
 
-**Table 3: End-to-End Harness Correctness of LLM-Generated Rules**
+**Table 3: End-to-End Harness Correctness of Agent-Generated Rules**
 
 | Category | Test cases | TP | FP | FN | Precision | Recall |
 |---|---|---|---|---|---|---|
@@ -371,11 +370,11 @@ When an LLM-generated rule produces incorrect harness behavior:
 | **Total** | **86** | | | | | |
 
 **Table 4: Per-rule detail** — each tested rule's source repo, original
-directive text, LLM-generated DSL rule, human ground-truth rule, and
+directive text, agent-generated DSL rule, human ground-truth rule, and
 TP/FP/FN result
 
-**Table 4b: LLM-generated vs human-authored rule comparison** — for
-rules where LLM harness behavior differs from expected, show the LLM rule
+**Table 4b: agent-generated vs human-authored rule comparison** — for
+rules where agent harness behavior differs from expected, show the agent rule
 alongside the human ground-truth rule and identify the failure mode
 
 ---
@@ -624,9 +623,9 @@ showing per-task recovery with vs without feedback
 |---|---|---|
 | T1 | Corpus coverage funnel (expressible vs not expressible) | RQ1 |
 | T2 | Cross-event pattern breakdown (9 patterns x expressibility) | RQ1 |
-| T2b | LLM translation correctness (TP/FP/FN per level) | RQ2 |
-| T3 | Harness correctness of LLM-generated rules (43 sampled, TP/FP/FN) | RQ2 |
-| T4 | Per-rule detail (43 rules: directive, LLM rule, result) | RQ2 |
+| T2b | agent translation correctness (TP/FP/FN per level) | RQ2 |
+| T3 | Harness correctness of agent-generated rules (43 sampled, TP/FP/FN) | RQ2 |
+| T4 | Per-rule detail (43 rules: directive, agent rule, result) | RQ2 |
 | T5 | Bypass coverage matrix (6 rules x 5 paths x 2 systems) | RQ3 |
 | T6 | Per-syscall latency (5 syscalls x 5 configurations) | RQ4 |
 | T7 | End-to-end agent task overhead | RQ4 |
@@ -650,28 +649,28 @@ showing per-task recovery with vs without feedback
 
 ## 11. Implementation Plan
 
-### Phase 1: LLM Translation + Human Review (RQ1 + RQ2)
+### Phase 1: Agent Translation + Human Review (RQ1 + RQ2)
 
 **Input**: 580 OS-level directives (391 per-event + 189 cross-event)
 **Steps**:
-1. Run LLM translation pipeline on all 580 directives (model, prompt
+1. Run agent translation pipeline on all 580 directives (model, prompt
    template, few-shot examples TBD)
-2. One author reviews each LLM output; for each directive, record:
+2. One author reviews each agent output; for each directive, record:
    (a) expressible or not expressible (RQ1), and
-   (b) LLM correct / incorrect / missed (RQ2 TP/FP/FN)
+   (b) agent correct / incorrect / missed (RQ2 TP/FP/FN)
 3. For ambiguous directives, define acceptable range during review
-**Output**: expressibility classification (RQ1) + LLM translation
+**Output**: expressibility classification (RQ1) + agent translation
 correctness (RQ2 Layer 1)
 **Effort**: ~3 days
 **Produces**: Table 1, Table 2, Table 2b, Figure 1, Figure 2
 
 ### Phase 2: Harness Testing (RQ2 Layer 2)
 
-**Input**: 43 sampled LLM-generated rules (TP from Phase 1) +
+**Input**: 43 sampled agent-generated rules (TP from Phase 1) +
 corresponding repo directory structures
 **Steps**:
 1. Clone repos for all 43 sampled rules (or extract directory skeletons)
-2. Load LLM-generated DSL rules (not human-corrected) into actplane.yaml;
+2. Load agent-generated DSL rules (not human-corrected) into actplane.yaml;
    record compilation success/failure
 3. Design violation + compliant scenario scripts based on human
    ground-truth interpretation
@@ -743,7 +742,7 @@ Empirical Study (docs/empirical.md)
 System Paper Evaluation (this document)
   |
   |-- RQ1: evaluates DSL expressiveness on the 580 OS-level directives
-  |-- RQ2: tests LLM translation correctness (semantic + harness testing)
+  |-- RQ2: tests agent translation correctness (semantic + harness testing)
   |-- RQ3: tests bypass coverage using corpus and repo rules
   |-- RQ4: measures performance under varying rule-set sizes
   +-- RQ5: tests harness + feedback on Terminal-Bench (89 tasks)
