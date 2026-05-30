@@ -116,7 +116,18 @@ jobs:
       run: |
         cd bpf
         cargo publish --allow-dirty || echo "ebpf-ifc-engine publish skipped (may already be at this version)"
-        sleep 15  # wait for crates.io index to update
+
+    - name: Wait for crates.io index
+      run: |
+        echo "Waiting for ebpf-ifc-engine to appear in crates.io index..."
+        for i in $(seq 1 12); do
+          sleep 10
+          if cargo search ebpf-ifc-engine 2>/dev/null | grep -q "ebpf-ifc-engine"; then
+            echo "Found after $((i * 10))s"
+            break
+          fi
+          echo "Attempt $i/12..."
+        done
 
     - name: Publish actplane
       env:
