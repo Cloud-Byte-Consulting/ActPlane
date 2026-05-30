@@ -5,7 +5,7 @@ edition = "2021"
 description = "eBPF information-flow control engine for Linux — kernel-level label propagation and policy rule matching across process, file, and network boundaries. Used by ActPlane for AI agent harness enforcement."
 license = "MIT"
 repository = "https://github.com/eunomia-bpf/ActPlane"
-keywords = ["ebpf", "information-flow-control", "policy-engine", "bpf-lsm", "linux"]
+keywords = ["ebpf", "ifc", "policy-engine", "bpf-lsm", "linux"]
 categories = ["os::linux-apis"]
 
 [lib]
