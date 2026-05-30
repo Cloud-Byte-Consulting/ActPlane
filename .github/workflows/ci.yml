@@ -83,22 +83,31 @@ jobs:
 
     - name: Bump patch versions
       run: |
-        for pkg in bpf collector; do
-          cd "$pkg"
-          CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
-          MINOR=$(echo "$CURRENT" | cut -d. -f2)
-          PATCH=$(echo "$CURRENT" | cut -d. -f3)
-          NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
-          sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" Cargo.toml
-          echo "${pkg}_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
-          echo "Bumped $pkg: $CURRENT -> $NEW_VERSION"
-          cd ..
-        done
-        # Update actplane's dependency on ebpf-ifc-engine to match new version
+        # Bump bpf crate
+        cd bpf
+        CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+        MINOR=$(echo "$CURRENT" | cut -d. -f2)
+        PATCH=$(echo "$CURRENT" | cut -d. -f3)
+        BPF_NEW="$MAJOR.$MINOR.$((PATCH + 1))"
+        sed -i "s/^version = \"$CURRENT\"/version = \"$BPF_NEW\"/" Cargo.toml
+        echo "bpf_VERSION=$BPF_NEW" >> "$GITHUB_ENV"
+        echo "Bumped bpf: $CURRENT -> $BPF_NEW"
+        cd ..
+
+        # Bump collector crate
         cd collector
-        sed -i "s/ebpf-ifc-engine = { version = \"[^\"]*\"/ebpf-ifc-engine = { version = \"$bpf_VERSION\"/" Cargo.toml
+        CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+        MINOR=$(echo "$CURRENT" | cut -d. -f2)
+        PATCH=$(echo "$CURRENT" | cut -d. -f3)
+        COL_NEW="$MAJOR.$MINOR.$((PATCH + 1))"
+        sed -i "s/^version = \"$CURRENT\"/version = \"$COL_NEW\"/" Cargo.toml
+        echo "collector_VERSION=$COL_NEW" >> "$GITHUB_ENV"
+        echo "Bumped collector: $CURRENT -> $COL_NEW"
+
+        # Update dependency on ebpf-ifc-engine to match new version
+        sed -i "s/ebpf-ifc-engine = { version = \"[^\"]*\"/ebpf-ifc-engine = { version = \"$BPF_NEW\"/" Cargo.toml
         cd ..
 
     - name: Publish ebpf-ifc-engine first
