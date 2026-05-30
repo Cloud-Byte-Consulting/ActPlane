@@ -114,7 +114,7 @@ Runtime behavioral enforcement at the OS/kernel level.
 - **核心发现**：harness 可以产出正确结果但在执行过程中违反 safety constraints；
   现有 benchmark 抓不到这个问题因为只评估最终结果
 - **与 ActPlane 的关系**：直接支持 ActPlane 的动机——执行过程中的 behavioral
-  violation 需要 runtime enforcement，不能只看最终输出
+  rule match 需要 runtime enforcement，不能只看最终输出
 - **关键定义**：agent harness = "the execution framework that dispatches tools,
   allocates resources, and routes messages between specialized components"
 
@@ -208,7 +208,7 @@ OS-level effects），从而引出 "OS-enforced" 的 qualifier。
 > 中间一层。
 >
 > ActPlane 是一个跨层 harness：它把 intent-level 的行为约束编译到
-> OS-level 的 enforcement，并把 OS-level 的 violation 翻译回
+> OS-level 的 enforcement，并把 OS-level 的 rule match 翻译回
 > intent-level 的 feedback。
 
 这样 "harness" 不是跟主流定义冲突，而是**扩展**它——从单层 orchestration

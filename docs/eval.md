@@ -23,8 +23,8 @@ We evaluate ActPlane on all the 580 system-level behavioral contracts drawn from
 the empirical study of 64 real projects. ActPlane's DSL can express
 ~XX% (~85+%?) of these contracts; an LLM agent correctly translates ~XX%
 (~70+%?) of the expressible directives into valid DSL rules with ~XX%
-(~90+%?) precision on enforcement test cases. ActPlane detects
-contract violations across all five execution paths — direct tool
+(~90+%?) precision on enforcement test cases. ActPlane matches
+contract conditions across all five execution paths — direct tool
 call, shell wrapper, Python subprocess, compiled binary, and script
 indirection — where tool-layer guards catch only direct tool calls
 (30/30 vs ~6/30). Per-event overhead is ~XX µs (~1–5?) at p99 with
@@ -32,7 +32,7 @@ indirection — where tool-layer guards catch only direct tool calls
 On Terminal-Bench (89 CLI tasks), a weak open-source model running
 under ActPlane with strong-model-generated rules achieves ~XX pp
 (~+10–15?) higher task completion than the same model unassisted;
-semantic feedback improves post-violation recovery rate by ~XX pp
+semantic feedback improves post-match guided completion rate by ~XX pp
 (~+20?) over bare enforcement.
 
 ---
@@ -43,7 +43,7 @@ semantic feedback improves post-violation recovery rate by ~XX pp
 |---|---|---|---|
 | **RQ1** | How many real-world directives can the ActPlane DSL express, and can an LLM agent translate them? | Expressiveness — DSL coverage + LLM agent as practical translator | Agent translation + classification |
 | **RQ2** | Are agent-generated DSL rules semantically correct? | Translation quality — LLM agent can serve as the directive-to-DSL compiler | Agent generation vs human ground truth + harness testing |
-| **RQ3** | Does OS-level harness detect violations across bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
+| **RQ3** | Does OS-level harness match contract conditions across bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
 | **RQ4** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Performance measurement |
 | **RQ5** | Does the ActPlane harness with semantic feedback improve agent task completion? | End-to-end system value — strong model rules + OS-level harness + feedback uplift weak model | Terminal-Bench benchmark (89 tasks x 3 conditions) |
 
@@ -120,8 +120,8 @@ docs/corpus-evaluated/{repo}/{statement_id}/
   rule.dsl               # corrected DSL rule (plain text)
   env/                   # directory skeleton simulating the source repo layout
                          #   (git-tracked files: mkdir + touch, committed as-is)
-  violation.sh           # violation trace (shell script for kernel baselines)
-  violation.toolcalls.jsonl  # same trace as tool-call list (for TL baselines)
+  trigger.sh             # trigger trace (shell script for kernel baselines)
+  trigger.toolcalls.jsonl    # same trace as tool-call list (for TL baselines)
   compliant.sh           # compliant trace (should NOT trigger)
   compliant.toolcalls.jsonl
 ```
@@ -175,7 +175,7 @@ stays identical.
  "enforceability": "cross_event", "topic": "Testing"}
 ```
 
-**violation.toolcalls.jsonl** (one tool call per line):
+**trigger.toolcalls.jsonl** (one tool call per line):
 ```json
 {"tool": "run_command", "input": "ls src/"}
 {"tool": "run_command", "input": "cat .env"}
@@ -226,7 +226,7 @@ all `docs/corpus-evaluated/*/expressible.yaml` files.
 
 For each corrected rule in `docs/corpus-evaluated/`, an LLM agent
 generates the RQ3 test directory (`env/` directory skeleton,
-`violation.sh`, `compliant.sh`, `.toolcalls.jsonl` files). See
+`trigger.sh`, `compliant.sh`, `.toolcalls.jsonl` files). See
 Section 7 for the full RQ3 procedure.
 
 ### 4.3 Per-Event Directive Translation Examples
@@ -294,7 +294,7 @@ Coverage funnel (by directive count):
        |    |-- expressible:      ~380 (97%)
        |    +-- not expressible:  ~11 (3%)   -- requires content inspection
        +-- cross-event: 189
-            |-- expressible:      ~127 (67%) -- after exec, labels, lineage, partial detection
+            |-- expressible:      ~127 (67%) -- after exec, labels, lineage, partial coverage
             +-- not expressible:  ~62 (33%)  -- needs after write / content / external
 ```
 
@@ -375,8 +375,8 @@ each output and classifies it (§4.2 Step 2):
 ### 7.1 Goal
 
 RQ3 evaluates the core IFC and eBPF engine on realistic agent
-workloads: does ActPlane correctly detect contract violations, and
-what fraction of violations do comparable systems miss?
+workloads: does ActPlane correctly match contract conditions, and
+what fraction of rule matches do comparable systems miss?
 
 ### 7.2 Method
 
@@ -440,42 +440,42 @@ Total: ~N rules × 2 traces = ~2N test cases (expected ~800).
 | **TL-1 (per-call)** | Python script: each tool call checked independently against the rule set | AgentSpec (ICSE 2026), Progent (arXiv 2026) | Tool-layer misses indirect paths and cross-event flows |
 | **TL-N (sequence-aware)** | Python script: sliding window of last N tool calls checked for patterns | AgentSpec, Progent | Even smart tool-layer can't see below the tool API |
 | **Per-event eBPF** | ActPlane with label propagation disabled (per-event matching only) | Tetragon (system), eBPF-PATROL (arXiv 2025), OAMAC (arXiv 2026) | Per-event kernel catches all paths but not cross-event flows |
-| **ActPlane** | Full system (label propagation + rule checking) | — | Cross-channel IFC covers all violation types |
+| **ActPlane** | Full system (label propagation + rule checking) | — | Cross-channel IFC covers all contract types |
 
 #### Step 4: Execute
 
 For each rule × each trace:
 1. `cd` into `env/` directory
 2. Run executable script under `sudo actplane run -- bash trace.sh`
-   → record ActPlane violations
-3. Run same script under per-event eBPF baseline → record violations
-4. Feed tool-call list to TL-1 checker → record violations
-5. Feed tool-call list to TL-N checker → record violations
+   → record ActPlane rule matches
+3. Run same script under per-event eBPF baseline → record rule matches
+4. Feed tool-call list to TL-1 checker → record rule matches
+5. Feed tool-call list to TL-N checker → record rule matches
 
-For each system × each trace, record: detected (Y/N).
+For each system × each trace, record: matched (Y/N).
 
 #### Step 5: Compute
 
-Compare each system's output against ground truth (violation traces
-should detect, compliant traces should not):
-- **Detection rate** per system, overall and broken down by
+Compare each system's output against ground truth (trigger traces
+should match, compliant traces should not):
+- **Match rate** per system, overall and broken down by
   enforcement level (per-event vs cross-event)
 - **FP rate** per system (compliant traces incorrectly flagged)
 
 ### 7.3 Required Figures and Tables
 
-**Table 3: Detection Rate and FP Rate** (raw data)
+**Table 3: Match Rate and FP Rate** (raw data)
 
-| System | Per-event detected | Cross-event detected | Total detection rate | FP rate |
+| System | Per-event matched | Cross-event matched | Total match rate | FP rate |
 |---|---|---|---|---|
 | ActPlane | /N₁ | /N₂ | | |
 | Per-event eBPF | /N₁ | /N₂ | | |
 | TL-N | /N₁ | /N₂ | | |
 | TL-1 | /N₁ | /N₂ | | |
 
-**Figure 3: Detection rate by enforcement level** — grouped bar
+**Figure 3: Match rate by enforcement level** — grouped bar
 chart (x-axis = per-event / cross-event, 4 bars per group, y-axis =
-detection rate). FP rate reported in text if all systems are at 0%.
+match rate). FP rate reported in text if all systems are at 0%.
 
 ---
 
@@ -626,12 +626,12 @@ Each task is run under three conditions, each repeated N times
 | Condition | Enforcement | Feedback | What it tests |
 |---|---|---|---|
 | **B1: baseline** | No ActPlane | None | Weak model's raw capability |
-| **B2: enforce-only** | ActPlane (EPERM / SIGKILL) | None (bare "Permission denied") | Does blocking bad actions help? |
-| **B3: enforce + feedback** | ActPlane (EPERM / SIGKILL) | Remediation string injected into agent context | Does semantic feedback help recovery? |
+| **B2: block-only** | ActPlane (EPERM / SIGKILL) | None (bare "Permission denied") | Does blocking bad actions help? |
+| **B3: enforce + feedback** | ActPlane (EPERM / SIGKILL) | Remediation string injected into agent context | Does semantic feedback help guided completion? |
 
 The task agent is a weaker open-source model (model TBD — e.g., a
 small Llama or Qwen variant) that is more likely to trigger
-violations, providing clearer signal for the feedback comparison.
+rule matches, providing clearer signal for the feedback comparison.
 
 #### Key Comparisons
 
@@ -645,30 +645,30 @@ violations, providing clearer signal for the feedback comparison.
 | Metric | Definition |
 |---|---|
 | Task completion rate | Fraction of tasks where the test script passes (Terminal-Bench's native metric) |
-| Violation count per task | Number of ActPlane rule violations per task (B2 and B3 only) |
-| Recovery rate | Fraction of violations after which the agent recovers and completes the task |
-| Repeat violation rate | Fraction of tasks where the same rule fires more than once |
+| Match count per task | Number of ActPlane rule matches per task (B2 and B3 only) |
+| Guided completion rate | Fraction of rule matches after which the agent completes the task |
+| Repeat match rate | Fraction of tasks where the same rule fires more than once |
 | Rules triggered rate | Fraction of tasks where at least one rule fires (measures rule relevance) |
 
 ### 9.5 Required Figures and Tables
 
 **Table 9: Terminal-Bench Results by Condition**
 
-| Condition | Tasks | Completion rate | Mean violations/task | Recovery rate |
+| Condition | Tasks | Completion rate | Mean matches/task | Guided completion rate |
 |---|---|---|---|---|
 | B1: baseline | 89 | | | — |
-| B2: enforce-only | 89 | | | |
+| B2: block-only | 89 | | | |
 | B3: enforce + feedback | 89 | | | |
 
 **Table 10: Per-Task Detail** — for tasks where B2 and B3 differ,
-show the rule that fired, the violation event, and whether the agent
-recovered (B2 vs B3)
+show the rule that fired, the match event, and whether the agent
+completed the task (B2 vs B3)
 
 **Figure 6: Completion rate comparison** — grouped bar chart across
 the three conditions
 
-**Figure 7: Recovery rate (B2 vs B3)** — bar chart or scatter plot
-showing per-task recovery with vs without feedback
+**Figure 7: Guided completion rate (B2 vs B3)** — bar chart or scatter plot
+showing per-task guided completion with vs without feedback
 
 ---
 
@@ -681,7 +681,7 @@ showing per-task recovery with vs without feedback
 | T1 | Corpus coverage funnel (expressible vs not expressible) | RQ1 |
 | T2 | Cross-event pattern breakdown (9 patterns x expressibility) | RQ1 |
 | T2b | agent translation correctness (TP/FP/FN per level) | RQ2 |
-| T3 | Comparative coverage (violation class x system) | RQ3 |
+| T3 | Comparative coverage (contract class x system) | RQ3 |
 | T6 | Per-syscall latency (5 syscalls x 5 configurations) | RQ4 |
 | T7 | End-to-end agent task overhead | RQ4 |
 | T8 | BPF map memory consumption | RQ4 |
@@ -698,7 +698,7 @@ showing per-task recovery with vs without feedback
 | F4 | Per-syscall overhead (bar chart, baseline vs AP) | RQ4 |
 | F5 | Overhead vs rule count (line chart) | RQ4 |
 | F6 | Terminal-Bench completion rate (grouped bar, B1/B2/B3) | RQ5 |
-| F7 | Recovery rate B2 vs B3 (bar chart or scatter) | RQ5 |
+| F7 | Guided completion rate B2 vs B3 (bar chart or scatter) | RQ5 |
 
 ---
 
@@ -725,7 +725,7 @@ correctness (RQ2)
 **Steps**:
 1. For each TP rule, LLM agent generates:
    (a) directory skeleton (`env/` with repo layout committed in-tree)
-   (b) violation trace (5-15 tool calls with noise)
+   (b) trigger trace (5-15 tool calls with noise)
    (c) compliant trace (correct path, should not trigger)
    Output in tool-call list + executable script formats
 2. Implement TL-1 and TL-N tool-layer baselines (Python scripts)
@@ -733,7 +733,7 @@ correctness (RQ2)
    disabled)
 4. Run all executable scripts under ActPlane and per-event eBPF;
    feed all tool-call lists to TL-1 and TL-N
-5. Compare against ground truth; compute detection rate and FP rate
+5. Compare against ground truth; compute match rate and FP rate
    per system, broken down by per-event vs cross-event
 
 **Effort**: ~4 days (trace generation 2d + baselines + runs 2d)
@@ -763,12 +763,12 @@ weak open-source model for task execution
    from the task description + environment + test script
 3. Run weak model on all 89 tasks under three conditions:
    - B1: no ActPlane (baseline)
-   - B2: ActPlane enforce-only (EPERM/SIGKILL, no feedback)
+   - B2: ActPlane block-only (EPERM/SIGKILL, no feedback)
    - B3: ActPlane enforce + feedback (remediation string injected)
 4. Each condition x N trials (N ≥ 3) for statistical reliability
 5. Record: task completion (pass/fail via Terminal-Bench test script),
-   violation count, recovery events, repeat violations
-6. Compute completion rate, recovery rate, and violation metrics
+   match count, guided completion events, repeat matches
+6. Compute completion rate, guided completion rate, and match metrics
    per condition
 
 **Effort**: ~5 days (setup 2d + runs 2d + analysis 1d)

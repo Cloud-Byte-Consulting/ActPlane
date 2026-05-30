@@ -2,14 +2,14 @@
 
 > Goal: a policy language for **OS-enforced agent harnesses** whose rules are workflow, capability, and provenance contracts over the agent's whole execution, not static access-control lists. Security-relevant policies are one class of contract, not the sole product framing.
 >
-> **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel labeled information-flow *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow detect-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
+> **Honest novelty position (see `related_work.md`)**: in-kernel cross-channel labeled information-flow *enforcement* is **not** itself new — **CamQuery (CCS'18)** already propagates a `confidential` label across process/file/network in-kernel and blocks before the action. ActPlane does **not** claim to invent that. What this DSL contributes is the combination CamQuery and the agent-guardrail tools each miss: an **agent-oriented rule model** (the source/sink/declassify classes of §3, framed around agent behaviors) on the **modern eBPF/BPF-LSM substrate** (vs CamQuery's kernel module / Linux Provenance Module), enforced **below the tool layer** so the bash/SDK escape doesn't bypass it (vs AgentSpec/Invariant), and closing the loop with **corrective semantic feedback** to a cooperative-but-forgetful agent. Tetragon gives boolean lineage + single-channel block; SLEUTH/CamFlow match-only; AgentSpec dataflow policy at the bypassable tool layer. The DSL below is the expressiveness that ties these together.
 
 > **Status: implemented as a BPF-LSM enforcement backend with tracepoint observation.**
 > - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse, and the `since` staleness clause (§1.9). Unit tests cover E1–E13 compile + effect coverage.
 > - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, the `since` epoch engine (§1.9), object identity by `(dev,inode)` (§1.10), process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec, file access/mutation, and connect blocking when `bpf` LSM is active; otherwise tracepoints support `audit` reporting and explicit `kill` termination. `block` is LSM-only. Matching predicates have 30 unit tests (`test_taint.c`).
-> - **Loader** `bpf/process.c` installs the compiled config, detects BPF LSM availability, and reports only `TAINT_VIOLATION` with `effect`, `blocked`, and `killed` fields.
+> - **Loader** `bpf/process.c` installs the compiled config, checks BPF LSM availability, and reports only `TAINT_VIOLATION` with `effect`, `blocked`, and `killed` fields.
 >
-> Current limitations: `@arg` exec predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `effect block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `effect audit` reports and `effect kill` terminates the matching task after exec in tracepoint mode. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4. File identity uses real `(dev,inode)` in LSM mode and falls back to `(0, fnv1a(path))` in tracepoint mode (§1.10). The eager per-gate consumption set (Layer B, §1.10) is the remaining precision step and is deliberately deferred. The corrective-feedback loop is wired up through `actplane run`: violations the eBPF/LSM enforcer detects are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
+> Current limitations: `@arg` exec predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `effect block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `effect audit` reports and `effect kill` terminates the matching task after exec in tracepoint mode. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4. File identity uses real `(dev,inode)` in LSM mode and falls back to `(0, fnv1a(path))` in tracepoint mode (§1.10). The eager per-gate consumption set (Layer B, §1.10) is the remaining precision step and is deliberately deferred. The corrective-feedback loop is wired up through `actplane run`: rule matches the eBPF/LSM enforcer produces are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
 
 ### Enforcement Semantics
 
@@ -20,7 +20,7 @@ feedback:
 - `block`: a BPF-LSM hook denies the operation before the kernel commits it
   (`-EPERM`). This is security-style pre-operation blocking. Without BPF LSM,
   `block` is unsupported and tracepoints do not evaluate it.
-- `kill`: the OS immediately terminates the violating task. For exec rules that
+- `kill`: the OS immediately terminates the matching task. For exec rules that
   rely on post-exec argv observation, the new image may have started, but the
   agent action is still forced to fail.
 - `audit`: report only; the action proceeds.
@@ -93,13 +93,13 @@ rule NAME:
   - `lineage-includes exec G` — **mandatory mediation**: allowed iff an ancestor (incl. self) exec'd `G`.
   - `after exec G [since EV…]` — **temporal**: allowed iff `exec G` happened earlier in this process's lineage. Plain `after` is *latching* (satisfied once `G` ever ran). The optional `since EV…` tail makes the gate go **stale** when a later invalidating event `EV` occurs (§1.9).
 
-**Violation**: event `op(s, o)` violates rule `deny op pat if Φ unless cond` iff
+**Rule match**: event `op(s, o)` matches rule `deny op pat if Φ unless cond` iff
 `match(o, pat) ∧ Φ(σ(s)) ∧ ¬cond(s, o, history)`.
 Each rule has an explicit `effect`:
 
 - `block` (default): deny at the BPF-LSM hook. It is unsupported in tracepoint mode.
 - `audit`: report only; the operation proceeds.
-- `kill`: send `SIGKILL` to the violating task. With BPF-LSM active, the hook also denies the triggering operation when the rule is evaluated before commit; from tracepoints it is harness-level termination, not pre-op blocking.
+- `kill`: send `SIGKILL` to the matching task. With BPF-LSM active, the hook also denies the triggering operation when the rule is evaluated before commit; from tracepoints it is harness-level termination, not pre-op blocking.
 
 If multiple clauses/rules match the same event, the kernel chooses the strongest effect: `kill > block > audit`.
 
@@ -301,7 +301,7 @@ rule research-readonly:
 # reuses E1's SECRET source + sensitive-context-boundary rule:
 #   write(A,/tmp/out.json) propagates SECRET to the file;
 #   read(B,/tmp/out.json)  propagates SECRET to B;
-#   connect(B,*) is then a violation even though B never touched .env.
+#   connect(B,*) is then a rule match even though B never touched .env.
 ```
 
 ### E8 — Redaction path (usability)
@@ -319,7 +319,7 @@ source AGENT = exec "**/codex"
 rule no-git:
   deny exec "**/git"  if AGENT
   reason "this agent must not invoke git on any path"
-# three traces (tool / bash / python) all produce a violation.
+# three traces (tool / bash / python) all produce a rule match.
 ```
 
 ### E10 — Provenance-scoped network allow-list
@@ -392,11 +392,11 @@ Lineage attributes (`gates`, ancestry, and the per-lineage epoch counters of §1
 
 ## 6. Implementation
 
-Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat kernel config; the **kernel** propagates taint and evaluates rules, emitting only violations.
+Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat kernel config; the **kernel** propagates taint and evaluates rules, emitting only rule matches.
 
-- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST, incl. the optional `since` tail on `after`), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask, and gate+`since` → epoch-slot indices with `taint_rule.{gate_idx,since_mask}` + `taint_config.invals`). `mod.rs::compile_str`. Tests compile E1–E13 and rule effects. `main.rs` loads `actplane.yaml`, compiles its `policy: |` DSL block, spawns the loader, and prints violations with their reason (the feedback payload).
+- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST, incl. the optional `since` tail on `after`), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask, and gate+`since` → epoch-slot indices with `taint_rule.{gate_idx,since_mask}` + `taint_config.invals`). `mod.rs::compile_str`. Tests compile E1–E13 and rule effects. `main.rs` loads `actplane.yaml`, compiles its `policy: |` DSL block, spawns the loader, and prints rule matches with their reason (the feedback payload).
 - **`bpf/taint.h`** — the rule ABI (`taint_source`/`taint_rule`/`taint_xform`/`taint_gate`/`taint_inval`/`taint_config`) + libc-free matching predicates (`taint_streq`/`prefix`/`suffix`/`any`, `mask_ok`, `arg_match`), 30 unit tests in `test_taint.c`.
 - **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + per-session epochs (`te_sess`, `te_tick`/`te_stamp`, `te_inval_hits`, `te_after_satisfied`) for §1.9 staleness + `file_id`/`file_state` object identity (§1.10) + propagation + `te_check`/`te_connect_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
-- **`bpf/process.bpf.c`** — fork/exec/exit/open/mutate/connect hooks; one emitter (`emit_violation`). **`bpf/process.c`** — installs config, reports violations.
+- **`bpf/process.bpf.c`** — fork/exec/exit/open/mutate/connect hooks; one emitter (`emit_violation`). **`bpf/process.c`** — installs config, reports rule matches.
 
 Engineering notes (verifier): patterns are copied rodata→local before matching (direct `volatile` reads mis-evaluate); heavy helpers are `__noinline` (stack budget); buffers are ≥ `TAINT_PAT_LEN`; argv/index access uses explicit bound guards (index masking makes clang emit a pointer-OR the verifier rejects); connect matches numeric IPv4 (no in-kernel string formatting). See the status note at the top for what is verified live and what remains.

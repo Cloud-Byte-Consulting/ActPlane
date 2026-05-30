@@ -9,7 +9,7 @@ send/recv edges, blocks forbidden source→sink flows at the relevant LSM hook (
 `-EPERM` / killing), and closes the loop with **corrective semantic feedback** delivered back to
 the agent. The threat model is a **cooperative-but-forgetful agent** — an autonomous LLM agent
 that is not actively adversarial but will, through carelessness or prompt-injection drift, take
-actions that violate a data-handling policy — though the same mechanism also raises the bar
+actions that trigger a data-handling policy rule — though the same mechanism also raises the bar
 against some active misuse.
 
 This document situates ActPlane against the literature, grouped by theme. Each entry gives a
@@ -267,7 +267,7 @@ confinement." Threat model: indirect prompt injection (adversarial).
 *vs ActPlane:* The closest agent-security analog of ActPlane's rule model, and a strong design
 for *deterministic* policy on agents. But Progent enforces at the **tool-call API inside the
 agent framework** — it explicitly relies on "all external effects of an agent occur through
-[tool calls]," which a forgetful agent shelling out or opening a raw socket violates. ActPlane
+[tool calls]," which a forgetful agent shelling out or opening a raw socket breaks. ActPlane
 enforces at the **OS syscall/LSM layer below it**, catching actions even when they bypass the
 tool API, and adds cross-object taint that per-tool-call checks lack. Complementary, different
 layer.

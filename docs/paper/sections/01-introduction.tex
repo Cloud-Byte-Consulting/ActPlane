@@ -60,12 +60,12 @@ loads them into an eBPF/BPF-LSM backend. Named
 labels propagate across process, file, and network objects at kernel hooks,
 encoding execution history as checkable state: when a process reads a file
 labeled \texttt{SECRET}, the process acquires that label; when it forks, the
-child inherits it. When a labeled subject violates a rule, ActPlane returns
-semantic feedback to the agent, specifying which contract was violated, why,
+child inherits it. When a labeled subject matches a rule, ActPlane returns
+semantic feedback to the agent, specifying which contract condition was matched, why,
 and what alternative path satisfies it. 
 ActPlane serves as the control plane for the harness: it compiles
 intent-level contracts into behavior-level rules (the policy path) and
-translates behavior-level violations back into intent-level feedback (the
+translates behavior-level rule matches back into intent-level feedback (the
 feedback path); the eBPF kernel hooks form the data plane. Each rule
 independently selects audit (observe and notify), block (pre-operation
 denial), or kill (post-operation termination).
@@ -94,11 +94,11 @@ instruction files.
 harnesses that compiles agent-declared behavioral contracts into
 eBPF/BPF-LSM labeled information-flow rules, observing and enforcing agent
 behavior across process, file, and network boundaries and providing
-semantic feedback that reconnects behavior-level violations to intent-level
+semantic feedback that reconnects behavior-level rule matches to intent-level
 remediation.
 
 \item It evaluates ActPlane on bypass coverage across five tool paths, agent
-recovery rate under four feedback conditions, false positives under benign
+guided completion rate under four feedback conditions, false positives under benign
 workloads, and per-event overhead, comparing against action-level and
 behavior-level baselines.
 \end{enumerate}

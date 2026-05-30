@@ -584,14 +584,14 @@ conventions, commit message format), it is **content**. The
 distinguishing feature: enforcement requires reading the file and parsing
 its content, not just observing the file-access system call.
 
-**Q3: Can violation be detected from a single system operation?**
+**Q3: Can the rule be matched from a single system operation?**
 If the directive can be checked by matching one command execution, one
 file access, or one network connection against a pattern derivable from
 the repository context, it is **per-event**. Examples: matching
 `execve("git", ["worktree", ...])`, matching `open("vendor/...")`,
 matching `connect(external_ip)`.
 
-**Q4: Does detection require state across multiple operations?**
+**Q4: Does matching require state across multiple operations?**
 If checking the directive requires knowing what happened before the
 current operation (which files were previously read, which commands
 previously ran, the process lineage), it is **cross-event**.
@@ -1068,7 +1068,7 @@ These cross-event directives are concentrated in Development Process
 3. **Multi-step workflows** (e.g., "12-step release checklist"):
    enforcement requires tracking progress through a sequence.
 4. **Conditional triggers** (e.g., "if you change specs, also update
-   SDK"): enforcement requires detecting the trigger event and verifying
+   SDK"): enforcement requires matching the trigger event and verifying
    the required follow-up.
 
 No currently deployed agent enforcement mechanism covers this layer.

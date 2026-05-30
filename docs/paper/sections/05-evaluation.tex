@@ -11,14 +11,14 @@ real-world contracts.
 
 \subsection{Bypass Coverage (RQ1)}
 
-Does the OS-level harness detect the same contract violation regardless of
+Does the OS-level harness match the same contract condition regardless of
 the tool path through which the agent triggers it?
 
 We execute the same forbidden operation through five paths: (1)~direct tool
 call, (2)~nested shell string (\texttt{bash~-c}), (3)~Python
 \texttt{subprocess}, (4)~compiled helper binary, and (5)~direct
 \texttt{execve} from generated C code. For each path, we record whether
-ActPlane detects the violation and whether the semantic feedback payload
+ActPlane matches the contract condition and whether the semantic feedback payload
 is delivered to the agent.
 
 % TODO: Insert coverage matrix table.
@@ -26,11 +26,11 @@ is delivered to the agent.
 \subsection{Feedback and Recovery (RQ2)}
 
 Does semantic feedback improve agent task completion and reduce repeated
-violations compared with enforcement without feedback?
+rule matches compared with enforcement without feedback?
 
 We run agent tasks under four conditions: (C1)~prompt-only, in which the
 contract is stated in the prompt but not enforced; (C2)~audit, in which ActPlane
-reports violations but does not fail operations; (C3)~enforcement without
+reports rule matches but does not fail operations; (C3)~enforcement without
 feedback, in which the operation fails with \texttt{-EPERM} or \texttt{SIGKILL}
 but no structured reason; (C4)~enforcement with feedback, in which the operation
 fails and ActPlane injects the rule name, reason, and remediation into the
@@ -38,7 +38,7 @@ agent's context.
 
 The primary comparison is C3 vs.\ C4: the marginal benefit of semantic
 feedback. The C1-to-C2 comparison measures how often prompt-only contracts
-are violated. The C2-to-C3 comparison isolates the effect of enforcement
+are matched. The C2-to-C3 comparison isolates the effect of enforcement
 from observation.
 
 % TODO: Insert results table.
@@ -91,11 +91,11 @@ files, and sockets~\cite{pasquier2017camflow}.
 CamQuery is the closest prior
 system~\cite{pasquier2018camquery}. It executes provenance queries inline
 in the kernel, propagates labels across process, file, and network edges,
-and can deny operations that violate a policy. ActPlane shares this
+and can deny operations that match a policy rule. ActPlane shares this
 label-propagation model but differs in three respects: it targets
 cooperative AI agents rather than adversarial intrusions, compiles an
 agent-oriented source/sink DSL rather than general provenance queries, and
-returns semantic feedback to the violating actor. The implementation
+returns semantic feedback to the matching actor. The implementation
 differs as well: ActPlane uses the eBPF/BPF-LSM substrate rather than a
 loadable kernel module.
 
@@ -151,10 +151,10 @@ be enforced at the OS level?
 ActPlane provides a programmable OS-level control plane for agent harnesses.
 It compiles agent-declared behavioral contracts into eBPF/BPF-LSM labeled
 information-flow rules, propagates labels across process, file, and endpoint
-objects at kernel hooks, and returns kernel-detected violations as semantic
+objects at kernel hooks, and returns kernel-detected rule matches as semantic
 feedback to the agent. By supporting audit, pre-operation denial, and
 harness-level termination with structured remediation, ActPlane enables
-agents to recover from contract violations rather than fail opaquely.
+agents to complete tasks after contract rule matches rather than fail opaquely.
 ActPlane unifies labeled information-flow observation and enforcement with
 an agent-oriented contract language and a feedback loop on the eBPF/BPF-LSM
 substrate, bridging the intent--behavior gap that single-level harnesses

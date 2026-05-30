@@ -68,7 +68,7 @@ observes the forbidden \texttt{git~push} behavior.
 (2)~An agent calls \texttt{read\_file(".env")} to inspect a configuration
 value, then later calls \texttt{run\_command("curl~api.example.com")}.
 Each tool call is individually permitted, but the combination constitutes
-secret exfiltration, a cross-event violation visible only to an enforcer
+secret exfiltration, a cross-event condition visible only to an enforcer
 that tracks information flow from file read to network connect.
 (3)~An agent writes a Python script containing
 \texttt{subprocess.run(["git",~"push",~"--force"])} and executes it. The
@@ -80,10 +80,10 @@ observes the nested \texttt{execve("git",~["push",~"--force"])}.
 ActPlane targets a \emph{cooperative but probabilistic} agent. The agent is
 not adversarial: it does not attempt to defeat the enforcement mechanism
 through obfuscation or exploitation. However, because LLM inference is
-inherently stochastic, the agent may violate any given contract with
+inherently stochastic, the agent may trigger any given contract rule with
 non-zero probability at each step, regardless of context length or prompt
 design. Over a long session with many steps, the cumulative probability of
-at least one violation approaches certainty.
+at least one rule match approaches certainty.
 
 The trust boundary is the kernel. The eBPF programs and BPF maps that
 propagate labels and check rules run in kernel space and cannot be modified
@@ -120,7 +120,7 @@ statement along seven dimensions: (D1)~coding style vs.\ behavioral
 contract, (D2)~contract category, (D3)~observable at the syscall boundary,
 (D4)~expressible in the ActPlane DSL, (D5)~enforceable without false
 positives under normal use, (D6)~robust to naming and path variation, and
-(D7)~temptable (likely to be violated by an agent in a realistic task).
+(D7)~temptable (likely to be triggered by an agent in a realistic task).
 Two annotators independently coded the full set; we report Cohen's
 $\kappa$ for inter-rater reliability.
 
@@ -152,7 +152,7 @@ contracts cannot, because they depend on state accumulated across multiple
 operations and objects. Observing and enforcing them requires a mechanism
 that (1)~tracks provenance across process, file, and network boundaries,
 (2)~encodes that provenance as checkable state at each observation and
-enforcement point, and (3)~connects violations back to the declared
+enforcement point, and (3)~connects rule matches back to the declared
 contract for semantic feedback.
 
 Labeled information-flow control satisfies all three requirements. Labels

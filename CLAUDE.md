@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ActPlane is an **OS-enforced harness for AI agents**. It compiles a policy DSL
 to an in-kernel eBPF enforcer that performs **labeled information-flow control**
-across process / file / network edges and reports **only** rule violations —
+across process / file / network edges and reports **only** rule matches —
 each with a human-readable reason (the corrective-feedback payload). It enforces
 below the tool layer (at the syscall boundary), so constraints hold across any
 tool, subprocess, or direct syscall the agent uses. (The mechanism is a labeled,
@@ -147,7 +147,7 @@ directly into the BPF rodata. Any change to `taint.h` MUST be mirrored in
 ## Common Issues
 
 - **eBPF permission errors**: needs `sudo` or `CAP_BPF` + `CAP_SYS_ADMIN`.
-- **No violations fire**: confirm the loader printed `ActPlane: N sources, N rules,
+- **No rule matches fire**: confirm the loader printed `ActPlane: N sources, N rules,
   ...` (rodata loaded) and that exec patterns match `comm` (basename, ≤ 15 chars),
   not the full path.
 - **ABI size mismatch on load** ("config size mismatch"): `lower.rs` and `taint.h`

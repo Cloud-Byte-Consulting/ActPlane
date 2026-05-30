@@ -4,7 +4,7 @@
 ActPlane is a programmable OS-level control plane for agent harnesses. It
 compiles behavioral contracts into labeled information-flow rules at OS
 kernel hooks, observing and enforcing agent behavior and returning semantic
-feedback when a rule is violated. Figure~\ref{fig:architecture} summarizes
+feedback when a rule is matched. Figure~\ref{fig:architecture} summarizes
 the pipeline.
 
 \begin{figure}[t]
@@ -26,7 +26,7 @@ Rust compiler ------> struct taint_config
 \end{verbatim}
 \caption{ActPlane pipeline. The Rust compiler lowers the policy DSL into a
 fixed-size binary configuration. The eBPF loader writes it into read-only
-data, attaches to kernel hooks, and reports violations as NDJSON. The runner
+data, attaches to kernel hooks, and reports rule matches as NDJSON. The runner
 maps rule identifiers back to human-readable feedback.}
 \Description{ASCII diagram of policy compilation, eBPF loading, target
 command execution, and feedback output.}
@@ -107,14 +107,14 @@ denial; the second uses harness-level termination.}
 Each rule declares an explicit effect that determines how the kernel
 responds to a match.
 
-\textbf{Audit}: the kernel emits a violation event and allows the operation
+\textbf{Audit}: the kernel emits a match event and allows the operation
 to proceed.
 
 \textbf{Block}: a BPF-LSM hook returns \texttt{-EPERM} before the operation
 commits. Block is available only when the \texttt{bpf} LSM is active in the
 running kernel; it is not silently downgraded.
 
-\textbf{Kill}: the kernel sends \texttt{SIGKILL} to the violating task. From
+\textbf{Kill}: the kernel sends \texttt{SIGKILL} to the matching task. From
 a BPF-LSM hook, kill also returns \texttt{-EPERM}; from a tracepoint, kill
 is post-operation termination.
 
@@ -193,14 +193,14 @@ then applies propagation updates.
 
 \subsection{Corrective Feedback}
 
-The kernel violation event contains the rule identifier, effect, target
+The kernel match event contains the rule identifier, effect, target
 string, pid, and flags indicating whether the operation was blocked or the
 task was killed. The Rust runner maps the rule identifier to the
 corresponding rule name, reason, and remediation string, then appends a
 structured payload to \texttt{.actplane/last-violation.txt}.
 
 Agent integration uses a post-tool hook. The \texttt{actplane feedback-hook}
-subcommand reads new bytes from the violation file and returns them as
+subcommand reads new bytes from the feedback file and returns them as
 \texttt{additionalContext} to compatible agent
 runtimes~\cite{agentsight}. The hook is a read-only relay: it does not
 re-evaluate policy in userspace. The kernel is the sole authority for rule

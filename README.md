@@ -2,16 +2,16 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-**Define behavioral control contracts for your AI agent in DSL; `observe` and `enforce` them
+**Define information flow behavioral policy for your AI agent in DSL; `observe` and `enforce` them
 in the kernel with eBPF.** 
 
-ActPlane sits below the tool layer, so a rule holds infomation-flow constraints
+ActPlane sits below the tool layer, so a rule holds information-flow constraints
 across every process, file access, and network connection the agent touches, no
 matter what tool, subprocess, or direct syscall it uses to get there.
 
 Each rule sets its own mode: **audit** (observe and notify agent), **block**
 (stop the action before it commits), or **kill** (terminate the process). In
-every mode the violation's reason is fed back to the agent as a reminder, so it
+every mode the rule match's reason is fed back to the agent as a reminder, so it
 can self-correct instead of just hitting a wall. Agents can write and validate
  their own rules (`actplane check`).
 
@@ -44,7 +44,7 @@ actplane check                                 # validate rules (no privileges)
 sudo -E actplane run claude -p "review this repo"
 ```
 
-When the agent violates a rule, ActPlane kills the action and tells it why:
+When a rule matches, ActPlane kills the action and tells the agent why:
 
 ```
 🚫 KILLED: process 'git' (pid 4213, ppid 4210) — /usr/bin/git
@@ -83,7 +83,7 @@ The key differences:
 - **Call-chain granularity**: rules follow process lineage, not just single operations. "Codex's entire subprocess tree cannot touch git" is one rule.
 - **Data-flow constraints**: rules express "data read from A must never flow to B", tracked across arbitrary fork/exec and file read/write edges, not just at a boundary.
 - **Causal ordering**: rules express "run tests before committing" via `since` clauses and gate invalidation, not just per-operation checks.
-- **Corrective feedback, not just blocking**: violations feed a human-readable reason back to the agent, so it can retry a different way. This is what makes it a harness, not a sandbox.
+- **Corrective feedback, not just blocking**: rule matches feed a human-readable reason back to the agent, so it can retry a different way. This is what makes it a harness, not a sandbox.
 - **Agent-maintained rules**: the rule language is designed so agents can write, validate (`actplane check`), and evolve their own contracts.
 
 ## Harness, not just a sandbox
@@ -138,7 +138,7 @@ worked examples.
 
 ## Agent integration
 
-ActPlane feeds violation reasons back to agents via their hook systems.
+ActPlane feeds rule-match reasons back to agents via their hook systems.
 
 **Claude Code** (`.claude/settings.local.json`):
 
@@ -161,7 +161,7 @@ ActPlane feeds violation reasons back to agents via their hook systems.
 }
 ```
 
-The adapter forwards new violations as hook context. The kernel remains the sole
+The adapter forwards new rule matches as hook context. The kernel remains the sole
 authority for observation and enforcement. See [`script/CLAUDE.snippet.md`](script/CLAUDE.snippet.md)
 for the agent instruction snippet.
 
@@ -171,16 +171,16 @@ for the agent instruction snippet.
 actplane.yaml ─▶ collector (Rust) ─▶ .rodata config ─▶ eBPF kernel engine
  policy: |        parse + lower DSL    (set_global)      propagate labels,
                                                           match rules,
- violations ◀──── ring buffer (in-process, via aya) ◀─── emit on match only
+ matches ◀─────── ring buffer (in-process, via aya) ◀─── emit on match only
 ```
 
 - **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect`,
   keeps a per-node label set (process / file / endpoint), propagates labels,
-  evaluates compiled rules, emits only violation events.
+  evaluates compiled rules, emits only match events.
 - **Collector** (`actplane`): discovers `actplane.yaml`, compiles the DSL to the
   kernel config, and loads the prebuilt eBPF object in-process via
   [`actplane-bpf`](bpf/) (aya) — no libbpf/clang at runtime — seeds the target
-  process lineage, and reports violations with policy reasons.
+  process lineage, and reports rule matches with policy reasons.
 
 ## Build from source
 
