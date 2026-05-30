@@ -278,7 +278,7 @@ fn check_policy(cli: &Cli) -> Result<i32> {
     {
         warns.push(
             "`effect block` needs BPF-LSM (not active here: /sys/kernel/security/lsm has no `bpf`); \
-             those rules will report (audit) but not deny. Use `effect kill` to terminate."
+             those rules will report (notify) but not deny. Use `effect kill` to terminate."
                 .into(),
         );
     }
@@ -514,7 +514,7 @@ fn to_violation(v: &actplane_bpf::Violation) -> Violation {
         rule_id: v.rule_id as usize,
         effect: Some(
             match v.effect {
-                0 => "audit",
+                0 => "notify",
                 1 => "block",
                 2 => "kill",
                 _ => "unknown",
@@ -824,7 +824,7 @@ fn append_feedback(path: &Path, payload: &str) -> std::io::Result<()> {
 
 fn effect_name(effect: dsl::ast::Effect) -> &'static str {
     match effect {
-        dsl::ast::Effect::Audit => "audit",
+        dsl::ast::Effect::Notify => "notify",
         dsl::ast::Effect::Block => "block",
         dsl::ast::Effect::Kill => "kill",
     }

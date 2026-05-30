@@ -81,7 +81,7 @@ static bool bpf_lsm_active(void)
 static const char *effect_name(unsigned int effect)
 {
 	switch (effect) {
-	case TEFFECT_AUDIT: return "audit";
+	case TEFFECT_NOTIFY: return "notify";
 	case TEFFECT_KILL: return "kill";
 	case TEFFECT_BLOCK: return "block";
 	default: return "unknown";
@@ -290,7 +290,7 @@ int main(int argc, char **argv)
 	fprintf(stderr, "ActPlane: %s mode (%s)\n",
 		enforce ? "enforce" : "tracepoint",
 		enforce ? "BPF LSM is active" :
-			  "BPF LSM is not active; block effects are unsupported, audit reports, kill terminates");
+			  "BPF LSM is not active; block effects are unsupported, notify reports, kill terminates");
 	if (!enforce && config_has_effect(&cfg, TEFFECT_BLOCK))
 		fprintf(stderr,
 			"ActPlane: warning: effect block requires BPF LSM; block rules will not fire in tracepoint mode\n");

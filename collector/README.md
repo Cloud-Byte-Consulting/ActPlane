@@ -5,10 +5,10 @@ reporting shim**. It discovers `actplane.yaml`, parses its embedded `policy: |`
 DSL, lowers it to the kernel ABI (`struct taint_config`), runs the embedded eBPF
 program, and prints each `TAINT_VIOLATION` the kernel emits with its policy
 reason. The kernel does all taint propagation and matching.
-Individual rules can request `effect audit`, `effect block`, or `effect kill`.
+Individual rules can request `effect notify`, `effect block`, or `effect kill`.
 For harness enforcement, `block` denies through BPF LSM when available, while
 `kill` makes the action fail by terminating the violating task. If BPF LSM is
-not active, tracepoint mode does not support `block`; use `audit` for reporting
+not active, tracepoint mode does not support `block`; use `notify` for reporting
 or `kill` for harness termination. `actplane run` always prepares
 `.actplane/last-violation.txt` and exports the hook environment.
 

@@ -29,7 +29,7 @@ Does semantic feedback improve agent task completion and reduce repeated
 rule matches compared with enforcement without feedback?
 
 We run agent tasks under four conditions: (C1)~prompt-only, in which the
-policy is stated in the prompt but not enforced; (C2)~audit, in which ActPlane
+policy is stated in the prompt but not enforced; (C2)~notify, in which ActPlane
 reports rule matches but does not fail operations; (C3)~enforcement without
 feedback, in which the operation fails with \texttt{-EPERM} or \texttt{SIGKILL}
 but no structured reason; (C4)~enforcement with feedback, in which the operation
@@ -152,7 +152,7 @@ ActPlane provides a programmable OS-level control plane for agent harnesses.
 It compiles agent-declared behavioral policies into eBPF/BPF-LSM labeled
 information-flow rules, propagates labels across process, file, and endpoint
 objects at kernel hooks, and returns kernel-detected rule matches as semantic
-feedback to the agent. By supporting audit, pre-operation denial, and
+feedback to the agent. By supporting notify, pre-operation denial, and
 harness-level termination with structured remediation, ActPlane enables
 agents to complete tasks after policy rule matches rather than fail opaquely.
 ActPlane unifies labeled information-flow observation and enforcement with

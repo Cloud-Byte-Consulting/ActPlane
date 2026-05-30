@@ -291,7 +291,7 @@ pub fn parse(src: &str) -> Result<Policy, String> {
                     } else if p.is_word("effect") {
                         p.next();
                         effect = match p.word()?.as_str() {
-                            "audit" => Effect::Audit,
+                            "notify" => Effect::Notify,
                             "block" => Effect::Block,
                             "kill" => Effect::Kill,
                             o => return Err(format!("unknown rule effect '{}'", o)),

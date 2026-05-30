@@ -107,7 +107,7 @@ denial; the second uses harness-level termination.}
 Each rule declares an explicit effect that determines how the kernel
 responds to a match.
 
-\textbf{Audit}: the kernel emits a match event and allows the operation
+\textbf{Notify}: the kernel emits a match event and allows the operation
 to proceed.
 
 \textbf{Block}: a BPF-LSM hook returns \texttt{-EPERM} before the operation
@@ -119,7 +119,7 @@ a BPF-LSM hook, kill also returns \texttt{-EPERM}; from a tracepoint, kill
 is post-operation termination.
 
 When multiple rules match the same event, the strongest effect applies in
-the order kill $>$ block $>$ audit.
+the order kill $>$ block $>$ notify.
 
 \subsubsection{Policy Language Scope}
 
@@ -172,7 +172,7 @@ active, the loader uses tracepoint mode and disables block-effect rules.
 In tracepoint mode, hooks fire after the operation commits; a
 \texttt{connect} tracepoint observes an already-established connection.
 This is why \texttt{effect block} requires BPF-LSM: only LSM hooks
-provide a pre-operation verdict. Tracepoint mode supports \texttt{audit}
+provide a pre-operation verdict. Tracepoint mode supports \texttt{notify}
 (post-operation observation) and \texttt{kill} (post-operation task
 termination).
 
@@ -236,7 +236,7 @@ exit), syscall tracepoints for file and connect events, and BPF-LSM hooks
 for pre-operation enforcement. At load time, the loader checks whether the
 running kernel has the \texttt{bpf} LSM active in
 \texttt{/sys/kernel/security/lsm}. If not, it falls back to tracepoint
-mode, in which the supported effects are \texttt{audit} and \texttt{kill};
+mode, in which the supported effects are \texttt{notify} and \texttt{kill};
 \texttt{block} rules are disabled because there is no pre-operation verdict
 path.
 

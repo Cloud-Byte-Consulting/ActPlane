@@ -65,7 +65,7 @@ transcript.
 The key semantic distinction is that ActPlane does not pretend every backend
 can implement every effect. \texttt{block} means pre-operation denial through a
 BPF-LSM hook returning \texttt{-EPERM}; it is not supported in tracepoint mode.
-\texttt{audit} reports while allowing the action to proceed. \texttt{kill}
+\texttt{notify} reports while allowing the action to proceed. \texttt{kill}
 terminates the violating task and is useful for harness-level failure when
 pre-operation arguments are unavailable. Each rule declares its effect
 explicitly; there is no global fallback that silently converts \texttt{block}
@@ -116,7 +116,7 @@ The planned experiments separate mechanism from user experience. The bypass
 coverage experiment uses paired triggers that reach the same effect through
 different routes: a direct tool call, a shell string, a Python subprocess, a
 helper binary, an SDK path, and a direct syscall-oriented test where applicable.
-The feedback experiment compares prompt-only operation, audit-only reporting,
+The feedback experiment compares prompt-only operation, notify-only reporting,
 failure without semantic feedback, and failure with ActPlane's feedback file and
 hook bridge. The false-positive experiment runs allowed workflows that should
 pass only after the correct gate, including redaction before egress,

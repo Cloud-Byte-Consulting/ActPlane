@@ -720,7 +720,7 @@ static int te_conn_rule_cb(__u32 i, void *vc)
 static __noinline int te_connect_check_labels(struct te_rule_eval *e, __u32 ip)
 {
 	struct te_conn_ctx c = { .e = e, .ip = ip,
-				 .best_effect = TEFFECT_AUDIT, .best_rule = -1 };
+				 .best_effect = TEFFECT_NOTIFY, .best_rule = -1 };
 	bpf_loop(te_count(0), te_conn_rule_cb, &c, 0);
 	if (c.best_rule >= 0)
 		e->effect = c.best_effect;
@@ -878,7 +878,7 @@ static int te_rule_cb(__u32 i, void *vc)
  * which (with the branchless matchers) lets 100+ rules load in one program. */
 static __noinline int te_check_labels(struct te_rule_eval *e)
 {
-	struct te_rule_ctx c = { .e = e, .best_effect = TEFFECT_AUDIT, .best_rule = -1 };
+	struct te_rule_ctx c = { .e = e, .best_effect = TEFFECT_NOTIFY, .best_rule = -1 };
 	bpf_loop(te_count(0), te_rule_cb, &c, 0);
 	if (c.best_rule >= 0)
 		e->effect = c.best_effect;

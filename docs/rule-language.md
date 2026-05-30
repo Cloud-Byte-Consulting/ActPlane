@@ -6,10 +6,10 @@
 
 > **Status: implemented as a BPF-LSM enforcement backend with tracepoint observation.**
 > - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse, and the `since` staleness clause (§1.9). Unit tests cover E1–E13 compile + effect coverage.
-> - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, the `since` epoch engine (§1.9), object identity by `(dev,inode)` (§1.10), process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec, file access/mutation, and connect blocking when `bpf` LSM is active; otherwise tracepoints support `audit` reporting and explicit `kill` termination. `block` is LSM-only. Matching predicates have 30 unit tests (`test_taint.c`).
+> - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, the `since` epoch engine (§1.9), object identity by `(dev,inode)` (§1.10), process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec, file access/mutation, and connect blocking when `bpf` LSM is active; otherwise tracepoints support `notify` reporting and explicit `kill` termination. `block` is LSM-only. Matching predicates have 30 unit tests (`test_taint.c`).
 > - **Loader** `bpf/process.c` installs the compiled config, checks BPF LSM availability, and reports only `TAINT_VIOLATION` with `effect`, `blocked`, and `killed` fields.
 >
-> Current limitations: `@arg` exec predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `effect block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `effect audit` reports and `effect kill` terminates the matching task after exec in tracepoint mode. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4. File identity uses real `(dev,inode)` in LSM mode and falls back to `(0, fnv1a(path))` in tracepoint mode (§1.10). The eager per-gate consumption set (Layer B, §1.10) is the remaining precision step and is deliberately deferred. The corrective-feedback loop is wired up through `actplane run`: rule matches the eBPF/LSM enforcer produces are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
+> Current limitations: `@arg` exec predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `effect block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `effect notify` reports and `effect kill` terminates the matching task after exec in tracepoint mode. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4. File identity uses real `(dev,inode)` in LSM mode and falls back to `(0, fnv1a(path))` in tracepoint mode (§1.10). The eager per-gate consumption set (Layer B, §1.10) is the remaining precision step and is deliberately deferred. The corrective-feedback loop is wired up through `actplane run`: rule matches the eBPF/LSM enforcer produces are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
 
 ### Enforcement Semantics
 
@@ -23,7 +23,7 @@ feedback:
 - `kill`: the OS immediately terminates the matching task. For exec rules that
   rely on post-exec argv observation, the new image may have started, but the
   agent action is still forced to fail.
-- `audit`: report only; the action proceeds.
+- `notify`: report only; the action proceeds.
 
 This distinction is intentional: ActPlane is an agent operating harness, not
 only a security reference monitor. When a security claim needs pre-operation
@@ -98,10 +98,10 @@ rule NAME:
 Each rule has an explicit `effect`:
 
 - `block` (default): deny at the BPF-LSM hook. It is unsupported in tracepoint mode.
-- `audit`: report only; the operation proceeds.
+- `notify`: report only; the operation proceeds.
 - `kill`: send `SIGKILL` to the matching task. With BPF-LSM active, the hook also denies the triggering operation when the rule is evaluated before commit; from tracepoints it is harness-level termination, not pre-op blocking.
 
-If multiple clauses/rules match the same event, the kernel chooses the strongest effect: `kill > block > audit`.
+If multiple clauses/rules match the same event, the kernel chooses the strongest effect: `kill > block > notify`.
 
 ### 1.8 Pattern matching
 `PAT` is a glob over the relevant attribute: process `exe`/`comm`/`arg`, file `path`, endpoint `host`. `**` = any path span, `*` = one segment / any chars, exact otherwise. Endpoint host supports `*` suffix/prefix wildcards.
@@ -199,7 +199,7 @@ source_decl := "source" IDENT "=" node_kind PATTERN          # node_kind: file|e
 sink_decl   := "rule" IDENT ":" clause+ ["reason" STRING]
                                         ["remediation" STRING] ["effect" EFFECT]
 clause      := "deny" OP target ["if" expr] ["unless" cond]
-EFFECT      := "block" | "audit" | "kill"                    # default: block
+EFFECT      := "block" | "notify" | "kill"                    # default: block
 xform_decl  := ("declassify"|"endorse") IDENT "by" "exec" PATTERN
 OP          := "exec"|"read"|"write"|"unlink"|"connect"|"recv"|"open"
 target      := ("file"|"endpoint"|"exec") PATTERN [ "@arg" STRING ]
@@ -221,7 +221,7 @@ invalidators are joined with `or`.
 `effect` is compiled into the kernel ABI and is the source of truth for what
 happens on a match. `reason` and `remediation` stay Rust-side and shape the
 corrective-feedback payload shown to the agent. Use only
-`effect block|audit|kill`; the old `enforce`/`action` aliases have been removed.
+`effect block|notify|kill`; the old `enforce`/`action` aliases have been removed.
 See
 [`feedback-design.md`](feedback-design.md) and [`../script/agent-feedback.md`](../script/agent-feedback.md).
 

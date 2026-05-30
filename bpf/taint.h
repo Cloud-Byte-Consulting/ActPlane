@@ -120,9 +120,9 @@ struct taint_inval {
 
 /* rule result */
 enum taint_effect {
-	TEFFECT_AUDIT = 0, /* report only */
-	TEFFECT_BLOCK = 1, /* deny at LSM when available */
-	TEFFECT_KILL  = 2, /* send SIGKILL to the current task */
+	TEFFECT_NOTIFY = 0, /* report only (notify the agent) */
+	TEFFECT_BLOCK  = 1, /* deny at LSM when available */
+	TEFFECT_KILL   = 2, /* send SIGKILL to the current task */
 };
 
 struct taint_source {

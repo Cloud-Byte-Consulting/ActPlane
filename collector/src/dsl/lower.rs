@@ -33,7 +33,7 @@ const C_NONE: u8 = 0;
 const C_LINEAGE: u8 = 1;
 const C_AFTER: u8 = 2;
 const C_TARGET: u8 = 3;
-const EFFECT_AUDIT: u8 = 0;
+const EFFECT_NOTIFY: u8 = 0;
 const EFFECT_BLOCK: u8 = 1;
 const EFFECT_KILL: u8 = 2;
 
@@ -326,7 +326,7 @@ fn lower_target(op: u8, kind: Kind, pat: &str) -> (u8, String) {
 
 fn lower_effect(effect: Effect) -> u8 {
     match effect {
-        Effect::Audit => EFFECT_AUDIT,
+        Effect::Notify => EFFECT_NOTIFY,
         Effect::Block => EFFECT_BLOCK,
         Effect::Kill => EFFECT_KILL,
     }

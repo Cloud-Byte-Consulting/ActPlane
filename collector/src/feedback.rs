@@ -44,10 +44,10 @@ pub fn format_payload(
     };
     let prov = provenance_line(provenance, op, target);
     let body = match (effect, enforcement) {
-        (Effect::Audit, _) => {
+        (Effect::Notify, _) => {
             let rem = remediation.unwrap_or("后续请避免该操作");
             format!(
-                "[ActPlane] 操作「{op} {target}」触发了审计规则「{name}」（操作未被拦截）。\n\
+                "[ActPlane] 操作「{op} {target}」触发了通知规则「{name}」（操作未被拦截）。\n\
                  - 原因：{reason}\n\
                  {prov}\
                  - 建议：{rem}。"
@@ -68,13 +68,13 @@ pub fn format_payload(
         }
         (Effect::Block, _) => {
             let rem = remediation
-                .unwrap_or("启用 BPF-LSM，或把这条规则显式改成 effect audit / effect kill");
+                .unwrap_or("启用 BPF-LSM，或把这条规则显式改成 effect notify / effect kill");
             format!(
                 "[ActPlane] 规则「{name}」要求 block，但当前 backend 不支持 block。\n\
                  - 目标操作：{op} {target}\n\
                  - 触发原因：{reason}\n\
                  {prov}\
-                 - block 只由 BPF-LSM pre-op hook 实现；tracepoint backend 不支持 block，也不会把它降级成 audit 或 kill。\n\
+                 - block 只由 BPF-LSM pre-op hook 实现；tracepoint backend 不支持 block，也不会把它降级成 notify 或 kill。\n\
                  - 如何继续：{rem}。"
             )
         }
@@ -93,11 +93,11 @@ pub fn format_payload(
         }
     };
     let tier = match effect {
-        Effect::Audit => "audit",
+        Effect::Notify => "notify",
         Effect::Block => "block",
         Effect::Kill => "kill",
     };
-    // "retry_useful" means retrying the same operation as-is. Audit already
+    // "retry_useful" means retrying the same operation as-is. Notify already
     // succeeded, and block/kill need a different path or a satisfied gate.
     let retry_useful = false;
     // §6.6: a machine-readable copy for SDK / supervisor consumption.
@@ -148,14 +148,14 @@ mod tests {
     }
 
     #[test]
-    fn audit_payload_is_soft() {
+    fn notify_payload_is_soft() {
         let s = format_payload(
             "t",
             "exec",
             "git",
             "run tests",
             Some("先跑 pytest"),
-            Effect::Audit,
+            Effect::Notify,
             false,
             false,
             None,

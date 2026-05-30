@@ -20,7 +20,7 @@ eBPF programs use the CO-RE pattern with an architecture-specific `vmlinux.h` fr
 |------|------|
 | `taint.h` | The rule **ABI** + matching predicates, shared with the Rust compiler. Defines `struct taint_source / taint_rule / taint_xform / taint_gate / taint_config`, the `taint_match`/`taint_src_kind`/`taint_op`/`taint_cond` enums, and the matchers (`taint_streq`, `taint_prefix`, `taint_suffix`, `taint_match`, `taint_mask_ok`, `taint_arg_match`). |
 | `taint_engine.bpf.h` | The engine state + helpers. Maps: `ts_proc` (pid → labels + lineage gates), `ts_root`, `ts_sess` (session gates), `ts_file` (fnv1a(path) → labels), `ts_endp` (IPv4 → labels). Rodata rule tables (filled by the loader). `te_*` propagation/eval functions. |
-| `process.bpf.c` | The hooks: tracepoints maintain lineage and support `audit`/`kill`; BPF LSM hooks (`bprm_check_security`, `file_open`, `file_permission`, `file_truncate`, `path_truncate`, `path_unlink`, `path_rename`, `socket_connect`) implement `block` with `-EPERM`. The **only** output is `emit_violation()`. |
+| `process.bpf.c` | The hooks: tracepoints maintain lineage and support `notify`/`kill`; BPF LSM hooks (`bprm_check_security`, `file_open`, `file_permission`, `file_truncate`, `path_truncate`, `path_unlink`, `path_rename`, `socket_connect`) implement `block` with `-EPERM`. The **only** output is `emit_violation()`. |
 | `process.c` | Userspace loader. `--config <blob>` reads a `struct taint_config` into the BPF rodata, detects whether `bpf` LSM is active, disables LSM programs in tracepoint mode, and prints each `TAINT_VIOLATION` as NDJSON (formatting `conn_ip` for connect rules). |
 | `test_taint.c` | Unit tests for the matching predicates. |
 
@@ -31,11 +31,11 @@ labels (`exec` comm match, `file` path match, `endpoint` IP match). Propagation:
 fork → child inherits; exec → source/xform/gate applied to the process; read → file
 labels flow into the process; write → process labels flow into the file; connect →
 process labels flow to the endpoint. LSM hooks can deny before commit (`block`);
-tracepoints do not support `block`; they can report `audit` rules and terminate
+tracepoints do not support `block`; they can report `notify` rules and terminate
 only rules that explicitly use `effect kill`. Sinks (`deny exec/open/write/connect`) match
 on a label mask (`req` AND / `forbid` NOT, DNF-expanded by the compiler) plus the
 target pattern, optional `@arg` match, and an optional condition (`lineage-includes`,
-`after`, target scope). Each rule carries an explicit effect (`audit`, `block`,
+`after`, target scope). Each rule carries an explicit effect (`notify`, `block`,
 or `kill`). On a match the rule's `rule_id`, `effect`, `blocked`, and `killed`
 flags are emitted; the compiler keeps the reason strings. Full semantics:
 [`../docs/rule-language.md`](../docs/rule-language.md).

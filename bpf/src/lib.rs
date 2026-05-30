@@ -171,7 +171,7 @@ pub struct Provenance {
 /// A policy violation reported by the kernel.
 #[derive(Debug, Clone)]
 pub struct Violation {
-    pub effect: u32, // 0 audit, 1 block, 2 kill
+    pub effect: u32, // 0 notify, 1 block, 2 kill
     pub blocked: bool,
     pub killed: bool,
     pub comm: String,

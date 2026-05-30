@@ -9,7 +9,7 @@ ActPlane sits below the tool layer, so a rule holds information-flow constraints
 across every process, file access, and network connection the agent touches, no
 matter what tool, subprocess, or direct syscall it uses to get there.
 
-Each rule sets its own mode: **audit** (observe and notify agent), **block**
+Each rule sets its own mode: **notify** (observe and notify agent), **block**
 (stop the action before it commits), or **kill** (terminate the process). In
 every mode the rule match's reason is fed back to the agent as a reminder, so it
 can self-correct instead of just hitting a wall. Agents can write and validate
@@ -59,7 +59,7 @@ constraint, and takes a different path to complete the task.
 and `watch` load the eBPF enforcer, so they need root (or `CAP_BPF` +
 `CAP_SYS_ADMIN`); ActPlane drops the target command back to your user. With
 BPF-LSM enabled, rules can `block` before the action commits; otherwise they
-`audit` (report) or `kill`.
+`notify` (report) or `kill`.
 
 ## Why an OS-level harness?
 
@@ -121,17 +121,42 @@ version: 1
 policy: |
   label AGENT
 
+  # Track when protocol schema files are modified
+  source SCHEMA_CHANGED = file "src/protocol/**/*.proto"
+
   rule no-git-branch:
     deny exec "**/git" @arg "branch"   if AGENT
     deny exec "**/git" @arg "worktree" if AGENT
     effect kill
     reason "This workspace forbids creating git branches or worktrees."
-    remediation "Use other git commands, or ask the user to manage branches"
+    remediation "Use other git commands, or ask the user to manage branches."
+
+  rule regenerate-after-schema:
+    deny exec "**/git" @arg "commit"
+      if SCHEMA_CHANGED unless after exec "**/protoc" since write "src/protocol/**"
+    effect notify
+    reason "Protocol schema changed — generated code may be stale."
+    remediation "Run `make proto` to regenerate, then commit."
+
+  rule test-before-commit:
+    deny exec "**/git" @arg "commit"
+      if AGENT unless after exec "**/pnpm" @arg "test" since write "src/**"
+    effect block
+    reason "Source files changed since last test run."
+    remediation "Run `pnpm test:changed`, then commit."
 ```
 
-The agent can run `git commit`, `git status`, `git push`, but the moment
-anything in its process tree tries `git branch` or `git worktree`, the kernel
-kills it and feeds the reason back so the agent self-corrects.
+Three rules, three effects, three patterns:
+
+- **`no-git-branch`** (kill): per-event deny — anything in the agent's
+  process tree that tries `git branch` is terminated immediately.
+- **`regenerate-after-schema`** (notify): cross-event conditional — if
+  the agent modified a `.proto` file, ActPlane reminds it to run `protoc`
+  before committing. The `since` clause re-arms the gate whenever the
+  schema changes again.
+- **`test-before-commit`** (block): cross-event temporal with staleness —
+  the agent must run tests before committing, and editing any `src/`
+  file invalidates the previous test run.
 
 See [`docs/rule-language.md`](docs/rule-language.md) for the full rule language and
 worked examples.

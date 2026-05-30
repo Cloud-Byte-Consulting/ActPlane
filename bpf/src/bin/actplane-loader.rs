@@ -13,7 +13,7 @@ use actplane_bpf::{bpf_lsm_active, Loader, Violation};
 
 fn effect_name(e: u32) -> &'static str {
     match e {
-        0 => "audit",
+        0 => "notify",
         1 => "block",
         2 => "kill",
         _ => "unknown",
@@ -107,7 +107,7 @@ fn main() {
         if bpf_lsm_active() {
             "BPF LSM is active"
         } else {
-            "BPF LSM not active; block unsupported, audit reports, kill terminates"
+            "BPF LSM not active; block unsupported, notify reports, kill terminates"
         }
     );
 

@@ -65,8 +65,8 @@ pub struct Clause {
 /// of truth for what happens when the rule matches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
-    /// Report only; the operation proceeds.
-    Audit,
+    /// Report only (notify the agent); the operation proceeds.
+    Notify,
     /// Hard block (LSM -EPERM) when BPF LSM is available.
     Block,
     /// Send SIGKILL to the current task.

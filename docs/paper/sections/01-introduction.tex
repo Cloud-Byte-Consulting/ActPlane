@@ -67,7 +67,7 @@ ActPlane serves as the control plane for the harness: it compiles
 intent-level policies into behavior-level rules (the policy path) and
 translates behavior-level rule matches back into intent-level feedback (the
 feedback path); the eBPF kernel hooks form the data plane. Each rule
-independently selects audit (observe and notify), block (pre-operation
+independently selects notify (observe and notify), block (pre-operation
 denial), or kill (post-operation termination).
 
 Unlike prior work that enforces at a single
