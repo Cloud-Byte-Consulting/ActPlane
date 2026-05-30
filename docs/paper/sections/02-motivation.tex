@@ -111,53 +111,55 @@ observation and enforcement.
 
 \subsection{Methodology}
 
-We collected \texttt{CLAUDE.md} and \texttt{AGENTS.md} files from 50
-popular open-source projects, selected by GitHub star count and filtered
-to exclude documentation-only repositories. From these files we extracted
-866 candidate imperative statements using keyword matching (``never,''
-``must,'' ``do not,'' ``before,'' ``only'') and manually coded each
-statement along seven dimensions: (D1)~coding style vs.\ behavioral
-rule, (D2)~rule category, (D3)~observable at the syscall boundary,
-(D4)~expressible in the ActPlane DSL, (D5)~enforceable without false
-positives under normal use, (D6)~robust to naming and path variation, and
-(D7)~temptable (likely to be triggered by an agent in a realistic task).
-Two annotators independently coded the full set; we report Cohen's
-$\kappa$ for inter-rater reliability.
+We collected \texttt{CLAUDE.md} and \texttt{AGENTS.md} files from
+64~popular open-source repositories, extracted 2{,}152 statements, and
+classified each along three axes: content type (description vs.\
+directive), topic (12~categories), and enforcement level (semantic-only,
+content, per-event, cross-event). Enforcement level is assigned by a
+waterfall decision procedure: each directive exits at the first level
+whose predicate it satisfies.
 
-\subsection{Per-Action vs.\ Cross-Event Policies}
+\subsection{Findings}
 
-Behavioral policies fall into two categories that differ in enforcement
-requirements.
+\textbf{Instruction files are behavioral policies.}
+63\% of statements are directives; 80.5\% of directives involve
+system-observable behavior (commands, files, network).
 
-\textbf{Per-action policies} constrain a single operation independently of
-execution history. Examples include ``do not execute \texttt{rm~-rf}'' and
-``do not run \texttt{git branch}.'' These policies can be enforced by
-matching a single system call or tool call against a static rule.
+\textbf{Enforcement is layered.}
+Content inspection covers 37.9\% of directives, per-event syscall
+matching covers 28.7\%, and 13.9\% require cross-event state tracking
+(Figure~\ref{fig:cumulative}).
 
-\textbf{Cross-event policies} constrain an operation based on prior
-interactions with other objects. Examples include ``a process that has read
-\texttt{.env} must not connect to an external endpoint'' (data-flow
-rule) and ``commit only after tests have passed'' (temporal rule).
-These policies require tracking information flow or execution ordering
-across process, file, and network boundaries.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/cumulative_coverage.png}
+\caption{Cumulative directive coverage by enforcement layer. Linters
+cover 57.4\%; per-event matching reaches 86.1\%; cross-event IFC closes
+the remaining 13.9\%.}
+\Description{Line chart of cumulative coverage by enforcement layer.}
+\label{fig:cumulative}
+\end{figure}
 
-% TODO: Insert table with category breakdown and percentages once coding
-% is complete.
+\textbf{Cross-event policies are pervasive at the project level.}
+Although cross-event directives are 13.9\% of all directives, 78\% of
+repositories contain at least one, and 48\% require all four enforcement
+layers (Figure~\ref{fig:repo-req}).
 
-\subsection{Implications for Observation and Enforcement}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/repo_requirements.png}
+\caption{Fraction of repositories requiring each enforcement layer.
+78\% need cross-event tracking; 48\% need all four layers.}
+\Description{Bar chart showing fraction of repos needing each layer.}
+\label{fig:repo-req}
+\end{figure}
 
-Per-action policies can be observed and enforced by per-event matching at
-any level: tool-call guards, seccomp filters, or eBPF kprobes. Cross-event
-policies cannot, because they depend on state accumulated across multiple
-operations and objects. Observing and enforcing them requires a mechanism
-that (1)~tracks provenance across process, file, and network boundaries,
-(2)~encodes that provenance as checkable state at each observation and
-enforcement point, and (3)~connects rule matches back to the declared
-rule for semantic feedback.
+\subsection{Implications}
 
-Labeled information-flow control satisfies all three requirements. Labels
-encode cross-event provenance as per-node bitmasks, propagation rules
-maintain the invariant across fork, exec, read, write, and connect
-operations, and source-to-sink rules check the accumulated state at each
-enforcement point. The ActPlane DSL compiles cross-event policies
-directly into this model.
+Per-event policies can be enforced by matching a single system call.
+Cross-event policies cannot: they require tracking state across multiple
+operations. Enforcing them requires a mechanism that (1)~propagates
+provenance across process, file, and network boundaries, (2)~encodes it
+as checkable state, and (3)~connects rule matches back to declared intent
+for semantic feedback. Labeled information-flow control satisfies all
+three requirements.

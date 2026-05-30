@@ -21,22 +21,14 @@ model~\cite{langchain-harness,fowler-harness}.
 These policies require connecting intent-level declarations
 to system-level actions, yet existing approaches operate on only one side
 of this \emph{semantic gap}.
-Prompt constraints and tool-call
-guards~\cite{wang2025agentspec,shi2025progent} operate at the intent
-level but lose coverage when agents shell out or spawn subprocesses:
-a single \texttt{run\_command("make")} triggers hundreds of system calls,
-and the same \texttt{git~push} can be reached through a tool call, a
-\texttt{bash~-c} string, a Python subprocess, or a compiled binary.
-OS-level enforcement is unbypassable but sits on the opposite side of
-the gap: per-operation sandboxes (seccomp, Landlock,
-Tetragon~\cite{ciliumtetragon}) lack cross-event state, and
-information-flow systems (Flume,
-CamFlow~\cite{flume,pasquier2018camquery}) track cross-event provenance
-but lack temporal constraints, semantic feedback, and a policy lifecycle
-adapted to non-deterministic agents.
-All OS-level approaches require policies to be statically pre-written
+Intent-level guards~\cite{wang2025agentspec,shi2025progent} lose coverage
+when agents shell out or spawn subprocesses:
+the same \texttt{git~push} can be reached through a tool call, a
+\texttt{bash~-c} string, or a compiled binary.
+OS-level enforcement~\cite{ciliumtetragon,flume,pasquier2018camquery} is
+unbypassable but requires policies to be statically pre-written
 by an administrator external to the agent,
-and return opaque errors with no connection to declared intent.
+and returns opaque errors with no connection to declared intent.
 The agent---the entity that knows its own goals and must recover from
 enforcement---has no programmatic interface to define or evolve
 the constraints governing its own system-level actions.
@@ -68,7 +60,7 @@ This paper makes three contributions.
 
 \begin{enumerate}
 \item It defines the \emph{semantic gap} for AI agents and grounds it
-with a corpus study of instruction files from 50~popular projects, showing
+with a corpus study of instruction files from 64~popular projects, showing
 that cross-event information-flow policies are pervasive in real agent
 instruction files.
 
