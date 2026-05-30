@@ -25,14 +25,12 @@ instructions are declared in natural language, 63\%
 consist of behavioral policies, 80\% of which involve system-level
 behavior, and 78\% of projects require cross-event state tracking.
 
-Yet existing agent harness failed to connecting intent-level declarations to deterministic system-level policies, leaving a \emph{semantic gap}: Prompt constraints and tool-call guardrails operate at probabilistic intent-level or lose track of system-level actions, while current OS-level enforcements expect pre-defined static
-policy and return only system events without semantic context.
+Yet existing agent harnesses fail to connect intent-level declarations to deterministic system-level policies, leaving a \emph{semantic gap}: prompt constraints and tool-call guardrails operate at the probabilistic intent level or lose track of system-level actions, while current OS-level enforcement expects pre-defined static
+policy and returns only system events without semantic context.
 
-ActPlane is a programmable OS-level control plane for agent harnesses that bridges
-the gap: design agents declare behavioral policies in a DSL;
-ActPlane persists them as in-kernel labeled information-flow
-rules, observing and enforcing agent behavior across process, file, and
-network boundaries, and providing semantic feedback.
+To address this, the policy engine should be exposed as a programmable interface that allows agents
+to become the control plane of their own system-level actions.
+We realize this in ActPlane, in which agents and developers declare behavioral policies in a compact DSL; ActPlane compiles them into in-kernel labeled information-flow rules that observe and enforce agent behavior across process, file, and network boundaries and provide semantic feedback.
 We implement ActPlane with eBPF and evaluate on the policies from the
 empirical study, showing that ActPlane can enforce complex cross-event
 policies with low overhead and provides actionable feedback to agents.

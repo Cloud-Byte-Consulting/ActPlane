@@ -35,9 +35,16 @@ CamFlow~\cite{flume,pasquier2018camquery}) track cross-event provenance
 but lack temporal constraints, semantic feedback, and a policy lifecycle
 adapted to non-deterministic agents.
 All OS-level approaches require policies to be statically pre-written
+by an administrator external to the agent,
 and return opaque errors with no connection to declared intent.
+The agent---the entity that knows its own goals and must recover from
+enforcement---has no programmatic interface to define or evolve
+the constraints governing its own system-level actions.
 
-% ¶4: Insight — policies are cross-event information flow
+% ¶4: Insight — programmable interface, agent as control plane
+Our insight is that the policy engine should be exposed as a
+programmable interface that lets agents become the control plane of
+their own system-level actions.
 Real behavioral policies frequently require cross-event information-flow
 tracking that no single enforcement level provides. A rule like ``never
 expose secrets to the network'' is not a predicate on one system call; it
@@ -52,8 +59,8 @@ feedback components at the application layer, where they cannot connect behavior
 
 % ¶5: System — ActPlane bridges intent and behavior
 ActPlane is a programmable OS-level control plane for agent harnesses that
-bridges the semantic gap. Agents and developers declare behavioral
-policies in a compact DSL.
+bridges the semantic gap. It exposes a compact DSL through which agents
+and developers declare and evolve behavioral policies.
 ActPlane compiles these declarations into labeled information-flow rules and
 loads them into an eBPF/BPF-LSM backend. Named
 labels propagate across process, file, and network objects at kernel hooks,

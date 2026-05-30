@@ -610,15 +610,16 @@ Agent 的 system-level actions 现在是**无人驾驶**的——agent 调了
 ActPlane 让 agent 从 passenger 变成 pilot：通过 programmable interface
 定义 system-level actions 的规则，让 agent 成为自己行为的 control plane。
 
-**首选（D — programmable interface，agent as control plane）：**
+**首选（D — programmable interface，agent as control plane，一句话）：**
 
-> Our insight is that the behavioral policy engine should be exposed as a
-> programmable kernel-level interface: instead of constraining agents from
-> outside with static policy, it lets agents become the control plane of
-> their own system-level actions — declaring behavioral constraints,
-> scoping policies to sub-agents, and evolving rules through violation
-> feedback — while the kernel enforces them deterministically at every
-> syscall.
+> **The policy engine should be exposed as a programmable interface that
+> lets agents become the control plane of their own system-level actions.**
+
+这一句每个词都在干活：
+- "programmable interface" = systems contribution（OSDI vocabulary）
+- "lets agents become the control plane" = agent 是主体，不是被管理的 subject
+- "of their own system-level actions" = 精确 scope，不是控制一切，是控制自己在 OS 上的行为
+- 隐含对比：现有系统是 static sandbox imposed from outside
 
 **备选 B（inversion framing，直接 challenge conventional wisdom）：**
 
