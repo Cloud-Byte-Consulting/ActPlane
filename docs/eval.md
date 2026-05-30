@@ -78,8 +78,10 @@ per_event (391) + cross_event (189) = **580 OS-level directives**.
 
 ### 4.2 Translation Procedure
 
-Each of the 580 OS-level directives is translated by an LLM and
-independently assessed by human annotators.
+Translation is a single pass: the LLM translates all 580 directives,
+then one author reviews each result. The same review simultaneously
+produces the RQ1 expressibility classification and the RQ2 translation
+correctness judgment.
 
 #### Step 1: LLM Translation
 
@@ -87,51 +89,29 @@ Each directive is presented to the LLM (model, temperature, prompt
 template TBD) along with:
 - the directive text and its source repository context (README, directory
   structure, build system)
-- the ActPlane DSL reference grammar and 5 few-shot examples covering
+- the ActPlane DSL reference grammar and few-shot examples covering
   per-event and cross-event patterns
 
-The LLM produces a candidate DSL rule or reports "not translatable" with
-a reason.
+The LLM produces a candidate DSL rule or reports "not translatable"
+with a reason.
 
-#### Step 2: Human Ground-Truth Classification
+#### Step 2: Human Review
 
-Two annotators independently classify each directive into one of three
-expressibility tiers:
+One author reviews each LLM output and records two judgments:
 
-1. **Directly translatable**: the directive text maps mechanically to an
-   ActPlane DSL rule (pattern match, label, gate).
-2. **Approximately translatable**: the core constraint is expressible but
-   with reduced precision (e.g., "when X changes, also update Y" can detect
-   the trigger and require a gate script, but cannot verify Y's content).
-3. **Not translatable**: the directive requires content inspection, external
-   system interaction, or a DSL primitive that does not exist.
+1. **Expressibility (for RQ1)**: can the DSL express this directive?
+   Binary: expressible or not expressible. For ambiguous directives
+   (e.g., "run tests before committing" without specifying which test
+   runner), the author defines an **acceptable range** of correct DSL
+   rules. The classification criteria are documented for reproducibility.
 
-Inter-rater agreement is measured with Cohen's κ.
-
-#### Step 3: Ambiguous Directive Handling
-
-Many directives are under-specified (e.g., "run tests before committing"
-does not specify which test runner or which test scope). For these:
-
-- Annotators define an **acceptable range**: a set of DSL rules that are
-  all reasonable interpretations (e.g., `after exec "**/pytest"`,
-  `after exec "**/npm" @arg "test"`, or `after exec "**/make" @arg "test"`
-  are all acceptable for "run tests").
-- The LLM-generated rule is judged correct if it falls within the
-  acceptable range.
-- Directives where annotators cannot agree on any acceptable range are
-  classified as **irreducibly ambiguous** and reported separately.
-
-#### Step 4: Failure Attribution
-
-When the LLM fails to produce a correct rule, the failure is attributed
-to one of:
-- **DSL limitation**: the directive is expressible in principle but the
-  DSL lacks the required primitive (feeds back into RQ1 coverage).
-- **LLM error**: the DSL can express the constraint but the LLM
-  misunderstood the directive or the DSL grammar.
-- **Ambiguity**: the directive is too vague for any translator (human or
-  LLM) to produce a single correct rule without additional context.
+2. **Translation correctness (for RQ2)**: did the LLM produce a correct
+   rule? Three outcomes:
+   - **TP**: LLM produced a rule and it is correct (matches ground truth
+     or falls within the acceptable range)
+   - **FP**: LLM produced a rule but it is incorrect
+   - **FN**: LLM reported "not translatable" but the directive is
+     actually expressible in the DSL
 
 ### 4.3 Per-Event Directive Translation Examples
 
@@ -167,31 +147,23 @@ to one of:
 
 ---
 
-## 5. RQ1: Expressiveness (Corpus Coverage + LLM Translation)
+## 5. RQ1: Expressiveness (Corpus Coverage)
 
 ### 5.1 Method
 
-For all 580 OS-level directives (391 per-event + 189 cross-event):
+For all 580 OS-level directives (391 per-event + 189 cross-event), the
+author reviews each LLM translation output (§4.2) and determines
+whether the DSL can express the directive: **expressible** or **not
+expressible**.
 
-1. **Human ground truth**: two annotators independently classify each
-   directive as directly translatable, approximately translatable, or not
-   translatable (see §4.2 Step 2). For ambiguous directives, annotators
-   define an acceptable range of correct DSL rules (see §4.2 Step 3).
-   Report Cohen's κ for inter-rater agreement.
+The LLM output serves as a starting point for the author's review, but
+the final expressibility judgment is the author's. If the LLM reports
+"not translatable" but the author determines the DSL can express the
+directive, it is classified as expressible.
 
-2. **LLM translation**: the LLM translates each directive following the
-   pipeline in §4.2 Step 1. For each directive, record whether the LLM
-   produced a syntactically valid DSL rule, whether the rule falls within
-   the human-defined acceptable range, and the failure attribution
-   (DSL limitation / LLM error / ambiguity) when it does not.
-
-RQ1 reports two complementary metrics:
-- **DSL coverage**: fraction of directives that are expressible in the
-  DSL (from human classification). This measures the language's reach.
-- **LLM translation rate**: fraction of expressible directives that the
-  LLM successfully translates into a correct DSL rule. This measures
-  practical usability — whether the DSL can be used without manual
-  rule authoring.
+RQ1 reports:
+- **DSL coverage**: fraction of OS-level directives that are expressible
+  in the DSL. This measures the language's reach.
 
 ### 5.2 Expected Results
 
@@ -203,27 +175,25 @@ Coverage funnel (by directive count):
   |-- 516 content (37.9%)        -- linter layer, out of scope
   +-- 580 OS-level (42.6%)       -- ActPlane target
        |-- per-event: 391
-       |    |-- directly translatable:  ~350 (90%)
-       |    |-- approximately:          ~30 (8%)   -- @arg matching precision
-       |    +-- not translatable:       ~11 (3%)   -- requires content inspection
+       |    |-- expressible:      ~380 (97%)
+       |    +-- not expressible:  ~11 (3%)   -- requires content inspection
        +-- cross-event: 189
-            |-- directly translatable:  ~77 (41%)  -- after exec, labels, lineage
-            |-- approximately:          ~50 (26%)  -- structural detection, no content
-            +-- not translatable:       ~62 (33%)  -- needs after write / content / external
+            |-- expressible:      ~127 (67%) -- after exec, labels, lineage, partial detection
+            +-- not expressible:  ~62 (33%)  -- needs after write / content / external
 ```
 
 ### 5.3 Required Figures and Tables
 
 **Table 1: Corpus Coverage Funnel** (enforcement level x expressibility)
 
-| | Directly translatable | Approximately | Not translatable | Total |
-|---|---|---|---|---|
-| per-event | ~350 | ~30 | ~11 | 391 |
-| cross-event | ~77 | ~50 | ~62 | 189 |
-| **OS-level total** | **~427** | **~80** | **~73** | **580** |
+| | Expressible | Not expressible | Total |
+|---|---|---|---|
+| per-event | ~380 | ~11 | 391 |
+| cross-event | ~127 | ~62 | 189 |
+| **OS-level total** | **~507** | **~73** | **580** |
 
 **Figure 1: Coverage funnel diagram** — funnel from 1361 to 580 to
-DSL-expressible to LLM-successfully-translated
+DSL-expressible
 
 **Table 2: Cross-event pattern breakdown** (9 patterns x expressibility)
 
@@ -239,26 +209,8 @@ DSL-expressible to LLM-successfully-translated
 | Read-before-write | 6 | NONE | needs `after read` |
 | Semantic cross-event | 3 | NONE | reasoning layer |
 
-**Table 2b: LLM Translation Success** (by expressibility tier)
-
-| Tier | Directives | LLM correct | LLM incorrect | LLM "not translatable" |
-|---|---|---|---|---|
-| Directly translatable | ~427 | | | |
-| Approximately translatable | ~80 | | | |
-| Not translatable | ~73 | — | — | |
-| **Total** | **580** | | | |
-
-**Table 2c: LLM Failure Attribution** (for incorrect translations)
-
-| Failure type | Count | % of failures |
-|---|---|---|
-| DSL limitation | | |
-| LLM error (misunderstood directive) | | |
-| LLM error (misunderstood DSL grammar) | | |
-| Irreducible ambiguity | | |
-
 **Figure 2: Per-event directives by topic** — bar chart showing 391 per-event
-directives by topic category, translatability ratio, and LLM success rate
+directives by topic category and translatability ratio
 
 ---
 
@@ -266,21 +218,47 @@ directives by topic category, translatability ratio, and LLM success rate
 
 ### 6.1 Goal
 
-RQ1 measures whether the LLM produces a rule that falls within the
-human-defined acceptable range (semantic match). RQ2 goes further: it
-tests whether LLM-generated rules **actually enforce correctly** when
-loaded into ActPlane on real repository directory structures.
+RQ2 evaluates whether an LLM can correctly translate natural-language
+directives into ActPlane DSL rules. This measures the practical
+usability of the system: in deployment, the LLM is the translator.
 
-This evaluates the full pipeline: directive → LLM → DSL rule → compiler
-→ eBPF enforcement. A rule that is semantically reasonable but uses wrong
-paths, wrong argument patterns, or wrong label logic will produce false
-positives or false negatives here.
+The evaluation has two layers:
+1. **Translation correctness** (all 580 directives): does the LLM
+   produce a correct rule, judged by human review (§4.2 Step 2)?
+2. **Enforcement correctness** (stratified sample): do the LLM-generated
+   rules actually enforce correctly when loaded into ActPlane on real
+   repository directory structures?
 
 ### 6.2 Method
 
-From the LLM-translated rules that passed RQ1's semantic check, draw a
-**stratified sample** of N rules (covering all pattern types and major
-topics). For each sampled rule:
+#### Layer 1: Translation Correctness (all 580 directives)
+
+The LLM translates all 580 directives (§4.2 Step 1). The author reviews
+each output and classifies it (§4.2 Step 2):
+
+- **TP**: LLM produced a rule and it is correct
+- **FP**: LLM produced a rule but it is incorrect
+- **FN**: LLM reported "not translatable" but the DSL can express it
+
+**Table 2b: LLM Translation Correctness**
+
+| | Expressible (from RQ1) | Not expressible | Total |
+|---|---|---|---|
+| per-event | | | 391 |
+| cross-event | | | 189 |
+| **Total** | | | **580** |
+
+| | TP (correct) | FP (incorrect) | FN (missed) | Precision | Recall |
+|---|---|---|---|---|---|
+| per-event | | | | | |
+| cross-event | | | | | |
+| **Total** | | | | | |
+
+#### Layer 2: Enforcement Testing (stratified sample)
+
+From the LLM-translated rules that are TP, draw a **stratified sample**
+of N rules (covering all pattern types and major topics). For each
+sampled rule:
 
 1. Clone the source repository (or extract its directory skeleton).
 2. Load the **LLM-generated** DSL rule (not a human-corrected version)
@@ -584,17 +562,15 @@ violation, feedback delivery, and recovery sequence for F1
 
 ## 10. Summary of Figures and Tables
 
-### Tables (12)
+### Tables (11)
 
 | # | Content | RQ |
 |---|---|---|
-| T1 | Corpus coverage funnel (enforcement level x expressibility) | RQ1 |
+| T1 | Corpus coverage funnel (expressible vs not expressible) | RQ1 |
 | T2 | Cross-event pattern breakdown (9 patterns x expressibility) | RQ1 |
-| T2b | LLM translation success (by expressibility tier) | RQ1 |
-| T2c | LLM failure attribution | RQ1 |
-| T3 | End-to-end enforcement correctness of LLM-generated rules (TP/FP/FN) | RQ2 |
-| T4 | Per-rule detail (43 rules: directive, LLM rule, ground truth, result) | RQ2 |
-| T4b | LLM vs human rule comparison for mismatches | RQ2 |
+| T2b | LLM translation correctness (TP/FP/FN per level) | RQ2 |
+| T3 | Enforcement correctness of LLM-generated rules (43 sampled, TP/FP/FN) | RQ2 |
+| T4 | Per-rule detail (43 rules: directive, LLM rule, result) | RQ2 |
 | T5 | Bypass coverage matrix (6 rules x 5 paths x 2 systems) | RQ3 |
 | T6 | Per-syscall latency (5 syscalls x 5 configurations) | RQ4 |
 | T7 | End-to-end agent task overhead | RQ4 |
@@ -605,8 +581,8 @@ violation, feedback delivery, and recovery sequence for F1
 
 | # | Content | RQ |
 |---|---|---|
-| F1 | Coverage funnel diagram (corpus → DSL-expressible → LLM-translated) | RQ1 |
-| F2 | Per-event directives by topic (bar chart, with LLM success overlay) | RQ1 |
+| F1 | Coverage funnel diagram (corpus → DSL-expressible) | RQ1 |
+| F2 | Per-event directives by topic (bar chart) | RQ1 |
 | F3 | Bypass coverage comparison (grouped bar) | RQ3 |
 | F4 | Per-syscall overhead (bar chart, baseline vs AP) | RQ4 |
 | F5 | Overhead vs rule count (line chart) | RQ4 |
@@ -616,37 +592,35 @@ violation, feedback delivery, and recovery sequence for F1
 
 ## 11. Implementation Plan
 
-### Phase 1: Expressiveness + LLM Translation (RQ1)
+### Phase 1: LLM Translation + Human Review (RQ1 + RQ2)
 
 **Input**: 580 OS-level directives (391 per-event + 189 cross-event)
 **Steps**:
-1. Two annotators independently classify each directive (directly /
-   approximately / not translatable) and define acceptable rule ranges
-   for ambiguous directives
-2. Compute Cohen's κ for inter-rater agreement
-3. Run LLM translation pipeline on all 580 directives (model, prompt
+1. Run LLM translation pipeline on all 580 directives (model, prompt
    template, few-shot examples TBD)
-4. Compare LLM output against human ground truth; attribute failures
-   (DSL limitation / LLM error / ambiguity)
-**Output**: expressibility classification + LLM translation success rate +
-failure attribution breakdown
-**Effort**: ~3 days (annotation 2d + LLM pipeline 1d)
-**Produces**: Table 1, Table 2, Table 2b, Table 2c, Figure 1, Figure 2
+2. One author reviews each LLM output; for each directive, record:
+   (a) expressible or not expressible (RQ1), and
+   (b) LLM correct / incorrect / missed (RQ2 TP/FP/FN)
+3. For ambiguous directives, define acceptable range during review
+**Output**: expressibility classification (RQ1) + LLM translation
+correctness (RQ2 Layer 1)
+**Effort**: ~3 days
+**Produces**: Table 1, Table 2, Table 2b, Figure 1, Figure 2
 
-### Phase 2: LLM Translation Correctness (RQ2)
+### Phase 2: Enforcement Testing (RQ2 Layer 2)
 
-**Input**: 43 sampled LLM-generated rules + corresponding repo directory
-structures + human ground-truth rules
+**Input**: 43 sampled LLM-generated rules (TP from Phase 1) +
+corresponding repo directory structures
 **Steps**:
 1. Clone repos for all 43 sampled rules (or extract directory skeletons)
-2. Load LLM-generated DSL rules (not human-corrected) into actplane.yaml
-3. Record compilation success/failure
-4. Design violation + compliant scenario scripts based on human ground
-   truth interpretation
-5. Run `sudo actplane run -- bash scenario.sh`, collect violation logs
-6. Compare expected vs actual; classify failure modes for mismatches
+2. Load LLM-generated DSL rules (not human-corrected) into actplane.yaml;
+   record compilation success/failure
+3. Design violation + compliant scenario scripts based on human
+   ground-truth interpretation
+4. Run `sudo actplane run -- bash scenario.sh`, collect violation logs
+5. Compare expected vs actual; classify failure modes for mismatches
 **Effort**: ~3 days
-**Produces**: Table 3, Table 4, Table 4b
+**Produces**: Table 3, Table 4
 
 ### Phase 3: Bypass Testing (RQ3)
 
