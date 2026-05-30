@@ -214,7 +214,7 @@ execution path.
 ActPlane is implemented as a Rust driver and an eBPF program pair. The
 system builds a single \texttt{actplane} binary that embeds the compiled
 eBPF loader, extracts it at runtime, compiles the project's policy DSL,
-and runs a target command under the enforcement harness.
+and runs a target command under the observation and enforcement harness.
 
 \subsection{Runner and Policy Discovery}
 
@@ -260,4 +260,4 @@ that reads one byte from a labeled file acquires the full label set. This
 can produce over-tainting relative to byte-level
 systems~\cite{kemerlis2012libdft}. Section~\ref{sec:evaluation} measures the
 false-positive rate and validates that declassification and gate paths
-prevent unnecessary enforcement.
+prevent unnecessary harness intervention.

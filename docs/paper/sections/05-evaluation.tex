@@ -11,7 +11,7 @@ real-world contracts.
 
 \subsection{Bypass Coverage (RQ1)}
 
-Does OS-level enforcement detect the same contract violation regardless of
+Does the OS-level harness detect the same contract violation regardless of
 the tool path through which the agent triggers it?
 
 We execute the same forbidden operation through five paths: (1)~direct tool
@@ -46,7 +46,7 @@ from observation.
 \subsection{False Positives (RQ3)}
 
 Do benign tasks and sanctioned contract paths (declassification, gate
-mediation, temporal gates) proceed without spurious enforcement?
+mediation, temporal gates) proceed without spurious harness intervention?
 
 % TODO: Insert false-positive results.
 
@@ -130,8 +130,8 @@ FIDES and CaMeL apply typed information-flow control and capability
 separation within the agent loop or
 scaffolding~\cite{costa2025fides,debenedetti2025camel}. ActPlane applies
 the same style of information-flow reasoning at the OS boundary, where
-enforcement persists across context windows and cannot be circumvented by
-subprocess indirection.
+observation and enforcement persist across context windows and cannot be
+circumvented by subprocess indirection.
 
 \subsection{Agent Instruction Files}
 

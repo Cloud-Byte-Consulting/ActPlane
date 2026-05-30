@@ -23,7 +23,7 @@ All evaluation rules are drawn from the empirical study corpus
   the 580 OS-level behavioral contracts from the empirical corpus.
 - **RQ2 (LLM Translation)**: an LLM correctly translates ~XX% (~70+%?)
   of expressible directives into valid DSL rules; LLM-generated rules
-  achieve ~XX% (~90+%?) precision and ~XX% (~85+%?) recall on enforcement
+  achieve ~XX% (~90+%?) precision and ~XX% (~85+%?) recall on harness
   test cases.
 - **RQ3 (Bypass Coverage)**: ActPlane detects violations across all 5
   execution paths (30/30); tool-layer guards detect only direct tool
@@ -31,7 +31,7 @@ All evaluation rules are drawn from the empirical study corpus
 - **RQ4 (Overhead)**: per-event overhead is ~XX µs (~1–5?) at p99 with
   32 rules; end-to-end agent task overhead is <XX% (~5%?).
 - **RQ5 (Feedback Effectiveness)**: on Terminal-Bench, a weak model with
-  ActPlane harness (strong-model rules + enforcement + feedback) achieves
+  ActPlane harness (strong-model rules + observation/enforcement + feedback) achieves
   ~XX% (~+10–15pp?) higher task completion than the same model without
   harness; semantic feedback improves recovery rate by ~XX% (~+20pp?)
   over enforcement-only.
@@ -43,10 +43,10 @@ All evaluation rules are drawn from the empirical study corpus
 | RQ | Question | What it proves | Experiment type |
 |---|---|---|---|
 | **RQ1** | How many real-world directives can the ActPlane DSL express, and can an LLM translate them? | Expressiveness — DSL coverage + LLM as practical translator | LLM translation + classification |
-| **RQ2** | Are LLM-generated DSL rules semantically correct? | Translation quality — LLM can serve as the directive-to-DSL compiler | LLM generation vs human ground truth + enforcement |
-| **RQ3** | Does OS-level enforcement cover bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
+| **RQ2** | Are LLM-generated DSL rules semantically correct? | Translation quality — LLM can serve as the directive-to-DSL compiler | LLM generation vs human ground truth + harness testing |
+| **RQ3** | Does OS-level harness detect violations across bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
 | **RQ4** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Performance measurement |
-| **RQ5** | Does enforcement with semantic feedback improve agent task completion? | End-to-end system value — strong model rules + OS enforcement + feedback uplift weak model | Terminal-Bench benchmark (89 tasks x 3 conditions) |
+| **RQ5** | Does the ActPlane harness with semantic feedback improve agent task completion? | End-to-end system value — strong model rules + OS-level harness + feedback uplift weak model | Terminal-Bench benchmark (89 tasks x 3 conditions) |
 
 ---
 
@@ -246,9 +246,9 @@ usability of the system: in deployment, the LLM is the translator.
 The evaluation has two layers:
 1. **Translation correctness** (all 580 directives): does the LLM
    produce a correct rule, judged by human review (§4.2 Step 2)?
-2. **Enforcement correctness** (stratified sample): do the LLM-generated
-   rules actually enforce correctly when loaded into ActPlane on real
-   repository directory structures?
+2. **Harness correctness** (stratified sample): do the LLM-generated
+   rules actually observe and enforce correctly when loaded into ActPlane
+   on real repository directory structures?
 
 ### 6.2 Method
 
@@ -275,7 +275,7 @@ each output and classifies it (§4.2 Step 2):
 | cross-event | | | | | |
 | **Total** | | | | | |
 
-#### Layer 2: Enforcement Testing (stratified sample)
+#### Layer 2: Harness Testing (stratified sample)
 
 From the LLM-translated rules that are TP, draw a **stratified sample**
 of N rules (covering all pattern types and major topics). For each
@@ -348,7 +348,7 @@ config_toml, attempt commit).
 
 ### 6.3 Failure Modes
 
-When an LLM-generated rule produces incorrect enforcement:
+When an LLM-generated rule produces incorrect harness behavior:
 
 | Failure mode | Example |
 |---|---|
@@ -360,7 +360,7 @@ When an LLM-generated rule produces incorrect enforcement:
 
 ### 6.4 Required Figures and Tables
 
-**Table 3: End-to-End Enforcement Correctness of LLM-Generated Rules**
+**Table 3: End-to-End Harness Correctness of LLM-Generated Rules**
 
 | Category | Test cases | TP | FP | FN | Precision | Recall |
 |---|---|---|---|---|---|---|
@@ -375,7 +375,7 @@ directive text, LLM-generated DSL rule, human ground-truth rule, and
 TP/FP/FN result
 
 **Table 4b: LLM-generated vs human-authored rule comparison** — for
-rules where LLM enforcement differs from expected, show the LLM rule
+rules where LLM harness behavior differs from expected, show the LLM rule
 alongside the human ground-truth rule and identify the failure mode
 
 ---
@@ -525,11 +525,12 @@ one line per syscall type
 
 ### 9.1 Goal
 
-RQ5 evaluates whether ActPlane's enforcement and corrective feedback
-improve agent task completion on a standard benchmark. This tests the
-full system end-to-end: a strong model generates behavioral rules, a
-weaker model executes tasks under those rules, and ActPlane enforces
-them at the OS level with semantic feedback.
+RQ5 evaluates whether ActPlane's harness (observation, enforcement, and
+corrective feedback) improves agent task completion on a standard
+benchmark. This tests the full system end-to-end: a strong model
+generates behavioral rules, a weaker model executes tasks under those
+rules, and ActPlane observes and enforces them at the OS level with
+semantic feedback.
 
 ### 9.2 Benchmark
 
@@ -579,7 +580,7 @@ violations, providing clearer signal for the feedback comparison.
 #### Key Comparisons
 
 - **B1 vs B3**: total system value — does ActPlane (rules from strong
-  model + enforcement + feedback) uplift a weak model?
+  model + harness + feedback) uplift a weak model?
 - **B2 vs B3**: marginal value of feedback — does telling the agent
   *why* it was blocked help it recover, vs a bare EPERM?
 
@@ -624,7 +625,7 @@ showing per-task recovery with vs without feedback
 | T1 | Corpus coverage funnel (expressible vs not expressible) | RQ1 |
 | T2 | Cross-event pattern breakdown (9 patterns x expressibility) | RQ1 |
 | T2b | LLM translation correctness (TP/FP/FN per level) | RQ2 |
-| T3 | Enforcement correctness of LLM-generated rules (43 sampled, TP/FP/FN) | RQ2 |
+| T3 | Harness correctness of LLM-generated rules (43 sampled, TP/FP/FN) | RQ2 |
 | T4 | Per-rule detail (43 rules: directive, LLM rule, result) | RQ2 |
 | T5 | Bypass coverage matrix (6 rules x 5 paths x 2 systems) | RQ3 |
 | T6 | Per-syscall latency (5 syscalls x 5 configurations) | RQ4 |
@@ -664,7 +665,7 @@ correctness (RQ2 Layer 1)
 **Effort**: ~3 days
 **Produces**: Table 1, Table 2, Table 2b, Figure 1, Figure 2
 
-### Phase 2: Enforcement Testing (RQ2 Layer 2)
+### Phase 2: Harness Testing (RQ2 Layer 2)
 
 **Input**: 43 sampled LLM-generated rules (TP from Phase 1) +
 corresponding repo directory structures
@@ -742,14 +743,14 @@ Empirical Study (docs/empirical.md)
 System Paper Evaluation (this document)
   |
   |-- RQ1: evaluates DSL expressiveness on the 580 OS-level directives
-  |-- RQ2: tests LLM translation correctness (semantic + enforcement)
+  |-- RQ2: tests LLM translation correctness (semantic + harness testing)
   |-- RQ3: tests bypass coverage using corpus and repo rules
   |-- RQ4: measures performance under varying rule-set sizes
-  +-- RQ5: tests enforcement + feedback on Terminal-Bench (89 tasks)
+  +-- RQ5: tests harness + feedback on Terminal-Bench (89 tasks)
 ```
 
 The empirical study answers "what do developers write";
-the system evaluation answers "how much can ActPlane enforce,
+the system evaluation answers "how much can ActPlane observe and enforce,
 how correctly, and at what cost."
 
 ---
@@ -760,7 +761,7 @@ how correctly, and at what cost."
 |---|---|---|
 | 5.1 Experimental Setup | Platform, baselines, rule set | This document, Sections 3 and 4 |
 | 5.2 Expressiveness (RQ1) | Coverage funnel | This document, Section 5 |
-| 5.3 Enforcement Correctness (RQ2) | 43 rules x 86 test cases | This document, Section 6 |
+| 5.3 Harness Correctness (RQ2) | 43 rules x 86 test cases | This document, Section 6 |
 | 5.4 Bypass Coverage (RQ3) | 6 x 5 matrix | This document, Section 7 |
 | 5.5 Overhead (RQ4) | Microbenchmarks + macrobenchmarks | This document, Section 8 |
 | 5.6 Feedback Validation (RQ5) | 5 case studies | This document, Section 9 |

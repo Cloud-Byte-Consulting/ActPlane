@@ -35,7 +35,7 @@ toolchain:
 cargo install actplane
 ```
 
-Write a policy and run an agent (or any command) under enforcement:
+Write a policy and run an agent (or any command) under the harness:
 
 ```bash
 actplane init                                  # write a starter actplane.yaml
@@ -79,7 +79,7 @@ holds regardless of which tool path the agent takes.
 
 The key differences:
 
-- **OS-level coverage**: enforcement happens at the kernel, not the tool API. Bash, Python subprocess, direct SDK calls, all covered.
+- **OS-level coverage**: observation and enforcement happen at the kernel, not the tool API. Bash, Python subprocess, direct SDK calls, all covered.
 - **Call-chain granularity**: rules follow process lineage, not just single operations. "Codex's entire subprocess tree cannot touch git" is one rule.
 - **Data-flow constraints**: rules express "data read from A must never flow to B", tracked across arbitrary fork/exec and file read/write edges, not just at a boundary.
 - **Causal ordering**: rules express "run tests before committing" via `since` clauses and gate invalidation, not just per-operation checks.
@@ -162,7 +162,7 @@ ActPlane feeds violation reasons back to agents via their hook systems.
 ```
 
 The adapter forwards new violations as hook context. The kernel remains the sole
-authority for enforcement. See [`script/CLAUDE.snippet.md`](script/CLAUDE.snippet.md)
+authority for observation and enforcement. See [`script/CLAUDE.snippet.md`](script/CLAUDE.snippet.md)
 for the agent instruction snippet.
 
 ## How it works

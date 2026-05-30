@@ -6,9 +6,10 @@
 An agent harness is the non-model infrastructure that mediates between an LLM
 agent and its execution
 environment~\cite{langchain-harness,fowler-harness}. Harness components
-include tool dispatch, memory management, orchestration, enforcement, and
-feedback. This paper focuses on the enforcement and feedback components:
-the mechanisms that ensure an agent's behavioral contracts hold at runtime.
+include tool dispatch, memory management, orchestration, observation,
+enforcement, and feedback. This paper focuses on the observation,
+enforcement, and feedback components: the mechanisms that ensure an
+agent's behavioral contracts hold at runtime.
 
 Behavioral contracts are constraints that govern an agent's observable
 effects rather than its internal reasoning. Projects encode them in
@@ -106,7 +107,7 @@ all require adversarial intent and are outside this threat model.
 
 This section characterizes behavioral contracts in real agent instruction
 files and identifies the subset that requires cross-event information-flow
-enforcement.
+observation and enforcement.
 
 \subsection{Methodology}
 
@@ -143,15 +144,16 @@ across process, file, and network boundaries.
 % TODO: Insert table with category breakdown and percentages once coding
 % is complete.
 
-\subsection{Implications for Enforcement}
+\subsection{Implications for Observation and Enforcement}
 
-Per-action contracts can be enforced by per-event matching at any level:
-tool-call guards, seccomp filters, or eBPF kprobes. Cross-event contracts
-cannot, because they depend on state accumulated across multiple operations
-and objects. Enforcing them requires a mechanism that (1)~tracks provenance
-across process, file, and network boundaries, (2)~encodes that provenance
-as checkable state at each enforcement point, and (3)~connects violations
-back to the declared contract for semantic feedback.
+Per-action contracts can be observed and enforced by per-event matching at
+any level: tool-call guards, seccomp filters, or eBPF kprobes. Cross-event
+contracts cannot, because they depend on state accumulated across multiple
+operations and objects. Observing and enforcing them requires a mechanism
+that (1)~tracks provenance across process, file, and network boundaries,
+(2)~encodes that provenance as checkable state at each observation and
+enforcement point, and (3)~connects violations back to the declared
+contract for semantic feedback.
 
 Labeled information-flow control satisfies all three requirements. Labels
 encode cross-event provenance as per-node bitmasks, propagation rules
