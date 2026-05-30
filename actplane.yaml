@@ -91,6 +91,11 @@ policy: |
     kill exec "git" "worktree" if AGENT
     because "This workspace forbids creating git branches or worktrees. Use other git commands, or ask the user to manage branches."
 
+  # R7: No auto-commit — agent must not commit without explicit user approval.
+  rule no-auto-commit:
+    notify exec "git" "commit"   if AGENT
+    because "Do not commit without explicit user approval. Report your changes and wait for the user to say 'commit'."
+
   # ── Transforms: sanctioned paths through the dataflow graph ──
 
   declassify SECRET by exec "**/redact"

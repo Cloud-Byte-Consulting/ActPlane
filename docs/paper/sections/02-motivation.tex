@@ -20,7 +20,7 @@ expose secrets to the network. These policies differ from coding-style
 directives (e.g., ``prefer \texttt{const} over \texttt{let}'') in that they
 produce observable effects at the system-call boundary.
 
-\subsection{The Intent--Behavior Gap}
+\subsection{The Semantic Gap}
 
 An agent's execution spans three abstraction levels.
 
@@ -43,7 +43,7 @@ The mapping from action to behavior is many-to-many and opaque. A single
 \texttt{run\_command("make")} triggers hundreds of system calls. The same
 \texttt{git push} can be reached through a direct tool call, a
 \texttt{bash~-c} string, a Python \texttt{subprocess}, or a compiled helper
-binary. This opacity creates an \emph{intent--behavior gap}: policies
+binary. This opacity creates a \emph{semantic gap}: policies
 declared at the intent level cannot be reliably enforced at a single
 intermediate level.
 

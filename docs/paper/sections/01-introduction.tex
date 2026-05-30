@@ -68,12 +68,11 @@ with an empirical study of instruction files from 64~popular projects, showing
 that cross-event information-flow policies are pervasive in real agent
 instruction files.
 
-\item It presents ActPlane, a programmable OS-level control plane for agent
-harnesses that compiles agent-declared behavioral policies into
-eBPF/BPF-LSM labeled information-flow rules, observing and enforcing agent
-behavior across process, file, and network boundaries and providing
-semantic feedback that reconnects behavior-level rule matches to intent-level
-remediation.
+\item It presents ActPlane, a programmable OS-level control plane for
+agent harnesses. ActPlane compiles behavioral policies into eBPF/BPF-LSM
+labeled information-flow rules, observes and enforces them across process,
+file, and network boundaries, and returns semantic feedback that reconnects
+rule matches to intent-level remediation.
 
 \item It evaluates ActPlane on DSL expressiveness over 580 OS-level
 directives from the empirical study, agent translation correctness,
