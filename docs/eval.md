@@ -7,13 +7,34 @@ three dimensions:
 
 1. **Expressiveness**: the DSL can express real per-event and cross-event
    behavioral contracts from production projects.
-2. **Correctness**: translated rules enforce correctly on real repository
-   directory structures — no false negatives, no false positives.
-3. **Practicality**: enforcement is unbypassable, overhead is acceptable,
-   and the semantic feedback channel works end-to-end.
+2. **Correctness**: an LLM can translate natural-language directives into
+   correct DSL rules that observe and enforce correctly on real repository
+   directory structures.
+3. **Practicality**: harness observation and enforcement is unbypassable,
+   overhead is acceptable, and semantic feedback improves agent task
+   completion.
 
 All evaluation rules are drawn from the empirical study corpus
 (64 real projects, 1,361 directives). No synthesized or abstract rules.
+
+### Expected Headline Results (for paper intro)
+
+- **RQ1 (Expressiveness)**: ActPlane's DSL can express ~XX% (~85+%?) of
+  the 580 OS-level behavioral contracts from the empirical corpus.
+- **RQ2 (LLM Translation)**: an LLM correctly translates ~XX% (~70+%?)
+  of expressible directives into valid DSL rules; LLM-generated rules
+  achieve ~XX% (~90+%?) precision and ~XX% (~85+%?) recall on enforcement
+  test cases.
+- **RQ3 (Bypass Coverage)**: ActPlane detects violations across all 5
+  execution paths (30/30); tool-layer guards detect only direct tool
+  calls (~6/30).
+- **RQ4 (Overhead)**: per-event overhead is ~XX µs (~1–5?) at p99 with
+  32 rules; end-to-end agent task overhead is <XX% (~5%?).
+- **RQ5 (Feedback Effectiveness)**: on Terminal-Bench, a weak model with
+  ActPlane harness (strong-model rules + enforcement + feedback) achieves
+  ~XX% (~+10–15pp?) higher task completion than the same model without
+  harness; semantic feedback improves recovery rate by ~XX% (~+20pp?)
+  over enforcement-only.
 
 ---
 
@@ -25,7 +46,7 @@ All evaluation rules are drawn from the empirical study corpus
 | **RQ2** | Are LLM-generated DSL rules semantically correct? | Translation quality — LLM can serve as the directive-to-DSL compiler | LLM generation vs human ground truth + enforcement |
 | **RQ3** | Does OS-level enforcement cover bypass paths that tool-layer guards miss? | Unbypassability — ActPlane's unique contribution | Comparative experiment |
 | **RQ4** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Performance measurement |
-| **RQ5** | Does the semantic feedback channel work end-to-end? | Feedback loop — viable for cooperative agents | Case study + prior evidence |
+| **RQ5** | Does enforcement with semantic feedback improve agent task completion? | End-to-end system value — strong model rules + OS enforcement + feedback uplift weak model | Terminal-Bench benchmark (89 tasks x 3 conditions) |
 
 ---
 
@@ -500,69 +521,103 @@ one line per syscall type
 
 ---
 
-## 9. RQ5: Feedback Effectiveness
+## 9. RQ5: Feedback Effectiveness (Terminal-Bench)
 
-### 9.1 Prior Evidence
+### 9.1 Goal
 
-Existing research establishes that structured feedback improves agent
-error recovery:
+RQ5 evaluates whether ActPlane's enforcement and corrective feedback
+improve agent task completion on a standard benchmark. This tests the
+full system end-to-end: a strong model generates behavioral rules, a
+weaker model executes tasks under those rules, and ActPlane enforces
+them at the OS level with semantic feedback.
 
-| Paper | Finding |
+### 9.2 Benchmark
+
+**Terminal-Bench** (tbench.ai): 89 realistic CLI tasks in sandboxed
+Docker containers. Tasks include code compilation, system
+administration, ML training, reverse engineering, and data science.
+Current best agent success rate is ~50%. Public leaderboard results
+serve as reference for strong-model performance.
+
+### 9.3 Method
+
+#### Rule Generation
+
+For each of the 89 tasks, a strong model (e.g., Claude) reads:
+- the task description
+- the Docker environment (Dockerfile, filesystem, installed tools)
+- the test script that defines success
+
+and generates a set of ActPlane DSL rules that encode behavioral
+contracts a project owner would reasonably set. Examples:
+
+| Task type | Example rules |
 |---|---|
-| PALADIN (2025) | Tool-failure recovery rate 32.8% to 89.7% (+57pp) |
-| AgentDebug | Directed feedback +26% relative task success rate |
-| Structured Reflection (2025) | Structured feedback outperforms heuristic self-correction |
+| Compilation | "don't delete Makefile", "don't modify the test script" |
+| System admin | "don't overwrite /etc config without backup", "don't kill critical services" |
+| Data science | "don't delete the dataset", "run validation before reporting results" |
+| General | "don't rm -rf /", "don't modify files outside the work directory" |
 
-ActPlane's feedback is more targeted than the above: remediation strings
-are domain-specific instructions written by the DSL author
-("re-run pytest, then commit"), not generic error messages.
+Each rule includes a `reason` and `remediation` string for the
+feedback channel.
 
-### 9.2 Scope of Validation
+#### Experimental Conditions
 
-We validate that ActPlane's feedback **channel** works end-to-end, rather
-than re-proving "feedback helps" (which has sufficient prior evidence).
+Each task is run under three conditions, each repeated N times
+(N ≥ 3):
 
-#### 5 Case Studies
+| Condition | Enforcement | Feedback | What it tests |
+|---|---|---|---|
+| **B1: baseline** | No ActPlane | None | Weak model's raw capability |
+| **B2: enforce-only** | ActPlane (EPERM / SIGKILL) | None (bare "Permission denied") | Does blocking bad actions help? |
+| **B3: enforce + feedback** | ActPlane (EPERM / SIGKILL) | Remediation string injected into agent context | Does semantic feedback help recovery? |
 
-Each case study = one real rule + one agent task + full conversation trace.
+The task agent is a weaker open-source model (model TBD — e.g., a
+small Llama or Qwen variant) that is more likely to trigger
+violations, providing clearer signal for the feedback comparison.
 
-| # | Rule | Source | Scenario | Expected agent behavior |
-|---|---|---|---|---|
-| F1 | test-before-commit | OpenPipe/ART | Agent edits code, attempts commit | Receives "re-run pytest" feedback, runs pytest, commits |
-| F2 | no-secret-egress | chenhg5/cc-connect | Agent reads .env, attempts curl | Receives "run redactor first" feedback, uses redactor, connects |
-| F3 | no-git-branch (bypass) | this repo | Agent calls git branch via subprocess | Receives feedback that OS-level enforcement cannot be bypassed, changes approach |
-| F4 | confirm-force-push | common | Agent attempts git push --force | Receives "run confirm tool first", runs confirm, pushes |
-| F5 | regen-config-schema | openai/codex | Agent edits ConfigToml, commits directly | Receives "run write-config-schema", runs script, commits |
+#### Key Comparisons
 
-#### Metrics
+- **B1 vs B3**: total system value — does ActPlane (rules from strong
+  model + enforcement + feedback) uplift a weak model?
+- **B2 vs B3**: marginal value of feedback — does telling the agent
+  *why* it was blocked help it recover, vs a bare EPERM?
+
+### 9.4 Metrics
 
 | Metric | Definition |
 |---|---|
-| Feedback delivery rate | Fraction of violations where `[ActPlane]` payload appears in agent context |
-| First-attempt recovery rate | Fraction where agent succeeds on first retry after feedback |
-| Repeat violation count | Times the same rule fires again (target: at most 2) |
-| Task completion rate | Fraction where agent completes original task (target: 100%, since alternative paths exist) |
+| Task completion rate | Fraction of tasks where the test script passes (Terminal-Bench's native metric) |
+| Violation count per task | Number of ActPlane rule violations per task (B2 and B3 only) |
+| Recovery rate | Fraction of violations after which the agent recovers and completes the task |
+| Repeat violation rate | Fraction of tasks where the same rule fires more than once |
+| Rules triggered rate | Fraction of tasks where at least one rule fires (measures rule relevance) |
 
-### 9.3 Required Figures and Tables
+### 9.5 Required Figures and Tables
 
-**Table 9: Feedback Case Study Results**
+**Table 9: Terminal-Bench Results by Condition**
 
-| Case | Agent | Feedback delivered | First recovery | Repeat violations | Task completed |
-|---|---|---|---|---|---|
-| F1 | Claude Code | Y/N | Y/N | N | Y/N |
-| F1 | Codex CLI | Y/N | Y/N | N | Y/N |
-| F2 | Claude Code | Y/N | Y/N | N | Y/N |
-| ... | | | | | |
+| Condition | Tasks | Completion rate | Mean violations/task | Recovery rate |
+|---|---|---|---|---|
+| B1: baseline | 89 | | | — |
+| B2: enforce-only | 89 | | | |
+| B3: enforce + feedback | 89 | | | |
 
-**Figure 6: Conversation trace excerpt** — showing the full
-violation, feedback delivery, and recovery sequence for F1
-(one to two pages)
+**Table 10: Per-Task Detail** — for tasks where B2 and B3 differ,
+show the rule that fired, the violation event, and whether the agent
+recovered (B2 vs B3)
+
+**Figure 6: Completion rate comparison** — grouped bar chart across
+the three conditions
+
+**Figure 7: Recovery rate (B2 vs B3)** — bar chart or scatter plot
+showing per-task recovery with vs without feedback
 
 ---
 
 ## 10. Summary of Figures and Tables
 
-### Tables (11)
+### Tables (12)
 
 | # | Content | RQ |
 |---|---|---|
@@ -575,9 +630,10 @@ violation, feedback delivery, and recovery sequence for F1
 | T6 | Per-syscall latency (5 syscalls x 5 configurations) | RQ4 |
 | T7 | End-to-end agent task overhead | RQ4 |
 | T8 | BPF map memory consumption | RQ4 |
-| T9 | Feedback case study results | RQ5 |
+| T9 | Terminal-Bench results by condition (B1/B2/B3) | RQ5 |
+| T10 | Per-task detail for tasks with divergent B2/B3 outcomes | RQ5 |
 
-### Figures (6)
+### Figures (8)
 
 | # | Content | RQ |
 |---|---|---|
@@ -586,7 +642,8 @@ violation, feedback delivery, and recovery sequence for F1
 | F3 | Bypass coverage comparison (grouped bar) | RQ3 |
 | F4 | Per-syscall overhead (bar chart, baseline vs AP) | RQ4 |
 | F5 | Overhead vs rule count (line chart) | RQ4 |
-| F6 | Conversation trace excerpt (feedback case study) | RQ5 |
+| F6 | Terminal-Bench completion rate (grouped bar, B1/B2/B3) | RQ5 |
+| F7 | Recovery rate B2 vs B3 (bar chart or scatter) | RQ5 |
 
 ---
 
@@ -647,18 +704,28 @@ corresponding repo directory structures
 **Effort**: ~2 days
 **Produces**: Table 6, Table 7, Table 8, Figure 4, Figure 5
 
-### Phase 5: Feedback Case Studies (RQ5)
+### Phase 5: Terminal-Bench Feedback Evaluation (RQ5)
 
-**Input**: 5 scenarios x 2 agents
+**Input**: 89 Terminal-Bench tasks, strong model for rule generation,
+weak open-source model for task execution
 **Steps**:
-1. Set up actplane.yaml + agent task prompt for each scenario
-2. Run agent, record conversation trace
-3. Record feedback delivery, recovery, repeat violations, task completion
+1. Set up Terminal-Bench Docker environment and agent harness
+2. For each task, have the strong model generate ActPlane DSL rules
+   from the task description + environment + test script
+3. Run weak model on all 89 tasks under three conditions:
+   - B1: no ActPlane (baseline)
+   - B2: ActPlane enforce-only (EPERM/SIGKILL, no feedback)
+   - B3: ActPlane enforce + feedback (remediation string injected)
+4. Each condition x N trials (N ≥ 3) for statistical reliability
+5. Record: task completion (pass/fail via Terminal-Bench test script),
+   violation count, recovery events, repeat violations
+6. Compute completion rate, recovery rate, and violation metrics
+   per condition
 
-**Effort**: ~2 days
-**Produces**: Table 9, Figure 6
+**Effort**: ~5 days (setup 2d + runs 2d + analysis 1d)
+**Produces**: Table 9, Table 10, Figure 6, Figure 7
 
-### Total: ~10 days
+### Total: ~14 days
 
 ---
 
@@ -675,10 +742,10 @@ Empirical Study (docs/empirical.md)
 System Paper Evaluation (this document)
   |
   |-- RQ1: evaluates DSL expressiveness on the 580 OS-level directives
-  |-- RQ2: tests translated rules on real repo directory structures
+  |-- RQ2: tests LLM translation correctness (semantic + enforcement)
   |-- RQ3: tests bypass coverage using corpus and repo rules
   |-- RQ4: measures performance under varying rule-set sizes
-  +-- RQ5: tests feedback channel with corpus rules + real agents
+  +-- RQ5: tests enforcement + feedback on Terminal-Bench (89 tasks)
 ```
 
 The empirical study answers "what do developers write";
