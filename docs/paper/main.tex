@@ -19,26 +19,17 @@
   \country{}}
 
 \begin{abstract}
-AI coding agents require harnesses to enforce behavioral policies
-for effective and safe operation: do not
-leak secrets, run tests before committing, only write to tmp dir.
-Agents operate at three levels:
-\emph{intent} (semantic goals and reasoning), \emph{action} (tool calls),
-and \emph{behavior} (OS operations: file access, process execution). 
+AI coding agents require harnesses to enforce behavioral policies for effective and safe operation: e.g. do not leak secrets, run tests before committing.
 Our empirical study of 64 projects shows that while project harness
 instructions are declared in natural language, 63\%
 consist of behavioral policies, 80\% of which involve system-level
 behavior, and 78\% of projects require cross-event state tracking.
 
-Yet existing agent harness enforcement leaves an \emph{intent--behavior gap}:
-intent-level prompts are forgettable and probabilistic;
-action-level guards check tool calls but miss effects that reach the OS
-through subprocesses or information flow;
-behavior-level sandboxing is unbypassable but disconnected from intent,
-making it unsuitable for harness enforcement.
+Yet existing agent harness operate at a single level, failed to connecting intent-level declarations to deterministic system-level policies: Prompt constraints and tool-call guardrails operate at probabilistic intent-level or lose track of system-level actions, while current OS-level enforcements expect pre-defined static
+policy and return only system events without semantic context.
 
 ActPlane is a programmable OS-level control plane for agent harnesses that bridges
-the intent--behavior gap: agents declare behavioral policies in a DSL;
+the gap: agents declare behavioral policies in a DSL;
 ActPlane persists them as in-kernel labeled information-flow
 rules, observing and enforcing agent behavior across process, file, and
 network boundaries, and providing semantic feedback.

@@ -119,11 +119,9 @@ docs/corpus-evaluated/{repo}/
 docs/corpus-evaluated/{repo}/{statement_id}/
                          # NEW (RQ3): one directory per confirmed-correct rule
   meta.json              # context: repo, statement_id, text, enforceability, topic
-  rule.dsl               # corrected DSL rule (plain text)
-  trigger.sh             # trigger trace (shell script, run from ../repo/)
-  trigger.toolcalls.jsonl    # same trace as tool-call list (for TL baselines)
-  compliant.sh           # compliant trace (should NOT trigger)
-  compliant.toolcalls.jsonl
+  rule.yaml              # corrected DSL rule (actplane.yaml format)
+  trigger.toolcalls.jsonl    # trace that should trigger the rule
+  compliant.toolcalls.jsonl  # trace that should NOT trigger the rule
 ```
 
 Source repos are cloned with `script/clone-corpus-repos.sh` (~4-5 GB
@@ -199,9 +197,18 @@ left blank).
 
 #### Step 2: Agent Translation (RQ2)
 
-The LLM agent reads each directive (with repo context from CLAUDE.md
-+ meta.json) and fills the `rule:` field in `agent_rules.yaml`. The
-agent does **not** see `expressible.yaml`.
+The LLM agent reads each directive along with:
+- the project instruction file (CLAUDE.md / AGENTS.md)
+- project metadata (meta.json)
+- the cloned source repo (`corpus-evaluated/{repo}/repo/`) for
+  accurate path patterns
+- the DSL reference (`docs/rule-language.md`)
+
+and fills the `rule:` field in `docs/corpus/{repo}/agent_rules.yaml`.
+The agent does **not** see `expressible.yaml`. Rules are validated
+with `actplane check`.
+
+See `docs/eval_translate_prompt.md` for the full agent prompt.
 
 #### Step 3: Human Review (RQ1 + RQ2)
 
@@ -228,9 +235,10 @@ all `docs/corpus-evaluated/*/expressible.yaml` files.
 #### Step 5: Generate RQ3 Traces
 
 For each corrected rule in `docs/corpus-evaluated/`, an LLM agent
-generates the RQ3 test directory (`env/` directory skeleton,
-`trigger.sh`, `compliant.sh`, `.toolcalls.jsonl` files). See
-Section 7 for the full RQ3 procedure.
+generates the RQ3 test directory (`trigger.sh`, `compliant.sh`,
+`.toolcalls.jsonl` files — traces run from the cloned repo in
+`corpus-evaluated/{repo}/repo/`). See Section 7 for the full
+RQ3 procedure.
 
 ### 4.3 Per-Event Directive Translation Examples
 
@@ -395,12 +403,7 @@ corpus.
 
 For each rule, an LLM agent generates:
 
-1. **Directory skeleton** (`env/`): the minimal directory structure
-   matching the rule's file patterns and the source repo's layout,
-   committed directly into the test directory. No full repo clone
-   needed — just enough structure for path patterns to match.
-
-2. **Violation trace**: 5–15 tool calls simulating realistic agent
+1. **Violation trace**: 5–15 tool calls simulating realistic agent
    behavior that triggers the rule, with noise (irrelevant reads,
    writes, commands) interleaved.
 
@@ -411,7 +414,7 @@ For each rule, an LLM agent generates:
 Each trace is output in two formats:
 - **Tool-call list** (for tool-layer baselines): `[{tool: "run_command", input: "cat .env"}, ...]`
 - **Executable script** (for kernel-level baselines): shell commands
-  that produce the corresponding syscalls (run from inside `env/`).
+  that produce the corresponding syscalls (run from the cloned repo).
 
 Example for "never expose secrets to the network" (from repo X):
 
@@ -448,7 +451,7 @@ Total: ~N rules × 2 traces = ~2N test cases (expected ~800).
 #### Step 4: Execute
 
 For each rule × each trace:
-1. `cd` into `env/` directory
+1. `cd` into `corpus-evaluated/{repo}/repo/`
 2. Run executable script under `sudo actplane run -- bash trace.sh`
    → record ActPlane rule matches
 3. Run same script under per-event eBPF baseline → record rule matches
@@ -727,7 +730,7 @@ correctness (RQ2)
 **Input**: all RQ2 TP rules (~400 expected) + source repo metadata
 **Steps**:
 1. For each TP rule, LLM agent generates:
-   (a) directory skeleton (`env/` with repo layout committed in-tree)
+   (a) trigger + compliant traces (run from cloned repo)
    (b) trigger trace (5-15 tool calls with noise)
    (c) compliant trace (correct path, should not trigger)
    Output in tool-call list + executable script formats
