@@ -8,17 +8,32 @@
     - All new features must include unit tests'
   enforceability: cross_event
   topic: Testing
-  rule: null
+  rule: |
+    source AGENT = exec "claude"
+    rule test-new-features:
+      notify exec "git" "commit"
+        if AGENT unless after exec "go" since write "**/*.go"
+      because "Go source files changed since last test run. All new features must include unit tests. Run `go test ./...` before committing."
 - statement_id: 28
   text: '- All bug fixes should include a regression test'
   enforceability: cross_event
   topic: Testing
-  rule: null
+  rule: |
+    source AGENT = exec "claude"
+    rule regression-test-before-commit:
+      notify exec "git" "commit"
+        if AGENT unless after exec "go" since write "**/*.go"
+      because "Go source files changed since last test run. Bug fixes should include a regression test. Run `go test ./...` before committing."
 - statement_id: 29
   text: '- Tests must pass before committing: `go test ./...`'
   enforceability: cross_event
   topic: Testing
-  rule: null
+  rule: |
+    source AGENT = exec "claude"
+    rule tests-before-commit:
+      block exec "git" "commit"
+        if AGENT unless after exec "go" since write "**/*.go"
+      because "Go source files changed since last test run. Run `go test ./...`, then commit."
 - statement_id: 38
   text: '## Pre-Commit Checklist
 
@@ -34,7 +49,12 @@
     5. **No secrets in code**: no API keys, tokens, or credentials in source files'
   enforceability: cross_event
   topic: Development Process
-  rule: null
+  rule: |
+    source AGENT = exec "claude"
+    rule build-and-test-before-commit:
+      block exec "git" "commit"
+        if AGENT unless after exec "go" since write "**/*.go"
+      because "Pre-commit checklist not met. Run: (1) `go build ./...` (2) `go test ./...`. Also verify manually: (3) no hardcoded platform/agent names in core/*.go, (4) i18n complete for all new user-facing strings, (5) no secrets/API keys in source files."
 - statement_id: 39
   text: '## Adding a New Platform
 
@@ -54,7 +74,13 @@
     7. Add unit tests'
   enforceability: cross_event
   topic: Development Process
-  rule: null
+  rule: |
+    source AGENT = exec "claude"
+    source PLATFORM_CHANGED = file "platform/**/*.go"
+    rule platform-checklist:
+      notify exec "git" "commit"
+        if PLATFORM_CHANGED unless after exec "go" since write "platform/**"
+      because "Platform files changed. Before committing, verify: (1) run `go test ./...`, (2) add newplatform to ALL_PLATFORMS in Makefile, (3) add config example in config.example.toml, (4) create plugin file cmd/cc-connect/plugin_platform_*.go with build tag, (5) implement core.Platform interface and register in init()."
 - statement_id: 40
   text: '## Adding a New Agent
 
@@ -76,4 +102,10 @@
     8. Add unit tests'
   enforceability: cross_event
   topic: Development Process
-  rule: null
+  rule: |
+    source AGENT = exec "claude"
+    source AGENT_CHANGED = file "agent/**/*.go"
+    rule agent-checklist:
+      notify exec "git" "commit"
+        if AGENT_CHANGED unless after exec "go" since write "agent/**"
+      because "Agent files changed. Before committing, verify: (1) run `go test ./...`, (2) add newagent to ALL_AGENTS in Makefile, (3) create plugin file cmd/cc-connect/plugin_agent_*.go with build tag, (4) add config example in config.example.toml, (5) implement core.Agent and core.AgentSession interfaces, (6) optionally implement AgentDoctorInfo."

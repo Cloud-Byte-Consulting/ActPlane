@@ -377,6 +377,407 @@ ActPlane 的 enforcement + feedback 连通了 intent ↔ behavior。
 
 ---
 
+---
+
+## 第七层：Intro 的 OSDI 结构化（2026-05-30 讨论）
+
+### 7.1 术语统一
+
+论文术语从 "intent-behavior gap" 改为 **semantic gap**（和 AgentSight 一致）。
+作为扩展论文，semantic gap 作为本文自己提出的分析框架，不引用 AgentSight。
+AgentSight 只在 related work 中以第三人称出现。
+
+Abstract/intro 不再使用三层模型（intent/action/behavior），改为两侧 dichotomy：
+- **Intent 侧**：prompt constraints + tool-call guards（都看到 agent 想做什么，但看不到实际 system actions）
+- **System 侧**：OS-level enforcement（看到 system actions，但不连回 intent）
+
+Tool-call guard 归入 intent 侧——它看到的是 agent 的 structured intent（tool call），
+不是 system actions。
+
+### 7.2 OS 层 related work 的精确分层
+
+OS 层 enforcement 不是铁板一块，分三个梯队：
+
+1. **逐操作 ACL**（seccomp, Landlock, AppArmor, BPF Jailer）：无跨事件状态
+2. **有限跨事件**（SELinux type transitions, Tetragon followChildren）：有状态但不是 IFC
+3. **完整 IFC**（Flume, HiStar, CamFlow/CamQuery）：标签传播 + 跨事件信息流
+
+ActPlane 相对于第三梯队的增量：时序门、语义反馈、machine-writable DSL、
+渐进式部署（notify/block/kill）、O(1) bitmask（不维护 provenance graph）。
+
+**不能说 "OS 层 IFC 是空白"**——Flume/CamFlow 已经做了。
+应该说 "OS 层 IFC 已有但不适应 agent 工作负载"。
+
+### 7.3 Policy paralysis 和策略生命周期
+
+来源：ARMO blog "AI Agent Sandboxing — Progressive Enforcement Guide"。
+
+核心问题：agent 行为是非确定性的（prompt 驱动、每次不同），没人能预先写出完整 policy。
+写太严 break production，写太松有安全漏洞，很多团队干脆不部署。
+
+这不是 ActPlane 的 thesis 核心（core thesis 是 semantic gap），但它 motivate 了：
+- DSL 设计为 machine-writable（LLM/agent 可以生成策略）
+- `actplane check`（机器生成的策略需要 safety net）
+- notify 模式（先观测再执行，渐进式部署）
+
+在 intro 中，policy paralysis 放在 gap analysis（¶3）里作为 OS 层方案的共同缺陷：
+"all OS-level approaches require policies to be statically pre-written"。
+不单独成段论证。
+
+### 7.3.1 Agent as Policy Co-Author — 设计决策，不是独立 Contribution
+
+**核心定位**：这不是一条需要额外 eval 的 contribution，而是 system interface
+如何 bridge the gap 的一个 design decision。放在 introduction ¶3（gap analysis）
+里写出来：现有 OS-level enforcement 排斥了 agent 参与 policy authoring。
+
+#### 为什么要在 ¶3 里 argue
+
+¶3 现在列出 OS-level enforcement 的缺陷：
+
+1. static pre-written policy — ✅ 已写
+2. opaque errors / no semantic feedback — ✅ 已写
+3. **policy interface 不对 agent 开放** — ❌ 缺
+
+第三条是根本性的。SELinux/seccomp/Tetragon/CamQuery 的 policy 都是管理员写的，
+subject（被管理的程序/agent）没有参与 policy 定义的接口。但 cooperative agent
+和 adversarial subject 不同：
+
+- Agent 最清楚自己的 intent（就像 pledge() 里程序最清楚自己需要什么能力）
+- Agent 需要理解 policy 才能据 feedback 改道（如果 policy 是 opaque binary blob，
+  feedback 的 remediation 也无法具体）
+- Developer 和 agent 在实际使用中**共同演化** policy（CLAUDE.md 的每条规则
+  背后往往是一次真实违规 → developer 手动加规则 → agent 下次遵守的循环）
+
+#### ActPlane 的设计决策
+
+DSL 是 agent 和 developer **共同面对的接口**：
+
+- Agent 可以**读** policy（理解自己被约束了什么、为什么）
+- Agent 可以**写** policy（在 developer 审批下添加/修改规则——跟编辑任何
+  项目文件一样，不需要额外 API）
+- Agent 据 feedback **理解** policy 含义并选择替代路径
+- Sub-agent 的 policy 可以由 parent agent 基于任务上下文指定
+  （"这个 sub-agent 只做 code review，不需要 network access"）
+
+这对应系统领域的标准演化：被动受限 → 主动自治：
+- SELinux MAC（管理员写） → pledge()/unveil()（程序自己声明）
+- Prompt instruction（人写，agent 被动遵守） → Agent-maintained DSL（agent 参与定义）
+
+#### 和 eval 的关系
+
+**不需要额外 eval**。已有的 C4（enforcement + feedback → agent 改道完成任务）
+本质上就是在验证 agent 和 policy 的交互能力：
+
+- Agent 读到违规 feedback → 理解规则含义 → 选择替代路径 = agent 能理解 policy
+- Agent 据 gate 条件先跑 pytest 再 commit = agent 能按 policy 的结构行动
+- 这些已经是 "agent as policy co-author" 的最基本形式
+
+如果 reviewer 问 "agent 真的能写 policy 吗"——这不是 ActPlane 的 claim。Claim 是
+**interface design 允许 agent 参与**，不是 agent policy generation capability。
+后者是 future work（跟 LLM code generation 一样，是 agent 自身能力的问题，不是
+system interface 的问题）。
+
+#### 在 introduction ¶3 中的具体措辞
+
+在现有 gap analysis 的末尾，加一句：
+
+> All OS-level approaches require policies to be statically pre-written
+> **by an administrator who is not the agent**, and return opaque errors
+> with no connection to declared intent. The agent—the entity that best
+> knows its own goals and constraints—has no interface to participate in
+> policy definition, inspect active rules, or act on enforcement feedback.
+
+然后在 ¶5（system description）中呼应：
+
+> ActPlane's DSL serves as a shared interface between developer and agent:
+> agents can read, write, and reason about their own behavioral constraints,
+> just as \texttt{pledge()} lets a program declare the capabilities it needs
+> rather than having an administrator enumerate them externally.
+
+#### 和 7.3 Policy Paralysis 的关系
+
+7.3 说 "没人能预先写出完整 policy"（authoring burden on human）。
+本节说 "就算能写出来，agent 也被排斥在 authoring 之外"（interface excludion of agent）。
+两者互补：
+
+- Policy paralysis → agent 应该能帮助写 policy（减轻 developer burden）
+- Interface exclusion → system 应该让 agent 能参与（design decision）
+- 合在一起：ActPlane 的 DSL 既是 machine-writable（7.3）又是 agent-facing（本节）
+
+#### 和 sub-agent 控制的关系
+
+Agent 作为 policy co-author 的一个直接推论是 **parent agent 可以为 sub-agent
+定义 policy**。这已经是 CLAUDE.md / AGENTS.md 的常见模式（"sub-agent 不能
+直接 commit""sub-agent 只能读不能写"），但没有 enforcement。
+
+ActPlane 让这变得可 enforce：parent agent 在 spawn sub-agent 之前，
+写一条 DSL 规则（或 actplane.yaml 里的 scope 配置），内核 enforce 这条规则
+对 sub-agent 的整个进程子树生效。这是 "agent as policy co-author" 的
+自然延伸——不只约束自己，还约束自己的 delegate。
+
+在 paper 中不需要深入展开（没有 sub-agent eval），但可以在 Design §
+Policy Language Scope 里一两句话提到 DSL 支持这种模式。
+
+### 7.4 隔离 ≠ 行为控制
+
+来源：ARMO blog。
+
+容器/microVM/sandbox 控制 agent 在哪运行（containment），不控制做什么（behavioral control）。
+"最隔离的 sandbox 中的 agent 仍然可以通过合法 API 调用泄露数据。"
+
+这区分了 ActPlane（harness）和 sandbox（container/VM）的定位。
+在 intro 中可以在 gap analysis 或 ¶5 system description 中一句话带过。
+
+### 7.5 信号与噪音
+
+来源：AgentSight paper。
+
+Agent 子进程树产生海量 syscall，绝大部分是 OS 背景噪音。静态过滤器脆弱——
+只监测 `git` 的规则，在 agent 用 `curl` 实现同样目的时失败。
+
+ActPlane 的解法：`source AGENT = exec "codex"` 基于进程谱系标记 agent 子进程树，
+标签沿 fork 边传播，从噪音中隔离 agent 的因果链。
+
+在 intro 中不需要单独论证——tool-call guard 的 bypass 例子
+（"run\_command('make') triggers hundreds of system calls"）已经隐含了这个问题。
+
+### 7.6 Abstract 的结构决策
+
+Abstract 三段，对应 OSDI 骨架：
+
+**¶1 Context + evidence**：agent 需要策略 + corpus study 数据。
+不用 "emergent"（太学术），用 "non-deterministic"（具体、可验证）。
+
+**¶2 Gap**：一句话 dichotomy——intent 侧 lose coverage，system 侧 static policy + no semantic context。
+"Semantic gap" 作为 dichotomy 的命名出现（冒号后面就是它的内容）。
+
+**¶3 System + results**：ActPlane 桥接 semantic gap + headline numbers。
+
+关键措辞决策：
+- "deterministic" 修饰 enforcement/rules，不修饰 system actions
+- "connecting intent-level declarations to deterministic system-level rules" = 把非确定性的声明变成确定性的内核规则
+- "Enforcing" 不用在 ¶2 开头——它只是单向的；用 "require connecting" 或 "span"
+
+### 7.7 Intro 的 OSDI 骨架
+
+¶1 Context → ¶2 Problem + evidence → ¶3 Gap analysis → ¶4 Key insight → ¶5 System → ¶6 Results → ¶7 Contributions
+
+每段一个职责。Problem 1-2 段讲完。Gap analysis 一段扫清所有现有方案。
+不把 problem 拆成 4-5 段——太散。
+
+涌现行为 / 非确定性是 agent 的一个**性质**，在 ¶2 中一两句话带过（"因为 LLM compliance 是概率性的"），
+不作为独立 thesis 论证。
+
+---
+
+## 第八层："Agent in the Control Plane" — Shared Policy Lifecycle
+
+> **当前最佳 insight framing。** 第六层（Intent / Action / Behavior）定义了 gap 的
+> 结构；第八层回答 **系统应该怎么 bridge 这个 gap**——不是给 agent 套一个 sandbox，
+> 而是让 agent 参与 control plane。
+
+### 8.1 核心张力
+
+你需要 **deterministic enforcement**（因为 LLM compliance 是概率性的——
+agent 在第 1 步遵守约束，第 100 步可能忘了），但你同时需要 **agent-driven
+policy lifecycle**（因为只有 agent 知道当前任务的 intent、哪些 sub-agent
+需要什么权限、哪条规则该在什么阶段生效）。
+
+传统安全系统认为这两者不可兼得：deterministic enforcement ⇒ static policy
+by admin。原因是传统 subject 是 adversarial——policy author 和 policy subject
+**必须分离**（separation of privilege）。
+
+但 cooperative agent 打破了这个前提。Agent 不是要绕过 policy，是要**遵守**
+policy 但会忘记。这意味着：
+
+- 分离 policy author 和 subject → policy 是静态的（admin 不在 runtime loop 里）
+- Agent 不能参与 → policy 不能适应任务上下文
+- Agent 不理解 policy → feedback 无法驱动 self-correction
+- Agent 不能为 sub-agent scope policy → 委托链没有 enforcement
+
+**传统安全里 separation 是 feature；cooperative agent 场景里 separation 是 gap 的来源。**
+
+### 8.2 Key Insight（OSDI one-liner 候选）
+
+核心 reframe：不是 "enforcement system that lets agent participate"，
+而是 **"programmable interface that lets agent become the control plane"**。
+
+Agent 的 system-level actions 现在是**无人驾驶**的——agent 调了
+`run_command("make")`，几百个 syscall 发生了，没人 steering。
+每一步都可能触发不可逆的后果（泄密、写错文件、force push），
+而 agent 自己对此没有任何 programmatic control。
+
+ActPlane 让 agent 从 passenger 变成 pilot：通过 programmable interface
+定义 system-level actions 的规则，让 agent 成为自己行为的 control plane。
+
+**首选（D — programmable interface，agent as control plane）：**
+
+> Our insight is that the behavioral policy engine should be exposed as a
+> programmable kernel-level interface: instead of constraining agents from
+> outside with static policy, it lets agents become the control plane of
+> their own system-level actions — declaring behavioral constraints,
+> scoping policies to sub-agents, and evolving rules through violation
+> feedback — while the kernel enforces them deterministically at every
+> syscall.
+
+**备选 B（inversion framing，直接 challenge conventional wisdom）：**
+
+> Our insight is that for cooperative agents, the traditional separation
+> between policy author and policy subject is counterproductive: the agent
+> itself must participate in the control plane — declaring constraints for
+> itself, scoping policies to sub-agents, and evolving rules through
+> violation feedback — while the kernel enforces them deterministically
+> below the tool layer.
+
+**备选 C（最短）：**
+
+> A behavioral policy engine should be a programmable interface that lets
+> agents become the control plane of their own system-level actions, not
+> a static sandbox imposed from outside.
+
+**为什么 D 比 B 更好**：
+
+- B 用 "separation is counterproductive" 开头——defensive，在解释为什么旧的不行
+- D 用 "programmable interface" 开头——constructive，在说新的应该怎样
+- "Programmable" 是 OSDI vocabulary（programmable switches/storage/NICs），
+  reviewers 一看就知道这是 systems contribution
+- "Agent becomes the control plane" 比 "agent participates in the control plane"
+  更有力——agent 是主体，不是被邀请的客人
+- "Of their own system-level actions" 精确界定 scope——不是 agent 控制一切，
+  是 agent 控制自己在 OS 上的行为
+
+### 8.3 为什么这比第六层更 sharp
+
+第六层说了 **what the gap is**（intent ↔ behavior disconnect）。
+第八层回答了一个更 generative 的问题：**系统应该把 agent 放在什么位置？**
+
+传统系统的回答：agent 是被管理的 subject。
+第八层的回答：agent 是 control plane——它通过 programmable interface 管理
+自己的 system-level actions。
+
+这个 reframe 同时解决了两个问题：
+- 为什么现有 OS-level IFC 也不够？（因为它们把 agent 当 passive subject）
+- ActPlane 的 contribution 是什么？（不只是 "OS-level IFC + feedback"，
+  而是 "一个让 agent 成为自己行为 control plane 的 programmable interface"）
+
+对比：
+
+| 层 | 回答的问题 | 对 reviewer 的说服力 |
+|---|---|---|
+| 第六层 | gap 的结构是什么？ | 定义清晰，但 "OS-level IFC bridges it" 容易被反驳为 CamQuery already did this |
+| 第八层 | agent 在系统中的位置应该是什么？ | "Programmable interface + agent as control plane" 是 constructive 的 systems contribution，CamQuery 没有这个 design goal |
+
+### 8.4 Data Plane / Control Plane 解耦
+
+ActPlane 的架构把两者解耦：
+
+```
+Control Plane（agent + developer 协同）：
+  ├── agent 读/写 actplane.yaml（DSL policy）
+  ├── developer review / approve policy 变更
+  ├── parent agent 为 sub-agent scope constraints
+  ├── violation feedback → agent 改道 / 提议 policy 修改
+  └── violation history → 分析 policy 有效性 / 误报率
+
+Data Plane（kernel，deterministic）：
+  ├── DSL → compiled label rules（rodata blob）
+  ├── eBPF hooks：fork/exec/open/write/connect
+  ├── label propagation（monotonic, O(1) bitmask）
+  ├── rule matching → notify / block / kill
+  └── violation event → feedback file → agent context
+```
+
+关键性质：
+- **Data plane 是确定性的**：相同 label state + 相同 operation = 相同结果，
+  不管 agent 怎么到达这一步
+- **Control plane 是动态的**：policy 可以被 agent/developer 随时修改、
+  重新编译、重新加载
+- **两者通过 compiled blob 接口连接**：control plane 产出 `taint_config`，
+  data plane 消费它。修改 policy 不需要改内核代码
+
+### 8.5 Agent 参与 Control Plane 的三个层次
+
+由浅到深，每一层都已有实现基础（不是 aspirational）：
+
+**层次 1：Agent 理解 policy（读 + feedback）**
+- Agent 读 actplane.yaml，理解自己被约束了什么
+- 违规时收到 feedback（§6 模板），理解为什么被拦、怎么改道
+- **已有 eval 支撑**：C4 condition 就是在测这个
+
+**层次 2：Agent 为 sub-agent scope policy（写 + delegate）**
+- Parent agent spawn sub-agent 前，在 policy 里加一条规则
+  （如 `source REVIEWER = exec "sub-agent"; rule reviewer-readonly: block write file "*" if REVIEWER`）
+- 内核 enforce 这条规则对 sub-agent 的整个进程子树
+- **已有实现基础**：DSL 的 source/rule 已支持，agent 可以编辑 actplane.yaml
+  跟编辑任何项目文件一样
+
+**层次 3：Agent 据 violation history 提议 policy 修改（evolve）**
+- Agent 分析 `.actplane/last-violation.txt` 的历史记录
+- 发现某条规则频繁误报 → 提议放宽（developer approve）
+- 发现新的风险模式 → 提议加规则
+- **实现可行但不作为核心 claim**：这是 policy evolution，是 future work 的
+  direction，在 paper 中点到即止
+
+### 8.6 在 Introduction 中怎么放
+
+**¶3（gap analysis）末尾**，加第三个缺陷——agent 被排斥在 control 之外：
+
+> All OS-level approaches require policies to be statically pre-written
+> by an administrator external to the agent, and return opaque errors
+> with no connection to declared intent. The agent — the entity that
+> knows its own goals, that must recover from enforcement, and that
+> delegates to sub-agents — has no programmatic interface to define
+> or evolve the constraints governing its own system-level actions.
+
+**¶4（key insight）**，用 programmable interface framing：
+
+> Our insight is that the behavioral policy engine should be exposed as
+> a programmable kernel-level interface: instead of constraining agents
+> from outside with static policy, it lets agents become the control plane
+> of their own system-level actions — declaring behavioral constraints
+> in a compact DSL, scoping policies to sub-agents, and evolving rules
+> through violation feedback — while the kernel enforces them
+> deterministically at every syscall.
+
+**¶5（system description）**，pledge() 类比 + programmable interface 呼应：
+
+> ActPlane exposes a programmable OS-level interface for behavioral
+> control. Like \texttt{pledge()}, which lets a program declare the
+> capabilities it needs rather than having an administrator enumerate
+> them, ActPlane lets agents declare the behavioral constraints they
+> operate under. Unlike \texttt{pledge()}, these constraints are
+> cross-event information-flow rules — not static capability masks —
+> and the agent can scope, evolve, and reason about them through
+> violation feedback.
+
+### 8.7 和现有 sections 的关系
+
+| ideas.md 章节 | 和第八层的关系 |
+|---|---|
+| 第六层（6.1.1 主动声明） | 第八层的前身；"主动声明" 是第八层 "参与 control plane" 的一个方面 |
+| 7.3 Policy paralysis | Motivates 为什么需要 agent 参与——admin alone can't write complete policy |
+| 7.3.1 Co-author design decision | 被第八层 subsume；7.3.1 说的是 "在 intro 哪里放"，第八层说的是 "为什么这是 key insight" |
+| 第二层 Cooperative threat model | 第八层的前提——cooperative ⇒ separation is counterproductive |
+| 第三层 Provenance-aware remediation | 第八层的推论——agent 参与 control plane 需要 behavior-level feedback |
+
+### 8.8 和 related work 的精确 diff
+
+| 系统 | Agent 在 policy lifecycle 中的角色 |
+|---|---|
+| SELinux / AppArmor | 无。Admin 写 type enforcement / profile，subject 被动受限 |
+| seccomp / Landlock | 程序可以 self-restrict（类似 pledge），但不能 evolve / scope to children dynamically |
+| Tetragon / Tracee | 无。Security team 写 TracingPolicy YAML，monitored process 是纯 subject |
+| CamFlow / CamQuery | 无。Provenance query 由 admin 写，subject 无 feedback |
+| AgentSpec / Progent | 部分。Tool-call rules 可以由 agent framework 配置，但 subject 不参与 authoring |
+| FIDES / CaMeL | 部分。Agent loop 内的 IFC / capability separation，但在 application layer，可被 subprocess bypass |
+| **ActPlane** | **Agent 是 control plane 参与者**：读/写 DSL、scope sub-agent policy、据 violation feedback 改道 / 提议 policy 修改。Kernel 是 data plane，deterministic enforce |
+
+这张表直接回答 reviewer 的 "how is this different from CamQuery + adding feedback"——
+CamQuery 的 subject 没有参与 policy lifecycle 的接口。ActPlane 的 subject（agent）
+是 control plane 的一部分。
+
+---
+
 ## Open questions（更新）
 
 1. **Abstract/Intro 已重写**：基于 intent/action/behavior framing + harness 定位
