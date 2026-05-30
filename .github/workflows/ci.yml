@@ -49,3 +49,77 @@ jobs:
       run: |
         cd collector
         cargo test --verbose
+
+  publish:
+    name: Publish to crates.io
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        submodules: 'recursive'
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libelf1 libelf-dev zlib1g-dev libclang-dev \
+          make git clang llvm pkg-config build-essential
+
+    - name: Build BPF C programs
+      run: |
+        cd bpf
+        make
+
+    - name: Bump patch versions
+      run: |
+        for pkg in bpf collector; do
+          cd "$pkg"
+          CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" Cargo.toml
+          echo "${pkg}_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+          echo "Bumped $pkg: $CURRENT -> $NEW_VERSION"
+          cd ..
+        done
+        # Update actplane's dependency on actplane-bpf to match new version
+        cd collector
+        sed -i "s/actplane-bpf = { version = \"[^\"]*\"/actplane-bpf = { version = \"$bpf_VERSION\"/" Cargo.toml
+        cd ..
+
+    - name: Publish actplane-bpf first
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: |
+        cd bpf
+        cargo publish --allow-dirty || echo "actplane-bpf publish skipped (may already be at this version)"
+        sleep 15  # wait for crates.io index to update
+
+    - name: Publish actplane
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: |
+        cd collector
+        cargo publish --allow-dirty
+
+    - name: Commit version bumps
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add bpf/Cargo.toml collector/Cargo.toml
+        git commit -m "chore: bump actplane-bpf to ${{ env.bpf_VERSION }}, actplane to ${{ env.collector_VERSION }} [skip ci]"
+        git push
