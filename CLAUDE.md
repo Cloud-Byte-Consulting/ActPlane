@@ -144,6 +144,15 @@ directly into the BPF rodata. Any change to `taint.h` MUST be mirrored in
 2. Call the appropriate `te_*` propagation helper, then `te_check` / `te_connect_check`.
 3. Emit only via `emit_violation()`.
 
+## Running Codex CLI
+
+When invoking OpenAI Codex CLI for cross-validation or review tasks, always use
+`--dangerously-bypass-approvals-and-sandbox` so it runs non-interactively:
+
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox "<prompt>"
+```
+
 ## Common Issues
 
 - **eBPF permission errors**: needs `sudo` or `CAP_BPF` + `CAP_SYS_ADMIN`.

@@ -579,11 +579,71 @@ beyond the raw system event to evaluate the rule.
 | **Project context** | The rule requires static knowledge about the project — its structure, conventions, tool names, or file layout — to translate the natural-language directive into a concrete system-level pattern. An agent can derive this context by reading the repository. | "Run the full test suite before committing." (test suite = `pnpm test:changed`? `pytest`? `bun test`? — varies by project) / "Never modify upstream source code." (upstream = which paths? `vendor/`? `lib/`?) / "Run linting before push." (linter = ruff? eslint? clippy?) |
 | **Task context** | The rule requires dynamic knowledge about the current task or session — what the user asked, whether approval was granted, what the agent is trying to accomplish — that cannot be derived from the repository alone. | "Protocol version bumps: explicit owner confirmation only; never automatic" (openclaw — needs user approval per task) / "Do not delete/rename unexpected files; ask if blocking" (openclaw — depends on what's "unexpected" for this task) / "Do not update dependencies without approval" (netdata — session-level approval gate) / "Assistants must not create git worktrees on their own. Create a git worktree only when the user explicitly asks for it or approves it" (netdata — user intent per session) |
 
-**Decision procedure for Axis 4.** For each system-level directive:
+**Decision procedure for Axis 4.** The classification follows a
+waterfall analogous to Figure 0: each directive enters at Q1 and exits
+at the first level whose predicate it satisfies (Figure 0b).
 
-1. Can the rule be expressed as a fixed pattern over system events (exec args, file paths, IPs) without reading the repository or knowing the task? → **None**.
-2. Can the rule be expressed after reading the repository structure, instruction files, and conventions? → **Project context**.
-3. Does the rule depend on the current user request, session state, or task intent that varies across invocations? → **Task context**.
+```
+System-level directive
+  │
+  ▼
+┌─────────────────────────────────────┐
+│ Q1: Can the rule be expressed as a  │
+│ fixed pattern over system events    │
+│ without any project- or task-       │
+│ specific knowledge?                 │
+└──────────┬──────────────────────────┘
+           │
+      Yes ─┼──► none
+           │    "Do not run rm -rf." / "Prefer const over let."
+      No   │
+           ▼
+┌─────────────────────────────────────┐
+│ Q2: Can the rule be expressed after │
+│ reading the repository structure,   │
+│ instruction files, and conventions? │
+└──────────┬──────────────────────────┘
+           │
+      Yes ─┼──► project context
+           │    "Run the full test suite before committing."
+      No   │    (test suite = pytest? jest? bun test?)
+           ▼
+┌─────────────────────────────────────┐
+│ Q3: Does the rule depend on the     │
+│ current user request, session       │
+│ state, or task intent?              │
+└──────────┬──────────────────────────┘
+           │
+      Yes ─┼──► task context
+                "Do not update dependencies without approval."
+                "Keep changes focused." (focused on what?)
+```
+*Figure 0b. Context-requirement waterfall. Each system-level directive
+exits at the first matching level; the three levels are mutually
+exclusive and ordered by dynamism.*
+
+**Compound context.** A directive that requires both project and task
+context is classified by the strongest (most dynamic) requirement.
+For example, "only modify files related to your current task" requires
+project context (which files exist) and task context (what is the
+current task); it is classified as **task context** because the task
+dependency is the binding constraint.
+
+Three clarifications for borderline cases:
+
+- *Approval gates.* Directives containing "unless explicitly
+  requested/asked/approved/instructed", "without user approval", or
+  "only when the user asks" are **task context**: they gate on a
+  per-session user decision that cannot be derived from the repository.
+- *Scope-relative constraints.* Directives like "only modify what is
+  needed", "keep changes focused", "do not touch unrelated code", or
+  "do not make unnecessary changes" are **task context**: what counts
+  as "needed", "focused", "related", or "necessary" depends on what the
+  user asked the agent to do in the current session, not on the
+  repository structure. Note: universal coding idioms that use
+  similar language ("avoid explicit type annotations unless necessary
+  for exports") are **none** — "necessary" has a well-defined meaning
+  in the language community independent of the task.
 
 The three levels are ordered by dynamism: none is static, project context changes per-repository but is stable within a session, task context changes per-invocation. This directly informs the policy lifecycle: none → hardcoded rules; project context → agent generates rules by reading the repo (ActPlane RQ2); task context → agent must generate or adapt rules per task at runtime (the "control plane" argument).
 
