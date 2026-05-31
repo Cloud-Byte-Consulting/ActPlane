@@ -1145,6 +1145,67 @@ per-event, 14.5% cross-event). A one-size-fits-all enforcement approach
 leaves systematic gaps; the right mechanism depends on the project's
 directive mix.
 
+### 5.5 RQ6: What context do system-level directives require?
+
+#### 5.5.1 RQ6a: Overall context distribution
+
+Of the 1,096 system-level directives, 298 (27.2%) are self-contained
+(none), 718 (65.5%) require project context, and 80 (7.3%) require task
+context. In total, 72.8% of system-level directives cannot be enforced
+from the directive text alone — they require additional information
+from the repository or the current session.
+
+| Context | Count | % |
+|---|---|---|
+| None | 298 | 27.2% |
+| Project | 718 | 65.5% |
+| Task | 80 | 7.3% |
+
+![RQ6a](tmp/fig15_rq6a_context_overall.png)
+*Figure 15. Context requirement distribution across all 1,096
+system-level directives. 72.8% need additional context to enforce.*
+*(Script: `docs/tmp/fig_all_rqs.py`)*
+
+#### 5.5.2 RQ6b: Context requirement by enforcement level
+
+Context requirement varies sharply across enforcement levels:
+
+| | None | Project | Task | Total |
+|---|---|---|---|---|
+| **Content** | 222 (43.0%) | 288 (55.8%) | 6 (1.2%) | 516 |
+| **Per-event** | 66 (16.9%) | 267 (68.3%) | 58 (14.8%) | 391 |
+| **Cross-event** | 10 (5.3%) | 163 (86.2%) | 16 (8.5%) | 189 |
+
+![RQ6b](tmp/fig16_rq6b_context_by_enforcement.png)
+*Figure 16. Context requirement by enforcement level (normalized).
+Cross-event directives are the most context-dependent (94.7% need
+project or task context).*
+
+Content directives are the most likely to be self-contained (43.0%
+none) because coding style rules often spell out the exact pattern
+("prefer `const` over `let`"). Cross-event directives are the most
+context-dependent: 86.2% need project context and 5.3% need task
+context, because temporal ordering and data-flow constraints almost
+always reference project-specific tools and workflows ("run tests
+before committing" — which test command?).
+
+Task context concentrates in per-event directives (58/80 = 72.5%),
+primarily approval gates ("do not commit without user approval") and
+scope-relative constraints ("keep changes focused").
+
+#### 5.5.3 RQ6c: Context requirement by topic
+
+![RQ6c](tmp/fig17_rq6c_context_by_topic.png)
+*Figure 17. Context requirement by topic (normalized).*
+
+**Takeaway.** The majority of system-level directives (72.8%) are not
+self-contained — they require the enforcement mechanism to read the
+repository (65.5%) or know the current task (7.3%) before the directive
+can be translated into a concrete rule. This quantifies the need for
+an agent-programmable policy interface: the agent must read the repo
+and understand the task to generate enforcement rules. Hardcoded rules
+cover only 27.2% of system-level directives.
+
 ---
 
 ## 6. Discussion
@@ -1365,8 +1426,8 @@ ActPlane target.
 
 This paper presents the first statement-level analysis of agent
 instruction files, extracting 2,152 statements from 64 repositories and
-classifying each along three axes: content type, topic, and
-enforcement level.
+classifying each along four axes: content type, topic, enforcement
+level, and context requirement.
 
 **RQ1 (Content types).** 63.2% of statements are directives by count,
 but only 47.9% by line count, because directives are terse (3.6
@@ -1394,12 +1455,22 @@ concentrated in Development Process (ordering constraints, cross-file
 consistency) — is the enforcement gap that no currently deployed
 mechanism addresses.
 
-The annotated dataset (2,152 statements, 64 repositories, three-axis
+**RQ6 (Context requirement).** 72.8% of system-level directives are
+not self-contained — they require the agent to read the repository
+(65.5%) or know the current task (7.3%) before the directive can be
+translated into a concrete enforcement rule. Cross-event directives
+are the most context-dependent (94.7% need project or task context).
+Task context concentrates in per-event approval gates (72.5% of task
+directives). This quantifies the need for an agent-programmable policy
+interface: hardcoded rules cover only 27.2% of system-level directives.
+
+The annotated dataset (2,152 statements, 64 repositories, four-axis
 classification) is released as a public replication package. We hope it
 provides a quantitative foundation for agent harness engineering: not
 just what topics developers address in instruction files, but what
-specific rules they write, and which rules require which enforcement
-mechanisms.
+specific rules they write, which enforcement mechanisms each rule
+requires, and what context must be supplied to make each rule
+enforceable.
 
 ---
 
@@ -1410,7 +1481,7 @@ mechanisms.
 | **Files** | CLAUDE.md | CLAUDE.md, AGENTS.md, copilot-instructions.md | CLAUDE.md | AGENTS.md | Claude Code internals | CLAUDE.md, AGENTS.md |
 | **Corpus** | 253 files / 242 repos | 2,303 files | 328 files / 100 repos | 10 repos / 124 PRs | 1 tool (Claude Code) | 84 files / 64 repos |
 | **Unit** | File | File | Section heading | PR | — | **Statement** |
-| **Taxonomy** | 15 topics | 16 topics | 9 SE concerns | — | — | **12 topics + desc/dir + enforceability** |
+| **Taxonomy** | 15 topics | 16 topics | 9 SE concerns | — | — | **12 topics + desc/dir + enforceability + context req.** |
 | **Classification** | 2 coders + tie-breaker | 2 coders (80.3% agree) + GPT-5 | 1 coder + meeting | — | — | **1 coder + LLM agent cross-validation + independent review** |
 | **Reliability** | 9.2% disagree (no kappa) | 80.3% raw (no kappa) | None (meeting) | — | — | **Independent Codex + Claude review, 5-8% estimated error** |
 | **Enforceability** | No | No | No | No | No | **Yes (4-level decision procedure)** |

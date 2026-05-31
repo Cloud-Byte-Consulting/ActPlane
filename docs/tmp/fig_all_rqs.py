@@ -400,4 +400,98 @@ plt.tight_layout()
 plt.savefig(os.path.join(outdir, 'fig1b_rq1b_directive_lines.png'), dpi=150, bbox_inches='tight')
 plt.close(); print('Fig 1b')
 
-print('All 14 figures saved to docs/tmp/')
+# ===== RQ6 figures: Context requirement (Axis 4) =====
+
+CTX_LEVELS = ['none', 'project', 'task']
+CTX_LABELS = ['None', 'Project', 'Task']
+CTX_COLORS = ['#2ECC71', '#3498DB', '#E74C3C']
+
+ctx_total = collections.Counter()
+ctx_by_enf = {e: collections.Counter() for e in ['content', 'per_event', 'cross_event']}
+ctx_by_topic = {t: collections.Counter() for t in topics}
+repo_ctx = []
+
+for d in sorted(os.listdir('.')):
+    yf = os.path.join(d, 'statements.yaml')
+    if not os.path.isfile(yf): continue
+    with open(yf) as f:
+        data = yaml.safe_load(f)
+    if not data or 'statements' not in data: continue
+    r_ctx = collections.Counter()
+    for s in data['statements']:
+        if s.get('type') != 'directive': continue
+        enf = s.get('enforceability')
+        if enf not in ('content', 'per_event', 'cross_event'): continue
+        cr = s.get('context_required', '')
+        if cr not in CTX_LEVELS: continue
+        topic = COLLAPSE.get(s.get('topic', ''), s.get('topic', ''))
+        ctx_total[cr] += 1
+        ctx_by_enf[enf][cr] += 1
+        ctx_by_topic[topic][cr] += 1
+        r_ctx[cr] += 1
+    repo_ctx.append({'repo': d.replace('__', '/'), **{c: r_ctx[c] for c in CTX_LEVELS},
+                     'total': sum(r_ctx.values())})
+
+total_sys = sum(ctx_total.values())
+
+# ===== Fig 15: RQ6a - Overall context requirement =====
+fig, ax = plt.subplots(figsize=(6, 3.5))
+counts15 = [ctx_total[c] for c in CTX_LEVELS]
+pcts15 = [100 * c / total_sys for c in counts15]
+bars = ax.barh(CTX_LABELS[::-1], counts15[::-1], color=CTX_COLORS[::-1], edgecolor='white')
+for bar, c, p in zip(bars, counts15[::-1], pcts15[::-1]):
+    ax.text(bar.get_width() + 10, bar.get_y() + bar.get_height() / 2,
+            f'{c} ({p:.1f}%)', va='center', fontsize=10)
+ax.set_xlabel('Count', fontsize=11)
+ax.set_title('RQ6a: Context requirement distribution (system-level directives)', fontsize=11, fontweight='bold')
+needs_ctx = counts15[1] + counts15[2]
+ax.text(0.95, 0.05, f'Needs additional context: {needs_ctx} ({100 * needs_ctx / total_sys:.1f}%)',
+        transform=ax.transAxes, ha='right', fontsize=9,
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+plt.tight_layout()
+plt.savefig(os.path.join(outdir, 'fig15_rq6a_context_overall.png'), dpi=150, bbox_inches='tight')
+plt.close(); print('Fig 15')
+
+# ===== Fig 16: RQ6b - Context x enforcement cross-tab =====
+fig, ax = plt.subplots(figsize=(8, 4))
+enf_labels_short = ['Content', 'Per-event', 'Cross-event']
+enf_keys = ['content', 'per_event', 'cross_event']
+y16 = np.arange(len(enf_keys))
+left16 = np.zeros(len(enf_keys))
+for ci, c in enumerate(CTX_LEVELS):
+    vals = np.array([ctx_by_enf[e][c] for e in enf_keys])
+    totals_enf = np.array([sum(ctx_by_enf[e].values()) for e in enf_keys])
+    pct_vals = np.where(totals_enf > 0, 100 * vals / totals_enf, 0)
+    ax.barh(y16, pct_vals[::-1], left=left16, color=CTX_COLORS[ci],
+            label=CTX_LABELS[ci], edgecolor='white', linewidth=0.5)
+    left16 += pct_vals[::-1]
+ax.set_yticks(y16); ax.set_yticklabels(enf_labels_short[::-1], fontsize=11)
+ax.set_xlabel('Percentage (%)', fontsize=11)
+ax.set_xlim(0, 105)
+ax.set_title('RQ6b: Context requirement by enforcement level', fontsize=12, fontweight='bold')
+ax.legend(fontsize=9, loc='lower right')
+plt.tight_layout()
+plt.savefig(os.path.join(outdir, 'fig16_rq6b_context_by_enforcement.png'), dpi=150, bbox_inches='tight')
+plt.close(); print('Fig 16')
+
+# ===== Fig 17: RQ6c - Context by topic (top topics) =====
+fig, ax = plt.subplots(figsize=(10, 5))
+y17 = np.arange(len(topics))
+left17 = np.zeros(len(topics))
+for ci, c in enumerate(CTX_LEVELS):
+    vals = np.array([ctx_by_topic[t][c] for t in topics])
+    totals_t = np.array([sum(ctx_by_topic[t].values()) for t in topics])
+    pct_vals = np.where(totals_t > 0, 100 * vals / totals_t, 0)
+    ax.barh(y17, pct_vals[::-1], left=left17, color=CTX_COLORS[ci],
+            label=CTX_LABELS[ci], edgecolor='white', linewidth=0.5)
+    left17 += pct_vals[::-1]
+ax.set_yticks(y17); ax.set_yticklabels(labels[::-1], fontsize=10)
+ax.set_xlabel('Percentage (%)', fontsize=11)
+ax.set_xlim(0, 105)
+ax.set_title('RQ6c: Context requirement by topic (normalized)', fontsize=12, fontweight='bold')
+ax.legend(fontsize=9, loc='lower right')
+plt.tight_layout()
+plt.savefig(os.path.join(outdir, 'fig17_rq6c_context_by_topic.png'), dpi=150, bbox_inches='tight')
+plt.close(); print('Fig 17')
+
+print('All 17 figures saved to docs/tmp/')
