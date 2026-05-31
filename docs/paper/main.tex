@@ -25,6 +25,7 @@ Our empirical study of 64 projects shows that while project harness
 instructions are declared in natural language, 63\%
 consist of behavioral policies, 80\% of which involve system-level
 behavior, and 78\% of projects require cross-event state tracking.
+Most of the system-level rules require intent context to enforce.
 
 Yet existing agent harnesses fail to connect intent-level declarations
 to deterministic system-level policies, leaving a \emph{semantic gap}.
@@ -41,8 +42,9 @@ behavior as labeled information-flow control (IFC) policies that
 observe and enforce the agents' actions across process, file, and
 network boundaries with semantic feedback.
 We implement ActPlane with eBPF and evaluate on the policies from the
-empirical study, showing that ActPlane can enforce complex cross-event
-policies with low overhead and provides actionable feedback to agents.
+empirical study, showing that ActPlane can enforce complex intend-level 
+cross-event policies more effectively with low overhead and provides 
+actionable feedback to agents.
 \end{abstract}
 
 \begin{CCSXML}
