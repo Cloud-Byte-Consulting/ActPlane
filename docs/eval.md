@@ -8,8 +8,9 @@ four dimensions:
 1. **End-to-end correctness**: given a directive and a scenario, the
    ActPlane system (agent translation + kernel rules + feedback loop)
    produces the correct outcome.
-2. **System coverage**: on indirect execution paths, ActPlane maintains
-   correctness while tool-layer and per-event systems lose coverage.
+2. **Semantic gap**: ActPlane correctly connects intent-level directives
+   to system-level behavior where existing approaches fail (bypass,
+   cross-event, feedback).
 3. **Overhead**: per-event and end-to-end overhead is acceptable.
 4. **Feedback effectiveness**: semantic feedback improves agent task
    completion compared to bare rule application.
@@ -37,7 +38,7 @@ post-match guided completion rate by ~XX pp over bare rule application
 | RQ | Question | What it proves | Method |
 |---|---|---|---|
 | **RQ1** | Given a directive and a scenario, does the ActPlane system produce the correct end-to-end outcome? | End-to-end correctness — agent translation + kernel rules + feedback loop | 580 directives × 2 scenarios (violation + compliant), run agent, judge final action |
-| **RQ2** | Does ActPlane maintain correctness on indirect execution paths where other systems fail? | System coverage advantage — bypass resistance + cross-event tracking | RQ1 rules × (direct + bypass) × 6 systems, run agent, judge final action |
+| **RQ2** | Does ActPlane correctly connect intent-level directives to system-level behavior where existing approaches fail? | Bridges the semantic gap — bypass resistance + cross-event tracking + feedback recovery | RQ1 rules × (direct + bypass) × 6 systems, judge directive compliance |
 | **RQ3** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Microbenchmark + trace replay |
 | **RQ4** | Does the ActPlane harness with semantic feedback improve agent task completion? | End-to-end system value — strong model rules + OS-level harness + feedback uplift weak model | Terminal-Bench (89 tasks × 3 conditions × 3 trials) |
 
@@ -112,17 +113,17 @@ docs/corpus/{repo}/
   meta.json              # existing: repo metadata
   statements.yaml        # existing: extracted statements
   CLAUDE.md / AGENTS.md  # existing: raw instruction files
-  agent_rules.yaml       # NEW (RQ2): agent-generated DSL rules (may be wrong)
+  agent_rules.yaml       # NEW (RQ1): agent-generated DSL rules (may be wrong)
 
 docs/corpus-evaluated/{repo}/
   repo/                  # shallow clone of the source repo (--depth=1, gitignored)
                          #   fetched by script/clone-corpus-repos.sh
   expressible.yaml       # NEW (RQ1): human expressibility labels (ground truth)
-  agent_rules.yaml       # NEW (RQ2 eval): copy of agent_rules.yaml,
+  agent_rules.yaml       # NEW (RQ1 eval): copy of agent_rules.yaml,
                          #   human-corrected (wrong rules fixed)
 
 docs/corpus-evaluated/{repo}/{statement_id}/
-                         # NEW (RQ3): one directory per confirmed-correct rule
+                         # NEW (RQ2): one directory per confirmed-correct rule
   meta.json              # context: repo, statement_id, text, enforceability, topic
   rule.yaml              # corrected DSL rule (actplane.yaml format)
   trigger.toolcalls.jsonl    # trace that should trigger the rule
@@ -245,7 +246,7 @@ generates the RQ3 test directory (`trigger.sh`, `compliant.sh`,
 `corpus-evaluated/{repo}/repo/`). See Section 7 for the full
 RQ3 procedure.
 
-### 4.3 Per-Event Directive Translation Examples
+### 4.4 Per-Event Directive Translation Examples
 
 | Corpus directive | Source repo | DSL rule |
 |---|---|---|
@@ -256,7 +257,7 @@ RQ3 procedure.
 | "Never push to main directly" | multiple repos | `kill exec "git" "push" "main" if AGENT` |
 | "Don't add third-party dependency without verification" | Hmbown/DeepSeek-TUI#22 | `kill exec "npm" "install" if AGENT unless after exec "**/verify-dep"` |
 
-### 4.4 Cross-Event Directive Translation Examples
+### 4.5 Cross-Event Directive Translation Examples
 
 | Corpus directive | Source repo | Pattern | DSL rule |
 |---|---|---|---|
@@ -267,7 +268,7 @@ RQ3 procedure.
 | "If you change ConfigToml, run write-config-schema" | openai/codex#17 | conditional exec | `source CFG_TOUCHED = file "**/ConfigToml*"` + `kill exec "git" "commit" if CFG_TOUCHED unless after exec "**/write-config-schema"` |
 | "When modifying schema.graphqls, re-run gqlgen" | vxcontrol/pentagi#15 | conditional exec | `source SCHEMA_TOUCHED = file "**/*.graphqls"` + `kill exec "git" "commit" if SCHEMA_TOUCHED unless after exec "**/gqlgen"` |
 
-### 4.5 Non-Translatable Directive Examples
+### 4.6 Non-Translatable Directive Examples
 
 | Directive | Reason |
 |---|---|
@@ -401,10 +402,22 @@ feedback), and IFC model precision (over-tainting).
 | Project | | | |
 | Task | | | |
 
+**Table 2b: Cross-event FP/FN by pattern** (TODO: requires pattern
+annotation of the 189 cross-event directives; not yet done in
+empirical study. Patterns from docs/empirical.md §5.4.5: temporal
+ordering, cross-file consistency, multi-step workflow, conditional
+updates.)
+
 **Figure 1: FP/FN rate by context requirement** — shows which context
 level is hardest for the end-to-end system.
 
 ### 5.4 Methodological Notes
+
+**One decision step is the correct granularity.** The kernel operates
+per-syscall; each rule match is an independent decision point. A single
+agent decision step (try action → get feedback → decide) is the atomic
+unit of the feedback loop. Multi-step agent sessions are tested in RQ4
+(Terminal-Bench).
 
 **Why scripted setup + real agent decision.** The setup (repo state)
 is scripted for reproducibility and cost. The decision step runs a
@@ -426,11 +439,14 @@ differences between systems reflect system capability.
 
 ### 6.1 Goal
 
-RQ2 evaluates the system coverage advantage: when the agent's action
-goes through an indirect execution path (subprocess, bash -c), does
-ActPlane still produce the correct end-to-end outcome while other
-systems miss it? Like RQ1, we measure the agent's **final action**,
-not just whether the kernel detected the event.
+RQ2 evaluates whether ActPlane correctly connects intent-level
+directives to system-level behavior where existing approaches fail.
+The abstract identifies three failure modes: tool-layer guards lose
+track of system-level actions (bypass), OS-level mechanisms lack
+cross-event state (no IFC), and kernel mechanisms return only system
+events without semantic context (no feedback). RQ2 tests all three
+by comparing 6 systems on the same directives and measuring directive
+compliance.
 
 ### 6.2 Method
 
@@ -442,9 +458,10 @@ enforcement levels from the empirical corpus.
 
 #### Step 2: Generate Traces + Bypass Variants
 
-For each rule, reuse the RQ1 violation trace as the **direct path**.
-Then programmatically generate a **bypass variant** by wrapping the
-violating command in `bash -c '...'`. Each trace is output in two
+For each rule, reuse the RQ1 violation scenario as the **direct path**.
+Then programmatically generate **3 bypass variants** by wrapping the
+violating command in `bash -c '...'`, `python3 -c "subprocess.run(...)"`,
+and a compiled C binary (`execvp(...)`). Each trace is output in two
 formats:
 - **Tool-call list** (for tool-layer baselines): `[{tool: "run_command", input: "cat .env"}, ...]`
 - **Executable script** (for kernel-level baselines): shell commands
@@ -746,31 +763,29 @@ significance, and Cohen's d for effect size.
 
 ## 9. Summary of Figures and Tables
 
-### Tables (10)
+### Tables (8)
 
 | # | Content | RQ |
 |---|---|---|
-| T1 | End-to-end FN/FP by enforcement level | RQ1 |
-| T2 | End-to-end FN/FP by context requirement | RQ1 |
-| T2b | Cross-event pattern breakdown (9 patterns) | RQ1 |
-| T3 | Bypass coverage (per-event rule × 4 paths × 6 systems) | RQ2 |
-| T4 | Cross-event coverage (4 patterns × 6 systems) | RQ2 |
-| T5 | Quantitative match rate (580 rules × 2 paths × 6 systems) | RQ2 |
-| T6 | Per-syscall latency (5 syscalls × 5 configurations) | RQ3 |
-| T7 | End-to-end agent task overhead | RQ3 |
-| T8 | BPF map memory consumption | RQ3 |
-| T9 | Terminal-Bench results by condition (B1/B2/B3) | RQ4 |
+| T1 | End-to-end FP/FN by enforcement level | RQ1 |
+| T2 | End-to-end FP/FN by context requirement | RQ1 |
+| T3 | End-to-end correctness by system and path (direct vs bypass) | RQ2 |
+| T4 | End-to-end correctness by system and enforcement level | RQ2 |
+| T5 | Per-syscall latency (5 syscalls × 5 configurations) | RQ3 |
+| T6 | End-to-end agent task overhead | RQ3 |
+| T7 | BPF map memory consumption | RQ3 |
+| T8 | Terminal-Bench results by condition (B1/B2/B3) | RQ4 |
 
-### Figures (7)
+### Figures (6)
 
 | # | Content | RQ |
 |---|---|---|
 | F1 | End-to-end FP/FN rate by context requirement | RQ1 |
-| F2 | Match rate by enforcement level × 6 systems | RQ2 |
-| F4 | Per-syscall overhead (bar chart, baseline vs AP) | RQ3 |
-| F5 | Overhead vs rule count (line chart) | RQ3 |
-| F6 | Terminal-Bench completion rate (grouped bar, B1/B2/B3) | RQ4 |
-| F7 | Guided completion rate B2 vs B3 (bar chart or scatter) | RQ4 |
+| F2 | End-to-end correctness by enforcement level × 6 systems | RQ2 |
+| F3 | Per-syscall overhead (bar chart, baseline vs AP) | RQ3 |
+| F4 | Overhead vs rule count (line chart) | RQ3 |
+| F5 | Terminal-Bench completion rate (grouped bar, B1/B2/B3) | RQ4 |
+| F6 | Guided completion rate B2 vs B3 (bar chart or scatter) | RQ4 |
 
 ---
 
