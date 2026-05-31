@@ -112,7 +112,7 @@ impl ServerHandler for ActPlaneMcp {
                 .build(),
         )
         .with_instructions(
-            "ActPlane: OS-enforced agent harness. This server watches actplane.yaml \
+            "ActPlane: OS-level agent harness. This server watches actplane.yaml \
              and pushes validation results when the policy changes.",
         )
     }

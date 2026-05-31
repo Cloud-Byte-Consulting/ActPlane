@@ -154,7 +154,7 @@ fn lower_path(pat: &str) -> (u8, String) {
 /// Lower an IPv4 prefix/host pattern to (net, mask) in the same byte order as
 /// the kernel's `sin_addr.s_addr` (octet k at bit 8*k). "*" -> match-any (0,0).
 /// "10.0.0." -> /24, "10.0.0.5" -> /32. Non-IP hostnames -> (0, !0) = match-none
-/// (hostname rules need userspace DNS; not enforced numerically).
+/// (hostname rules need userspace DNS; not matched numerically).
 fn lower_ipv4(pat: &str) -> (u32, u32) {
     if pat == "*" {
         return (0, 0);

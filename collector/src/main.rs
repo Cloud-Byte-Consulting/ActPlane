@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 eunomia-bpf org.
 
-//! ActPlane — OS-enforced agent harness.
+//! ActPlane — OS-level agent harness.
 //!
 //! Loads an `actplane.yaml` project policy, lowers its embedded taint DSL to the
-//! kernel ABI, runs the embedded eBPF enforcer, and reports every kernel-detected
-//! violation with the rule's corrective-feedback payload.
+//! kernel ABI, runs the embedded eBPF engine, and reports every kernel-detected
+//! rule match with the corrective-feedback payload.
 
 use clap::{Parser, Subcommand};
 use std::collections::HashMap;
@@ -37,11 +37,11 @@ const DEFAULT_HOOK_STATE_FILE: &str = ".actplane/feedback-hook.state.json";
 const HOOK_MAX_CHARS: usize = 8000;
 
 #[derive(Parser)]
-#[command(author, version, about = "ActPlane: OS-enforced agent harness", long_about = None,
+#[command(author, version, about = "ActPlane: OS-level agent harness", long_about = None,
     after_help = "EXAMPLES:\n  \
       # get started: write a starter policy, then validate it (no sudo needed)\n  \
       actplane init  &&  actplane check\n\n  \
-      # enforce a one-line policy around a command (needs sudo for the eBPF load)\n  \
+      # apply a one-line policy around a command (needs sudo for the eBPF load)\n  \
       sudo -E actplane --rule 'source COMMAND = exec \"**\"\n                       rule no-git-branch:\n                         kill exec \"git\" \"branch\" if COMMAND\n                         because \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
       sudo -E actplane run <your agent command>\n\n  \
@@ -87,7 +87,7 @@ enum Commands {
         force: bool,
     },
     /// Validate the policy (no privileges): compile it, summarize each rule in
-    /// plain language, and warn about anything that won't enforce as written.
+    /// plain language, and warn about anything that won't apply as written.
     Check,
     /// Load the policy and report violations without starting a child command.
     Watch,
@@ -189,10 +189,10 @@ async fn compile_policy(cli: &Cli, out: &Path) -> Result<i32> {
     Ok(0)
 }
 
-const STARTER_POLICY: &str = r#"# ActPlane project policy. Constraints are enforced in the kernel (eBPF), below
+const STARTER_POLICY: &str = r#"# ActPlane project policy. Constraints are applied in the kernel (eBPF), below
 # the tool layer, so they hold across any tool / subprocess / direct syscall.
 # Validate any time with:  actplane check
-# Enforce around an agent:  sudo -E actplane run <your agent command>
+# Apply around an agent:  sudo -E actplane run <your agent command>
 # DSL reference: docs/rule-language.md
 policy: |
   # `source COMMAND` marks the process tree launched by `actplane run`.
@@ -268,7 +268,7 @@ fn check_policy(cli: &Cli) -> Result<i32> {
             m.reason
         );
     }
-    // Warnings: things that compile but won't enforce as the author likely expects.
+    // Warnings: things that compile but won't apply as the author likely expects.
     let lsm_bpf = std::fs::read_to_string("/sys/kernel/security/lsm")
         .map(|s| s.contains("bpf"))
         .unwrap_or(false);
@@ -285,7 +285,7 @@ fn check_policy(cli: &Cli) -> Result<i32> {
                 .into(),
         );
     }
-    // hostname (non-IP) connect targets are not enforced numerically in-kernel.
+    // hostname (non-IP) connect targets are not matched numerically in-kernel.
     for line in loaded.config.policy.lines() {
         let t = line.trim();
         // Match any action verb (notify/block/kill) before "connect endpoint"
@@ -319,7 +319,7 @@ fn check_policy(cli: &Cli) -> Result<i32> {
     }
     if unsafe { libc::geteuid() } != 0 {
         println!(
-            "\n(note: `check` needs no privileges; enforcing needs `sudo -E actplane run/watch`.)"
+            "\n(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)"
         );
     }
     Ok(0)
@@ -332,7 +332,7 @@ async fn watch_policy(cli: &Cli) -> Result<i32> {
     let feedback = feedback_paths(&loaded);
     prepare_feedback_files(&feedback, target_user(cli.run_as_root))?;
 
-    // Load + attach the in-process eBPF enforcer on a dedicated thread (aya
+    // Load + attach the in-process eBPF engine on a dedicated thread (aya
     // state stays single-threaded); report violations until Ctrl-C.
     let stop = Arc::new(AtomicBool::new(false));
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
@@ -345,7 +345,7 @@ async fn watch_policy(cli: &Cli) -> Result<i32> {
         let mut loader = match Loader::load(&blob) {
             Ok(l) => l,
             Err(e) => {
-                let _ = ready_tx.send(Err(format!("load enforcer: {e}")));
+                let _ = ready_tx.send(Err(format!("load engine: {e}")));
                 return;
             }
         };
@@ -361,7 +361,7 @@ async fn watch_policy(cli: &Cli) -> Result<i32> {
             let _ = poller.join();
             return Err(e.into());
         }
-        Err(_) => return Err("enforcer thread exited before readiness".into()),
+        Err(_) => return Err("engine thread exited before readiness".into()),
     }
     eprintln!(
         "ActPlane: watching with feedback file {}\n",
@@ -425,7 +425,7 @@ fn require_bpf_caps_or_elevate(already_elevated: bool) -> Result<()> {
         }
         _ => {
             eprintln!(
-                "actplane: this command loads an eBPF enforcer, which needs root \
+                "actplane: this command loads an eBPF engine, which needs root \
                  (or CAP_BPF + CAP_SYS_ADMIN).\n\
                  \n  Re-run with sudo, e.g.:   sudo -E actplane <same args>\n\
                  \n  (sudo-launched ActPlane drops the target command back to your user automatically.)"
@@ -452,7 +452,7 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     let mut target = spawn_stopped_target(cmd, &feedback, loaded.path.as_deref(), cli.run_as_root)?;
     let target_pid = target.id().ok_or("target process has no pid")?;
 
-    // Load + attach the in-process eBPF enforcer and seed the AGENT lineage on a
+    // Load + attach the in-process eBPF engine and seed the AGENT lineage on a
     // dedicated thread (aya state stays single-threaded), signalling readiness
     // before we resume the stopped target.
     let stop = Arc::new(AtomicBool::new(false));
@@ -466,7 +466,7 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
         let mut loader = match Loader::load(&blob) {
             Ok(l) => l,
             Err(e) => {
-                let _ = ready_tx.send(Err(format!("load enforcer: {e}")));
+                let _ = ready_tx.send(Err(format!("load engine: {e}")));
                 return;
             }
         };
@@ -491,7 +491,7 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
         Err(_) => {
             let _ = send_signal(target_pid, libc::SIGKILL);
             let _ = target.wait().await;
-            return Err("enforcer thread exited before readiness".into());
+            return Err("engine thread exited before readiness".into());
         }
     }
 
@@ -954,7 +954,7 @@ fn hook_context(feedback: &str) -> String {
     format!(
         "ActPlane detected an OS-level harness violation during the previous \
          tool action. Treat this as authoritative feedback from the kernel \
-         enforcer; do not retry the same operation unchanged. Follow the \
+         engine; do not retry the same operation unchanged. Follow the \
          suggested alternative or satisfy the listed precondition.\n\n{text}"
     )
 }

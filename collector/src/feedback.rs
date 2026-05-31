@@ -32,7 +32,7 @@ pub fn format_payload(
     killed: bool,
     provenance: Option<&Provenance>,
 ) -> String {
-    let enforcement = if killed {
+    let action = if killed {
         "kill"
     } else if blocked {
         "block"
@@ -42,7 +42,7 @@ pub fn format_payload(
         "report"
     };
     let prov = provenance_line(provenance, op, target);
-    let body = match (effect, enforcement) {
+    let body = match (effect, action) {
         (Effect::Notify, _) => {
             format!(
                 "[ActPlane] 操作「{op} {target}」触发了通知规则「{name}」（操作未被拦截）。\n\
@@ -92,10 +92,10 @@ pub fn format_payload(
     let retry_useful = false;
     // §6.6: a machine-readable copy for SDK / supervisor consumption.
     let tag = format!(
-        "{{\"actplane_rule\":{},\"effect\":\"{}\",\"enforcement\":\"{}\",\"retry_useful\":{}}}",
+        "{{\"actplane_rule\":{},\"effect\":\"{}\",\"action\":\"{}\",\"retry_useful\":{}}}",
         json_str(name),
         tier,
-        enforcement,
+        action,
         retry_useful
     );
     format!("{body}\n{tag}")
@@ -132,7 +132,7 @@ mod tests {
             None,
         );
         assert!(s.starts_with("[ActPlane]"));
-        assert!(s.contains("\"enforcement\":\"block\""));
+        assert!(s.contains("\"action\":\"block\""));
         assert!(s.contains("\"retry_useful\":false"));
     }
 
@@ -166,7 +166,7 @@ mod tests {
         );
         assert!(s.contains("当前 backend 不支持 block"));
         assert!(s.contains("\"effect\":\"block\""));
-        assert!(s.contains("\"enforcement\":\"unsupported\""));
+        assert!(s.contains("\"action\":\"unsupported\""));
     }
 
     #[test]
