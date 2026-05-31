@@ -683,17 +683,13 @@ format"), per-event ("don't create worktree"), cross-event ("only
 through migration tool"). This is precisely the cross-tabulation that
 prior file-level studies cannot produce.
 
-### 4.6 Inter-Rater Reliability
+### 4.6 Annotation Validation
 
-Two annotators independently code a stratified random sample of 200
-statements. We report:
-
-- Cohen's kappa for Axis 1 (description vs. directive).
-- Cohen's kappa for Axis 2 (topic category, 16 categories).
-- Cohen's kappa for Axis 3 (enforcement level: semantic-only, content, per-event, cross-event).
-
-Target: kappa >= 0.7 (substantial agreement) for all dimensions. If kappa
-falls below 0.6 for any dimension, we refine the coding guide and re-code.
+Statement extraction and Axis 1/2 classification were performed by one
+author and cross-validated by an independent LLM review pass.
+Enforceability annotation (Axis 3) was independently reviewed by both
+a Claude and a Codex agent, each producing per-statement disagreements.
+Estimated annotation error rate after correction is 5–8%.
 
 ---
 
@@ -1252,13 +1248,13 @@ ActPlane target.
 - **Researcher bias.** The authors also develop an OS-level enforcement
   system (ActPlane). The taxonomy and enforceability criteria may be
   unintentionally skewed toward enforceable directives. We mitigate this
-  through the decision procedure (Section 4.4) and inter-rater reliability
+  through the decision procedure (Section 4.4) and annotation validation
   (Section 4.6), but acknowledge the risk.
 
 ### 8.2 Internal Validity
 
-- Inter-rater reliability (Cohen's kappa) is computed on a sample, not the
-  full dataset. Sample size and stratification affect generalizability.
+- Annotation validation is based on independent LLM cross-review, not
+  formal inter-rater agreement. Estimated error rate is 5–8%.
 - Statement extraction depends on markdown parsing heuristics; malformed
   files may lose statements.
 

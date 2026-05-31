@@ -65,23 +65,27 @@ post-match guided completion rate by ~XX pp over bare rule application
 
 ### 3.3 Baseline Systems
 
-All kernel baselines are implemented as ActPlane with features disabled
-— same binary, same hooks, controlled ablation.
+All baselines use the **same DSL rules** — the difference is the
+enforcement layer. Tool-layer baselines are Python scripts
+(`docs/eval_scripts/`) that read the same `rule.yaml` and implement
+DSL semantics at the tool-call level. Kernel baselines are ActPlane
+with features disabled.
 
-| System | Implementation | What it represents |
-|---|---|---|
-| **No ActPlane** | — | Baseline |
-| **Tool-layer guard** | Python script: check tool-call list | AgentSpec, Progent |
-| **App-level IFC** | Python script: track labels across tool calls | FIDES, CaMeL |
-| **Per-event eBPF** | ActPlane `--no-labels` | Tetragon, eBPF-PATROL |
-| **Kernel IFC** | ActPlane `--no-feedback` (bare -EPERM) | CamQuery, Flume |
-| **ActPlane** | Full system | This system |
+| System | Implementation | Layer | What it represents |
+|---|---|---|---|
+| **Prompt-only** | Directive in LLM system prompt, no enforcement | Intent | Prompt compliance baseline |
+| **TL-1** | `eval_scripts/tool_layer.py --mode per-call` | Tool call | AgentSpec, Progent |
+| **TL-N** | `eval_scripts/tool_layer.py --mode sequence` | Tool call | AgentSpec (sequence-aware) |
+| **App-level IFC** | `eval_scripts/tool_layer.py --mode ifc` | Tool call + labels | FIDES, CaMeL |
+| **Per-event eBPF** | ActPlane `--no-labels` | Kernel (per-event) | Tetragon, eBPF-PATROL |
+| **Kernel IFC** | ActPlane `--no-feedback` | Kernel (cross-event) | CamQuery, Flume |
+| **ActPlane** | Full system | Kernel (cross-event + feedback) | This system |
 
-The **Kernel IFC** baseline simulates CamQuery/Flume: full kernel-level
-label propagation and rule matching, but no semantic feedback.
-CamQuery/Flume require custom kernel modules unavailable in modern
-kernels; disabling ActPlane's feedback is a controlled ablation that
-isolates the feedback contribution while preserving identical detection.
+Each layer is a strict superset of the previous. Same DSL, same rules,
+different enforcement capability. The tool-layer Python script
+(~300 lines) parses the ActPlane DSL and implements pattern matching,
+temporal gates, and label tracking at the tool-call level — naturally
+missing bypass paths and subprocess-level flows.
 
 ---
 
@@ -140,6 +144,12 @@ docs/corpus-rq4/                        # RQ4: Terminal-Bench
   {task_id}/
     rules.yaml                          # strong-model-generated rules
     round1/ round2/ round3/             # per-round results
+
+docs/eval_scripts/                      # baseline implementations
+  tool_layer.py                         # TL-1 / TL-N / App-level IFC
+  replay_agent.py                       # minimal agent (trace replay + LLM)
+  judge.py                              # judge LLM verdict
+  generate_bypass.py                    # programmatic bypass wrapping
 ```
 
 Source repos are cloned with `script/clone-corpus-repos.sh`.
