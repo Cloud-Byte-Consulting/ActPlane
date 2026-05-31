@@ -8,8 +8,9 @@ by topic at file or section granularity, but do not distinguish
 descriptions from directives and do not assess enforceability. We present
 the first statement-level analysis: 2,152 statements extracted from 64
 highly popular open-source repositories, each classified by content type
-(description vs. directive), topic (12 categories), and enforcement
-level (4 levels: semantic-only, content, per-event, cross-event).
+(description vs. directive), topic (12 categories), enforcement
+level (4 levels: semantic-only, content, per-event, cross-event), and
+context requirement (none, project context, or task context).
 
 Four findings emerge in a layered progression. First, **instruction
 files are behavioral policies, not documentation**: 63% of statements
@@ -76,13 +77,14 @@ This paper addresses these gaps with a statement-level analysis. We make
 three contributions:
 
 1. A **statement-level taxonomy** that classifies individual statements
-   extracted from instruction files along three axes: content type
+   extracted from instruction files along four axes: content type
    (description vs. directive), topic (12 categories adapted from
-   Chatlatanagulchai et al.), and enforcement level (semantic-only,
-   content, per-event, cross-event).
+   Chatlatanagulchai et al.), enforcement level (semantic-only,
+   content, per-event, cross-event), and context requirement (none,
+   project, task).
 
 2. A **statement-level corpus** of 2,152 statements extracted from
-   instruction files in 64 projects, annotated along all three axes and
+   instruction files in 64 projects, annotated along all four axes and
    released as a public dataset.
 
 3. An **enforceability analysis** that identifies a concrete enforcement
@@ -220,6 +222,18 @@ required and the fraction that requires cross-event state tracking. This
 enables a layered view of which directives are addressable by existing
 mechanisms and which require mechanisms not yet deployed in practice.
 
+**RQ6 (Context requirement): What fraction of system-level directives
+require intent-level context to evaluate?**
+A system-level directive may be self-contained ("do not run rm -rf") or
+may require project context ("run the full test suite before committing"
+— which test command?) or task context ("do not update dependencies
+without approval" — did the user approve this session?). RQ6 classifies each system-level directive by whether it
+needs no additional context, static project context, or dynamic task
+context to translate into a concrete rule. This quantifies the need for
+an agent-programmable policy interface: directives that require project
+or task context cannot be written by an external administrator — only
+the agent (which reads the repo and knows the task) can generate them.
+
 ---
 
 ## 4. Methodology
@@ -326,6 +340,7 @@ statements:
     topic: Architecture        # 16 categories from Chatlatanagulchai et al.
     # fields below apply only to directives:
     enforceability: null       # semantic_only | content | per_event | cross_event
+    context_required: null     # none | project | task (Axis 4, system-level directives only)
     confidence: null           # high | medium | low
 
   - id: 2
@@ -334,6 +349,7 @@ statements:
     type: directive
     topic: Testing
     enforceability: cross_event
+    context_required: project  # "test suite" = pytest? jest? project-specific
     confidence: high
 
   - id: 3
@@ -342,6 +358,7 @@ statements:
     type: directive
     topic: Security
     enforceability: cross_event
+    context_required: none     # ".env" / credentials patterns are universal
     confidence: high
 
   - id: 4
@@ -350,6 +367,7 @@ statements:
     type: directive
     topic: Implementation Details
     enforceability: content
+    context_required: none     # "const"/"let" is explicit in the directive
     confidence: high
 ```
 
@@ -437,7 +455,7 @@ resolution and rationale are recorded.
 
 ### 4.3 Taxonomy
 
-Each statement is classified along three dimensions.
+Each statement is classified along four dimensions.
 
 **Axis 1: Content type** (speech-act distinction, following Searle 1976).
 
@@ -538,6 +556,26 @@ by enforcement complexity.*
 | **Per-event** | Directive can be checked by matching a single system operation (command execution, file access, network connection) against a pattern. An agent reading the repository context can determine the concrete pattern. | "Do not run `rm -rf`." / "Never push to main." / "Do not create git worktree." / "Never modify vendor/ files." |
 | **Cross-event** | Directive requires state accumulated across multiple system operations. | "A process that read `.env` must not connect to external endpoints." / "Run tests before committing." / "Only modify DB through the migration tool." |
 
+**Axis 4: Context requirement** (new, applied only to system-level directives).
+
+Each system-level directive (content, per-event, or cross-event) is
+classified by what additional context an enforcement mechanism needs
+beyond the raw system event to evaluate the rule.
+
+| Level | Definition | Example (from corpus) |
+|---|---|---|
+| **None** | The rule is self-contained: it can be evaluated from the system event alone without any project- or task-specific knowledge. | "Do not execute `rm -rf`." / "Do not create git worktree." / "Never pipe a remote script into a shell (`curl ... \| bash`)" (BerriAI/litellm) |
+| **Project context** | The rule requires static knowledge about the project — its structure, conventions, tool names, or file layout — to translate the natural-language directive into a concrete system-level pattern. An agent can derive this context by reading the repository. | "Run the full test suite before committing." (test suite = `pnpm test:changed`? `pytest`? `bun test`? — varies by project) / "Never modify upstream source code." (upstream = which paths? `vendor/`? `lib/`?) / "Run linting before push." (linter = ruff? eslint? clippy?) |
+| **Task context** | The rule requires dynamic knowledge about the current task or session — what the user asked, whether approval was granted, what the agent is trying to accomplish — that cannot be derived from the repository alone. | "Protocol version bumps: explicit owner confirmation only; never automatic" (openclaw — needs user approval per task) / "Do not delete/rename unexpected files; ask if blocking" (openclaw — depends on what's "unexpected" for this task) / "Do not update dependencies without approval" (netdata — session-level approval gate) / "Assistants must not create git worktrees on their own. Create a git worktree only when the user explicitly asks for it or approves it" (netdata — user intent per session) |
+
+**Decision procedure for Axis 4.** For each system-level directive:
+
+1. Can the rule be expressed as a fixed pattern over system events (exec args, file paths, IPs) without reading the repository or knowing the task? → **None**.
+2. Can the rule be expressed after reading the repository structure, instruction files, and conventions? → **Project context**.
+3. Does the rule depend on the current user request, session state, or task intent that varies across invocations? → **Task context**.
+
+The three levels are ordered by dynamism: none is static, project context changes per-repository but is stable within a session, task context changes per-invocation. This directly informs the policy lifecycle: none → hardcoded rules; project context → agent generates rules by reading the repo (ActPlane RQ2); task context → agent must generate or adapt rules per task at runtime (the "control plane" argument).
+
 ### 4.4 Enforcement-Level Assessment
 
 For each directive, we assess the enforcement level using the waterfall
@@ -613,23 +651,23 @@ Enforcement level is included in the inter-rater reliability assessment
 The following examples illustrate the full annotation pipeline from raw
 text to final labels.
 
-| Raw text | Axis 1 | Axis 2 (Topic) | Axis 3 (Enforcement level) | Rationale |
-|---|---|---|---|---|
-| "The backend uses Express with TypeScript." | Description | Architecture | — | Factual; no imperative. |
-| "Always explain your reasoning before making changes." | Directive | AI Integration | Semantic-only | Purely agent-user communication. |
-| "Be concise in responses." | Directive | AI Integration | Semantic-only | Purely output style. |
-| "Report the full URL at end of task." | Directive | AI Integration | Semantic-only | Purely output format. |
-| "Prefer `const` over `let`." | Directive | Implementation Details | Content | Requires inspecting written JS file content. |
-| "Use type hints for all function signatures." | Directive | Implementation Details | Content | Requires inspecting written Python file content. |
-| "Commit format: `type(scope): message`" | Directive | Development Process | Content | Requires inspecting commit message text. |
-| "Do not execute `rm -rf`." | Directive | Development Process | Per-event | Single `execve` match. |
-| "Do not create git worktree." | Directive | Development Process | Per-event | Single `execve("git", ["worktree", ...])` match. |
-| "Never push to main directly." | Directive | Development Process | Per-event | Match `execve("git", ["push", ..., "main"])`. |
-| "Never modify upstream source code." | Directive | Development Process | Per-event | Agent can determine upstream = `vendor/` paths from repo context. Match `open("vendor/...", O_WRONLY)`. |
-| "Do not update dependencies without approval." | Directive | Maintenance | Per-event | Match writes to `package.json`, `Cargo.toml`, etc. |
-| "Run the full test suite before committing." | Directive | Testing | Cross-event | Requires tracking that test process executed before commit. |
-| "Never commit secrets or credentials." | Directive | Security | Cross-event | Requires tracking file reads (`.env` source) before commit/push. |
-| "Only modify DB through the migration tool." | Directive | Development Process | Cross-event | Requires tracking process lineage (migration tool in ancestry). |
+| Raw text | Axis 1 | Axis 2 (Topic) | Axis 3 (Enforcement) | Axis 4 (Context) | Rationale |
+|---|---|---|---|---|---|
+| "The backend uses Express with TypeScript." | Description | Architecture | — | — | Factual; no imperative. |
+| "Always explain your reasoning before making changes." | Directive | AI Integration | Semantic-only | — | Purely agent-user communication. |
+| "Be concise in responses." | Directive | AI Integration | Semantic-only | — | Purely output style. |
+| "Report the full URL at end of task." | Directive | AI Integration | Semantic-only | — | Purely output format. |
+| "Prefer `const` over `let`." | Directive | Implementation Details | Content | None | `const`/`let` is explicit in the directive. |
+| "Use type hints for all function signatures." | Directive | Implementation Details | Content | None | "type hints" is explicit; no project lookup needed. |
+| "Commit format: `type(scope): message`" | Directive | Development Process | Content | None | Format is explicit in the directive. |
+| "Do not execute `rm -rf`." | Directive | Development Process | Per-event | None | Universal; no project context needed. |
+| "Do not create git worktree." | Directive | Development Process | Per-event | None | Universal exec match. |
+| "Never push to main directly." | Directive | Development Process | Per-event | None | "main" is literal in the directive; translates directly to `git push ... main`. |
+| "Never modify upstream source code." | Directive | Development Process | Per-event | Project | "upstream" = `vendor/` paths, repo-specific. |
+| "Do not update dependencies without approval." | Directive | Maintenance | Per-event | Task | "approval" = user said OK in this session. |
+| "Run the full test suite before committing." | Directive | Testing | Cross-event | Project | "test suite" = pytest/jest/go test, project-specific. |
+| "Never commit secrets or credentials." | Directive | Security | Cross-event | None | `.env` / credential patterns are universal. |
+| "Only modify DB through the migration tool." | Directive | Development Process | Cross-event | Project | DB path + migration tool name are project-specific. |
 
 Edge cases:
 
