@@ -74,21 +74,16 @@ pub struct Clause {
 
 /// Rule result. This is compiled into the kernel rule table and is the source
 /// of truth for what happens when the rule matches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Effect {
     /// Report only (notify the agent); the operation proceeds.
     Notify = 0,
     /// Hard block (LSM -EPERM) when BPF LSM is available.
+    #[default]
     Block = 1,
     /// Send SIGKILL to the current task.
     Kill = 2,
-}
-
-impl Default for Effect {
-    fn default() -> Self {
-        Effect::Block
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

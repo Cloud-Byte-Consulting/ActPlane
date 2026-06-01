@@ -169,8 +169,8 @@ injects any new `.actplane/last-violation.txt` content into the next model turn.
 ```json
 {
   "hooks": {
-    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/path/to/actplane feedback-hook" }] }],
-    "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "/path/to/actplane feedback-hook" }] }]
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "actplane feedback-hook" }] }],
+    "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "actplane feedback-hook" }] }]
   }
 }
 ```
@@ -213,6 +213,11 @@ the parent Codex process so directly running `codex` is protected.
   }
 }
 ```
+
+Prefer the project `.mcp.json` that `actplane setup` writes. If your Codex build
+does not read project MCP config, use a global `codex mcp add actplane -- actplane
+mcp --auto-attach-parent` entry instead, but do not keep both or auto-attach can
+start twice.
 
 ## How it works
 

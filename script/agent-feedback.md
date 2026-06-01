@@ -68,15 +68,17 @@ ActPlane 的 MCP server 暴露两个 resource:
 - `actplane:///policy`: 当前 `actplane.yaml` 的编译/校验结果。
 - `actplane:///feedback`: 最新 `.actplane/last-violation.txt` 纠偏反馈。
 
-Codex 可用下面命令注册一次,之后进入 Codex session 时会自动启动:
+优先使用项目 `.mcp.json`: `actplane setup` 会自动写好,之后进入 Codex session
+时会自动启动。如果你的 Codex 版本不读取项目 `.mcp.json`,再用下面命令注册
+global MCP:
 
 ```bash
 codex mcp add actplane -- actplane mcp --auto-attach-parent
 ```
 
-如果 Codex 读取项目 `.mcp.json`, `actplane setup` 会自动写好等价配置。MCP
-启动时不新增任何 tool;它只暴露 resource,并在 `--auto-attach-parent` 下尝试
-passwordless sudo 加载 eBPF、seed 父 Codex 进程。
+不要同时配置 project `.mcp.json` 和 global `codex mcp add`,否则 Codex 可能启动
+两个 ActPlane MCP/enforcer。MCP 启动时不新增任何 tool;它只暴露 resource,并在
+`--auto-attach-parent` 下尝试 passwordless sudo 加载 eBPF、seed 父 Codex 进程。
 
 ### Claude Code
 

@@ -20,18 +20,30 @@ pub struct Provenance {
     pub origin_timestamp_ns: u64,
 }
 
+pub struct PayloadInput<'a> {
+    pub name: &'a str,
+    pub op: &'a str,
+    pub target: &'a str,
+    pub reason: &'a str,
+    pub effect: Effect,
+    pub blocked: bool,
+    pub killed: bool,
+    pub provenance: Option<&'a Provenance>,
+}
+
 /// Build the model-facing corrective-feedback string (docs/feedback-design.md §6).
 /// `op`/`target` describe the blocked operation; the rest comes from the rule.
-pub fn format_payload(
-    name: &str,
-    op: &str,
-    target: &str,
-    reason: &str,
-    effect: Effect,
-    blocked: bool,
-    killed: bool,
-    provenance: Option<&Provenance>,
-) -> String {
+pub fn format_payload(input: PayloadInput<'_>) -> String {
+    let PayloadInput {
+        name,
+        op,
+        target,
+        reason,
+        effect,
+        blocked,
+        killed,
+        provenance,
+    } = input;
     let action = if killed {
         "kill"
     } else if blocked {
@@ -121,16 +133,16 @@ mod tests {
 
     #[test]
     fn payload_has_prefix_and_tag() {
-        let s = format_payload(
-            "no-git",
-            "exec",
-            "git",
-            "no git allowed",
-            Effect::Block,
-            true,
-            false,
-            None,
-        );
+        let s = format_payload(PayloadInput {
+            name: "no-git",
+            op: "exec",
+            target: "git",
+            reason: "no git allowed",
+            effect: Effect::Block,
+            blocked: true,
+            killed: false,
+            provenance: None,
+        });
         assert!(s.starts_with("[ActPlane]"));
         assert!(s.contains("\"action\":\"block\""));
         assert!(s.contains("\"retry_useful\":false"));
@@ -138,32 +150,32 @@ mod tests {
 
     #[test]
     fn notify_payload_is_soft() {
-        let s = format_payload(
-            "t",
-            "exec",
-            "git",
-            "run tests first",
-            Effect::Notify,
-            false,
-            false,
-            None,
-        );
+        let s = format_payload(PayloadInput {
+            name: "t",
+            op: "exec",
+            target: "git",
+            reason: "run tests first",
+            effect: Effect::Notify,
+            blocked: false,
+            killed: false,
+            provenance: None,
+        });
         assert!(s.contains("run tests first"));
         assert!(s.contains("\"retry_useful\":false"));
     }
 
     #[test]
     fn block_without_lsm_is_unsupported_not_reported_as_blocked() {
-        let s = format_payload(
-            "no-git",
-            "exec",
-            "git",
-            "no git allowed",
-            Effect::Block,
-            false,
-            false,
-            None,
-        );
+        let s = format_payload(PayloadInput {
+            name: "no-git",
+            op: "exec",
+            target: "git",
+            reason: "no git allowed",
+            effect: Effect::Block,
+            blocked: false,
+            killed: false,
+            provenance: None,
+        });
         assert!(s.contains("当前 backend 不支持 block"));
         assert!(s.contains("\"effect\":\"block\""));
         assert!(s.contains("\"action\":\"unsupported\""));
@@ -178,16 +190,16 @@ mod tests {
             origin_target: "/repo/.env".to_string(),
             origin_timestamp_ns: 42,
         };
-        let s = format_payload(
-            "no-secret-exfil",
-            "connect",
-            "1.2.3.4",
-            "secret data must not leave",
-            Effect::Kill,
-            false,
-            true,
-            Some(&p),
-        );
+        let s = format_payload(PayloadInput {
+            name: "no-secret-exfil",
+            op: "connect",
+            target: "1.2.3.4",
+            reason: "secret data must not leave",
+            effect: Effect::Kill,
+            blocked: false,
+            killed: true,
+            provenance: Some(&p),
+        });
         assert!(s.contains("PID 1234"));
         assert!(s.contains("通过「read /repo/.env」获得 SECRET label"));
         assert!(s.contains("传播到当前「connect 1.2.3.4」操作"));

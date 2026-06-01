@@ -293,16 +293,12 @@ pub fn parse(src: &str) -> Result<Policy, String> {
                 }
                 let mut clauses = Vec::new();
                 let mut reason = String::new();
-                loop {
-                    if let Some(Tok::Word(w)) = p.peek() {
-                        if P::clause_effect(w).is_some() {
-                            clauses.push(p.clause()?);
-                        } else if w == "because" {
-                            p.next();
-                            reason = p.string()?;
-                        } else {
-                            break;
-                        }
+                while let Some(Tok::Word(w)) = p.peek() {
+                    if P::clause_effect(w).is_some() {
+                        clauses.push(p.clause()?);
+                    } else if w == "because" {
+                        p.next();
+                        reason = p.string()?;
                     } else {
                         break;
                     }
