@@ -21,6 +21,7 @@ const M_EXACT: u8 = 0;
 const M_PREFIX: u8 = 1;
 const M_SUFFIX: u8 = 2;
 const M_ANY: u8 = 3;
+const M_CONTAINS: u8 = 4;
 const OP_EXEC: u8 = 0;
 const OP_OPEN: u8 = 1;
 const OP_WRITE: u8 = 2;
@@ -98,8 +99,20 @@ fn lower_exec(pat: &str) -> (u8, String) {
 
 /// (match, literal) lowering for path patterns.
 fn lower_path(pat: &str) -> (u8, String) {
-    if pat == "*" {
+    if pat == "*" || pat == "**" {
         return (M_ANY, String::new());
+    }
+    // **/middle/** → contains "/middle/" (substring search)
+    if let Some(inner) = pat.strip_prefix("**/").and_then(|r| r.strip_suffix("/**")) {
+        if !inner.contains('*') {
+            return (M_CONTAINS, format!("/{inner}/"));
+        }
+    }
+    // **/middle/* → contains "/middle/" (files directly inside)
+    if let Some(inner) = pat.strip_prefix("**/").and_then(|r| r.strip_suffix("/*")) {
+        if !inner.contains('*') {
+            return (M_CONTAINS, format!("/{inner}/"));
+        }
     }
     if let Some(p) = pat.strip_suffix("/**") {
         return (M_PREFIX, format!("{}/", p));

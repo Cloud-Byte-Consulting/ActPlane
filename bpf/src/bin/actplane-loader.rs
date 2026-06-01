@@ -51,27 +51,27 @@ fn print_violation(v: &Violation) {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: actplane-loader --config policy.bin [--agent-pid PID --agent-label BIT]");
+    eprintln!("usage: actplane-loader --config policy.bin [--seed-pid PID --seed-label BIT]");
     std::process::exit(1);
 }
 
 fn main() {
     let mut config: Option<String> = None;
-    let mut agent_pid: i32 = 0;
-    let mut agent_label: u64 = 0;
+    let mut seed_pid: i32 = 0;
+    let mut seed_label: u64 = 0;
 
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--config" | "-c" => config = args.next(),
-            "--agent-pid" => {
-                agent_pid = args
+            "--seed-pid" => {
+                seed_pid = args
                     .next()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or_else(|| usage())
             }
-            "--agent-label" => {
-                agent_label = args
+            "--seed-label" => {
+                seed_label = args
                     .next()
                     .and_then(|s| parse_u64(&s))
                     .unwrap_or_else(|| usage())
@@ -111,12 +111,12 @@ fn main() {
         }
     );
 
-    if agent_pid != 0 || agent_label != 0 {
-        if let Err(e) = loader.seed_agent(agent_pid, agent_label) {
-            eprintln!("seed agent failed: {e}");
+    if seed_pid != 0 || seed_label != 0 {
+        if let Err(e) = loader.seed_label(seed_pid, seed_label) {
+            eprintln!("seed pid failed: {e}");
             std::process::exit(1);
         }
-        eprintln!("ActPlane: seeded AGENT pid {agent_pid} label {agent_label:#x}");
+        eprintln!("ActPlane: seeded pid {seed_pid} label {seed_label:#x}");
     }
 
     let stop = Arc::new(AtomicBool::new(false));

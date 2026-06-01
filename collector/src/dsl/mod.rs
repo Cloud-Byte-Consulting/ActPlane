@@ -145,7 +145,18 @@ mod tests {
               block write file "**/prod.db"
                 if AGENT
                 unless after exec "**/migrate-check" since write "migrations/**"
-              because "migration-check must have seen the current migrations"
+            because "migration-check must have seen the current migrations"
+        "#);
+    }
+
+    #[test]
+    fn e14_stdio_channels_are_ifc_files() {
+        ok(r#"
+            source PROMPT = file "stdio:stdin"
+            rule no-prompt-to-stdout:
+              notify write file "stdio:stdout" if PROMPT
+              notify write file "stdio:stderr" if PROMPT
+              because "prompt-derived data should not be printed without review"
         "#);
     }
 

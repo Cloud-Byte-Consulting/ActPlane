@@ -1,87 +1,97 @@
-//! Minimal mask-based admission core for layered policy updates.
+//! Minimal mask-based admission core for policy deltas.
 //!
 //! This intentionally contains no agent, YAML, DSL, or business-role concepts.
-//! Callers resolve principals, relationships, and scope IDs before invoking it.
+//! Callers resolve target IDs, parent links, and scope IDs before invoking it.
 
-pub const AFFECT_SELF: u64 = 1 << 0;
-pub const AFFECT_CHILD: u64 = 1 << 1;
-pub const AFFECT_SUBTREE: u64 = 1 << 2;
+pub const TARGET_SELF: u64 = 1 << 0;
+pub const TARGET_CHILD: u64 = 1 << 1;
 
-pub const CAP_ADD_RESTRICTION: u64 = 1 << 0;
-pub const CAP_ADD_LABEL: u64 = 1 << 1;
-pub const CAP_REQUIRE_GATE: u64 = 1 << 2;
-pub const CAP_NARROW_SCOPE: u64 = 1 << 3;
+pub const AUTH_ADD_RESTRICTION: u64 = 1 << 0;
+pub const AUTH_ADD_LABEL: u64 = 1 << 1;
+pub const AUTH_REQUIRE_GATE: u64 = 1 << 2;
+pub const AUTH_NARROW_SCOPE: u64 = 1 << 3;
 
+pub const STAT_ACCEPT: u32 = 0;
+pub const STAT_REJECT: u32 = 1;
+pub const STAT_DRAIN: u32 = 2;
+pub const STAT_DROP: u32 = 3;
+
+#[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PrincipalState {
+pub struct CapState {
     pub parent: u32,
-    pub subtree_root: u32,
     pub scope_id: u32,
     pub labels: u64,
-    pub update_cap_mask: u64,
-    pub affect_scope_mask: u64,
-    pub effective_restrict: u64,
-    pub required_gates: u64,
-    pub allowed_label_mask: u64,
+    pub authority_mask: u64,
+    pub target_mask: u64,
+    pub restrict_mask: u64,
+    pub gate_mask: u64,
+    pub label_mask: u64,
 }
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PolicyRequest {
-    pub required_cap_mask: u64,
+pub struct DeltaRequest {
+    pub caller_pid: i32,
+    pub target_id: u32,
+    pub new_scope_id: u32,
+    pub required_mask: u64,
     pub add_restrict_mask: u64,
     pub add_label_mask: u64,
-    pub require_gate_mask: u64,
-    pub new_scope_id: u32,
+    pub add_gate_mask: u64,
 }
+
+unsafe impl aya::Pod for CapState {}
+unsafe impl aya::Pod for DeltaRequest {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdmitError {
-    ScopeAuthority,
-    UpdateCapability,
+    TargetAuthority,
+    UpdateAuthority,
     LabelAuthority,
     ScopeWiden,
 }
 
-fn implied_cap_mask(req: PolicyRequest) -> u64 {
-    let mut mask = req.required_cap_mask;
+fn required_mask(req: DeltaRequest) -> u64 {
+    let mut mask = req.required_mask;
     if req.add_restrict_mask != 0 {
-        mask |= CAP_ADD_RESTRICTION;
+        mask |= AUTH_ADD_RESTRICTION;
     }
     if req.add_label_mask != 0 {
-        mask |= CAP_ADD_LABEL;
+        mask |= AUTH_ADD_LABEL;
     }
-    if req.require_gate_mask != 0 {
-        mask |= CAP_REQUIRE_GATE;
+    if req.add_gate_mask != 0 {
+        mask |= AUTH_REQUIRE_GATE;
     }
     if req.new_scope_id != 0 {
-        mask |= CAP_NARROW_SCOPE;
+        mask |= AUTH_NARROW_SCOPE;
     }
     mask
 }
 
 pub fn admit_delta(
-    src: &PrincipalState,
-    dst: &mut PrincipalState,
-    relation_mask: u64,
-    req: PolicyRequest,
+    src: &CapState,
+    dst: &mut CapState,
+    target_mask: u64,
+    req: DeltaRequest,
     scope_subset: impl Fn(u32, u32) -> bool,
 ) -> Result<(), AdmitError> {
-    if relation_mask & src.affect_scope_mask == 0 {
-        return Err(AdmitError::ScopeAuthority);
+    if target_mask & src.target_mask == 0 {
+        return Err(AdmitError::TargetAuthority);
     }
-    if implied_cap_mask(req) & !src.update_cap_mask != 0 {
-        return Err(AdmitError::UpdateCapability);
+    if required_mask(req) & !src.authority_mask != 0 {
+        return Err(AdmitError::UpdateAuthority);
     }
-    if req.add_label_mask & !src.allowed_label_mask != 0 {
+    if req.add_label_mask & !src.label_mask != 0 {
         return Err(AdmitError::LabelAuthority);
     }
     if req.new_scope_id != 0 && !scope_subset(req.new_scope_id, dst.scope_id) {
         return Err(AdmitError::ScopeWiden);
     }
 
-    dst.effective_restrict |= req.add_restrict_mask;
+    dst.restrict_mask |= req.add_restrict_mask;
     dst.labels |= req.add_label_mask;
-    dst.required_gates |= req.require_gate_mask;
+    dst.gate_mask |= req.add_gate_mask;
     if req.new_scope_id != 0 {
         dst.scope_id = req.new_scope_id;
     }
@@ -98,50 +108,50 @@ mod tests {
 
     #[test]
     fn admits_monotonic_child_delta() {
-        let src = PrincipalState {
-            update_cap_mask: CAP_ADD_RESTRICTION | CAP_ADD_LABEL | CAP_NARROW_SCOPE,
-            affect_scope_mask: AFFECT_CHILD,
-            allowed_label_mask: 0b0100,
-            ..PrincipalState::default()
+        let src = CapState {
+            authority_mask: AUTH_ADD_RESTRICTION | AUTH_ADD_LABEL | AUTH_NARROW_SCOPE,
+            target_mask: TARGET_CHILD,
+            label_mask: 0b0100,
+            ..CapState::default()
         };
-        let mut dst = PrincipalState {
+        let mut dst = CapState {
             scope_id: 1,
             labels: 0b0001,
-            effective_restrict: 0b0010,
-            ..PrincipalState::default()
+            restrict_mask: 0b0010,
+            ..CapState::default()
         };
         admit_delta(
             &src,
             &mut dst,
-            AFFECT_CHILD,
-            PolicyRequest {
-                required_cap_mask: CAP_ADD_RESTRICTION | CAP_ADD_LABEL | CAP_NARROW_SCOPE,
+            TARGET_CHILD,
+            DeltaRequest {
+                required_mask: AUTH_ADD_RESTRICTION | AUTH_ADD_LABEL | AUTH_NARROW_SCOPE,
                 add_restrict_mask: 0b1000,
                 add_label_mask: 0b0100,
                 new_scope_id: 2,
-                ..PolicyRequest::default()
+                ..DeltaRequest::default()
             },
             scope_subset,
         )
         .unwrap();
-        assert_eq!(dst.effective_restrict, 0b1010);
+        assert_eq!(dst.restrict_mask, 0b1010);
         assert_eq!(dst.labels, 0b0101);
         assert_eq!(dst.scope_id, 2);
     }
 
     #[test]
     fn rejects_non_monotonic_authority_gaps() {
-        let src = PrincipalState {
-            update_cap_mask: CAP_ADD_RESTRICTION,
-            affect_scope_mask: AFFECT_SELF,
-            allowed_label_mask: 0b0001,
-            ..PrincipalState::default()
+        let src = CapState {
+            authority_mask: AUTH_ADD_RESTRICTION,
+            target_mask: TARGET_SELF,
+            label_mask: 0b0001,
+            ..CapState::default()
         };
-        let base = PrincipalState {
+        let base = CapState {
             scope_id: 4,
             labels: 0b0010,
-            effective_restrict: 0b0100,
-            ..PrincipalState::default()
+            restrict_mask: 0b0100,
+            ..CapState::default()
         };
 
         let mut dst = base;
@@ -149,11 +159,11 @@ mod tests {
             admit_delta(
                 &src,
                 &mut dst,
-                AFFECT_CHILD,
-                PolicyRequest::default(),
+                TARGET_CHILD,
+                DeltaRequest::default(),
                 scope_subset
             ),
-            Err(AdmitError::ScopeAuthority)
+            Err(AdmitError::TargetAuthority)
         );
         assert_eq!(dst, base);
 
@@ -162,44 +172,44 @@ mod tests {
             admit_delta(
                 &src,
                 &mut dst,
-                AFFECT_SELF,
-                PolicyRequest {
-                    required_cap_mask: CAP_ADD_LABEL,
-                    ..PolicyRequest::default()
+                TARGET_SELF,
+                DeltaRequest {
+                    required_mask: AUTH_ADD_LABEL,
+                    ..DeltaRequest::default()
                 },
                 scope_subset
             ),
-            Err(AdmitError::UpdateCapability)
+            Err(AdmitError::UpdateAuthority)
         );
 
         let mut dst = base;
-        let src_with_label_cap = PrincipalState {
-            update_cap_mask: CAP_ADD_RESTRICTION | CAP_ADD_LABEL,
+        let src_with_label_auth = CapState {
+            authority_mask: AUTH_ADD_RESTRICTION | AUTH_ADD_LABEL,
             ..src
         };
         assert_eq!(
             admit_delta(
                 &src,
                 &mut dst,
-                AFFECT_SELF,
-                PolicyRequest {
+                TARGET_SELF,
+                DeltaRequest {
                     add_label_mask: 0b0001,
-                    ..PolicyRequest::default()
+                    ..DeltaRequest::default()
                 },
                 scope_subset
             ),
-            Err(AdmitError::UpdateCapability)
+            Err(AdmitError::UpdateAuthority)
         );
 
         let mut dst = base;
         assert_eq!(
             admit_delta(
-                &src_with_label_cap,
+                &src_with_label_auth,
                 &mut dst,
-                AFFECT_SELF,
-                PolicyRequest {
+                TARGET_SELF,
+                DeltaRequest {
                     add_label_mask: 0b1000,
-                    ..PolicyRequest::default()
+                    ..DeltaRequest::default()
                 },
                 scope_subset
             ),
@@ -207,18 +217,18 @@ mod tests {
         );
 
         let mut dst = base;
-        let src_with_scope_cap = PrincipalState {
-            update_cap_mask: CAP_ADD_RESTRICTION | CAP_NARROW_SCOPE,
+        let src_with_scope_auth = CapState {
+            authority_mask: AUTH_ADD_RESTRICTION | AUTH_NARROW_SCOPE,
             ..src
         };
         assert_eq!(
             admit_delta(
-                &src_with_scope_cap,
+                &src_with_scope_auth,
                 &mut dst,
-                AFFECT_SELF,
-                PolicyRequest {
+                TARGET_SELF,
+                DeltaRequest {
                     new_scope_id: 3,
-                    ..PolicyRequest::default()
+                    ..DeltaRequest::default()
                 },
                 scope_subset
             ),

@@ -21,8 +21,8 @@
 static struct env {
 	bool verbose;
 	const char *config;
-	pid_t agent_pid;
-	unsigned long long agent_label;
+	pid_t seed_pid;
+	unsigned long long seed_label;
 } env = {0};
 
 const char *argp_program_version = "actplane-taint 2.0";
@@ -30,12 +30,12 @@ const char argp_program_doc[] =
 "ActPlane in-kernel taint enforcer.\n"
 "\n"
 "Loads a compiled policy and reports only taint-rule violations.\n"
-"USAGE: ./process --config policy.bin [--agent-pid PID --agent-label BIT]\n";
+"USAGE: ./process --config policy.bin [--seed-pid PID --seed-label BIT]\n";
 
 static const struct argp_option opts[] = {
 	{ "config", 'c', "FILE", 0, "Compiled policy (struct taint_config blob)" },
-	{ "agent-pid", 1000, "PID", 0, "Seed this pid as the ActPlane AGENT root" },
-	{ "agent-label", 1001, "BIT", 0, "Label bit to apply to --agent-pid" },
+	{ "seed-pid", 1000, "PID", 0, "Seed this pid with an initial label" },
+	{ "seed-label", 1001, "BIT", 0, "Label bit to apply to --seed-pid" },
 	{ "verbose", 'v', NULL, 0, "Verbose libbpf debug output" },
 	{},
 };
@@ -45,8 +45,8 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 	switch (key) {
 	case 'v': env.verbose = true; break;
 	case 'c': env.config = arg; break;
-	case 1000: env.agent_pid = (pid_t)strtol(arg, NULL, 10); break;
-	case 1001: env.agent_label = strtoull(arg, NULL, 0); break;
+	case 1000: env.seed_pid = (pid_t)strtol(arg, NULL, 10); break;
+	case 1001: env.seed_label = strtoull(arg, NULL, 0); break;
 	case ARGP_KEY_ARG: argp_usage(state); break;
 	default: return ARGP_ERR_UNKNOWN;
 	}
@@ -179,31 +179,31 @@ struct proc_state_seed {
 	unsigned long long lin_gates;
 };
 
-static int seed_agent_root(struct process_bpf *skel)
+static int seed_initial_label(struct process_bpf *skel)
 {
 	struct proc_state_seed state = {};
-	pid_t pid = env.agent_pid;
+	pid_t pid = env.seed_pid;
 
-	if (!env.agent_pid && !env.agent_label)
+	if (!env.seed_pid && !env.seed_label)
 		return 0;
-	if (env.agent_pid <= 0 || env.agent_label == 0) {
-		fprintf(stderr, "--agent-pid and --agent-label must be provided together\n");
+	if (env.seed_pid <= 0 || env.seed_label == 0) {
+		fprintf(stderr, "--seed-pid and --seed-label must be provided together\n");
 		return -1;
 	}
 
-	state.labels = env.agent_label;
+	state.labels = env.seed_label;
 	if (bpf_map_update_elem(bpf_map__fd(skel->maps.ts_proc), &pid, &state, BPF_ANY) < 0) {
-		fprintf(stderr, "failed to seed AGENT pid %d in ts_proc: %s\n", pid, strerror(errno));
+		fprintf(stderr, "failed to seed pid %d in ts_proc: %s\n", pid, strerror(errno));
 		return -1;
 	}
 	if (bpf_map_update_elem(bpf_map__fd(skel->maps.ts_root), &pid, &pid, BPF_ANY) < 0) {
-		fprintf(stderr, "failed to seed AGENT pid %d in ts_root: %s\n", pid, strerror(errno));
+		fprintf(stderr, "failed to seed pid %d in ts_root: %s\n", pid, strerror(errno));
 		return -1;
 	}
 	/* ts_sess (gate/staleness state) is created lazily by te_sess_init when the
 	 * first gate or `since` invalidator fires; an absent entry reads as all-zero
 	 * (no gate fired yet), which is the correct initial state. */
-	fprintf(stderr, "ActPlane: seeded AGENT pid %d label 0x%llx\n", pid, env.agent_label);
+	fprintf(stderr, "ActPlane: seeded pid %d label 0x%llx\n", pid, env.seed_label);
 	return 0;
 }
 
@@ -285,7 +285,7 @@ int main(int argc, char **argv)
 
 	err = process_bpf__attach(skel);
 	if (err) { fprintf(stderr, "Failed to attach BPF skeleton\n"); goto cleanup; }
-	if (seed_agent_root(skel)) { err = -1; goto cleanup; }
+	if (seed_initial_label(skel)) { err = -1; goto cleanup; }
 
 	rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
 	if (!rb) { err = -1; fprintf(stderr, "ring buffer failed\n"); goto cleanup; }

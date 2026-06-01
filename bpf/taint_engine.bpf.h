@@ -14,6 +14,39 @@
 #define __noinline __attribute__((noinline))
 #endif
 
+#include "capability.bpf.h"
+
+/* BPF implementation of taint_contains (substring search via bpf_loop).
+ * Defined here because taint.h is shared with non-BPF test code. */
+#ifdef __BPF__
+struct taint_contains_ctx {
+	const char *text;
+	const char *pat;
+	int found;
+};
+
+static long __taint_contains_cb(__u32 idx, void *_ctx)
+{
+	struct taint_contains_ctx *c = _ctx;
+	if (c->found)
+		return 1;
+	if (idx >= TAINT_PAT_LEN)
+		return 1;
+	if (taint_prefix(c->text + idx, c->pat))
+		c->found = 1;
+	return 0;
+}
+
+static __noinline int taint_contains(const char *text, const char *pat)
+{
+	struct taint_contains_ctx c = {
+		.text = text, .pat = pat, .found = 0
+	};
+	bpf_loop(TAINT_PAT_LEN, __taint_contains_cb, &c, 0);
+	return c.found;
+}
+#endif /* __BPF__ */
+
 struct proc_state {
 	__u64 labels;
 	__u64 lin_gates; /* gate bits seen in this pid's ancestor chain (incl self) */
@@ -255,7 +288,8 @@ static __always_inline struct proc_state *te_get(pid_t pid)
 static __always_inline __u64 te_labels(pid_t pid)
 {
 	struct proc_state *p = te_get(pid);
-	return p ? p->labels : 0;
+	__u64 labels = p ? p->labels : 0;
+	return labels | cap_labels_for_pid(pid);
 }
 
 static __always_inline void te_copy_target(char *dst, const char *src)
@@ -526,6 +560,7 @@ static __always_inline void te_fork(pid_t ppid, pid_t cpid)
 		te_copy_proc_prov(ppid, cpid, ns.labels);
 	pid_t r = te_root(ppid);
 	bpf_map_update_elem(&ts_root, &cpid, &r, BPF_ANY);
+	cap_fork(ppid, cpid);
 }
 
 /* All policy table scans below run via bpf_loop() (count from ts_counts) so the
@@ -681,9 +716,9 @@ static __always_inline int te_cond_satisfied(const struct taint_rule *r,
 		return te_after_satisfied(r, e->pid);
 	/* TCOND_TARGET */
 	int m;
-	if (r->op == TOP_CONNECT)
+	if (e->op == TOP_CONNECT)
 		m = ((e->ip & r->cond_ipv4_mask) == r->cond_ipv4);
-	else if (r->op == TOP_EXEC)
+	else if (e->op == TOP_EXEC)
 		m = taint_exec_match(r->cond_match, e->target, r->cond_pat);
 	else
 		m = taint_match(r->cond_match, e->target, r->cond_pat);
@@ -764,6 +799,7 @@ static __always_inline void te_exit(pid_t pid)
 {
 	bpf_map_delete_elem(&ts_proc, &pid);
 	bpf_map_delete_elem(&ts_root, &pid);
+	cap_exit(pid);
 	for (int i = 0; i < MAX_TAINT_LABELS; i++) {
 		struct pid_label_id key = { .pid = pid, .label = 1ULL << i };
 		bpf_map_delete_elem(&ts_proc_prov, &key);

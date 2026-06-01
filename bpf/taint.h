@@ -76,10 +76,11 @@
 #define TAINT_LABEL_NONE  0ULL
 
 enum taint_match {
-	TAINT_MATCH_EXACT  = 0,
-	TAINT_MATCH_PREFIX = 1,
-	TAINT_MATCH_SUFFIX = 2, /* text ends with pat (dotfiles, host suffixes) */
-	TAINT_MATCH_ANY    = 3, /* always matches (the bare star) */
+	TAINT_MATCH_EXACT    = 0,
+	TAINT_MATCH_PREFIX   = 1,
+	TAINT_MATCH_SUFFIX   = 2, /* text ends with pat (dotfiles, host suffixes) */
+	TAINT_MATCH_ANY      = 3, /* always matches (the bare star) */
+	TAINT_MATCH_CONTAINS = 4, /* text contains pat (**/dir/** → "/dir/") */
 };
 
 /* sink operations */
@@ -244,14 +245,38 @@ static TAINT_NOINLINE int taint_suffix(const char *text, const char *suf)
 	return diff == 0;
 }
 
+/* taint_contains is implemented in taint_engine.bpf.h (needs bpf_loop).
+ * In non-BPF contexts (test_taint.c), fall back to a simple strstr.
+ * In BPF contexts, forward-declare; the real body is in taint_engine.bpf.h. */
+#ifdef __BPF__
+static __noinline int taint_contains(const char *text, const char *pat);
+#else
+static TAINT_NOINLINE int taint_contains(const char *text, const char *pat)
+{
+	int pn = 0;
+	for (int i = 0; i < TAINT_PAT_LEN && pat[i]; i++) pn++;
+	if (pn == 0) return 0;
+	int tn = 0;
+	for (int i = 0; i < TAINT_PAT_LEN && text[i]; i++) tn++;
+	for (int p = 0; p <= tn - pn; p++) {
+		int match = 1;
+		for (int j = 0; j < pn; j++)
+			if (text[p + j] != pat[j]) { match = 0; break; }
+		if (match) return 1;
+	}
+	return 0;
+}
+#endif
+
 static __always_inline int taint_match(unsigned int kind, const char *text,
 				       const char *pat)
 {
 	switch (kind) {
-	case TAINT_MATCH_PREFIX: return taint_prefix(text, pat);
-	case TAINT_MATCH_SUFFIX: return taint_suffix(text, pat);
-	case TAINT_MATCH_ANY:    return 1;
-	default:                 return taint_streq(text, pat);
+	case TAINT_MATCH_PREFIX:   return taint_prefix(text, pat);
+	case TAINT_MATCH_SUFFIX:   return taint_suffix(text, pat);
+	case TAINT_MATCH_ANY:      return 1;
+	case TAINT_MATCH_CONTAINS: return taint_contains(text, pat);
+	default:                   return taint_streq(text, pat);
 	}
 }
 

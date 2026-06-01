@@ -114,7 +114,7 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
                 return;
             }
         };
-        if let Err(e) = loader.seed_agent(attach_pid, agent_label) {
+        if let Err(e) = loader.seed_label(attach_pid, agent_label) {
             let _ = ready_tx.send(Err(format!("seed parent pid {attach_pid}: {e}")));
             return;
         }
@@ -258,8 +258,8 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
                 return;
             }
         };
-        if let Err(e) = loader.seed_agent(target_pid as i32, agent_label) {
-            let _ = ready_tx.send(Err(format!("seed agent: {e}")));
+        if let Err(e) = loader.seed_label(target_pid as i32, agent_label) {
+            let _ = ready_tx.send(Err(format!("seed pid: {e}")));
             return;
         }
         let _ = ready_tx.send(Ok(()));

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 eunomia-bpf org.
 //
-//! ActPlane eBPF loader (aya).
+//! eBPF IFC engine loader (aya).
 //!
 //! Loads the prebuilt CO-RE object `process.bpf.o` (compiled from the untouched
 //! kernel C in this directory), installs the compiled policy into `.rodata`,
@@ -13,14 +13,15 @@
 //! compiler already produces (the same bytes the C loader read from `--config`).
 
 use std::io::{self, Read};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use aya::maps::{Array, HashMap, RingBuf};
+use aya::maps::{Array, HashMap, Map, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
 
 pub mod capability;
+use capability::{CapState, DeltaRequest};
 
 // ---- prebuilt eBPF object, 8-byte aligned for aya's ELF parser ----
 #[repr(align(8))]
@@ -176,6 +177,9 @@ const TRACEPOINTS: &[(&str, &str, &str)] = &[
     ("trace_renameat", "syscalls", "sys_enter_renameat"),
     ("trace_renameat2", "syscalls", "sys_enter_renameat2"),
     ("trace_connect", "syscalls", "sys_enter_connect"),
+    ("trace_read", "syscalls", "sys_enter_read"),
+    ("trace_write", "syscalls", "sys_enter_write"),
+    ("cap_drain_tick", "syscalls", "sys_enter_getpid"),
 ];
 
 /// LSM programs: (fn name, hook). Attached only when BPF LSM is active.
@@ -255,6 +259,7 @@ impl Loader {
 
         let mut loader = EbpfLoader::new();
         loader
+            .allow_unsupported_maps()
             .set_global("enforce_mode", &enforce_mode, true)
             .set_global("n_updates", &cfg.n_updates, true)
             .set_global("n_rules", &cfg.n_rules, true)
@@ -322,10 +327,10 @@ impl Loader {
         self.enforce
     }
 
-    /// Seed `pid` (and its future descendants) as the AGENT root with `label`.
-    pub fn seed_agent(&mut self, pid: i32, label: u64) -> io::Result<()> {
+    /// Seed `pid` and its future descendants with an initial label.
+    pub fn seed_label(&mut self, pid: i32, label: u64) -> io::Result<()> {
         if pid <= 0 || label == 0 {
-            return Err(err("agent pid and label must both be set"));
+            return Err(err("pid and label must both be set"));
         }
         {
             let mut proc: HashMap<_, i32, ProcState> = HashMap::try_from(
@@ -353,6 +358,87 @@ impl Loader {
             .map_err(|e| err(format!("ts_root: {e}")))?;
             root.insert(pid, pid, 0)
                 .map_err(|e| err(format!("seed ts_root: {e}")))?;
+        }
+        self.bind_state(
+            pid,
+            pid as u32,
+            CapState {
+                scope_id: 1,
+                labels: label,
+                ..CapState::default()
+            },
+        )?;
+        Ok(())
+    }
+
+    /// Bind a Linux pid to an engine state id.
+    pub fn bind_state(&mut self, pid: i32, target_id: u32, state: CapState) -> io::Result<()> {
+        if pid <= 0 || target_id == 0 {
+            return Err(err("pid and target id must both be set"));
+        }
+        {
+            let mut pid_map: HashMap<_, i32, u32> = HashMap::try_from(
+                self.bpf
+                    .map_mut("cap_task")
+                    .ok_or_else(|| err("cap_task missing"))?,
+            )
+            .map_err(|e| err(format!("cap_task: {e}")))?;
+            pid_map
+                .insert(pid, target_id, 0)
+                .map_err(|e| err(format!("seed cap_task: {e}")))?;
+        }
+        {
+            let mut states: HashMap<_, u32, CapState> = HashMap::try_from(
+                self.bpf
+                    .map_mut("cap_state")
+                    .ok_or_else(|| err("cap_state missing"))?,
+            )
+            .map_err(|e| err(format!("cap_state: {e}")))?;
+            states
+                .insert(target_id, state, 0)
+                .map_err(|e| err(format!("seed cap_state: {e}")))?;
+        }
+        Ok(())
+    }
+
+    /// Submit a runtime policy delta through the user-to-kernel ring buffer.
+    ///
+    /// The BPF side admits the request only if `caller_pid` maps to a state with
+    /// the needed authority masks, and then applies a monotonic delta to
+    /// `cap_state`. The caller normally sets `caller_pid` to its own pid; this
+    /// method triggers a `getpid` syscall so the BPF drain hook runs.
+    pub fn submit_delta(&self, req: DeltaRequest) -> io::Result<()> {
+        let map = self
+            .bpf
+            .map("cap_req")
+            .ok_or_else(|| err("cap_req missing"))?;
+        let map_data = match map {
+            Map::Unsupported(data) => data,
+            _ => return Err(err("cap_req is not a user ringbuf map")),
+        };
+        let fd = map_data.fd().as_fd().as_raw_fd();
+        unsafe {
+            let rb = libbpf_sys::user_ring_buffer__new(fd, std::ptr::null());
+            if rb.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let sample = libbpf_sys::user_ring_buffer__reserve(
+                rb,
+                std::mem::size_of::<DeltaRequest>() as u32,
+            );
+            if sample.is_null() {
+                let e = io::Error::last_os_error();
+                libbpf_sys::user_ring_buffer__free(rb);
+                return Err(e);
+            }
+            std::ptr::copy_nonoverlapping(
+                &req as *const DeltaRequest as *const u8,
+                sample as *mut u8,
+                std::mem::size_of::<DeltaRequest>(),
+            );
+            libbpf_sys::user_ring_buffer__submit(rb, sample);
+            libbpf_sys::user_ring_buffer__free(rb);
+            libc::syscall(libc::SYS_getpid);
         }
         Ok(())
     }
@@ -459,6 +545,8 @@ mod tests {
     #[test]
     fn abi_sizes() {
         assert_eq!(std::mem::size_of::<ProcState>(), 16);
+        assert_eq!(std::mem::size_of::<CapState>(), 56);
+        assert_eq!(std::mem::size_of::<DeltaRequest>(), 48);
         // CConfig = 5 u32 (+pad) + the five arrays; just assert it is non-trivial
         // and 8-aligned so set_global offsets line up.
         assert_eq!(std::mem::align_of::<CConfig>(), 8);
@@ -470,5 +558,26 @@ mod tests {
         let b = object_bytes();
         assert_eq!(b.as_ptr() as usize % 8, 0, "object must be 8-aligned");
         assert_eq!(&b[..4], b"\x7fELF");
+    }
+
+    #[test]
+    fn object_has_capability_user_ringbuf_path() {
+        let b = object_bytes();
+        for name in [
+            b"cap_req".as_slice(),
+            b"cap_state".as_slice(),
+            b"cap_task".as_slice(),
+            b"cap_drain_tick".as_slice(),
+            b"trace_read".as_slice(),
+            b"trace_write".as_slice(),
+            b"stdio:stdin".as_slice(),
+            b"stdio:stdout".as_slice(),
+        ] {
+            assert!(
+                b.windows(name.len()).any(|w| w == name),
+                "object should contain {}",
+                String::from_utf8_lossy(name)
+            );
+        }
     }
 }

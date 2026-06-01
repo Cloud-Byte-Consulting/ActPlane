@@ -76,6 +76,8 @@ const volatile unsigned int enforce_mode = 0;
 #define TE_REF_SOCKADDR_KERN 7
 #define TE_REF_SOCKADDR_USER 8
 
+#include "channel.bpf.h"
+
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 256 * 1024);
@@ -404,6 +406,9 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 	int rid = -1;
 	int candidate = -1;
 
+	cap_drain_current();
+	labels = te_labels(ev->pid);
+
 	if (ev->obj_kind == TE_OBJ_FILE && (ev->access & TE_ACCESS_READ))
 		labels |= te_file_labels(fid, ev->target);
 	if (ev->obj_kind == TE_OBJ_ENDPOINT && (ev->access & TE_ACCESS_CONNECT))
@@ -539,6 +544,27 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 	ev.target = target;
 	ev.ip = ip;
 	return te_handle_event(&ev, 0);
+}
+
+static __always_inline int te_handle_channel(int fd, __u32 access, __u32 mode)
+{
+	char target[MAX_FILENAME_LEN] = {};
+	struct te_event ev = {};
+	struct file_id fid = {};
+
+	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
+	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
+		return 0;
+	if (!chan_fd_target(fd, access, target, sizeof(target)))
+		return 0;
+
+	fid.ino = te_fnv1a(target);
+	ev.pid = bpf_get_current_pid_tgid() >> 32;
+	ev.obj_kind = TE_OBJ_FILE;
+	ev.access = access;
+	ev.mode = mode;
+	ev.target = target;
+	return te_handle_event(&ev, &fid);
 }
 
 static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
@@ -828,4 +854,24 @@ int trace_connect(struct trace_event_raw_sys_enter *ctx)
 {
 	return te_handle_net(TE_REF_SOCKADDR_USER, (const void *)ctx->args[1], 0,
 			     TE_ACCESS_CONNECT, te_tracepoint_mode());
+}
+
+SEC("tp/syscalls/sys_enter_read")
+int trace_read(struct trace_event_raw_sys_enter *ctx)
+{
+	return te_handle_channel((int)ctx->args[0], TE_ACCESS_READ, te_tracepoint_mode());
+}
+
+SEC("tp/syscalls/sys_enter_write")
+int trace_write(struct trace_event_raw_sys_enter *ctx)
+{
+	return te_handle_channel((int)ctx->args[0], TE_ACCESS_WRITE, te_tracepoint_mode());
+}
+
+SEC("tp/syscalls/sys_enter_getpid")
+int cap_drain_tick(struct trace_event_raw_sys_enter *ctx)
+{
+	(void)ctx;
+	cap_drain_current();
+	return 0;
 }

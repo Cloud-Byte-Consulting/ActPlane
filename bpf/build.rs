@@ -26,6 +26,8 @@ fn main() {
             "process.h",
             "taint.h",
             "taint_engine.bpf.h",
+            "capability.bpf.h",
+            "channel.bpf.h",
             "Makefile",
         ] {
             println!("cargo:rerun-if-changed={}", manifest.join(f).display());
