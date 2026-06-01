@@ -1,29 +1,12 @@
 file: "xpzouying/xiaohongshu-mcp/CLAUDE.md"
 statements:
-  - id: 1
-    lines: [1, 4]
+  - id: 3
+    lines: [1, 6]
     text: |
       # Project Guidelines
 
       ##  本地开发规范
 
-    type: description
-    topic: System Overview
-    enforceability: null
-    confidence: high
-
-  - id: 2
-    lines: [4, 5]
-    text: |
-
-    type: description
-    topic: System Overview
-    enforceability: null
-    confidence: high
-
-  - id: 3
-    lines: [5, 6]
-    text: |
       - 要求每次修改完后,需要帮我格式化 Go 源码文件.
     type: directive
     topic: Implementation Details
@@ -89,20 +72,12 @@ statements:
     context_required: none
     confidence: high
 
-  - id: 10
-    lines: [12, 15]
+  - id: 11
+    lines: [12, 16]
     text: |
 
       ## PR Review 重点
 
-    type: description
-    topic: Development Process
-    enforceability: null
-    confidence: high
-
-  - id: 11
-    lines: [15, 16]
-    text: |
       - 重点：PR 代码中如果出现大量的 JS 注入的行为，要检查一下是否是必须的，如果可以用 Go 的 go-rod 替代的话，则直接评论需要用 go-rod 行为替代。
     type: directive
     topic: Development Process

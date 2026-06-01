@@ -93,19 +93,11 @@ statements:
     context_required: none
     confidence: high
 
-  - id: 7
-    lines: [40, 42]
+  - id: 8
+    lines: [40, 43]
     text: |
       For Codex or other parallel agents:
 
-    type: description
-    topic: AI Integration
-    enforceability: null
-    confidence: high
-
-  - id: 8
-    lines: [42, 43]
-    text: |
       - Prefer `--json` output and pass explicit notebook IDs instead of relying on `notebooklm use`.
     type: directive
     topic: AI Integration

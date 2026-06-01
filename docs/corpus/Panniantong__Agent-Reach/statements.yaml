@@ -53,18 +53,10 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 4
-    lines: [29, 30]
+  - id: 5
+    lines: [29, 31]
     text: |
       ## Conventions
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
-  - id: 5
-    lines: [30, 31]
-    text: |
       - Python 3.10+ with type hints
     type: directive
     topic: Implementation Details

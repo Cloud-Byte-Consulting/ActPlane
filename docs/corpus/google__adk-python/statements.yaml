@@ -12,21 +12,13 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 2
-    lines: [5, 9]
+  - id: 3
+    lines: [5, 11]
     text: |
       ## ADK Knowledge, Architecture, and Style
 
       For all matters regarding ADK development, please use the appropriate skill:
 
-    type: directive
-    topic: AI Integration
-    enforceability: semantic_only
-    confidence: high
-
-  - id: 3
-    lines: [9, 11]
-    text: |
       - **`adk-architecture`**: Use this skill whenever you need to understand the architecture, event flow, or state management of the ADK system, or when designing or modifying core components and public APIs.
         - Read `.agents/skills/adk-architecture/SKILL.md` for full instructions.
     type: directive

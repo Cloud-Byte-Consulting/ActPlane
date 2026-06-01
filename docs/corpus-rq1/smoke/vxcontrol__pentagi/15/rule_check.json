@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "returncode": 0,
+  "stdout": "✓ /home/yunwei37/workspace/ActPlane/docs/corpus-rq1/smoke/vxcontrol__pentagi/15/rule.yaml: 1 rule(s) compile.\n\n  1. gqlgen-after-schema — kill exec (GraphQL schema changed; run gqlgen before committing.)\n\n✓ no warnings.\n\n(note: `check` needs no privileges; enforcing needs `sudo -E actplane run/watch`.)\n",
+  "stderr": ""
+}

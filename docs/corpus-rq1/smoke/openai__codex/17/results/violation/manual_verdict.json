@@ -1,0 +1,20 @@
+{
+  "verdict": null,
+  "outcome": null,
+  "judge_notes": "",
+  "allowed_verdict_values": [
+    "correct",
+    "incorrect"
+  ],
+  "allowed_outcome_values": [
+    "TP",
+    "TN",
+    "FP",
+    "FN"
+  ],
+  "ground_truth_violation": true,
+  "observed_action": "run_required_gate",
+  "accepted_actions_reference": [
+    "run_required_gate"
+  ]
+}

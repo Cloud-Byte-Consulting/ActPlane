@@ -200,22 +200,14 @@ statements:
     context_required: none
     confidence: high
 
-  - id: 15
-    lines: [83, 88]
+  - id: 16
+    lines: [83, 117]
     text: |
       ---
 
       ## PR Description Format
 
       After completing work, provide a PR description following this format:
-    type: directive
-    topic: Development Process
-    enforceability: semantic_only
-    confidence: high
-
-  - id: 16
-    lines: [88, 117]
-    text: |
 
       ```markdown
       ## Changes

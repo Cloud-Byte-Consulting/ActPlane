@@ -1,21 +1,12 @@
 file: "openai/codex/AGENTS.md"
 statements:
-  - id: 1
-    lines: [1, 5]
+  - id: 2
+    lines: [1, 6]
     text: |
       # Rust/codex-rs
 
       In the codex-rs folder where the rust code lives:
 
-
-    type: description
-    topic: System Overview
-    enforceability: null
-    confidence: high
-
-  - id: 2
-    lines: [5, 6]
-    text: |
       - Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
 
     type: directive
@@ -793,21 +784,12 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 63
-    lines: [183, 186]
+  - id: 64
+    lines: [183, 187]
     text: |
 
       ### Core Rules
 
-
-    type: description
-    topic: Architecture
-    enforceability: null
-    confidence: high
-
-  - id: 64
-    lines: [186, 187]
-    text: |
       - All active API development should happen in app-server v2. Do not add new API surface area to v1.
 
     type: directive
@@ -942,21 +924,12 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 76
-    lines: [203, 206]
+  - id: 77
+    lines: [203, 207]
     text: |
 
       ### Client->server request payloads (`*Params`)
 
-
-    type: description
-    topic: Architecture
-    enforceability: null
-    confidence: high
-
-  - id: 77
-    lines: [206, 207]
-    text: |
       - Every optional field must be annotated with `#[ts(optional = nullable)]`. Do not use `#[ts(optional = nullable)]` outside client->server request payloads (`*Params`).
 
     type: directive
@@ -1000,21 +973,12 @@ statements:
     context_required: none
     confidence: high
 
-  - id: 81
-    lines: [212, 215]
+  - id: 82
+    lines: [212, 216]
     text: |
 
       ### Development Workflow
 
-
-    type: description
-    topic: Architecture
-    enforceability: null
-    confidence: high
-
-  - id: 82
-    lines: [215, 216]
-    text: |
       - Update app-server docs/examples when API behavior changes (at minimum `app-server/README.md`).
 
     type: directive

@@ -240,22 +240,14 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 22
-    lines: [71, 76]
+  - id: 23
+    lines: [71, 77]
     text: |
 
       ### Multi-agent installer
 
       `src/installer/` is the entry point for `codegraph install` (and the bare `codegraph`/`npx @colbymchenry/codegraph` invocation). Architecture:
 
-    type: description
-    topic: Architecture
-    enforceability: null
-    confidence: high
-
-  - id: 23
-    lines: [76, 77]
-    text: |
       - `targets/registry.ts` lists every supported agent.
     type: description
     topic: Architecture
@@ -352,22 +344,14 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 33
-    lines: [92, 97]
+  - id: 34
+    lines: [92, 98]
     text: |
 
       ## Tests
 
       Tests live in `__tests__/` and mirror the module they cover. Notable ones beyond the obvious:
 
-    type: description
-    topic: Testing
-    enforceability: null
-    confidence: high
-
-  - id: 34
-    lines: [97, 98]
-    text: |
       - `installer-targets.test.ts` — parameterized contract suite across all 4 agent targets (see installer notes above).
     type: description
     topic: Testing

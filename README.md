@@ -6,7 +6,7 @@
 
 ActPlane sits below the tool layer, so a rule holds information-flow constraints
 across every process, file access, and network connection the agent touches, no
-matter what tool, subprocess, or script it uses to get there.
+matter what tool, subprocess, or script it uses to get there. 
 
 Each rule sets its own mode: **notify** (observe and notify agent), **block**
 (stop the action before it commits), or **kill** (terminate the process). In

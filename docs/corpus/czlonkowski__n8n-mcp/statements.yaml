@@ -270,21 +270,13 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 15
-    lines: [158, 162]
+  - id: 16
+    lines: [158, 163]
     text: |
       ### MCP Tools Architecture
 
       The MCP server exposes tools in several categories:
 
-    type: description
-    topic: Architecture
-    enforceability: null
-    confidence: high
-
-  - id: 16
-    lines: [162, 163]
-    text: |
       1. **Discovery Tools**: Finding and exploring nodes
     type: description
     topic: Architecture

@@ -363,20 +363,12 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 23
-    lines: [182, 185]
+  - id: 24
+    lines: [182, 186]
     text: |
 
       ## What Not To Do
 
-    type: description
-    topic: Development Process
-    enforceability: null
-    confidence: high
-
-  - id: 24
-    lines: [185, 186]
-    text: |
       - Don't add features without tests
     type: directive
     topic: Testing

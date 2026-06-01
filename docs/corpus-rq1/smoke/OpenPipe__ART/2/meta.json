@@ -1,0 +1,7 @@
+{
+  "repo": "OpenPipe/ART",
+  "statement_id": 2,
+  "directive": "## Testing - Always run tests before committing. The test command is `uv run prek run --all-files`.",
+  "match_kind": "gate_before_cmd",
+  "effect": "kill"
+}

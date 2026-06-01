@@ -81,21 +81,13 @@ statements:
     context_required: task
     confidence: high
 
-  - id: 9
-    lines: [15, 19]
+  - id: 10
+    lines: [15, 20]
     text: |
 
 
       ## Multi-Agent Safety
 
-    type: description
-    topic: Development Process
-    enforceability: null
-    confidence: high
-
-  - id: 10
-    lines: [19, 20]
-    text: |
       - Do not create, apply, or drop `git stash` entries unless explicitly requested.
     type: directive
     topic: Development Process
@@ -153,19 +145,11 @@ statements:
     enforceability: semantic_only
     confidence: high
 
-  - id: 16
-    lines: [26, 28]
+  - id: 17
+    lines: [26, 29]
     text: |
       ## Change Hygiene
 
-    type: description
-    topic: Development Process
-    enforceability: null
-    confidence: high
-
-  - id: 17
-    lines: [28, 29]
-    text: |
       - If staged and unstaged diffs are formatting-only, resolve them without asking.
     type: directive
     topic: Development Process

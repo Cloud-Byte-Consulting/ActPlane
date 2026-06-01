@@ -1,0 +1,7 @@
+{
+  "repo": "openai/codex",
+  "statement_id": 17,
+  "directive": "- If you change `ConfigToml` or nested config types, run `just write-config-schema` to update `codex-rs/core/config.schema.json`.",
+  "match_kind": "gate_before_cmd",
+  "effect": "kill"
+}

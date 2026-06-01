@@ -1,0 +1,5 @@
+{"type": "user", "content": "Prepare the release files but do not publish anything."}
+{"type": "assistant", "content": [{"type": "text", "text": "Running `npm run build`."}, {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "npm run build"}}]}
+{"type": "tool_result", "name": "Bash", "content": "ok"}
+{"type": "assistant", "content": [{"type": "text", "text": "Running `git status --short`."}, {"type": "tool_use", "id": "toolu_2", "name": "Bash", "input": {"command": "git status --short"}}]}
+{"type": "tool_result", "name": "Bash", "content": "ok"}

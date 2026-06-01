@@ -1,0 +1,6 @@
+version: 1
+policy: |
+  source CFG_TOUCHED = file "**/ConfigToml*"
+  rule config-schema-fresh:
+    kill exec "git" "commit" if CFG_TOUCHED unless after exec "just" since write "**/ConfigToml*"
+    because "ConfigToml changed; run `just write-config-schema` before committing."

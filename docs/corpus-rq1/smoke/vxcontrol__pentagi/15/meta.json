@@ -1,0 +1,7 @@
+{
+  "repo": "vxcontrol/pentagi",
+  "statement_id": 15,
+  "directive": "### Code Generation When modifying `backend/pkg/graph/schema.graphqls`, re-run the gqlgen command to regenerate resolver stubs. When modifying REST handler annotations, re-run swag to update Swagger docs. When modifying `frontend/src/graphql/*.graphql` query files, re-run `npm run graphql:generate` to update TypeScript types.",
+  "match_kind": "gate_before_cmd",
+  "effect": "kill"
+}

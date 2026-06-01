@@ -62,20 +62,12 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 7
-    lines: [10, 13]
+  - id: 8
+    lines: [10, 14]
     text: |
 
       ## Rules for TypeScript
 
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
-  - id: 8
-    lines: [13, 14]
-    text: |
       - Do not use `any` type.
     type: directive
     topic: Implementation Details

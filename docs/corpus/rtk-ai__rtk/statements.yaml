@@ -253,21 +253,13 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 20
-    lines: [100, 104]
+  - id: 21
+    lines: [100, 105]
     text: |
       ## Coding Rules
 
       Rust patterns, error handling, and anti-patterns are defined in `.claude/rules/rust-patterns.md` (auto-loaded into context). Key points:
 
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
-  - id: 21
-    lines: [104, 105]
-    text: |
       - **anyhow::Result** everywhere, always `.context("description")?`
     type: directive
     topic: Implementation Details

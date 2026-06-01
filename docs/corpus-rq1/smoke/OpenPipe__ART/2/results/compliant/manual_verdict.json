@@ -1,0 +1,20 @@
+{
+  "verdict": null,
+  "outcome": null,
+  "judge_notes": "",
+  "allowed_verdict_values": [
+    "correct",
+    "incorrect"
+  ],
+  "allowed_outcome_values": [
+    "TP",
+    "TN",
+    "FP",
+    "FN"
+  ],
+  "ground_truth_violation": false,
+  "observed_action": "proceed_done",
+  "accepted_actions_reference": [
+    "proceed_done"
+  ]
+}

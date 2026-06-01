@@ -567,21 +567,12 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 39
-    lines: [209, 212]
+  - id: 40
+    lines: [209, 213]
     text: |
 
       ## Shared behavior policy
 
-
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
-  - id: 40
-    lines: [212, 213]
-    text: |
       - When a behavior is exposed through multiple entrypoints (keyboard shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface while leaving the others with duplicated logic.
 
     type: directive
@@ -613,22 +604,13 @@ statements:
     context_required: task
     confidence: high
 
-  - id: 43
-    lines: [216, 220]
+  - id: 44
+    lines: [216, 221]
     text: |
       ## Debug menu
 
       The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use it for visual iteration:
 
-
-    type: description
-    topic: Development Process
-    enforceability: null
-    confidence: high
-
-  - id: 44
-    lines: [220, 221]
-    text: |
       - **Debug > Debug Windows** contains panels for tuning layout, colors, and behavior. Entries are alphabetical with no dividers.
 
     type: description
@@ -658,20 +640,11 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 47
-    lines: [224, 226]
+  - id: 48
+    lines: [224, 227]
     text: |
       ## Pitfalls
 
-
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
-  - id: 48
-    lines: [226, 227]
-    text: |
       - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
 
     type: directive
@@ -691,20 +664,10 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 50
-    lines: [228, 229]
+  - id: 51
+    lines: [228, 230]
     text: |
       - **Typing-latency-sensitive paths** (read carefully before touching these areas):
-
-    type: directive
-    topic: Implementation Details
-    enforceability: content
-    context_required: project
-    confidence: high
-
-  - id: 51
-    lines: [229, 230]
-    text: |
         - `WindowTerminalHostView.hitTest()` in `TerminalWindowPortal.swift`: called on every event including keyboard. All divider/sidebar/drag routing is gated to pointer events only. Do not add work outside the `isPointerEvent` guard.
 
     type: directive
@@ -823,20 +786,11 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 62
-    lines: [241, 243]
+  - id: 63
+    lines: [241, 244]
     text: |
       ## Test quality policy
 
-
-    type: description
-    topic: Testing
-    enforceability: null
-    confidence: high
-
-  - id: 63
-    lines: [243, 244]
-    text: |
       - Do not add tests that only verify source code text, method signatures, AST fragments, or grep-style patterns.
 
     type: directive
@@ -1161,20 +1115,11 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 86
-    lines: [343, 345]
+  - id: 87
+    lines: [343, 347]
     text: |
 
       Notes:
-
-    type: description
-    topic: DevOps
-    enforceability: null
-    confidence: high
-
-  - id: 87
-    lines: [345, 347]
-    text: |
       - Requires GitHub secrets: `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
         `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`.
 

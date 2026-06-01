@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "returncode": 0,
+  "stdout": "✓ /home/yunwei37/workspace/ActPlane/docs/corpus-rq1/smoke/code-yeongyu__oh-my-openagent/48/rule.yaml: 1 rule(s) compile.\n\n  1. commit-only-when-requested — notify exec (Commit only when the user explicitly requested it.)\n\n✓ no warnings.\n\n(note: `check` needs no privileges; enforcing needs `sudo -E actplane run/watch`.)\n",
+  "stderr": ""
+}

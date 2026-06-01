@@ -6,15 +6,15 @@ AI coding agents are increasingly governed by natural-language instruction
 files (CLAUDE.md, AGENTS.md). Prior empirical studies classify these files
 by topic at file or section granularity, but do not distinguish
 descriptions from directives and do not assess enforceability. We present
-the first statement-level analysis: 2,152 statements extracted from 64
+the first statement-level analysis: 2,116 statements extracted from 64
 highly popular open-source repositories, each classified by content type
 (description vs. directive), topic (12 categories), enforcement
 level (4 levels: semantic-only, content, per-event, cross-event), and
 context requirement (none, project context, or task context).
 
 Four findings emerge in a layered progression. First, **instruction
-files are behavioral policies, not documentation**: 63% of statements
-are directives, though this majority is invisible at line level (48%)
+files are behavioral policies, not documentation**: 64% of statements
+are directives, though this majority is invisible at line level (49%)
 because directives are terse (3.6 lines) while descriptions are verbose
 (6.8 lines). Second, **file-level topic analysis systematically
 distorts the picture**: Architecture ranks first by file prevalence in
@@ -87,7 +87,7 @@ three contributions:
    content, per-event, cross-event), and context requirement (none,
    project, task).
 
-2. A **statement-level corpus** of 2,152 statements extracted from
+2. A **statement-level corpus** of 2,116 statements extracted from
    instruction files in 64 projects, annotated along all four axes and
    released as a public dataset.
 
@@ -793,9 +793,9 @@ Estimated annotation error rate after correction is 5–8%.
 
 #### 5.1.1 RQ1a: By statement count
 
-Of the 2,152 statements extracted from 64 repositories, 1,366 (63.5%) are
-directives and 786 (36.5%) are descriptions. The per-repository directive
-fraction has a median of 70.0% and mean of 63.5%, indicating that the
+Of the 2,116 statements extracted from 64 repositories, 1,361 (64.3%) are
+directives and 755 (35.7%) are descriptions. The per-repository directive
+fraction has a median of 71.0% and mean of 64.3%, indicating that the
 majority of instruction-file content is directive rather than
 informational. One repository (HKUDS/DeepTutor) contains only descriptions
 (0% directives); at the other extreme, alibaba/OpenSandbox is 97%
@@ -803,12 +803,12 @@ directives.
 
 | Metric | Value |
 |---|---|
-| Total statements | 2,152 |
-| Description | 786 (36.5%) |
-| Directive | 1,366 (63.5%) |
-| Statements per repo (median / mean) | 29 / 33.6 |
+| Total statements | 2,116 |
+| Description | 755 (35.7%) |
+| Directive | 1,361 (64.3%) |
+| Statements per repo (median / mean) | 29 / 33.1 |
 | Directives per repo (median / mean) | 15 / 21.3 |
-| Directive fraction per repo (median) | 70.0% |
+| Directive fraction per repo (median) | 71.0% |
 
 Figure 1 shows the per-repository directive fraction sorted from lowest
 to highest. The median is 69.6%, and 75% of repositories have a directive
@@ -823,18 +823,18 @@ median (69.6%).*
 #### 5.1.2 RQ1b: By line count
 
 The same question measured by source lines yields a different answer.
-Of the 10,209 lines covered by the corpus, 4,903 (48.0%) belong to
-directive statements and 5,306 (52.0%) belong to descriptions. The
+Of the 10,209 lines covered by the corpus, 4,957 (48.6%) belong to
+directive statements and 5,252 (51.4%) belong to descriptions. The
 per-repository median drops to 56.7%.
 
 | Metric | By statements | By lines |
 |---|---|---|
-| Directive | 1,366 (63.5%) | 4,903 (48.0%) |
-| Description | 786 (36.5%) | 5,306 (52.0%) |
-| Per-repo median | 70.0% | 56.7% |
+| Directive | 1,361 (64.3%) | 4,957 (48.6%) |
+| Description | 755 (35.7%) | 5,252 (51.4%) |
+| Per-repo median | 71.0% | 56.7% |
 
-The 13.3 percentage-point gap arises because directives are terse (average
-3.6 lines per statement) while descriptions are verbose (average 6.8
+The 14.3 percentage-point gap arises because directives are terse (average
+3.6 lines per statement) while descriptions are verbose (average 7.0
 lines). A typical directive is a one-line list item ("Never push to
 main"); a typical description is a multi-line directory listing or
 code block.
@@ -886,7 +886,7 @@ are overwhelmingly directive, while System Overview (0%) and Architecture
 | Security | 18 | 37 | 55 | 2.6% | 67.3% | 180 | 1.8% |
 | DevOps | 29 | 14 | 43 | 2.0% | 32.6% | 178 | 1.7% |
 | Maintenance | 7 | 34 | 41 | 1.9% | 82.9% | 194 | 1.9% |
-| **Total** | **786** | **1,366** | **2,152** | **100%** | **63.5%** | **10,209** | **100%** |
+| **Total** | **755** | **1,361** | **2,116** | **100%** | **64.3%** | **10,209** | **100%** |
 
 ![RQ2b](tmp/fig3_rq2b_directive_ratio.png)
 *Figure 3. Directive ratio per topic, sorted. Red > 70%, yellow 40--70%,
@@ -971,17 +971,17 @@ directives per repository to cover the corpus.
 
 #### 5.4.1 RQ4a: What fraction of directives are system-enforceable?
 
-Of the 1,366 directives, 1,129 (82.7%) relate to observable system
-behavior. Only 237 (17.3%) are semantic-only (reasoning strategy,
+Of the 1,361 directives, 1,127 (82.8%) relate to observable system
+behavior. Only 234 (17.2%) are semantic-only (reasoning strategy,
 communication style, output format) with no system-level counterpart.
 
 | Level | Count | % |
 |---|---|---|
-| Semantic-only | 237 | 17.3% |
-| Content | 522 | 38.2% |
-| Per-event | 392 | 28.7% |
-| Cross-event | 215 | 15.7% |
-| **System-enforceable total** | **1,129** | **82.7%** |
+| Semantic-only | 234 | 17.2% |
+| Content | 520 | 38.2% |
+| Per-event | 392 | 28.8% |
+| Cross-event | 215 | 15.8% |
+| **System-enforceable total** | **1,127** | **82.8%** |
 
 ![RQ4a](tmp/fig7_rq4a_enforceability_overall.png)
 *Figure 7. Enforcement-level distribution across all 1,361 directives.
@@ -1153,20 +1153,20 @@ directive mix.
 
 #### 5.5.1 RQ6a: Overall context distribution
 
-Of the 1,129 system-level directives, 298 (26.4%) are self-contained
-(none), 725 (64.2%) require project context, and 106 (9.4%) require task
+Of the 1,127 system-level directives, 297 (26.4%) are self-contained
+(none), 724 (64.2%) require project context, and 106 (9.4%) require task
 context. In total, 73.6% of system-level directives cannot be enforced
 from the directive text alone — they require additional information
 from the repository or the current session.
 
 | Context | Count | % |
 |---|---|---|
-| None | 298 | 26.4% |
-| Project | 725 | 64.2% |
+| None | 297 | 26.4% |
+| Project | 724 | 64.2% |
 | Task | 106 | 9.4% |
 
 ![RQ6a](tmp/fig15_rq6a_context_overall.png)
-*Figure 15. Context requirement distribution across all 1,129
+*Figure 15. Context requirement distribution across all 1,127
 system-level directives. 73.6% need additional context to enforce.*
 *(Script: `docs/tmp/fig_all_rqs.py`)*
 
@@ -1176,7 +1176,7 @@ Context requirement varies sharply across enforcement levels:
 
 | | None | Project | Task | Total |
 |---|---|---|---|---|
-| **Content** | 222 (42.5%) | 293 (56.1%) | 7 (1.3%) | 522 |
+| **Content** | 221 (42.5%) | 292 (56.2%) | 7 (1.3%) | 520 |
 | **Per-event** | 66 (16.8%) | 267 (68.1%) | 59 (15.1%) | 392 |
 | **Cross-event** | 10 (4.7%) | 165 (76.7%) | 40 (18.6%) | 215 |
 
@@ -1431,13 +1431,13 @@ ActPlane target.
 ## 9. Conclusion
 
 This paper presents the first statement-level analysis of agent
-instruction files, extracting 2,152 statements from 64 repositories and
+instruction files, extracting 2,116 statements from 64 repositories and
 classifying each along four axes: content type, topic, enforcement
 level, and context requirement.
 
-**RQ1 (Content types).** 63.2% of statements are directives by count,
-but only 47.9% by line count, because directives are terse (3.6
-lines/statement) while descriptions are verbose (6.7 lines/statement).
+**RQ1 (Content types).** 64.3% of statements are directives by count,
+but only 48.6% by line count, because directives are terse (3.6
+lines/statement) while descriptions are verbose (7.0 lines/statement).
 Prior line-level or file-level analyses see a balanced document;
 statement-level analysis reveals a 2:1 directive majority.
 
@@ -1451,9 +1451,9 @@ distortion.
 (median 15). The top 10 repos account for 40.6% of all directives,
 indicating a right-skewed distribution.
 
-**RQ4 (Enforcement level).** 82.7% of directives involve system-observable
+**RQ4 (Enforcement level).** 82.8% of directives involve system-observable
 behavior. Content-level enforcement covers 38.2%, per-event matching
-covers an additional 28.7%, and the remaining 15.7% require cross-event
+covers an additional 28.8%, and the remaining 15.8% require cross-event
 state tracking. Although 15.7% sounds modest at the directive level,
 81% of repositories contain at least one such directive, and 43% require
 all four enforcement layers simultaneously. This cross-event gap —
@@ -1470,7 +1470,7 @@ Task context concentrates in per-event approval gates (72.5% of task
 directives). This quantifies the need for an agent-programmable policy
 interface: hardcoded rules cover only 27.2% of system-level directives.
 
-The annotated dataset (2,152 statements, 64 repositories, four-axis
+The annotated dataset (2,116 statements, 64 repositories, four-axis
 classification) is released as a public replication package. We hope it
 provides a quantitative foundation for agent harness engineering: not
 just what topics developers address in instruction files, but what

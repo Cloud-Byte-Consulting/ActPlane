@@ -61,20 +61,12 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 4
-    lines: [35, 37]
+  - id: 5
+    lines: [35, 38]
     text: |
 
       ## Hard rules
 
-    type: description
-    topic: Development Process
-    enforceability: null
-    confidence: high
-
-  - id: 5
-    lines: [37, 38]
-    text: |
       - **YOU MUST NOT commit or push without explicit user request.**
     type: directive
     topic: Development Process
@@ -163,19 +155,11 @@ statements:
     context_required: project
     confidence: high
 
-  - id: 14
-    lines: [47, 49]
+  - id: 15
+    lines: [47, 50]
     text: |
       ## Workflow preferences
 
-    type: description
-    topic: Development Process
-    enforceability: null
-    confidence: high
-
-  - id: 15
-    lines: [49, 50]
-    text: |
       - For lesson edits, follow `STYLE_GUIDE.md` for structure/naming/diagrams.
     type: directive
     topic: Documentation
@@ -221,18 +205,10 @@ statements:
     context_required: none
     confidence: high
 
-  - id: 20
-    lines: [55, 56]
+  - id: 21
+    lines: [55, 57]
     text: |
       ## Token Efficiency
-    type: description
-    topic: AI Integration
-    enforceability: null
-    confidence: high
-
-  - id: 21
-    lines: [56, 57]
-    text: |
       - Never re-read files you just wrote or edited. You know the contents.
     type: directive
     topic: AI Integration

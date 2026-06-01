@@ -119,36 +119,12 @@ statements:
     enforceability: null
     confidence: high
 
-  - id: 7
-    lines: [62, 63]
-    text: |
-
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
-  - id: 8
-    lines: [63, 64]
-    text: |
-      ## Key Conventions
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
-  - id: 9
-    lines: [64, 65]
-    text: |
-
-    type: description
-    topic: Implementation Details
-    enforceability: null
-    confidence: high
-
   - id: 10
-    lines: [65, 66]
+    lines: [62, 66]
     text: |
+
+      ## Key Conventions
+
       - **Package manager**: bun (not pnpm, not npm for workspace operations)
     type: directive
     topic: Build and Run
