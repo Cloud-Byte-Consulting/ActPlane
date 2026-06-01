@@ -1,6 +1,0 @@
-version: 1
-policy: |
-  source GQL_SCHEMA_TOUCHED = file "backend/pkg/graph/schema.graphqls"
-  rule gqlgen-after-schema:
-    kill exec "git" "commit" if GQL_SCHEMA_TOUCHED unless after exec "go" since write "backend/pkg/graph/schema.graphqls"
-    because "GraphQL schema changed; run gqlgen before committing."

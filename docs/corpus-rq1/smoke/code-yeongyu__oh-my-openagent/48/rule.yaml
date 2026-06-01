@@ -1,6 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  rule commit-only-when-requested:
-    notify exec "git" "commit" if AGENT
-    because "Commit only when the user explicitly requested it."

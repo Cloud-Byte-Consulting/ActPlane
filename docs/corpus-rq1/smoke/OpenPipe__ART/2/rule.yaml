@@ -1,6 +1,0 @@
-version: 1
-policy: |
-  source CODE_CHANGED = file "src/**"
-  rule test-before-commit:
-    kill exec "git" "commit" if CODE_CHANGED unless after exec "uv" since write "src/**"
-    because "Run `uv run prek run --all-files` before committing."

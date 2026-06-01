@@ -1,7 +1,0 @@
-{
-  "repo": "code-yeongyu/oh-my-openagent",
-  "statement_id": 48,
-  "directive": "- Never commit unless explicitly requested.",
-  "match_kind": "notify_cmd",
-  "effect": "notify"
-}

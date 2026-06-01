@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  rule no-shared-publish-actions:
-    kill exec "npm" "publish" if AGENT
-    kill exec "git" "push" if AGENT
-    kill exec "git" "tag" if AGENT
-    because "Do not run publish actions on shared state; write files and hand commands to the user."

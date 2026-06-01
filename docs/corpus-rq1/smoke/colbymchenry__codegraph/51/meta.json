@@ -1,7 +1,0 @@
-{
-  "repo": "colbymchenry/codegraph",
-  "statement_id": 51,
-  "directive": "**Do not run `npm publish`, `git push`, or `git tag` yourself** — these are publish actions on shared state. Write the files, hand the user the commands.",
-  "match_kind": "forbidden_cmd",
-  "effect": "kill"
-}
