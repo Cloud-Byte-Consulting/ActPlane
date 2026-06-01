@@ -152,8 +152,8 @@ bounded state (one `u32` epoch per distinct gate and per distinct `since`-event
 in the policy — a handful, not per object), and lineage-scoped (inherited at fork
 exactly like labels, so "since *I* edited src" means anyone in the agent's
 subtree). Engine surface: `te_sess` per-session epochs, `te_tick`/`te_stamp`,
-`te_inval_hits`, `te_after_satisfied` in `taint_engine.bpf.h`; ABI fields
-`taint_inval`, `taint_rule.{gate_idx,since_mask}`, `taint_config.invals`.
+`te_after_satisfied` in `taint_engine.bpf.h`; ABI fields
+`taint_update.invals` and `taint_rule.{gate_idx,since_mask}`.
 `since read PAT` bumps `inval_epoch` on **read** events as well as writes.
 
 ### 1.10 Object identity and the precision frontier
@@ -395,11 +395,11 @@ Lineage attributes (`gates`, ancestry, and the per-lineage epoch counters of §1
 
 ## 6. Implementation
 
-Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat kernel config; the **kernel** propagates taint and evaluates rules, emitting only rule matches.
+Two-tier (per §10.4): a userspace Rust **compiler** lowers the DSL to a flat kernel config; the **kernel** propagates taint and evaluates rules, emitting only rule matches. File policies are YAML (`actplane.yaml` / `.actplane/policy.yaml`) with an embedded `policy: |` DSL block; raw DSL is only accepted through `--rule`.
 
-- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST, incl. the optional `since` tail on `after` and implicit basename matching for exec targets), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask, and gate+`since` → epoch-slot indices with `taint_rule.{gate_idx,since_mask}` + `taint_config.invals`). `mod.rs::compile_str`. Tests compile E1–E13 and rule effects. `main.rs` loads `actplane.yaml`, compiles its `policy: |` DSL block, spawns the loader, and prints rule matches with their reason (the feedback payload).
-- **`bpf/taint.h`** — the rule ABI (`taint_source`/`taint_rule`/`taint_xform`/`taint_gate`/`taint_inval`/`taint_config`) + libc-free matching predicates (`taint_streq`/`prefix`/`suffix`/`any`, `mask_ok`, `arg_match`), 30 unit tests in `test_taint.c`.
-- **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + per-session epochs (`te_sess`, `te_tick`/`te_stamp`, `te_inval_hits`, `te_after_satisfied`) for §1.9 staleness + `file_id`/`file_state` object identity (§1.10) + propagation + `te_check`/`te_connect_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
+- **`collector/src/dsl/`** — `ast.rs`, `parse.rs` (DSL → AST, incl. the optional `since` tail on `after` and implicit basename matching for exec targets), `lower.rs` (AST → `struct taint_config` bytes: label/gate bit allocation, boolean→`req`/`forbid` via DNF, glob→exact/prefix/suffix/any, IPv4→net/mask, and source/xform/gate/`since` lowering into `taint_update[]`). `mod.rs::compile_str`. Tests compile E1–E13, rule effects, and the YAML corpus in `collector/test/policies/`. `main.rs` loads `actplane.yaml`, compiles its `policy: |` DSL block, spawns the loader, and prints rule matches with their reason (the feedback payload).
+- **`bpf/taint.h`** — the kernel ABI (`taint_update`/`taint_rule`/`taint_config`) + libc-free matching predicates (`taint_streq`/`prefix`/`suffix`/`any`, `mask_ok`, `arg_match`), 30 unit tests in `test_taint.c`.
+- **`bpf/taint_engine.bpf.h`** — label maps (proc/file/endpoint) + lineage/session gates + per-session epochs (`te_sess`, `te_tick`/`te_stamp`, `te_after_satisfied`) for §1.9 staleness + `file_id`/`file_state` object identity (§1.10) + generic update application + propagation + `te_check` (bpf2bpf subprograms; pattern reads via local copies, IPv4 matched numerically — both chosen to satisfy the verifier).
 - **`bpf/process.bpf.c`** — fork/exec/exit/open/mutate/connect hooks; one emitter (`emit_violation`). **`bpf/process.c`** — installs config, reports rule matches.
 
 Engineering notes (verifier): patterns are copied rodata→local before matching (direct `volatile` reads mis-evaluate); heavy helpers are `__noinline` (stack budget); buffers are ≥ `TAINT_PAT_LEN`; argv/index access uses explicit bound guards (index masking makes clang emit a pointer-OR the verifier rejects); connect matches numeric IPv4 (no in-kernel string formatting). See the status note at the top for what is verified live and what remains.

@@ -52,6 +52,13 @@ pub(crate) fn load_policy(cli: &Cli) -> Result<LoadedPolicy> {
         None => discover_policy(&cwd)
             .ok_or("no actplane.yaml found; pass --policy <file> or --rule <dsl>")?,
     };
+    if path.extension().is_some_and(|ext| ext == "dsl") {
+        return Err(format!(
+            "{} is a raw DSL file; policy files must be YAML with `policy: |`. Use `--rule` for one-off inline DSL.",
+            path.display()
+        )
+        .into());
+    }
     let src =
         std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {}", path.display(), e))?;
     let config: FileConfig =

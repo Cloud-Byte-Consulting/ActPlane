@@ -1,0 +1,21 @@
+# directive: "Scripts go in `scripts/`, references in `references/`, templates in
+#   `templates/`. Don't expect the model to inline-write parsers, XML walkers, or
+#   non-trivial logic every call -- ship a helper script. Reference it from SKILL.md
+#   by path relative to the skill directory."
+# repo: "NousResearch__hermes-agent"
+# statement_id: 29
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "The directive says scripts go in scripts/, references in references/,
+#   templates in templates/. We notify when script files (.sh, .py) are written
+#   outside a scripts/ directory. This is an approximation since the directive also
+#   covers references/ and templates/ directories, but the primary enforceable
+#   concern at the syscall level is script file placement."
+version: 1
+policy: |
+  source AGENT = exec "claude"
+
+  rule scripts-in-scripts-dir:
+    notify write file "**/*.sh" if AGENT unless target "**/scripts/**"
+    notify write file "**/*.py" if AGENT unless target "**/scripts/**"
+    because "Helper scripts must be placed in the scripts/ directory, not written inline; reference them from SKILL.md by relative path"

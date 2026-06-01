@@ -12,14 +12,11 @@
  * free *matching predicates* shared by the eBPF program and the unit tests
  * (test_taint.c); the map-bearing engine is taint_engine.bpf.h.
  *
- * Constructs supported (per rule-language.md):
- *   - object + subject sources                          (struct taint_source)
- *   - sinks with boolean label masks (req AND, forbid NOT) and conditions
- *     (lineage-includes / after / target-scope)         (struct taint_rule)
- *   - declassify / endorse on a gate exec               (struct taint_xform)
- *   - lineage/temporal gates                            (struct taint_gate)
- * Globs are lowered to exact/prefix by the compiler; the kernel matches
- * exact (comm) or prefix (path / IPv4 dotted / host).
+ * The Rust compiler lowers DSL constructs to two kernel IR tables:
+ *   - event updates: event match -> add/del labels, set gates, stamp invals
+ *   - sink rules:    op + labels + target/scope/gate -> effect
+ * The kernel deliberately does not know whether an update came from a source,
+ * xform, gate, or since invalidator; it only applies masks.
  */
 
 #if defined(__clang__)
@@ -66,11 +63,10 @@
 #define TAINT_ARG_SLOTS_BUF (MAX_ARG_SLOTS * TAINT_ARG_LEN)
 #define TAINT_COMM_LEN    16   /* matches TASK_COMM_LEN */
 #define MAX_TAINT_LABELS  64   /* labels are a u64 bitmask */
-/* Sized for 100+ rules in one policy. The rule loop runs via bpf_loop (callback
- * verified once), so these bounds cost program size/memory, not verifier budget. */
-#define MAX_TAINT_SOURCES 128
+/* Sized for 100+ rules in one policy. Table loops run via bpf_loop (callback
+ * verified once), so these bounds cost memory, not verifier path count. */
+#define MAX_TAINT_UPDATES 320
 #define MAX_TAINT_RULES   128
-#define MAX_TAINT_XFORMS  64
 #define MAX_TAINT_GATES   64
 /* v2: `since` invalidators. `after exec X since Y` makes the X gate go stale
  * when a later Y-event (write/read/exec matching the invalidator) occurs in the
@@ -84,13 +80,6 @@ enum taint_match {
 	TAINT_MATCH_PREFIX = 1,
 	TAINT_MATCH_SUFFIX = 2, /* text ends with pat (dotfiles, host suffixes) */
 	TAINT_MATCH_ANY    = 3, /* always matches (the bare star) */
-};
-
-/* source kinds: what touching the node taints, and which node */
-enum taint_src_kind {
-	TSRC_EXEC     = 0, /* process that execs PAT acquires label */
-	TSRC_FILE     = 1, /* file matching PAT intrinsically has label (reader gets it) */
-	TSRC_ENDPOINT = 2, /* endpoint matching PAT has label (receiver gets it) */
 };
 
 /* sink operations */
@@ -110,15 +99,6 @@ enum taint_cond {
 	TCOND_TARGET  = 3, /* allowed if object matches cond_pat (neg flips) */
 };
 
-/* v2 `since` invalidator: an event whose later occurrence makes a TCOND_AFTER
- * gate stale. op is the lowered taint_op (TOP_EXEC comm / TOP_OPEN read /
- * TOP_WRITE write); the engine stamps inval_epoch[i] when one matches. */
-struct taint_inval {
-	unsigned char op;    /* enum taint_op */
-	unsigned char match; /* enum taint_match */
-	char pat[TAINT_PAT_LEN];
-};
-
 /* rule result */
 enum taint_effect {
 	TEFFECT_NOTIFY = 0, /* report only (notify the agent) */
@@ -126,13 +106,16 @@ enum taint_effect {
 	TEFFECT_KILL   = 2, /* send SIGKILL to the current task */
 };
 
-struct taint_source {
-	unsigned char kind;   /* enum taint_src_kind */
-	unsigned char match;  /* enum taint_match */
-	char pat[TAINT_PAT_LEN];
-	unsigned long long label;
-	unsigned int ipv4;      /* TSRC_ENDPOINT: network-order IP, matched as */
-	unsigned int ipv4_mask; /* (ip & ipv4_mask) == ipv4 */
+struct taint_update {
+	unsigned char op;    /* enum taint_op */
+	unsigned char match; /* enum taint_match for target; connect uses ipv4/mask */
+	char target[TAINT_PAT_LEN];
+	unsigned long long add;
+	unsigned long long del;
+	unsigned long long gates;
+	unsigned long long invals;
+	unsigned int ipv4;
+	unsigned int ipv4_mask;
 };
 
 struct taint_rule {
@@ -161,34 +144,15 @@ struct taint_rule {
 	unsigned long long since_mask;
 };
 
-struct taint_xform {
-	unsigned char match;
-	unsigned char add; /* 1 = endorse (add label), 0 = declassify (remove) */
-	char gate[TAINT_PAT_LEN];
-	unsigned long long label;
-};
-
-struct taint_gate {
-	unsigned char match;
-	char pat[TAINT_PAT_LEN]; /* exec matching this sets `bit` in lineage+session */
-	unsigned long long bit;
-};
-
 /* Compiled policy, the ABI between the Rust DSL compiler and the C loader.
  * The compiler writes exactly sizeof(struct taint_config) bytes; the loader
  * freads it and copies the tables into the BPF rodata. Both sides are repr(C)
  * with identical field order/types/sizes. */
 struct taint_config {
-	unsigned int n_sources;
+	unsigned int n_updates;
 	unsigned int n_rules;
-	unsigned int n_xforms;
-	unsigned int n_gates;
-	unsigned int n_invals;
-	struct taint_source sources[MAX_TAINT_SOURCES];
+	struct taint_update updates[MAX_TAINT_UPDATES];
 	struct taint_rule rules[MAX_TAINT_RULES];
-	struct taint_xform xforms[MAX_TAINT_XFORMS];
-	struct taint_gate gates[MAX_TAINT_GATES];
-	struct taint_inval invals[MAX_TAINT_INVALS];
 };
 
 /* ---- pure matching predicates ----

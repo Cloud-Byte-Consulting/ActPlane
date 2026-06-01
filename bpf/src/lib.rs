@@ -33,24 +33,23 @@ fn object_bytes() -> &'static [u8] {
 // Identical to collector/src/dsl/lower.rs; guarded by abi_size_matches() below.
 const PAT: usize = 64;
 const ARG: usize = 24;
-const MAX_SOURCES: usize = 128;
+const MAX_UPDATES: usize = 320;
 const MAX_RULES: usize = 128;
-const MAX_XFORMS: usize = 64;
-const MAX_GATES: usize = 64;
-const MAX_INVALS: usize = 64;
 const MAX_TAINT_LABELS: usize = 64;
 const M_SUFFIX: u8 = 2;
-const SRC_EXEC: u8 = 0;
 const OP_EXEC: u8 = 0;
 const C_TARGET: u8 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CSource {
-    kind: u8,
+struct CUpdate {
+    op: u8,
     m: u8,
-    pat: [u8; PAT],
-    label: u64,
+    target: [u8; PAT],
+    add: u64,
+    del: u64,
+    gates: u64,
+    invals: u64,
     ipv4: u32,
     ipv4_mask: u32,
 }
@@ -79,39 +78,11 @@ struct CRule {
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CXform {
-    m: u8,
-    add: u8,
-    gate: [u8; PAT],
-    label: u64,
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CGate {
-    m: u8,
-    pat: [u8; PAT],
-    bit: u64,
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CInval {
-    op: u8,
-    m: u8,
-    pat: [u8; PAT],
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
 struct CConfig {
-    n_sources: u32,
+    n_updates: u32,
     n_rules: u32,
-    n_xforms: u32,
-    n_gates: u32,
-    n_invals: u32,
-    sources: [CSource; MAX_SOURCES],
+    updates: [CUpdate; MAX_UPDATES],
     rules: [CRule; MAX_RULES],
-    xforms: [CXform; MAX_XFORMS],
-    gates: [CGate; MAX_GATES],
-    invals: [CInval; MAX_INVALS],
 }
 
 // proc_state seed (bpf/taint_engine.bpf.h: { u64 labels; u64 lin_gates; }).
@@ -122,11 +93,8 @@ struct ProcState {
     lin_gates: u64,
 }
 
-unsafe impl aya::Pod for CSource {}
+unsafe impl aya::Pod for CUpdate {}
 unsafe impl aya::Pod for CRule {}
-unsafe impl aya::Pod for CXform {}
-unsafe impl aya::Pod for CGate {}
-unsafe impl aya::Pod for CInval {}
 unsafe impl aya::Pod for ProcState {}
 
 // ringbuf event (bpf/process.h: struct event).
@@ -234,44 +202,14 @@ fn err(msg: impl Into<String>) -> io::Error {
 }
 
 fn validate_config(cfg: &CConfig) -> io::Result<()> {
-    for (i, s) in cfg
-        .sources
+    for (i, u) in cfg
+        .updates
         .iter()
-        .take((cfg.n_sources as usize).min(MAX_SOURCES))
+        .take((cfg.n_updates as usize).min(MAX_UPDATES))
         .enumerate()
     {
-        if s.kind == SRC_EXEC && s.m == M_SUFFIX {
-            return Err(err(format!("config source[{i}]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix")));
-        }
-    }
-    for (i, x) in cfg
-        .xforms
-        .iter()
-        .take((cfg.n_xforms as usize).min(MAX_XFORMS))
-        .enumerate()
-    {
-        if x.m == M_SUFFIX {
-            return Err(err(format!("config xform[{i}]: suffix exec matches are unsupported; use exact/prefix exec patterns")));
-        }
-    }
-    for (i, g) in cfg
-        .gates
-        .iter()
-        .take((cfg.n_gates as usize).min(MAX_GATES))
-        .enumerate()
-    {
-        if g.m == M_SUFFIX {
-            return Err(err(format!("config gate[{i}]: suffix exec matches are unsupported; use exact/prefix exec patterns")));
-        }
-    }
-    for (i, iv) in cfg
-        .invals
-        .iter()
-        .take((cfg.n_invals as usize).min(MAX_INVALS))
-        .enumerate()
-    {
-        if iv.op == OP_EXEC && iv.m == M_SUFFIX {
-            return Err(err(format!("config inval[{i}]: suffix exec matches are unsupported; use exact/prefix exec patterns")));
+        if u.op == OP_EXEC && u.m == M_SUFFIX {
+            return Err(err(format!("config update[{i}]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix")));
         }
     }
     for (i, r) in cfg
@@ -316,38 +254,24 @@ impl Loader {
         let mut loader = EbpfLoader::new();
         loader
             .set_global("enforce_mode", &enforce_mode, true)
-            .set_global("n_sources", &cfg.n_sources, true)
+            .set_global("n_updates", &cfg.n_updates, true)
             .set_global("n_rules", &cfg.n_rules, true)
-            .set_global("n_xforms", &cfg.n_xforms, true)
-            .set_global("n_gates", &cfg.n_gates, true)
-            .set_global("n_invals", &cfg.n_invals, true)
-            .set_global("taint_sources", &cfg.sources[..], true)
-            .set_global("taint_rules", &cfg.rules[..], true)
-            .set_global("taint_xforms", &cfg.xforms[..], true)
-            .set_global("taint_gates", &cfg.gates[..], true)
-            .set_global("taint_invals", &cfg.invals[..], true);
+            .set_global("taint_updates", &cfg.updates[..], true)
+            .set_global("taint_rules", &cfg.rules[..], true);
 
         let mut bpf = loader
             .load(object_bytes())
             .map_err(|e| err(format!("Ebpf::load: {e}")))?;
 
         // Loop counts in a (non-frozen) map so the verifier analyzes each
-        // bpf_loop callback once. Slots: 0=rules 1=sources 2=xforms 3=gates
-        // 4=invals 5=labels.
+        // bpf_loop callback once. Slots: 0=rules 1=updates 5=labels.
         {
             let mut counts: Array<_, u32> = Array::try_from(
                 bpf.map_mut("ts_counts")
                     .ok_or_else(|| err("map ts_counts missing"))?,
             )
             .map_err(|e| err(format!("ts_counts: {e}")))?;
-            let vals = [
-                cfg.n_rules,
-                cfg.n_sources,
-                cfg.n_xforms,
-                cfg.n_gates,
-                cfg.n_invals,
-                MAX_TAINT_LABELS as u32,
-            ];
+            let vals = [cfg.n_rules, cfg.n_updates, 0, 0, 0, MAX_TAINT_LABELS as u32];
             for (i, v) in vals.iter().enumerate() {
                 counts
                     .set(i as u32, *v, 0)
@@ -355,8 +279,14 @@ impl Loader {
             }
         }
 
+        let has_connect = (0..cfg.n_rules as usize)
+            .any(|i| cfg.rules.get(i).map_or(false, |r| r.op == 3));
+
         // Attach tracepoints (always) then LSM programs (only with BPF LSM).
         for (name, cat, event) in TRACEPOINTS {
+            if !has_connect && *name == "trace_connect" {
+                continue;
+            }
             let p: &mut TracePoint = bpf
                 .program_mut(name)
                 .ok_or_else(|| err(format!("program {name} missing")))?
@@ -369,6 +299,9 @@ impl Loader {
         if enforce {
             let btf = Btf::from_sys_fs().map_err(|e| err(format!("btf: {e}")))?;
             for (name, hook) in LSM_PROGS {
+                if !has_connect && *name == "enforce_socket_connect" {
+                    continue;
+                }
                 let p: &mut Lsm = bpf
                     .program_mut(name)
                     .ok_or_else(|| err(format!("program {name} missing")))?

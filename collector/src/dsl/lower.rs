@@ -12,9 +12,8 @@ use std::collections::HashMap;
 const PAT: usize = 64;
 const ARG: usize = 24;
 // Must match bpf/taint.h MAX_TAINT_* exactly (ABI). Sized for 100+ rules/policy.
-const MAX_SOURCES: usize = 128;
+const MAX_UPDATES: usize = 320;
 const MAX_RULES: usize = 128;
-const MAX_XFORMS: usize = 64;
 const MAX_GATES: usize = 64;
 const MAX_INVALS: usize = 64;
 
@@ -22,9 +21,6 @@ const M_EXACT: u8 = 0;
 const M_PREFIX: u8 = 1;
 const M_SUFFIX: u8 = 2;
 const M_ANY: u8 = 3;
-const SRC_EXEC: u8 = 0;
-const SRC_FILE: u8 = 1;
-const SRC_ENDPOINT: u8 = 2;
 const OP_EXEC: u8 = 0;
 const OP_OPEN: u8 = 1;
 const OP_WRITE: u8 = 2;
@@ -40,11 +36,14 @@ const EFFECT_KILL: u8 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CSource {
-    kind: u8,
+struct CUpdate {
+    op: u8,
     m: u8,
-    pat: [u8; PAT],
-    label: u64,
+    target: [u8; PAT],
+    add: u64,
+    del: u64,
+    gates: u64,
+    invals: u64,
     ipv4: u32,
     ipv4_mask: u32,
 }
@@ -73,39 +72,11 @@ struct CRule {
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CXform {
-    m: u8,
-    add: u8,
-    gate: [u8; PAT],
-    label: u64,
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CGate {
-    m: u8,
-    pat: [u8; PAT],
-    bit: u64,
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CInval {
-    op: u8,
-    m: u8,
-    pat: [u8; PAT],
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
 struct CConfig {
-    n_sources: u32,
+    n_updates: u32,
     n_rules: u32,
-    n_xforms: u32,
-    n_gates: u32,
-    n_invals: u32,
-    sources: [CSource; MAX_SOURCES],
+    updates: [CUpdate; MAX_UPDATES],
     rules: [CRule; MAX_RULES],
-    xforms: [CXform; MAX_XFORMS],
-    gates: [CGate; MAX_GATES],
-    invals: [CInval; MAX_INVALS],
 }
 
 fn set_pat(dst: &mut [u8], s: &str) {
@@ -182,14 +153,51 @@ fn lower_ipv4(pat: &str) -> (u32, u32) {
 struct Ctx {
     labels: HashMap<String, u64>,
     next_label: u32,
-    gates: Vec<CGate>,
+    updates: Vec<CUpdate>,
     gate_bits: HashMap<(u8, String), (u64, u32)>,
     next_gate: u32,
-    invals: Vec<CInval>,
     inval_slots: HashMap<(u8, u8, String), u32>,
     next_inval: u32,
 }
 impl Ctx {
+    fn add_update(&mut self, spec: UpdateSpec<'_>) -> Result<(), String> {
+        for u in &mut self.updates {
+            if u.op == spec.op
+                && u.m == spec.m
+                && u.ipv4 == spec.ipv4
+                && u.ipv4_mask == spec.ipv4_mask
+                && pat_eq(&u.target, spec.target)
+            {
+                u.add |= spec.add;
+                u.del |= spec.del;
+                u.gates |= spec.gates;
+                u.invals |= spec.invals;
+                return Ok(());
+            }
+        }
+        if self.updates.len() >= MAX_UPDATES {
+            return Err(format!(
+                "too many event updates ({} > {})",
+                self.updates.len() + 1,
+                MAX_UPDATES
+            ));
+        }
+        let mut u = CUpdate {
+            op: spec.op,
+            m: spec.m,
+            target: [0; PAT],
+            add: spec.add,
+            del: spec.del,
+            gates: spec.gates,
+            invals: spec.invals,
+            ipv4: spec.ipv4,
+            ipv4_mask: spec.ipv4_mask,
+        };
+        set_pat(&mut u.target, spec.target);
+        self.updates.push(u);
+        Ok(())
+    }
+
     fn label_bit(&mut self, name: &str) -> Result<u64, String> {
         if let Some(b) = self.labels.get(name) {
             return Ok(*b);
@@ -210,19 +218,23 @@ impl Ctx {
         if let Some(b) = self.gate_bits.get(&key) {
             return Ok(*b);
         }
-        if self.next_gate >= 64 || self.gates.len() >= MAX_GATES {
+        if self.next_gate >= 64 || self.next_gate as usize >= MAX_GATES {
             return Err("too many gates".into());
         }
         let idx = self.next_gate;
         let b = 1u64 << idx;
         self.next_gate += 1;
-        let mut g = CGate {
+        self.add_update(UpdateSpec {
+            op: OP_EXEC,
             m,
-            pat: [0; PAT],
-            bit: b,
-        };
-        set_pat(&mut g.pat, &lit);
-        self.gates.push(g);
+            target: &lit,
+            add: 0,
+            del: 0,
+            gates: b,
+            invals: 0,
+            ipv4: 0,
+            ipv4_mask: 0,
+        })?;
         self.gate_bits.insert(key, (b, idx));
         Ok((b, idx))
     }
@@ -239,21 +251,44 @@ impl Ctx {
         if let Some(i) = self.inval_slots.get(&key) {
             return Ok(1u64 << *i);
         }
-        if self.next_inval >= 64 || self.invals.len() >= MAX_INVALS {
+        if self.next_inval >= 64 || self.next_inval as usize >= MAX_INVALS {
             return Err("too many `since` invalidators (max 64)".into());
         }
         let idx = self.next_inval;
         self.next_inval += 1;
-        let mut iv = CInval {
+        let bit = 1u64 << idx;
+        self.add_update(UpdateSpec {
             op,
             m,
-            pat: [0; PAT],
-        };
-        set_pat(&mut iv.pat, &lit);
-        self.invals.push(iv);
+            target: &lit,
+            add: 0,
+            del: 0,
+            gates: 0,
+            invals: bit,
+            ipv4: 0,
+            ipv4_mask: 0,
+        })?;
         self.inval_slots.insert(key, idx);
-        Ok(1u64 << idx)
+        Ok(bit)
     }
+}
+
+struct UpdateSpec<'a> {
+    op: u8,
+    m: u8,
+    target: &'a str,
+    add: u64,
+    del: u64,
+    gates: u64,
+    invals: u64,
+    ipv4: u32,
+    ipv4_mask: u32,
+}
+
+fn pat_eq(buf: &[u8; PAT], s: &str) -> bool {
+    let mut pat = [0u8; PAT];
+    set_pat(&mut pat, s);
+    *buf == pat
 }
 
 /// expr -> disjunction of (req_mask, forbid_mask)
@@ -357,58 +392,58 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
     let mut ctx = Ctx {
         labels: HashMap::new(),
         next_label: 0,
-        gates: Vec::new(),
+        updates: Vec::new(),
         gate_bits: HashMap::new(),
         next_gate: 0,
-        invals: Vec::new(),
         inval_slots: HashMap::new(),
         next_inval: 0,
     };
-    let mut sources: Vec<CSource> = Vec::new();
     let mut rules: Vec<CRule> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
     let mut meta: Vec<RuleMeta> = Vec::new();
-    let mut xforms: Vec<CXform> = Vec::new();
-
-    // Labels are now only introduced through `source` declarations.
-    // The `label` keyword has been removed; bare labels in pol.labels
-    // are no longer produced by the parser.
 
     for s in &pol.sources {
         let bit = ctx.label_bit(&s.label)?;
-        let (mut net, mut mask) = (0u32, 0u32);
-        let (kind, (m, lit)) = match s.kind {
-            Kind::Exec => (SRC_EXEC, lower_exec(&s.pattern)),
-            Kind::File => (SRC_FILE, lower_path(&s.pattern)),
+        let (op, m, lit, ipv4, ipv4_mask) = match s.kind {
+            Kind::Exec => {
+                let (m, lit) = lower_exec(&s.pattern);
+                (OP_EXEC, m, lit, 0, 0)
+            }
+            Kind::File => {
+                let (m, lit) = lower_path(&s.pattern);
+                (OP_OPEN, m, lit, 0, 0)
+            }
             Kind::Endpoint => {
                 let (n, mk) = lower_ipv4(&s.pattern);
-                net = n;
-                mask = mk;
-                (SRC_ENDPOINT, (M_ANY, String::new())) // matched numerically
+                (OP_CONNECT, M_ANY, String::new(), n, mk)
             }
         };
-        let mut cs = CSource {
-            kind,
+        ctx.add_update(UpdateSpec {
+            op,
             m,
-            pat: [0; PAT],
-            label: bit,
-            ipv4: net,
-            ipv4_mask: mask,
-        };
-        set_pat(&mut cs.pat, &lit);
-        sources.push(cs);
+            target: &lit,
+            add: bit,
+            del: 0,
+            gates: 0,
+            invals: 0,
+            ipv4,
+            ipv4_mask,
+        })?;
     }
     for x in &pol.xforms {
         let bit = ctx.label_bit(&x.label)?;
         let (m, lit) = lower_exec(&x.gate);
-        let mut cx = CXform {
+        ctx.add_update(UpdateSpec {
+            op: OP_EXEC,
             m,
-            add: x.endorse as u8,
-            gate: [0; PAT],
-            label: bit,
-        };
-        set_pat(&mut cx.gate, &lit);
-        xforms.push(cx);
+            target: &lit,
+            add: if x.endorse { bit } else { 0 },
+            del: if x.endorse { 0 } else { bit },
+            gates: 0,
+            invals: 0,
+            ipv4: 0,
+            ipv4_mask: 0,
+        })?;
     }
     for (rid, rule) in pol.rules.iter().enumerate() {
         reasons.push(rule.reason.clone());
@@ -505,9 +540,6 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
         }
     }
 
-    if sources.len() > MAX_SOURCES {
-        return Err("too many sources".into());
-    }
     if rules.len() > MAX_RULES {
         return Err(format!(
             "too many compiled rules ({} > {})",
@@ -515,34 +547,16 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
             MAX_RULES
         ));
     }
-    if xforms.len() > MAX_XFORMS {
-        return Err("too many xforms".into());
-    }
-    if ctx.invals.len() > MAX_INVALS {
-        return Err("too many `since` invalidators".into());
-    }
 
     // build the repr(C) config
     let mut cfg: CConfig = unsafe { std::mem::zeroed() };
-    cfg.n_sources = sources.len() as u32;
+    cfg.n_updates = ctx.updates.len() as u32;
     cfg.n_rules = rules.len() as u32;
-    cfg.n_xforms = xforms.len() as u32;
-    cfg.n_gates = ctx.gates.len() as u32;
-    cfg.n_invals = ctx.invals.len() as u32;
-    for (i, s) in sources.iter().enumerate() {
-        cfg.sources[i] = *s;
+    for (i, u) in ctx.updates.iter().enumerate() {
+        cfg.updates[i] = *u;
     }
     for (i, r) in rules.iter().enumerate() {
         cfg.rules[i] = *r;
-    }
-    for (i, x) in xforms.iter().enumerate() {
-        cfg.xforms[i] = *x;
-    }
-    for (i, g) in ctx.gates.iter().enumerate() {
-        cfg.gates[i] = *g;
-    }
-    for (i, iv) in ctx.invals.iter().enumerate() {
-        cfg.invals[i] = *iv;
     }
 
     let bytes = unsafe {

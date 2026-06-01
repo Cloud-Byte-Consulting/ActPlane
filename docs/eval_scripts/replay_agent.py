@@ -265,6 +265,7 @@ def run_trace_under_actplane(
         raise FileNotFoundError(f"actplane binary not found: {actplane}")
     with tempfile.TemporaryDirectory(prefix="actplane-replay-") as td:
         workdir = Path(td)
+        workdir.chmod(0o777)
         fake_bin = workdir / "bin"
         cmd = [
             str(actplane),

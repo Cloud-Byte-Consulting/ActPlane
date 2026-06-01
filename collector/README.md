@@ -1,10 +1,12 @@
 # ActPlane Collector
 
 The userspace half of ActPlane: a **project-policy runner + taint-DSL compiler +
-reporting shim**. It discovers `actplane.yaml`, parses its embedded `policy: |`
-DSL, lowers it to the kernel ABI (`struct taint_config`), runs the embedded eBPF
-program, and prints each `TAINT_VIOLATION` the kernel emits with its policy
-reason. The kernel does all taint propagation and matching.
+reporting shim**. File policies are YAML (`actplane.yaml` or `.actplane/policy.yaml`)
+with an embedded `policy: |` DSL block; raw DSL is only accepted through `--rule`
+for one-off command-line use. The collector lowers the DSL to the kernel ABI
+(`struct taint_config`), runs the embedded eBPF program, and prints each
+`TAINT_VIOLATION` the kernel emits with its policy reason. The kernel does all
+taint propagation and matching.
 Each clause starts with an action verb: `notify`, `block`, or `kill`.
 For harness enforcement, `block` denies through BPF LSM when available, while
 `kill` makes the action fail by terminating the violating task. If BPF LSM is
@@ -16,7 +18,8 @@ or `kill` for harness termination. `actplane run` always prepares
 
 ```bash
 cargo build --release        # produces target/release/actplane
-cargo test                   # DSL compiler unit tests (E1–E12, DNF, ABI size)
+cargo test                   # DSL compiler unit tests (E1–E13, corpus, ABI)
+test/policy-corpus.sh        # YAML policy corpus + release compile microbench
 ```
 
 ## Usage
@@ -40,8 +43,8 @@ worked examples.
 - `src/dsl/` — the compiler:
   - `ast.rs` — `Policy` / `Source` / `Rule` / `Clause` / `Expr` / `Cond` / `Xform`.
   - `parse.rs` — hand-rolled lexer + recursive-descent parser for the DSL.
-  - `lower.rs` — `#[repr(C)]` mirrors of the kernel structs (`CSource`, `CRule`,
-    `CXform`, `CGate`, `CConfig`) and
+  - `lower.rs` — `#[repr(C)]` mirrors of the kernel structs (`CUpdate`, `CRule`,
+    `CConfig`) and
     `compile(Policy) -> Compiled { bytes, reasons, meta, labels }`:
     bit allocation, DNF expansion of label expressions (`dnf()`), and glob lowering
     (`lower_exec` / `lower_path` / `lower_ipv4`, mapping `**`/`*` to EXACT / PREFIX /
@@ -49,6 +52,8 @@ worked examples.
   - `mod.rs` — `compile_str()` entry point + the test suite.
 - `src/binary_extractor.rs` — embeds `bpf/process` via `include_bytes!` and extracts
   it to a temp dir at runtime so the single `actplane` binary is self-contained.
+- `test/policies/` — YAML policy corpus; each file has a `policy: |` block that is
+  parsed through the same YAML shape users write.
 
 ## ABI contract
 

@@ -17,9 +17,37 @@ pub fn compile_str(src: &str) -> Result<Compiled, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::FileConfig;
+    use std::path::{Path, PathBuf};
+    use std::time::Instant;
 
     fn ok(src: &str) -> Compiled {
         compile_str(src).expect("compile")
+    }
+
+    fn corpus_policy_sources() -> Vec<(PathBuf, String)> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("test/policies");
+        let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("read {}: {e}", dir.display()))
+            .map(|ent| ent.expect("policy dir entry").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "yaml"))
+            .collect();
+        paths.sort();
+        assert!(
+            !paths.is_empty(),
+            "no YAML policy corpus files in {}",
+            dir.display()
+        );
+        paths
+            .into_iter()
+            .map(|path| {
+                let src = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+                let cfg: FileConfig = serde_yaml::from_str(&src)
+                    .unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+                (path, cfg.policy)
+            })
+            .collect()
     }
 
     #[test]
@@ -226,6 +254,63 @@ mod tests {
             "source S = file \"/x/**\"\nrule r:\n  block open file \"/y/**\" if S\n  because \"x\"\n",
         );
         assert_eq!(a.bytes.len(), b.bytes.len());
+    }
+
+    #[test]
+    fn policy_corpus_files_compile() {
+        let policies = corpus_policy_sources();
+        let mut blob_len = None;
+        for (path, src) in &policies {
+            let compiled =
+                compile_str(src).unwrap_or_else(|e| panic!("compile {}: {e}", path.display()));
+            assert!(
+                !compiled.meta.is_empty(),
+                "{} should contain at least one rule",
+                path.display()
+            );
+            if let Some(n) = blob_len {
+                assert_eq!(
+                    compiled.bytes.len(),
+                    n,
+                    "{} blob size drift",
+                    path.display()
+                );
+            } else {
+                blob_len = Some(compiled.bytes.len());
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "run collector/test/policy-corpus.sh for the release microbench"]
+    fn policy_corpus_compile_perf() {
+        let policies = corpus_policy_sources();
+        let rounds = std::env::var("ACTPLANE_POLICY_BENCH_ROUNDS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(200);
+
+        for (_, src) in &policies {
+            compile_str(src).expect("warmup compile");
+        }
+
+        let start = Instant::now();
+        let mut bytes = 0usize;
+        for _ in 0..rounds {
+            for (_, src) in &policies {
+                bytes += compile_str(src).expect("bench compile").bytes.len();
+            }
+        }
+        let elapsed = start.elapsed();
+        let total = rounds * policies.len();
+        let us_per_policy = elapsed.as_secs_f64() * 1_000_000.0 / total as f64;
+        eprintln!(
+            "ActPlane IFC compile perf: {total} policies in {:.3}s = {:.2} us/policy ({} bytes)",
+            elapsed.as_secs_f64(),
+            us_per_policy,
+            bytes
+        );
+        assert!(bytes > 0);
     }
 
     #[test]

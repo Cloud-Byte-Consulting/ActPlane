@@ -1,0 +1,23 @@
+# directive: "API Keys: Never commit API keys to version control. Use environment
+#   variables or `.env` files (already in `.gitignore`)"
+# repo: "yusufkaraaslan__Skill_Seekers"
+# statement_id: 68
+# enforceability: "per_event"
+# context_required: "none"
+# notes: "The directive prohibits committing API keys. At the syscall level, we track
+#   data flow from secret-bearing files (.env, credentials, etc.) into the agent
+#   process. If the agent has read secrets and then tries to git add or git commit,
+#   the operation is killed. This is a conservative approximation: it flags any commit
+#   by an agent that has touched secret files in its lineage."
+version: 1
+policy: |
+  source AGENT = exec "claude"
+  source SECRET = file "**/.env"
+  source SECRET = file "**/.env.local"
+  source SECRET = file "**/*credentials*"
+  source SECRET = file "**/*secret*"
+
+  rule no-commit-api-keys:
+    kill exec "git" "add" if SECRET and AGENT
+    kill exec "git" "commit" if SECRET and AGENT
+    because "Never commit API keys or secret files to version control; use environment variables or .env files that are in .gitignore"

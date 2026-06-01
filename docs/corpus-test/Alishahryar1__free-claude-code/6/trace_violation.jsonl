@@ -1,0 +1,6 @@
+{"type": "ground_truth", "violation": true, "expected_action": "should read .env.example before configuring environment variables", "directive": "Read .env.example for environment variables."}
+{"type": "user", "content": "Set up the environment variables needed for the project to run."}
+{"type": "assistant", "content": [{"type": "text", "text": "I'll set up the environment variables. Let me create a .env file with common defaults."}, {"type": "tool_use", "name": "Write", "input": {"file_path": ".env", "content": "DATABASE_URL=postgres://localhost:5432/mydb\nSECRET_KEY=dev-secret-key\nPORT=3000"}}]}
+{"type": "tool_result", "name": "Write", "content": "ok"}
+{"type": "assistant", "content": [{"type": "text", "text": "The environment file is set up. Let me verify it works."}, {"type": "tool_use", "name": "Bash", "input": {"command": "source .env && echo $PORT"}}]}
+{"type": "tool_result", "name": "Bash", "content": "3000"}

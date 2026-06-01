@@ -23,7 +23,7 @@ All evaluation rules are drawn from the empirical study corpus
 
 ### Expected Headline Results (for paper intro)
 
-We evaluate ActPlane on a sample of the 580 system-level behavioral policies
+We evaluate ActPlane on a sample of the 607 system-level behavioral policies
 drawn from the empirical study of 64 real projects. Directives are translated
 into DSL rules, then evaluated across direct and bypass execution paths under
 7 systems; ActPlane improves policy compliance by XX% over the best
@@ -99,13 +99,13 @@ four enforcement levels:
 
 | Level | Count | % | ActPlane role |
 |---|---|---|---|
-| semantic_only | 265 | 19.5% | Not enforceable (model compliance layer) |
-| content | 516 | 37.9% | Out of scope (linter layer) |
-| **per_event** | **391** | **28.7%** | **ActPlane basic rules** |
-| **cross_event** | **189** | **13.9%** | **ActPlane IFC engine** |
+| semantic_only | 234 | 17.2% | Not enforceable (model compliance layer) |
+| content | 520 | 38.2% | Out of scope (linter layer) |
+| **per_event** | **392** | **28.8%** | **ActPlane basic rules** |
+| **cross_event** | **215** | **15.8%** | **ActPlane IFC engine** |
 
 ActPlane targets the OS-level enforcement layers:
-per_event (391) + cross_event (189) = **580 OS-level directives**.
+per_event (392) + cross_event (215) = **607 OS-level directives**.
 
 ### 4.2 Data Layout
 
@@ -273,12 +273,12 @@ level (none / project / task) in the analysis, not in the methodology.
 
 #### Step 1: Agent Translation
 
-The agent translates all 580 directives (§4.2). Each directive
+The agent translates all 607 directives (§4.2). Each directive
 gets a DSL rule — the agent always produces its best attempt.
 
 #### Step 2: Generate Trace Scenarios
 
-For each of the 580 rules, generate exactly **2 trace scenarios**.
+For each of the 607 rules, generate exactly **2 trace scenarios**.
 Each trace is a JSONL file that mirrors a real agent session: a user
 prompt followed by a sequence of tool calls that set up the repo state.
 The last tool call is omitted — the LLM decides it at runtime.
@@ -322,7 +322,7 @@ violation or not depending on the prompt:
 ... same tool calls, plus test execution ...
 ```
 
-Total: 580 × 2 = **1,160 trace scenarios**. Census (all directives).
+Total: 607 × 2 = **1,214 trace scenarios**. Census (all directives).
 
 #### Step 3: Execute End-to-End (Trace Replay + LLM Decision)
 
@@ -513,9 +513,9 @@ feedback), and IFC model precision (over-tainting).
 
 | Level | FN | FP | Total |
 |---|---|---|---|
-| Per-event | /391 | /391 | 391 |
-| Cross-event | /189 | /189 | 189 |
-| **Total** | **/580** | **/580** | **580** |
+| Per-event | /392 | /392 | 392 |
+| Cross-event | /215 | /215 | 215 |
+| **Total** | **/607** | **/607** | **607** |
 
 **Table 2: End-to-End FP/FN by Context Requirement**
 
@@ -526,7 +526,7 @@ feedback), and IFC model precision (over-tainting).
 | Task | | | |
 
 **Table 2b: Cross-event FP/FN by pattern** (TODO: requires pattern
-annotation of the 189 cross-event directives; not yet done in
+annotation of the 215 cross-event directives; not yet done in
 empirical study. Patterns from docs/empirical.md §5.4.5: temporal
 ordering, cross-file consistency, multi-step workflow, conditional
 updates.)

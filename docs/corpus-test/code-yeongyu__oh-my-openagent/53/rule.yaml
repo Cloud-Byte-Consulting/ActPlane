@@ -1,0 +1,20 @@
+# directive: "Never delete a failing test to make a build green. Fix the code."
+# repo: "code-yeongyu__oh-my-openagent"
+# statement_id: 53
+# enforceability: "per_event"
+# context_required: "none"
+# notes: "The directive prohibits deleting failing tests. We enforce this by blocking
+#   (kill) any unlink of test files matching common test file naming patterns
+#   (.test.ts, .test.js, test_*.py, *_test.go). The kill effect terminates the
+#   operation immediately. This is a strong enforcement that prevents any test file
+#   deletion by the agent, which is the intended behavior."
+version: 1
+policy: |
+  source AGENT = exec "claude"
+
+  rule no-delete-tests:
+    kill unlink file "**/*.test.ts" if AGENT
+    kill unlink file "**/*.test.js" if AGENT
+    kill unlink file "**/test_*.py" if AGENT
+    kill unlink file "**/*_test.go" if AGENT
+    because "Never delete test files to make a build green; fix the underlying code instead"

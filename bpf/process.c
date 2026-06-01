@@ -99,36 +99,11 @@ static bool config_has_effect(const struct taint_config *cfg, unsigned int effec
 
 static int validate_config(const struct taint_config *cfg)
 {
-	for (unsigned int i = 0; i < cfg->n_sources && i < MAX_TAINT_SOURCES; i++) {
-		if (cfg->sources[i].kind == TSRC_EXEC &&
-		    cfg->sources[i].match == TAINT_MATCH_SUFFIX) {
+	for (unsigned int i = 0; i < cfg->n_updates && i < MAX_TAINT_UPDATES; i++) {
+		if (cfg->updates[i].op == TOP_EXEC &&
+		    cfg->updates[i].match == TAINT_MATCH_SUFFIX) {
 			fprintf(stderr,
-				"config source[%u]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix\n",
-				i);
-			return -1;
-		}
-	}
-	for (unsigned int i = 0; i < cfg->n_xforms && i < MAX_TAINT_XFORMS; i++) {
-		if (cfg->xforms[i].match == TAINT_MATCH_SUFFIX) {
-			fprintf(stderr,
-				"config xform[%u]: suffix exec matches are unsupported; use exact/prefix exec patterns\n",
-				i);
-			return -1;
-		}
-	}
-	for (unsigned int i = 0; i < cfg->n_gates && i < MAX_TAINT_GATES; i++) {
-		if (cfg->gates[i].match == TAINT_MATCH_SUFFIX) {
-			fprintf(stderr,
-				"config gate[%u]: suffix exec matches are unsupported; use exact/prefix exec patterns\n",
-				i);
-			return -1;
-		}
-	}
-	for (unsigned int i = 0; i < cfg->n_invals && i < MAX_TAINT_INVALS; i++) {
-		if (cfg->invals[i].op == TOP_EXEC &&
-		    cfg->invals[i].match == TAINT_MATCH_SUFFIX) {
-			fprintf(stderr,
-				"config inval[%u]: suffix exec matches are unsupported; use exact/prefix exec patterns\n",
+				"config update[%u]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix\n",
 				i);
 			return -1;
 		}
@@ -275,18 +250,12 @@ int main(int argc, char **argv)
 
 	/* install compiled tables into rodata before load */
 	skel->rodata->enforce_mode = enforce ? 1 : 0;
-	skel->rodata->n_sources = cfg.n_sources;
+	skel->rodata->n_updates = cfg.n_updates;
 	skel->rodata->n_rules = cfg.n_rules;
-	skel->rodata->n_xforms = cfg.n_xforms;
-	skel->rodata->n_gates = cfg.n_gates;
-	skel->rodata->n_invals = cfg.n_invals;
-	memcpy((void *)skel->rodata->taint_sources, cfg.sources, sizeof(cfg.sources));
+	memcpy((void *)skel->rodata->taint_updates, cfg.updates, sizeof(cfg.updates));
 	memcpy((void *)skel->rodata->taint_rules, cfg.rules, sizeof(cfg.rules));
-	memcpy((void *)skel->rodata->taint_xforms, cfg.xforms, sizeof(cfg.xforms));
-	memcpy((void *)skel->rodata->taint_gates, cfg.gates, sizeof(cfg.gates));
-	memcpy((void *)skel->rodata->taint_invals, cfg.invals, sizeof(cfg.invals));
-	fprintf(stderr, "ActPlane: %u sources, %u rules, %u xforms, %u gates, %u invals\n",
-		cfg.n_sources, cfg.n_rules, cfg.n_xforms, cfg.n_gates, cfg.n_invals);
+	fprintf(stderr, "ActPlane: %u updates, %u rules\n",
+		cfg.n_updates, cfg.n_rules);
 	fprintf(stderr, "ActPlane: %s mode (%s)\n",
 		enforce ? "enforce" : "tracepoint",
 		enforce ? "BPF LSM is active" :
@@ -299,12 +268,12 @@ int main(int argc, char **argv)
 	if (err) { fprintf(stderr, "Failed to load BPF skeleton\n"); goto cleanup; }
 
 	/* Loop counts in a (non-frozen) map so the verifier checks each bpf_loop
-	 * callback once, not once per table entry. Slots: 0=rules 1=sources
-	 * 2=xforms 3=gates 4=invals 5=labels. */
+	 * callback once, not once per table entry. Slots: 0=rules 1=updates
+	 * 5=labels. */
 	{
 		__u32 ks[6] = {0, 1, 2, 3, 4, 5};
-		__u32 vs[6] = { cfg.n_rules, cfg.n_sources, cfg.n_xforms,
-				cfg.n_gates, cfg.n_invals, MAX_TAINT_LABELS };
+		__u32 vs[6] = { cfg.n_rules, cfg.n_updates, 0, 0, 0,
+				MAX_TAINT_LABELS };
 		int cfd = bpf_map__fd(skel->maps.ts_counts);
 		for (int i = 0; i < 6; i++) {
 			if (bpf_map_update_elem(cfd, &ks[i], &vs[i], BPF_ANY) < 0) {

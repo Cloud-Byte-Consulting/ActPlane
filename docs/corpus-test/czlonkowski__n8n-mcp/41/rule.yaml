@@ -1,0 +1,19 @@
+# directive: "ALWAYS prefer editing an existing file to creating a new one."
+# repo: "czlonkowski__n8n-mcp"
+# statement_id: 41
+# enforceability: "per_event"
+# context_required: "none"
+# notes: "This directive is inherently advisory -- the OS cannot distinguish 'create
+#   new file' from 'overwrite existing file' at the syscall level (both are write
+#   operations). We use notify on all agent writes as a reminder. The notify effect
+#   allows the operation to proceed but generates feedback urging the agent to check
+#   whether it should edit an existing file instead of creating a new one. A more
+#   precise enforcement would require userspace file-existence checks, which are
+#   beyond the kernel layer."
+version: 1
+policy: |
+  source AGENT = exec "claude"
+
+  rule prefer-edit-over-create:
+    notify write file "**" if AGENT
+    because "Prefer editing an existing file over creating a new one; verify the file already exists before writing"

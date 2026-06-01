@@ -21,7 +21,13 @@ fn main() {
     let rebuild = env::var_os("ACTPLANE_REBUILD_BPF").is_some();
 
     if rebuild || !prebuilt.exists() {
-        for f in ["process.bpf.c", "process.h", "taint.h", "taint_engine.bpf.h", "Makefile"] {
+        for f in [
+            "process.bpf.c",
+            "process.h",
+            "taint.h",
+            "taint_engine.bpf.h",
+            "Makefile",
+        ] {
             println!("cargo:rerun-if-changed={}", manifest.join(f).display());
         }
         let status = Command::new("make")
@@ -33,9 +39,8 @@ fn main() {
         assert!(status.success(), "make -C bpf process failed");
         // Refresh the committed copy so the rebuild can be committed.
         std::fs::create_dir_all(manifest.join("prebuilt")).ok();
-        std::fs::copy(&built, &prebuilt).unwrap_or_else(|e| {
-            panic!("copy {} -> prebuilt: {e}", built.display())
-        });
+        std::fs::copy(&built, &prebuilt)
+            .unwrap_or_else(|e| panic!("copy {} -> prebuilt: {e}", built.display()));
     }
 
     let src = if prebuilt.exists() { &prebuilt } else { &built };

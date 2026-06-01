@@ -80,14 +80,14 @@ policy.dsl ─▶ collector (Rust) ─▶ struct taint_config ─▶ eBPF engine
 ### Kernel (`bpf/`)
 
 - `taint.h` — the rule **ABI** (shared, byte-for-byte, with the Rust compiler) and
-  the matching predicates. Structs: `taint_source`, `taint_rule`, `taint_xform`,
-  `taint_gate`, `taint_config`. Enums: `taint_match` (EXACT/PREFIX/SUFFIX/ANY),
-  `taint_src_kind`, `taint_op` (EXEC/OPEN/WRITE/CONNECT), `taint_cond`
+  the matching predicates. Structs: `taint_update`, `taint_rule`,
+  `taint_config`. Enums: `taint_match` (EXACT/PREFIX/SUFFIX/ANY),
+  `taint_op` (EXEC/OPEN/WRITE/CONNECT), `taint_cond`
   (NONE/LINEAGE/AFTER/TARGET). Matchers: `taint_streq/prefix/suffix/match`,
   `taint_mask_ok`, `taint_arg_match`.
 - `taint_engine.bpf.h` — engine state + `te_*` helpers. Maps: `ts_proc`
   (pid → labels + lineage gates), `ts_root`, `ts_sess`, `ts_file` (fnv1a(path) →
-  labels), `ts_endp` (IPv4 → labels). Rodata rule tables filled by the loader.
+  labels), `ts_endp` (IPv4 → labels). Rodata update/rule tables filled by the loader.
 - `process.bpf.c` — the hooks (fork/exec/exit/open/unlink/rename/connect). The only
   output channel is `emit_violation()`.
 - `process.c` — loader: `--config` reads the blob into rodata, attaches, prints
@@ -146,7 +146,7 @@ directly into the BPF rodata. Any change to `taint.h` MUST be mirrored in
 ### Adding a kernel hook
 
 1. Add a `SEC("tp/...")` handler in `process.bpf.c`.
-2. Call the appropriate `te_*` propagation helper, then `te_check` / `te_connect_check`.
+2. Call the appropriate `te_*` propagation helper, then `te_check`.
 3. Emit only via `emit_violation()`.
 
 ## Running Codex CLI

@@ -453,7 +453,9 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 		eval.labels = labels;
 		eval.effect = TEFFECT_BLOCK;
 		eval.effect_mask = te_supported_effects(ev->mode);
-		rid = te_connect_check_labels(&eval, ev->ip);
+		eval.op = TOP_CONNECT;
+		eval.ip = ev->ip;
+		rid = te_check_labels(&eval);
 		effect = eval.effect;
 		matched_req = eval.matched_req;
 	}
@@ -521,6 +523,7 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 					 const void *b, __u32 access,
 					 __u32 mode)
 {
+	char target[TAINT_PAT_LEN] = {};
 	struct te_event ev = {};
 	__u32 ip = 0;
 
@@ -537,6 +540,7 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 	ev.obj_kind = TE_OBJ_ENDPOINT;
 	ev.access = access;
 	ev.mode = mode;
+	ev.target = target;
 	ev.ip = ip;
 	return te_handle_event(&ev, 0);
 }
