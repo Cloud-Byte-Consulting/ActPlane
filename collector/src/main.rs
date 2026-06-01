@@ -39,8 +39,8 @@ const HOOK_MAX_CHARS: usize = 8000;
 #[derive(Parser)]
 #[command(author, version, about = "ActPlane: OS-level agent harness", long_about = None,
     after_help = "EXAMPLES:\n  \
-      # get started: write a starter policy, then validate it (no sudo needed)\n  \
-      actplane init  &&  actplane check\n\n  \
+      # get started: write a starter policy, then validate/diagnose it (no sudo needed)\n  \
+      actplane init  &&  actplane check  &&  actplane doctor\n\n  \
       # apply a one-line policy around a command (needs sudo for the eBPF load)\n  \
       sudo -E actplane --rule 'source COMMAND = exec \"**\"\n                       rule no-git-branch:\n                         kill exec \"git\" \"branch\" if COMMAND\n                         because \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
@@ -89,6 +89,8 @@ enum Commands {
     /// Validate the policy (no privileges): compile it, summarize each rule in
     /// plain language, and warn about anything that won't apply as written.
     Check,
+    /// Diagnose policy discovery, kernel support, feedback hooks, and MCP setup.
+    Doctor,
     /// Load the policy and report violations without starting a child command.
     Watch,
     /// Hook adapter: forward new feedback-file bytes as agent additionalContext.
@@ -161,6 +163,7 @@ async fn main() -> Result<()> {
         Commands::Compile { out } => compile_policy(&cli, out).await?,
         Commands::Init { force } => init_policy(*force)?,
         Commands::Check => check_policy(&cli)?,
+        Commands::Doctor => doctor(&cli)?,
         Commands::Watch => watch_policy(&cli).await?,
         Commands::FeedbackHook => {
             feedback_hook().await?;
@@ -231,6 +234,7 @@ fn init_policy(force: bool) -> Result<i32> {
     std::fs::write(&path, STARTER_POLICY)?;
     eprintln!(
         "actplane: wrote {}\n  Next:  actplane check        # validate it (no sudo)\n         \
+         actplane doctor       # diagnose hooks, MCP, and kernel support\n         \
          sudo -E actplane run <your agent command>",
         path.display()
     );
@@ -259,14 +263,7 @@ fn check_policy(cli: &Cli) -> Result<i32> {
         } else {
             m.ops.join("/")
         };
-        println!(
-            "  {}. {} — {} {} ({})",
-            i + 1,
-            m.name,
-            eff,
-            ops,
-            m.reason
-        );
+        println!("  {}. {} — {} {} ({})", i + 1, m.name, eff, ops, m.reason);
     }
     // Warnings: things that compile but won't apply as the author likely expects.
     let lsm_bpf = std::fs::read_to_string("/sys/kernel/security/lsm")
@@ -289,7 +286,8 @@ fn check_policy(cli: &Cli) -> Result<i32> {
     for line in loaded.config.policy.lines() {
         let t = line.trim();
         // Match any action verb (notify/block/kill) before "connect endpoint"
-        let rest_opt = t.strip_prefix("notify connect endpoint")
+        let rest_opt = t
+            .strip_prefix("notify connect endpoint")
             .or_else(|| t.strip_prefix("block connect endpoint"))
             .or_else(|| t.strip_prefix("kill connect endpoint"));
         if let Some(rest) = rest_opt {
@@ -323,6 +321,111 @@ fn check_policy(cli: &Cli) -> Result<i32> {
         );
     }
     Ok(0)
+}
+
+fn doctor(cli: &Cli) -> Result<i32> {
+    println!("ActPlane doctor\n");
+    let mut problems = 0;
+
+    match load_policy(cli) {
+        Ok(loaded) => {
+            let where_ = loaded
+                .path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "--rule".into());
+            match dsl::compile_str(&loaded.config.policy) {
+                Ok(compiled) => {
+                    println!("✓ policy: {} ({} rule(s))", where_, compiled.meta.len());
+                    let feedback = feedback_paths(&loaded);
+                    println!("✓ feedback file: {}", feedback.feedback.display());
+                }
+                Err(e) => {
+                    problems += 1;
+                    println!("✗ policy: {} does not compile: {}", where_, e);
+                }
+            }
+            doctor_agent_files(&loaded.root, &mut problems);
+        }
+        Err(e) => {
+            problems += 1;
+            println!("✗ policy: {}", e);
+            let cwd = std::env::current_dir()?;
+            doctor_agent_files(&cwd, &mut problems);
+        }
+    }
+
+    if std::path::Path::new("/sys/kernel/btf/vmlinux").exists() {
+        println!("✓ kernel BTF: /sys/kernel/btf/vmlinux");
+    } else {
+        problems += 1;
+        println!("✗ kernel BTF: missing /sys/kernel/btf/vmlinux");
+    }
+
+    if have_bpf_caps() {
+        println!("✓ eBPF privilege: current process has root/CAP_BPF+CAP_SYS_ADMIN");
+    } else if passwordless_sudo_available() {
+        println!("✓ eBPF privilege: passwordless sudo is available");
+    } else {
+        problems += 1;
+        println!("✗ eBPF privilege: run/watch needs sudo or CAP_BPF+CAP_SYS_ADMIN");
+    }
+
+    let lsm = std::fs::read_to_string("/sys/kernel/security/lsm").unwrap_or_default();
+    if lsm.contains("bpf") {
+        println!("✓ BPF-LSM: active ({})", lsm.trim());
+    } else {
+        println!(
+            "⚠ BPF-LSM: not active; `block` rules will report but not deny ({})",
+            lsm.trim()
+        );
+    }
+
+    println!("\nNext commands:");
+    println!("  actplane check");
+    println!("  sudo -E actplane run -- <agent-or-command>");
+    println!("  actplane mcp");
+
+    if problems == 0 {
+        println!("\n✓ setup looks usable.");
+        Ok(0)
+    } else {
+        println!("\n✗ setup has {} problem(s).", problems);
+        Ok(1)
+    }
+}
+
+fn doctor_agent_files(root: &Path, problems: &mut usize) {
+    let codex_hooks = root.join(".codex/hooks.json");
+    if codex_hooks.is_file() {
+        println!("✓ Codex hook: {}", codex_hooks.display());
+    } else {
+        *problems += 1;
+        println!(
+            "✗ Codex hook: missing {}; add `actplane feedback-hook` as PostToolUse",
+            codex_hooks.display()
+        );
+    }
+
+    let agents = root.join("AGENTS.md");
+    if agents.is_symlink() {
+        println!(
+            "✓ Codex instructions: {} -> {:?}",
+            agents.display(),
+            std::fs::read_link(&agents).ok()
+        );
+    } else if agents.is_file() {
+        println!("✓ Codex instructions: {}", agents.display());
+    } else {
+        println!("⚠ Codex instructions: AGENTS.md missing");
+    }
+
+    let mcp = root.join(".mcp.json");
+    if mcp.is_file() {
+        println!("✓ project MCP config: {}", mcp.display());
+    } else {
+        println!("⚠ project MCP config: .mcp.json missing");
+    }
 }
 
 async fn watch_policy(cli: &Cli) -> Result<i32> {
@@ -391,6 +494,16 @@ fn have_bpf_caps() -> bool {
     has(39) && has(21)
 }
 
+fn passwordless_sudo_available() -> bool {
+    std::process::Command::new("sudo")
+        .args(["-n", "true"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// If we lack BPF caps, try passwordless sudo to re-exec ourselves elevated.
 /// Returns Ok(()) if we already have caps; otherwise re-execs or exits with an error.
 fn require_bpf_caps_or_elevate(already_elevated: bool) -> Result<()> {
@@ -402,36 +515,27 @@ fn require_bpf_caps_or_elevate(already_elevated: bool) -> Result<()> {
         std::process::exit(1);
     }
     // Try passwordless sudo
-    let probe = std::process::Command::new("sudo")
-        .args(["-n", "true"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    match probe {
-        Ok(s) if s.success() => {
-            // Re-exec under sudo with --internal-elevated to prevent recursion
-            let exe = std::env::current_exe()
-                .unwrap_or_else(|_| PathBuf::from("actplane"));
-            let args: Vec<String> = std::env::args().collect();
-            // Build: sudo -E <exe> --internal-elevated <original args[1..]>
-            let mut cmd = std::process::Command::new("sudo");
-            cmd.arg("-E").arg(&exe).arg("--internal-elevated");
-            for arg in &args[1..] {
-                cmd.arg(arg);
-            }
-            eprintln!("actplane: auto-elevating via passwordless sudo ...");
-            let status = cmd.status().map_err(|e| format!("sudo re-exec: {e}"))?;
-            std::process::exit(status.code().unwrap_or(1));
+    if passwordless_sudo_available() {
+        // Re-exec under sudo with --internal-elevated to prevent recursion
+        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("actplane"));
+        let args: Vec<String> = std::env::args().collect();
+        // Build: sudo -E <exe> --internal-elevated <original args[1..]>
+        let mut cmd = std::process::Command::new("sudo");
+        cmd.arg("-E").arg(&exe).arg("--internal-elevated");
+        for arg in &args[1..] {
+            cmd.arg(arg);
         }
-        _ => {
-            eprintln!(
-                "actplane: this command loads an eBPF engine, which needs root \
+        eprintln!("actplane: auto-elevating via passwordless sudo ...");
+        let status = cmd.status().map_err(|e| format!("sudo re-exec: {e}"))?;
+        std::process::exit(status.code().unwrap_or(1));
+    } else {
+        eprintln!(
+            "actplane: this command loads an eBPF engine, which needs root \
                  (or CAP_BPF + CAP_SYS_ADMIN).\n\
                  \n  Re-run with sudo, e.g.:   sudo -E actplane <same args>\n\
                  \n  (sudo-launched ActPlane drops the target command back to your user automatically.)"
-            );
-            std::process::exit(1);
-        }
+        );
+        std::process::exit(1);
     }
 }
 

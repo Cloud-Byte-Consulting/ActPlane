@@ -39,6 +39,7 @@ Write a policy and run an agent (or any command) under the harness:
 ```bash
 actplane init                                  # write a starter actplane.yaml
 actplane check                                 # validate rules (no privileges)
+actplane doctor                                # diagnose hooks, MCP, kernel support
 
 sudo -E actplane run claude -p "review this repo"
 ```

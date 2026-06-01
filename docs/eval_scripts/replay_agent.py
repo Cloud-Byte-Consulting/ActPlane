@@ -723,8 +723,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--ctx-size",
         type=int,
-        default=int(os.environ.get("ACTPLANE_REPLAY_CTX_SIZE", "8192")),
-        help="llama.cpp context size. Default 8192 fits the Codex base instructions.",
+        default=int(os.environ.get("ACTPLANE_REPLAY_CTX_SIZE", "65536")),
+        help="llama.cpp context size. Default 65536 is the fixed eval setting.",
     )
     args = parser.parse_args(argv)
     if args.root is None:

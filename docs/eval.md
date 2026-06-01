@@ -2,15 +2,18 @@
 
 ## 1. Evaluation Goals
 
-Demonstrate ActPlane's value as an OS-level agent harness control plane along
-four dimensions:
+Evaluate ActPlane as a runtime enforcement mechanism for
+directive-derived policies: ActPlane interposes below the agent tool API,
+enforces policy rules on real OS behavior, and returns semantic feedback
+that helps the agent recover after a blocked action. We evaluate this
+along four dimensions:
 
-1. **End-to-end correctness**: given a directive and a scenario, the
-   ActPlane system (agent translation + kernel rules + feedback loop)
-   produces the correct outcome.
-2. **Semantic gap**: ActPlane correctly connects intent-level directives
-   to system-level behavior where existing approaches fail (bypass,
-   cross-event, feedback).
+1. **Policy compliance**: given a directive and a scenario, ActPlane's
+   runtime enforcement and feedback lead the agent to a policy-compliant
+   final action.
+2. **Runtime coverage**: ActPlane connects intent-level directives to
+   system-level behavior where existing runtime and tool-layer mechanisms
+   fail (bypass, cross-event state, feedback).
 3. **Overhead**: per-event and end-to-end overhead is acceptable.
 4. **Feedback effectiveness**: semantic feedback improves agent task
    completion compared to bare rule application.
@@ -21,14 +24,15 @@ All evaluation rules are drawn from the empirical study corpus
 ### Expected Headline Results (for paper intro)
 
 We evaluate ActPlane on all 580 system-level behavioral policies drawn from
-the empirical study of 64 real projects. An LLM agent translates each
-directive into a DSL rule; we run the agent under ActPlane on 1,160 scenarios (580 × 2), each with a prompt and ground truth, and score
-the agent's final action (RQ1). On bypass paths (subprocess, bash -c),
-ActPlane maintains XX/580 correctness while tool-layer guards drop to
-XX/580 (RQ2). Per-event overhead is ~XX µs at p99 with 32 active
-rules (RQ3). On Terminal-Bench (89 tasks), semantic feedback improves
-post-match guided completion rate by ~XX pp over bare rule application
-(RQ4).
+the empirical study of 64 real projects. Directives are translated into
+DSL rules, then evaluated as runtime policies on 1,160 scenarios (580 × 2),
+each with a prompt and ground truth; we score whether the agent's final
+action complies with the directive-derived policy (RQ1). On bypass paths
+(subprocess, bash -c), ActPlane maintains XX/580 policy compliance while
+tool-layer guards drop to XX/580 (RQ2). Per-event overhead is ~XX µs at
+p99 with 32 active rules (RQ3). On Terminal-Bench (89 tasks), semantic
+feedback improves post-match guided completion rate by ~XX pp over bare
+rule application (RQ4).
 
 ---
 
@@ -36,8 +40,8 @@ post-match guided completion rate by ~XX pp over bare rule application
 
 | RQ | Question | What it proves | Method |
 |---|---|---|---|
-| **RQ1** | Given real-world directives, does the ActPlane pipeline — agent translation + kernel rules + feedback — produce correct outcomes? | End-to-end pipeline correctness (agent is the variable) | 580 directives × 2 scenarios, minimal agent (trace replay + LLM decision step), by context level |
-| **RQ2** | Given correct rules (RQ1 TP set), does ActPlane correctly connect intent to system-level behavior where existing approaches fail? | Bridges the semantic gap (system architecture is the variable) | RQ1 TP rules × (direct + 3 bypass paths) × 6 systems, scripted traces |
+| **RQ1** | Given real-world directives and direct execution traces, does ActPlane's runtime enforcement and feedback lead agents to policy-compliant final actions? | Policy-compliance benefit under normal agent execution paths | 580 directives × 2 scenarios, minimal agent (trace replay + LLM decision step), by context level |
+| **RQ2** | Does ActPlane maintain policy compliance when the same actions move below the tool API or require cross-event state and semantic feedback? | Runtime coverage advantage over tool-layer and bare-kernel mechanisms | RQ1 TP rules × (direct + 3 bypass paths) × 6 systems, scripted traces |
 | **RQ3** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Microbenchmark + trace replay |
 | **RQ4** | Does the ActPlane harness improve agent task completion, and does rule adaptation across rounds help? | End-to-end system value + adaptation | Terminal-Bench (89 tasks × 2 conditions, B2 with 3 rounds) |
 
@@ -116,7 +120,7 @@ docs/corpus/{repo}/                     # empirical study data (read-only)
 docs/corpus-repos/{repo}/               # shallow clones (--depth=1, gitignored)
                                         # agent reads these for project context
 
-docs/corpus-rq1/{repo}/                 # RQ1: pipeline correctness
+docs/corpus-rq1/{repo}/                 # RQ1: policy compliance
   {statement_id}/
     rule.yaml                           # agent-generated DSL rule
     trace_violation.jsonl               # first line = ground_truth, rest = trace
@@ -164,7 +168,11 @@ run harness is `correctness: null`:
   "statement_id": 17,
   "scenario": "violation",
   "trace_file": "trace_violation.jsonl",
-  "model": {"name": "Qwen3.6-27B-Q4_K_M", "provider": "local-llama.cpp"},
+  "model": {
+    "name": "Qwen3.6-27B-Q4_K_M",
+    "provider": "local-llama.cpp",
+    "ctx_size": 65536
+  },
   "base_instructions": {
     "path": "docs/eval_scripts/codex_base_instructions.md",
     "source": "openai/codex codex-rs/protocol/src/prompts/base_instructions/default.md",
@@ -259,15 +267,16 @@ the triggering command from the direct trace in `bash -c` / subprocess
 
 ---
 
-## 5. RQ1: End-to-End System FP/FN
+## 5. RQ1: Policy Compliance Under Runtime Enforcement
 
 ### 5.1 Goal
 
 Given a natural-language directive and a scenario (prompt + system
-actions), does the ActPlane system — agent translation + kernel rule
-matching + semantic feedback — produce the correct decision? This
-measures the end-to-end effectiveness of the "agent as control plane"
-design.
+actions), does ActPlane's runtime enforcement and semantic feedback
+lead the agent to a policy-compliant final action? Here "policy" means
+the directive-derived ActPlane rule for that scenario. This measures the
+runtime value of the "agent as control plane" design while keeping rule
+translation and trace generation as explicit artifact-generation steps.
 
 The eval is uniform across all context levels: each trace includes
 a prompt and system actions; ground truth is determined by whether
@@ -361,6 +370,7 @@ def run_scenario(trace_jsonl, rule_yaml):
         # skip recorded tool_result lines — use real results
     
     # Phase 2: Tested LLM writes the next agent response (1 API call).
+    # The fixed eval context is 64k tokens.
     # The default system message is docs/eval_scripts/codex_base_instructions.md.
     # The model returns normal text, not evaluator labels or JSON.
     openai_messages = build_chat_messages(context)
@@ -563,17 +573,17 @@ differences between systems reflect system capability.
 
 ---
 
-## 6. RQ2: System Coverage Comparison
+## 6. RQ2: Policy Compliance Across Execution Paths
 
 ### 6.1 Goal
 
-RQ2 evaluates whether ActPlane correctly connects intent-level
-directives to system-level behavior where existing approaches fail.
-The abstract identifies three failure modes: tool-layer guards lose
-track of system-level actions (bypass), OS-level mechanisms lack
-cross-event state (no IFC), and kernel mechanisms return only system
-events without semantic context (no feedback). RQ2 tests all three
-by comparing 6 systems on the same directives and measuring directive
+RQ2 evaluates whether ActPlane maintains policy compliance when
+directive-relevant behavior moves below the agent tool API or depends on
+cross-event state. Existing approaches fail in three common ways:
+tool-layer guards lose track of system-level actions (bypass), OS-level
+mechanisms lack cross-event state (no IFC), and kernel mechanisms return
+only system events without semantic context (no feedback). RQ2 tests all
+three by comparing 6 systems on the same directives and measuring policy
 compliance.
 
 ### 6.2 Method
