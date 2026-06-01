@@ -122,27 +122,27 @@ whose predicate it satisfies.
 \subsection{Findings}
 
 \textbf{Instruction files are behavioral policies.}
-63\% of statements are directives; 80.5\% of directives involve
+63\% of statements are directives; 83\% of directives involve
 system-observable behavior (commands, files, network).
 
 \textbf{Enforcement is layered.}
-Content inspection covers 37.9\% of directives, per-event syscall
-matching covers 28.7\%, and 13.9\% require cross-event state tracking
+Content inspection covers 38.2\% of directives, per-event syscall
+matching covers 28.7\%, and 15.7\% require cross-event state tracking
 (Figure~\ref{fig:cumulative}).
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/cumulative_coverage.png}
 \caption{Cumulative directive coverage by enforcement layer. Linters
-cover 57.4\%; per-event matching reaches 86.1\%; cross-event IFC closes
-the remaining 13.9\%.}
+cover 55.6\%; per-event matching reaches 84.3\%; cross-event IFC closes
+the remaining 15.7\%.}
 \Description{Line chart of cumulative coverage by enforcement layer.}
 \label{fig:cumulative}
 \end{figure}
 
 \textbf{Cross-event policies are pervasive at the project level.}
-Although cross-event directives are 13.9\% of all directives, 78\% of
-repositories contain at least one, and 48\% require all four enforcement
+Although cross-event directives are 15.7\% of all directives, 81\% of
+repositories contain at least one, and 43\% require all four enforcement
 layers (Figure~\ref{fig:repo-req}).
 
 \begin{figure}[t]
