@@ -125,8 +125,12 @@ mod tests {
     fn since_without_clause_is_v1_latching() {
         // `after` with no `since` must still compile (v1 semantics, since_mask=0)
         // and produce the same fixed-size blob as a since-bearing policy.
-        let v1 = ok("rule r:\n  block exec \"git\" if A unless after exec \"**/pytest\"\n  because \"x\"\n");
-        let v2 = ok("rule r:\n  block exec \"git\" if A unless after exec \"**/pytest\" since write \"src/**\"\n  because \"x\"\n");
+        let v1 = ok(
+            "rule r:\n  block exec \"git\" if A unless after exec \"**/pytest\"\n  because \"x\"\n",
+        );
+        let v2 = ok(
+            "rule r:\n  block exec \"git\" if A unless after exec \"**/pytest\" since write \"src/**\"\n  because \"x\"\n",
+        );
         assert_eq!(v1.bytes.len(), v2.bytes.len());
     }
 
@@ -233,22 +237,23 @@ mod tests {
 
     #[test]
     fn source_labels_are_allocated_for_runner_seeding() {
-        let c = ok("source AGENT = exec \"**/claude\"\nrule r:\n  block exec \"git\" if AGENT\n  because \"x\"\n");
+        let c = ok(
+            "source AGENT = exec \"**/claude\"\nrule r:\n  block exec \"git\" if AGENT\n  because \"x\"\n",
+        );
         assert!(c.labels.contains_key("AGENT"));
     }
 
     #[test]
     fn old_label_keyword_is_rejected() {
         assert!(
-            compile_str("label AGENT\nrule r:\n  block exec \"git\" if AGENT\n  because \"x\"\n").is_err()
+            compile_str("label AGENT\nrule r:\n  block exec \"git\" if AGENT\n  because \"x\"\n")
+                .is_err()
         );
     }
 
     #[test]
     fn old_deny_keyword_is_rejected() {
-        assert!(
-            compile_str("rule r:\n  deny exec \"git\"\n  because \"x\"\n").is_err()
-        );
+        assert!(compile_str("rule r:\n  deny exec \"git\"\n  because \"x\"\n").is_err());
     }
 
     #[test]

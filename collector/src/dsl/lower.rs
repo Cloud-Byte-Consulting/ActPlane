@@ -311,8 +311,10 @@ fn inval_op(op: Op) -> Result<u8, String> {
         Op::Read => Ok(OP_OPEN),
         Op::Write => Ok(OP_WRITE),
         Op::Exec => Ok(OP_EXEC),
-        other => Err(format!("`since {}` is not a valid invalidator (use read/write/exec)",
-                             op_name(other))),
+        other => Err(format!(
+            "`since {}` is not a valid invalidator (use read/write/exec)",
+            op_name(other)
+        )),
     }
 }
 

@@ -77,29 +77,44 @@ observes the nested \texttt{execve("git",~["push",~"--force"])}.
 
 \subsection{Threat Model}
 
-ActPlane targets a \emph{cooperative but probabilistic} agent. The agent is
-not adversarial: it does not attempt to defeat the enforcement mechanism
-through obfuscation or exploitation. However, because LLM inference is
-inherently stochastic, the agent may trigger any given policy rule with
-non-zero probability at each step, regardless of context length or prompt
-design. Over a long session with many steps, the cumulative probability of
-at least one rule match approaches certainty.
+ActPlane targets a \emph{cooperative but probabilistic} agent: trusted to
+honestly declare its intent, but not trusted to reliably follow that intent
+during execution. The agent is not adversarial---it does not attempt to
+defeat the enforcement mechanism through obfuscation or exploitation.
+However, because LLM inference is inherently stochastic, the agent may
+trigger any given policy rule with non-zero probability at each step,
+regardless of context length or prompt design. Over a long session with
+many steps, the cumulative probability of at least one rule match approaches
+certainty. This matches real coding-agent failures: agents intend to obey
+instructions but deviate through long-horizon planning errors, prompt
+injection, shell-script side effects, or opaque tool behavior.
 
-The trust boundary is the kernel. The eBPF programs and BPF maps that
-propagate labels and check rules run in kernel space and cannot be modified
-by the agent. The policy DSL and feedback formatting run in a trusted
+\textbf{Trust boundary.} The eBPF programs and BPF maps that propagate
+labels and check rules run in kernel space and cannot be modified by the
+agent. The policy DSL compiler and feedback formatter run in a trusted
 userspace process (\texttt{actplane run}) that is not part of the agent's
 process tree. The monitored domain is the agent's entire process tree,
 including all descendants spawned through tools, shells, or subprocesses.
 
-ActPlane does not defend against an agent that deliberately exploits kernel
-vulnerabilities or manipulates the eBPF loader. Such attacks require
-\texttt{CAP\_BPF} or root privileges that the agent does not hold.
-Side-channel inference (deducing policy rules from \texttt{-EPERM}
-patterns), deliberate label pollution (triggering over-tainting to cause
-denial of service), and feedback-oracle attacks (using remediation strings
-to restructure an approach toward a forbidden goal through compliant steps)
-all require adversarial intent and are outside this threat model.
+\textbf{Multi-layer policy.} Policies are layered by authority. A
+platform or operator defines root-level constraints (e.g., ``do not leak
+secrets,'' ``do not \texttt{rm -rf /}'') that lower layers cannot weaken
+or bypass. The agent may author and revise its own rules within these
+bounds as task intent evolves; runtime policy revisions are explicit
+transactions that cannot retroactively legalize past violations. Untrusted
+or third-party sub-agents execute as subprocesses in a lower layer, subject
+to both their parent's rules and any additional constraints---reducing to a
+conventional sandbox for fully untrusted code.
+
+\textbf{Out of scope.} ActPlane does not defend against an agent that
+deliberately exploits kernel vulnerabilities or manipulates the eBPF
+loader. Such attacks require \texttt{CAP\_BPF} or root privileges that the
+agent does not hold. Side-channel inference (deducing policy rules from
+\texttt{-EPERM} patterns), deliberate label pollution (triggering
+over-tainting to cause denial of service), and feedback-oracle attacks
+(using remediation strings to restructure an approach toward a forbidden
+goal through compliant steps) all require adversarial intent and are
+outside this threat model.
 
 
 \section{Empirical Study}
@@ -112,36 +127,43 @@ observation and enforcement.
 \subsection{Methodology}
 
 We collected \texttt{CLAUDE.md} and \texttt{AGENTS.md} files from
-64~popular open-source repositories, extracted 2{,}152 statements, and
-classified each along three axes: content type (description vs.\
-directive), topic (12~categories), and enforcement level (semantic-only,
-content, per-event, cross-event). Enforcement level is assigned by a
-waterfall decision procedure: each directive exits at the first level
-whose predicate it satisfies.
+64~popular open-source repositories, extracted 2{,}116 statements, and
+classified each along four axes: content type (description vs.\
+directive), topic (12~categories), enforcement level (semantic-only,
+content, per-event, cross-event), and context requirement (none,
+project, task). Enforcement level is assigned by a waterfall decision
+procedure: each directive exits at the first level whose predicate it
+satisfies.
 
 \subsection{Findings}
 
 \textbf{Instruction files are behavioral policies.}
 64\% of statements are directives; 83\% of directives involve
 system-observable behavior (commands, files, network).
+We define a \emph{per-event} directive as one whose predicate can be
+evaluated by inspecting a single system call (e.g., ``do not run
+\texttt{git push --force}''), and a \emph{cross-event} directive as one
+whose predicate requires state accumulated across multiple operations
+(e.g., ``run tests before committing'' requires observing a test
+execution after the most recent source change).
 
 \textbf{Enforcement is layered.}
 Content inspection covers 38.2\% of directives, per-event syscall
-matching covers 28.7\%, and 15.7\% require cross-event state tracking
+matching covers 28.8\%, and 15.8\% require cross-event state tracking
 (Figure~\ref{fig:cumulative}).
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/cumulative_coverage.png}
 \caption{Cumulative directive coverage by enforcement layer. Linters
-cover 55.6\%; per-event matching reaches 84.3\%; cross-event IFC closes
-the remaining 15.7\%.}
+cover 55.4\%; per-event matching reaches 84.2\%; cross-event IFC closes
+the remaining 15.8\%.}
 \Description{Line chart of cumulative coverage by enforcement layer.}
 \label{fig:cumulative}
 \end{figure}
 
 \textbf{Cross-event policies are pervasive at the project level.}
-Although cross-event directives are 15.7\% of all directives, 81\% of
+Although cross-event directives are 15.8\% of all directives, 81\% of
 repositories contain at least one, and 43\% require all four enforcement
 layers (Figure~\ref{fig:repo-req}).
 
@@ -149,10 +171,24 @@ layers (Figure~\ref{fig:repo-req}).
 \centering
 \includegraphics[width=\columnwidth]{figures/repo_requirements.png}
 \caption{Fraction of repositories requiring each enforcement layer.
-78\% need cross-event tracking; 48\% need all four layers.}
+81\% need cross-event tracking; 43\% need all four layers.}
 \Description{Bar chart showing fraction of repos needing each layer.}
 \label{fig:repo-req}
 \end{figure}
+
+\textbf{Most system-level directives are not self-contained.}
+Of the 1{,}127 system-level directives (content + per-event +
+cross-event), only 26\% are fully self-contained: the directive text
+specifies all patterns, paths, and commands needed to instantiate a
+concrete enforcement rule. 64\% require \emph{project context}---the
+directive references a domain (``run the test suite,'' ``use the
+project's linter'') whose concrete realization must be resolved from
+the repository. 9\% require \emph{task context}---the directive
+delegates a judgment to the current session (``unless explicitly
+requested,'' ``keep changes focused''). This quantifies the gap between
+a natural-language policy and a deployable enforcement rule, and
+motivates a policy architecture in which the agent---the entity that
+holds both project structure and task intent---authors its own rules.
 
 \subsection{Implications}
 
@@ -163,3 +199,9 @@ provenance across process, file, and network boundaries, (2)~encodes it
 as checkable state, and (3)~connects rule matches back to declared intent
 for semantic feedback. Labeled information-flow control satisfies all
 three requirements.
+
+The context-requirement finding adds a fourth constraint: (4)~the
+mechanism must accept policies authored by the agent itself, because
+74\% of system-level rules cannot be instantiated without project or
+task context that only the agent possesses. A static, administrator-authored
+policy cannot close this gap.

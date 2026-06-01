@@ -20,7 +20,7 @@ use tokio::process::{Child, Command};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 
 mod dsl;
 mod feedback;
@@ -35,16 +35,54 @@ const DEFAULT_POLICY_FILES: &[&str] = &["actplane.yaml", ".actplane/policy.yaml"
 const DEFAULT_FEEDBACK_FILE: &str = ".actplane/last-violation.txt";
 const DEFAULT_HOOK_STATE_FILE: &str = ".actplane/feedback-hook.state.json";
 const HOOK_MAX_CHARS: usize = 8000;
+const ATTACH_PID_ENV: &str = "ACTPLANE_ATTACH_PID";
+const CODEX_HOOKS_JSON: &str = r#"{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "actplane feedback-hook",
+            "statusMessage": "Checking ActPlane feedback"
+          }
+        ]
+      }
+    ]
+  }
+}
+"#;
+const PROJECT_MCP_JSON: &str = r#"{
+  "mcpServers": {
+    "actplane": {
+      "type": "stdio",
+      "command": "actplane",
+      "args": ["mcp", "--auto-attach-parent"]
+    }
+  }
+}
+"#;
+const AGENTS_STUB: &str = r#"# AGENTS.md
+
+This workspace is protected by ActPlane, an OS-level eBPF harness. When an
+operation fails with `EPERM` / `Operation not permitted`, or a hook injects an
+`[ActPlane]` message, treat it as authoritative kernel feedback. Read
+`.actplane/last-violation.txt` if you need the full reason, then follow the
+suggested path instead of retrying the same operation unchanged.
+"#;
 
 #[derive(Parser)]
 #[command(author, version, about = "ActPlane: OS-level agent harness", long_about = None,
     after_help = "EXAMPLES:\n  \
-      # get started: write a starter policy, then validate/diagnose it (no sudo needed)\n  \
-      actplane init  &&  actplane check  &&  actplane doctor\n\n  \
+      # get started: write a starter policy, wire agent hooks/MCP, then diagnose\n  \
+      actplane init  &&  actplane doctor\n\n  \
       # apply a one-line policy around a command (needs sudo for the eBPF load)\n  \
       sudo -E actplane --rule 'source COMMAND = exec \"**\"\n                       rule no-git-branch:\n                         kill exec \"git\" \"branch\" if COMMAND\n                         because \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
       sudo -E actplane run <your agent command>\n\n  \
+      # serve MCP resources and auto-attach to the parent agent when Codex starts it\n  \
+      actplane mcp --auto-attach-parent\n\n  \
       # just compile/validate a policy (no privileges needed)\n  \
       actplane --policy actplane.yaml compile --out /tmp/policy.bin\n\n  \
       # watch & report violations system-wide without launching a child\n  \
@@ -86,6 +124,12 @@ enum Commands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Wire project-local Codex hooks, MCP config, and AGENTS.md.
+    Setup {
+        /// Overwrite ActPlane-managed project integration files.
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Validate the policy (no privileges): compile it, summarize each rule in
     /// plain language, and warn about anything that won't apply as written.
     Check,
@@ -96,7 +140,11 @@ enum Commands {
     /// Hook adapter: forward new feedback-file bytes as agent additionalContext.
     FeedbackHook,
     /// Run as an MCP (Model Context Protocol) server over stdio.
-    Mcp,
+    Mcp {
+        /// On startup, load the eBPF engine and seed the parent process.
+        #[arg(long)]
+        auto_attach_parent: bool,
+    },
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -162,6 +210,7 @@ async fn main() -> Result<()> {
         Commands::Run { cmd } => run_command(&cli, cmd).await?,
         Commands::Compile { out } => compile_policy(&cli, out).await?,
         Commands::Init { force } => init_policy(*force)?,
+        Commands::Setup { force } => setup_project(*force)?,
         Commands::Check => check_policy(&cli)?,
         Commands::Doctor => doctor(&cli)?,
         Commands::Watch => watch_policy(&cli).await?,
@@ -169,7 +218,12 @@ async fn main() -> Result<()> {
             feedback_hook().await?;
             0
         }
-        Commands::Mcp => {
+        Commands::Mcp { auto_attach_parent } => {
+            let _attach = if *auto_attach_parent {
+                Some(start_mcp_auto_attach(&cli)?)
+            } else {
+                None
+            };
             mcp::run_mcp_server().await?;
             0
         }
@@ -226,19 +280,155 @@ fn init_policy(force: bool) -> Result<i32> {
     let path = std::env::current_dir()?.join("actplane.yaml");
     if path.exists() && !force {
         eprintln!(
-            "actplane: {} already exists (use --force to overwrite).",
+            "actplane: keeping existing {} (use --force to overwrite).",
             path.display()
         );
-        return Ok(1);
+    } else {
+        std::fs::write(&path, STARTER_POLICY)?;
+        eprintln!("actplane: wrote {}", path.display());
     }
-    std::fs::write(&path, STARTER_POLICY)?;
+    setup_project(force)?;
     eprintln!(
-        "actplane: wrote {}\n  Next:  actplane check        # validate it (no sudo)\n         \
-         actplane doctor       # diagnose hooks, MCP, and kernel support\n         \
-         sudo -E actplane run <your agent command>",
-        path.display()
+        "Next:\n  actplane check\n  actplane doctor\n  codex   # MCP auto-attach will try passwordless sudo"
     );
     Ok(0)
+}
+
+fn setup_project(force: bool) -> Result<i32> {
+    let root = std::env::current_dir()?;
+    setup_codex_hook(&root, force)?;
+    setup_project_mcp(&root, force)?;
+    setup_agents_doc(&root, force)?;
+    eprintln!("actplane: project integration ready in {}", root.display());
+    Ok(0)
+}
+
+fn setup_codex_hook(root: &Path, force: bool) -> Result<()> {
+    let dir = root.join(".codex");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("hooks.json");
+    if path.exists() && !force {
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        if existing.contains("\"command\": \"actplane feedback-hook\"")
+            || existing.contains("\"command\":\"actplane feedback-hook\"")
+        {
+            eprintln!("actplane: Codex hook already wired: {}", path.display());
+            return Ok(());
+        }
+        if existing.contains("actplane feedback-hook") {
+            eprintln!(
+                "actplane: refreshing Codex hook to use PATH command `actplane`: {}",
+                path.display()
+            );
+        } else {
+            eprintln!(
+                "actplane: keeping existing {} (run `actplane setup --force` to replace it)",
+                path.display()
+            );
+            return Ok(());
+        }
+    }
+    std::fs::write(&path, CODEX_HOOKS_JSON)?;
+    eprintln!("actplane: wrote Codex hook {}", path.display());
+    Ok(())
+}
+
+fn setup_project_mcp(root: &Path, force: bool) -> Result<()> {
+    let path = root.join(".mcp.json");
+    if !path.exists() {
+        std::fs::write(&path, PROJECT_MCP_JSON)?;
+        eprintln!("actplane: wrote MCP config {}", path.display());
+        return Ok(());
+    }
+
+    let src = std::fs::read_to_string(&path)?;
+    let mut doc: serde_json::Value = match serde_json::from_str(&src) {
+        Ok(v) => v,
+        Err(e) if force => {
+            eprintln!("actplane: replacing invalid {} ({})", path.display(), e);
+            std::fs::write(&path, PROJECT_MCP_JSON)?;
+            return Ok(());
+        }
+        Err(e) => {
+            eprintln!(
+                "actplane: keeping invalid {} ({}, run `actplane setup --force` to replace it)",
+                path.display(),
+                e
+            );
+            return Ok(());
+        }
+    };
+    let Some(obj) = doc.as_object_mut() else {
+        if force {
+            std::fs::write(&path, PROJECT_MCP_JSON)?;
+        } else {
+            eprintln!(
+                "actplane: keeping non-object {} (run `actplane setup --force` to replace it)",
+                path.display()
+            );
+        }
+        return Ok(());
+    };
+    let servers = obj
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+    if !servers.is_object() {
+        if force {
+            *servers = serde_json::json!({});
+        } else {
+            eprintln!(
+                "actplane: keeping {} because `mcpServers` is not an object",
+                path.display()
+            );
+            return Ok(());
+        }
+    }
+    servers.as_object_mut().unwrap().insert(
+        "actplane".to_string(),
+        serde_json::json!({
+            "type": "stdio",
+            "command": "actplane",
+            "args": ["mcp", "--auto-attach-parent"],
+        }),
+    );
+    std::fs::write(&path, serde_json::to_string_pretty(&doc)? + "\n")?;
+    eprintln!("actplane: wired MCP config {}", path.display());
+    Ok(())
+}
+
+#[cfg(unix)]
+fn setup_agents_doc(root: &Path, force: bool) -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let agents = root.join("AGENTS.md");
+    if agents.exists() || agents.is_symlink() {
+        if !force {
+            eprintln!("actplane: keeping {}", agents.display());
+            return Ok(());
+        }
+        std::fs::remove_file(&agents)?;
+    }
+    let claude = root.join("CLAUDE.md");
+    if claude.is_file() {
+        symlink("CLAUDE.md", &agents)?;
+        eprintln!("actplane: linked AGENTS.md -> CLAUDE.md");
+    } else {
+        std::fs::write(&agents, AGENTS_STUB)?;
+        eprintln!("actplane: wrote {}", agents.display());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn setup_agents_doc(root: &Path, force: bool) -> Result<()> {
+    let agents = root.join("AGENTS.md");
+    if agents.exists() && !force {
+        eprintln!("actplane: keeping {}", agents.display());
+        return Ok(());
+    }
+    std::fs::write(&agents, AGENTS_STUB)?;
+    eprintln!("actplane: wrote {}", agents.display());
+    Ok(())
 }
 
 fn check_policy(cli: &Cli) -> Result<i32> {
@@ -383,8 +573,8 @@ fn doctor(cli: &Cli) -> Result<i32> {
 
     println!("\nNext commands:");
     println!("  actplane check");
+    println!("  codex");
     println!("  sudo -E actplane run -- <agent-or-command>");
-    println!("  actplane mcp");
 
     if problems == 0 {
         println!("\n✓ setup looks usable.");
@@ -398,7 +588,18 @@ fn doctor(cli: &Cli) -> Result<i32> {
 fn doctor_agent_files(root: &Path, problems: &mut usize) {
     let codex_hooks = root.join(".codex/hooks.json");
     if codex_hooks.is_file() {
-        println!("✓ Codex hook: {}", codex_hooks.display());
+        let hooks = std::fs::read_to_string(&codex_hooks).unwrap_or_default();
+        if hooks.contains("\"command\": \"actplane feedback-hook\"")
+            || hooks.contains("\"command\":\"actplane feedback-hook\"")
+        {
+            println!("✓ Codex hook: {}", codex_hooks.display());
+        } else {
+            *problems += 1;
+            println!(
+                "✗ Codex hook: {} exists but is not wired to `actplane feedback-hook`; run `actplane setup --force`",
+                codex_hooks.display()
+            );
+        }
     } else {
         *problems += 1;
         println!(
@@ -422,7 +623,19 @@ fn doctor_agent_files(root: &Path, problems: &mut usize) {
 
     let mcp = root.join(".mcp.json");
     if mcp.is_file() {
-        println!("✓ project MCP config: {}", mcp.display());
+        let text = std::fs::read_to_string(&mcp).unwrap_or_default();
+        if text.contains("\"command\": \"actplane\"")
+            && text.contains("\"mcp\"")
+            && text.contains("\"--auto-attach-parent\"")
+        {
+            println!("✓ project MCP config: {}", mcp.display());
+        } else {
+            *problems += 1;
+            println!(
+                "✗ project MCP config: {} does not auto-attach with PATH `actplane`; run `actplane setup`",
+                mcp.display()
+            );
+        }
     } else {
         println!("⚠ project MCP config: .mcp.json missing");
     }
@@ -477,6 +690,95 @@ async fn watch_policy(cli: &Cli) -> Result<i32> {
     Ok(0)
 }
 
+struct AttachGuard {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for AttachGuard {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
+    let attach_pid = std::env::var(ATTACH_PID_ENV)
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok())
+        .unwrap_or_else(parent_pid);
+    if attach_pid <= 1 {
+        return Err(format!("invalid parent pid for auto-attach: {attach_pid}").into());
+    }
+
+    require_bpf_caps_or_elevate_with_env(
+        cli.internal_elevated,
+        &[(ATTACH_PID_ENV, attach_pid.to_string())],
+    )?;
+
+    let loaded = load_policy(cli)?;
+    let compiled = dsl::compile_str(&loaded.config.policy)?;
+    let agent_label = runner_label(&compiled)?;
+    let feedback = feedback_paths(&loaded);
+    prepare_feedback_files(&feedback, target_user(cli.run_as_root))?;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
+    let blob = compiled.bytes;
+    let meta = compiled.meta;
+    let labels = compiled.labels;
+    let fb = feedback.feedback.clone();
+    let stop_thread = stop.clone();
+    let thread = std::thread::spawn(move || {
+        let mut loader = match Loader::load(&blob) {
+            Ok(l) => l,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("load engine: {e}")));
+                return;
+            }
+        };
+        if let Err(e) = loader.seed_agent(attach_pid, agent_label) {
+            let _ = ready_tx.send(Err(format!("seed parent pid {attach_pid}: {e}")));
+            return;
+        }
+        let _ = ready_tx.send(Ok(()));
+        let _ = loader.run(&stop_thread, |v| {
+            append_violation_feedback(&meta, &labels, &to_violation(&v), &fb)
+        });
+    });
+
+    match ready_rx.recv() {
+        Ok(Ok(())) => {
+            eprintln!(
+                "ActPlane: MCP auto-attached pid {} under COMMAND label 0x{:x}; feedback {}",
+                attach_pid,
+                agent_label,
+                feedback.feedback.display()
+            );
+            Ok(AttachGuard {
+                stop,
+                thread: Some(thread),
+            })
+        }
+        Ok(Err(e)) => {
+            stop.store(true, Ordering::SeqCst);
+            let _ = thread.join();
+            Err(e.into())
+        }
+        Err(_) => {
+            stop.store(true, Ordering::SeqCst);
+            let _ = thread.join();
+            Err("engine thread exited before readiness".into())
+        }
+    }
+}
+
+fn parent_pid() -> i32 {
+    unsafe { libc::getppid() as i32 }
+}
+
 /// Check whether we have BPF capabilities (root or CAP_BPF + CAP_SYS_ADMIN).
 fn have_bpf_caps() -> bool {
     if unsafe { libc::geteuid() } == 0 {
@@ -507,6 +809,13 @@ fn passwordless_sudo_available() -> bool {
 /// If we lack BPF caps, try passwordless sudo to re-exec ourselves elevated.
 /// Returns Ok(()) if we already have caps; otherwise re-execs or exits with an error.
 fn require_bpf_caps_or_elevate(already_elevated: bool) -> Result<()> {
+    require_bpf_caps_or_elevate_with_env(already_elevated, &[])
+}
+
+fn require_bpf_caps_or_elevate_with_env(
+    already_elevated: bool,
+    extra_env: &[(&str, String)],
+) -> Result<()> {
     if have_bpf_caps() {
         return Ok(());
     }
@@ -522,12 +831,23 @@ fn require_bpf_caps_or_elevate(already_elevated: bool) -> Result<()> {
         // Build: sudo -E <exe> --internal-elevated <original args[1..]>
         let mut cmd = std::process::Command::new("sudo");
         cmd.arg("-E").arg(&exe).arg("--internal-elevated");
+        for (name, value) in extra_env {
+            cmd.env(name, value);
+        }
         for arg in &args[1..] {
             cmd.arg(arg);
         }
         eprintln!("actplane: auto-elevating via passwordless sudo ...");
-        let status = cmd.status().map_err(|e| format!("sudo re-exec: {e}"))?;
-        std::process::exit(status.code().unwrap_or(1));
+        #[cfg(unix)]
+        {
+            let e = cmd.exec();
+            return Err(format!("sudo exec: {e}").into());
+        }
+        #[cfg(not(unix))]
+        {
+            let status = cmd.status().map_err(|e| format!("sudo re-exec: {e}"))?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
     } else {
         eprintln!(
             "actplane: this command loads an eBPF engine, which needs root \
@@ -543,12 +863,7 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     require_bpf_caps_or_elevate(cli.internal_elevated)?;
     let loaded = load_policy(cli)?;
     let compiled = dsl::compile_str(&loaded.config.policy)?;
-    let agent_label = compiled
-        .labels
-        .get("COMMAND")
-        .or_else(|| compiled.labels.get("AGENT"))
-        .copied()
-        .ok_or("run mode requires the policy to declare or reference label COMMAND (or AGENT for backward compatibility)")?;
+    let agent_label = runner_label(&compiled)?;
     let feedback = feedback_paths(&loaded);
     let target_owner = target_user(cli.run_as_root);
     prepare_feedback_files(&feedback, target_owner)?;
@@ -613,6 +928,19 @@ async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     stop.store(true, Ordering::SeqCst);
     let _ = poller.join();
     Ok(exit_code(status))
+}
+
+fn runner_label(compiled: &dsl::Compiled) -> Result<u64> {
+    compiled
+        .labels
+        .get("COMMAND")
+        .or_else(|| compiled.labels.get("AGENT"))
+        .copied()
+        .ok_or_else(|| {
+            "run/auto-attach mode requires the policy to declare or reference label COMMAND \
+             (or AGENT for backward compatibility)"
+                .into()
+        })
 }
 
 /// Map the eBPF crate's violation into the collector's reporting struct.
@@ -875,32 +1203,44 @@ fn report(
         );
     }
 
-    if let (Some(path), Some(m)) = (feedback_file, m) {
-        let op = m.ops.first().map(|s| s.as_str()).unwrap_or("op");
-        let provenance = v.provenance.as_ref().map(|p| feedback::Provenance {
-            label: label_name(labels, p.label),
-            origin_pid: p.pid,
-            origin_op: kernel_op_name(p.op).to_string(),
-            origin_target: if p.target.is_empty() {
-                "<unknown>".to_string()
-            } else {
-                p.target.clone()
-            },
-            origin_timestamp_ns: p.timestamp_ns,
-        });
-        let payload = feedback::format_payload(
-            &m.name,
-            op,
-            &v.target,
-            &m.reason,
-            m.effect,
-            v.blocked.unwrap_or(false),
-            v.killed.unwrap_or(false),
-            provenance.as_ref(),
-        );
-        if let Err(e) = append_feedback(path, &payload) {
-            eprintln!("ActPlane: writing feedback file {}: {}", path.display(), e);
-        }
+    if let Some(path) = feedback_file {
+        append_violation_feedback(meta, labels, v, path);
+    }
+}
+
+fn append_violation_feedback(
+    meta: &[dsl::RuleMeta],
+    labels: &HashMap<String, u64>,
+    v: &Violation,
+    path: &Path,
+) {
+    let Some(m) = meta.get(v.rule_id) else {
+        return;
+    };
+    let op = m.ops.first().map(|s| s.as_str()).unwrap_or("op");
+    let provenance = v.provenance.as_ref().map(|p| feedback::Provenance {
+        label: label_name(labels, p.label),
+        origin_pid: p.pid,
+        origin_op: kernel_op_name(p.op).to_string(),
+        origin_target: if p.target.is_empty() {
+            "<unknown>".to_string()
+        } else {
+            p.target.clone()
+        },
+        origin_timestamp_ns: p.timestamp_ns,
+    });
+    let payload = feedback::format_payload(
+        &m.name,
+        op,
+        &v.target,
+        &m.reason,
+        m.effect,
+        v.blocked.unwrap_or(false),
+        v.killed.unwrap_or(false),
+        provenance.as_ref(),
+    );
+    if let Err(e) = append_feedback(path, &payload) {
+        eprintln!("ActPlane: writing feedback file {}: {}", path.display(), e);
     }
 }
 

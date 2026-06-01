@@ -74,6 +74,16 @@ has reached $p$ through observed OS-level flow edges.
 
 \subsubsection{Rules and Effects}
 
+Unlike traditional taint analysis and IFC systems that prioritize
+completeness (minimizing false negatives, tolerating high false
+positives)~\cite{enck2010taintdroid,clause2007dytan}, ActPlane targets
+\emph{precision}: false positives that block legitimate operations
+disrupt the agent's development workflow and erode trust in the harness.
+The design therefore favors object-granularity labels with explicit
+declassification gates over byte-level tracking, accepting bounded
+under-tainting in exchange for near-zero false positives on compliant
+executions.
+
 A rule contains one or more clauses. Each clause starts with an action verb
 (\texttt{notify}, \texttt{block}, or \texttt{kill}) followed by an
 operation (\texttt{exec}, \texttt{read}, \texttt{write}, \texttt{unlink},
@@ -129,6 +139,16 @@ primitives map to recurring agent workflow patterns: ``after tests,''
 ``read-only sub-agent.'' The grammar is small so that policy authors can
 translate natural-language instructions into source/sink/gate shapes without
 security-policy expertise.
+
+The intermediate DSL is a deliberate design choice. The IFC engine's
+backend configuration (\texttt{struct taint\_config}) consists of hundreds
+of fixed-size rule entries, bitmask allocations, and match-kind encodings
+across several thousand lines of kernel code. Directly generating this
+backend representation from natural language (NL$\to$backend) would require
+the translating agent to understand the full engine ABI---an unrealistic
+expectation. The DSL compresses each rule into a single declarative
+statement that the compiler lowers into the correct binary layout,
+reducing the translation task to NL$\to$DSL (one line per rule).
 
 \subsection{System Architecture}
 

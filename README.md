@@ -41,6 +41,7 @@ actplane init                                  # write a starter actplane.yaml
 actplane check                                 # validate rules (no privileges)
 actplane doctor                                # diagnose hooks, MCP, kernel support
 
+codex                                         # MCP auto-attach tries passwordless sudo
 sudo -E actplane run claude -p "review this repo"
 ```
 
@@ -159,8 +160,8 @@ worked examples.
 
 ActPlane feeds rule-match reasons back to agents via their hook systems.
 
-This repo includes a ready-to-use Codex hook at `.codex/hooks.json`. It runs
-`./collector/target/release/actplane feedback-hook` after each tool call and
+`actplane init` / `actplane setup` writes a ready-to-use Codex hook at
+`.codex/hooks.json`. It runs `actplane feedback-hook` after each tool call and
 injects any new `.actplane/last-violation.txt` content into the next model turn.
 
 **Claude Code** (`.claude/settings.local.json`):
@@ -179,7 +180,7 @@ injects any new `.actplane/last-violation.txt` content into the next model turn.
 ```json
 {
   "hooks": {
-    "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "/path/to/actplane feedback-hook" }] }]
+    "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "actplane feedback-hook" }] }]
   }
 }
 ```
@@ -191,15 +192,26 @@ for the agent instruction snippet.
 ActPlane also ships an MCP server:
 
 ```bash
-actplane mcp
+actplane mcp --auto-attach-parent
 ```
 
 It exposes `actplane:///policy` for live policy validation and
-`actplane:///feedback` for the latest corrective feedback. To have Codex start it
-automatically, register the stdio server once:
+`actplane:///feedback` for the latest corrective feedback. When started by Codex,
+`--auto-attach-parent` tries passwordless sudo, loads the eBPF engine, and seeds
+the parent Codex process so directly running `codex` is protected.
 
-```bash
-codex mcp add actplane --env ACTPLANE_PROJECT_DIR=/path/to/repo -- /path/to/actplane mcp
+`actplane setup` also writes project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "actplane": {
+      "type": "stdio",
+      "command": "actplane",
+      "args": ["mcp", "--auto-attach-parent"]
+    }
+  }
+}
 ```
 
 ## How it works

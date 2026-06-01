@@ -45,12 +45,20 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cond {
-    Target { negate: bool, pattern: String },
-    LineageIncludes { exec: String },
+    Target {
+        negate: bool,
+        pattern: String,
+    },
+    LineageIncludes {
+        exec: String,
+    },
     /// `after exec X [since EV ("or" EV)*]`. Each EV is an (op, pattern) event
     /// whose later occurrence makes the X gate stale. `since` empty = v1
     /// latching semantics (gate fired ever).
-    After { exec: String, since: Vec<(Op, String)> },
+    After {
+        exec: String,
+        since: Vec<(Op, String)>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,7 +101,11 @@ pub struct Rule {
 impl Rule {
     /// The strongest effect across all clauses (kill > block > notify).
     pub fn effect(&self) -> Effect {
-        self.clauses.iter().map(|cl| cl.effect).max().unwrap_or_default()
+        self.clauses
+            .iter()
+            .map(|cl| cl.effect)
+            .max()
+            .unwrap_or_default()
     }
 }
 
