@@ -4,16 +4,15 @@
 //! eBPF IFC engine loader (aya).
 //!
 //! Loads the prebuilt CO-RE object `process.bpf.o` (compiled from the untouched
-//! kernel C in this directory), installs the compiled policy into `.rodata`,
-//! attaches the enforcer, and surfaces `TAINT_VIOLATION` events. This is the
-//! pure-Rust replacement for the C `process` loader: same behavior, but loaded
-//! in-process via aya with no libbpf/clang at runtime.
+//! kernel C in this directory), installs the compiled policy into writable BPF
+//! array maps, attaches the enforcer, and surfaces `TAINT_VIOLATION` events.
+//! Supports hot-reload of policy rules via `ReloadHandle` (user ring buffer).
 //!
 //! The config blob is exactly the `struct taint_config` the collector's DSL
 //! compiler already produces (the same bytes the C loader read from `--config`).
 
 use std::io::{self, Read};
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use aya::maps::{Array, HashMap, Map, RingBuf};
@@ -260,15 +259,15 @@ impl Loader {
         let mut loader = EbpfLoader::new();
         loader
             .allow_unsupported_maps()
-            .set_global("enforce_mode", &enforce_mode, true)
-            .set_global("n_updates", &cfg.n_updates, true)
-            .set_global("n_rules", &cfg.n_rules, true)
-            .set_global("taint_updates", &cfg.updates[..], true)
-            .set_global("taint_rules", &cfg.rules[..], true);
+            .set_global("enforce_mode", &enforce_mode, true);
 
         let mut bpf = loader
             .load(object_bytes())
             .map_err(|e| err(format!("Ebpf::load: {e}")))?;
+
+        // Populate writable array maps for updates and rules.
+        populate_update_map(&mut bpf, &cfg)?;
+        populate_rule_map(&mut bpf, &cfg)?;
 
         // Loop counts in a (non-frozen) map so the verifier analyzes each
         // bpf_loop callback once. Slots: 0=rules 1=updates 5=labels.
@@ -325,6 +324,26 @@ impl Loader {
 
     pub fn enforce_mode(&self) -> bool {
         self.enforce
+    }
+
+    /// Create a `ReloadHandle` that can hot-reload policy into this engine.
+    pub fn reload_handle(&self) -> io::Result<ReloadHandle> {
+        let map = self
+            .bpf
+            .map("cap_req")
+            .ok_or_else(|| err("cap_req missing"))?;
+        let map_data = match map {
+            Map::Unsupported(data) => data,
+            _ => return Err(err("cap_req is not a user ringbuf map")),
+        };
+        let raw = map_data.fd().as_fd().as_raw_fd();
+        let dup = unsafe { libc::dup(raw) };
+        if dup < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(ReloadHandle {
+            cap_req_fd: unsafe { OwnedFd::from_raw_fd(dup) },
+        })
     }
 
     /// Seed `pid` and its future descendants with an initial label.
@@ -479,6 +498,161 @@ impl Loader {
     }
 }
 
+// ── Map population helpers ──────────────────────────────────────────
+
+fn populate_update_map(bpf: &mut Ebpf, cfg: &CConfig) -> io::Result<()> {
+    let mut updates_map: Array<_, CUpdate> = Array::try_from(
+        bpf.map_mut("ts_updates")
+            .ok_or_else(|| err("map ts_updates missing"))?,
+    )
+    .map_err(|e| err(format!("ts_updates: {e}")))?;
+    for i in 0..cfg.n_updates as usize {
+        updates_map
+            .set(i as u32, cfg.updates[i], 0)
+            .map_err(|e| err(format!("ts_updates[{i}]: {e}")))?;
+    }
+    Ok(())
+}
+
+fn populate_rule_map(bpf: &mut Ebpf, cfg: &CConfig) -> io::Result<()> {
+    let mut rules_map: Array<_, CRule> = Array::try_from(
+        bpf.map_mut("ts_rules")
+            .ok_or_else(|| err("map ts_rules missing"))?,
+    )
+    .map_err(|e| err(format!("ts_rules: {e}")))?;
+    for i in 0..cfg.n_rules as usize {
+        rules_map
+            .set(i as u32, cfg.rules[i], 0)
+            .map_err(|e| err(format!("ts_rules[{i}]: {e}")))?;
+    }
+    Ok(())
+}
+
+// ── Hot-reload via cap_req ring buffer ─────────────────────────────
+
+const CAP_REQ_RELOAD_UPDATE: i32 = -1;
+const CAP_REQ_RELOAD_RULE: i32 = -2;
+const CAP_REQ_RELOAD_COUNTS: i32 = -3;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ReloadUpdate {
+    tag: i32,
+    index: u32,
+    entry: CUpdate,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ReloadRule {
+    tag: i32,
+    index: u32,
+    entry: CRule,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ReloadCounts {
+    tag: i32,
+    n_rules: u32,
+    n_updates: u32,
+    _pad: u32,
+}
+
+/// A handle for hot-reloading policy rules into a running eBPF engine.
+///
+/// Holds only the `cap_req` user ring buffer fd (via a dup'd `OwnedFd`).
+/// `Send + Sync` — safe to share across threads and the async MCP server.
+pub struct ReloadHandle {
+    cap_req_fd: std::os::fd::OwnedFd,
+}
+
+unsafe impl Send for ReloadHandle {}
+unsafe impl Sync for ReloadHandle {}
+
+impl ReloadHandle {
+    fn submit_raw(&self, data: &[u8]) -> io::Result<()> {
+        let fd = self.cap_req_fd.as_raw_fd();
+        unsafe {
+            let rb = libbpf_sys::user_ring_buffer__new(fd, std::ptr::null());
+            if rb.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let sample = libbpf_sys::user_ring_buffer__reserve(rb, data.len() as u32);
+            if sample.is_null() {
+                let e = io::Error::last_os_error();
+                libbpf_sys::user_ring_buffer__free(rb);
+                return Err(e);
+            }
+            std::ptr::copy_nonoverlapping(data.as_ptr(), sample as *mut u8, data.len());
+            libbpf_sys::user_ring_buffer__submit(rb, sample);
+            libbpf_sys::user_ring_buffer__free(rb);
+            libc::syscall(libc::SYS_getpid);
+        }
+        Ok(())
+    }
+
+    fn submit<T: Copy>(&self, val: &T) -> io::Result<()> {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(val as *const T as *const u8, std::mem::size_of::<T>())
+        };
+        self.submit_raw(bytes)
+    }
+
+    /// Hot-reload a new compiled policy blob without restarting the engine.
+    ///
+    /// Sequence: quiesce (counts→0) → write updates → write rules → activate.
+    /// Accumulated state (process labels, file labels, session gates) is preserved.
+    pub fn reload_policy(&self, new_blob: &[u8]) -> io::Result<()> {
+        if new_blob.len() != std::mem::size_of::<CConfig>() {
+            return Err(err(format!(
+                "reload config size mismatch: got {}, expected {}",
+                new_blob.len(),
+                std::mem::size_of::<CConfig>()
+            )));
+        }
+        let cfg: Box<CConfig> =
+            Box::new(unsafe { std::ptr::read_unaligned(new_blob.as_ptr() as *const CConfig) });
+        validate_config(&cfg)?;
+
+        // Phase 1: quiesce — set counts to 0 so the engine skips all rules.
+        self.submit(&ReloadCounts {
+            tag: CAP_REQ_RELOAD_COUNTS,
+            n_rules: 0,
+            n_updates: 0,
+            _pad: 0,
+        })?;
+
+        // Phase 2: submit all update entries.
+        for i in 0..cfg.n_updates {
+            self.submit(&ReloadUpdate {
+                tag: CAP_REQ_RELOAD_UPDATE,
+                index: i,
+                entry: cfg.updates[i as usize],
+            })?;
+        }
+
+        // Phase 3: submit all rule entries.
+        for i in 0..cfg.n_rules {
+            self.submit(&ReloadRule {
+                tag: CAP_REQ_RELOAD_RULE,
+                index: i,
+                entry: cfg.rules[i as usize],
+            })?;
+        }
+
+        // Phase 4: activate — set real counts.
+        self.submit(&ReloadCounts {
+            tag: CAP_REQ_RELOAD_COUNTS,
+            n_rules: cfg.n_rules,
+            n_updates: cfg.n_updates,
+            _pad: 0,
+        })?;
+
+        Ok(())
+    }
+}
+
 fn cstr(buf: &[u8]) -> String {
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
     String::from_utf8_lossy(&buf[..end]).into_owned()
@@ -572,6 +746,8 @@ mod tests {
             b"trace_write".as_slice(),
             b"stdio:stdin".as_slice(),
             b"stdio:stdout".as_slice(),
+            b"ts_updates".as_slice(),
+            b"ts_rules".as_slice(),
         ] {
             assert!(
                 b.windows(name.len()).any(|w| w == name),
@@ -579,5 +755,18 @@ mod tests {
                 String::from_utf8_lossy(name)
             );
         }
+    }
+
+    #[test]
+    fn reload_struct_layout() {
+        assert_eq!(
+            std::mem::size_of::<ReloadUpdate>(),
+            8 + std::mem::size_of::<CUpdate>()
+        );
+        assert_eq!(
+            std::mem::size_of::<ReloadRule>(),
+            8 + std::mem::size_of::<CRule>()
+        );
+        assert_eq!(std::mem::size_of::<ReloadCounts>(), 16);
     }
 }

@@ -15,6 +15,7 @@ use rmcp::{Peer, RoleServer, ServerHandler, ServiceExt};
 use serde_json::Value;
 
 use crate::dsl;
+use ebpf_ifc_engine::ReloadHandle;
 
 const POLICY_RESOURCE_URI: &str = "actplane:///policy";
 const FEEDBACK_RESOURCE_URI: &str = "actplane:///feedback";
@@ -26,17 +27,25 @@ const WATCH_INTERVAL: Duration = Duration::from_secs(2);
 #[derive(Clone)]
 pub struct ActPlaneMcp {
     project_dir: PathBuf,
+    reload_handle: Option<Arc<ReloadHandle>>,
 }
 
 impl ActPlaneMcp {
     pub fn new() -> Self {
+        Self::new_with_reload(None)
+    }
+
+    pub fn new_with_reload(reload: Option<Arc<ReloadHandle>>) -> Self {
         let project_dir = std::env::var("ACTPLANE_PROJECT_DIR")
             .or_else(|_| std::env::var("CODEX_PROJECT_DIR"))
             .or_else(|_| std::env::var("CODEX_WORKSPACE"))
             .or_else(|_| std::env::var("CLAUDE_PROJECT_DIR"))
             .map(PathBuf::from)
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        Self { project_dir }
+        Self {
+            project_dir,
+            reload_handle: reload,
+        }
     }
 
     fn discover_policy_file(&self) -> Option<PathBuf> {
@@ -151,17 +160,129 @@ impl ActPlaneMcp {
             .ok()
             .and_then(|m| m.modified().ok())
     }
+
+    fn do_reload_policy(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let handle = self.reload_handle.as_ref().ok_or_else(|| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                "No eBPF engine attached (MCP not started with --auto-attach-parent)",
+                None::<Value>,
+            )
+        })?;
+        let path = self.discover_policy_file().ok_or_else(|| {
+            rmcp::ErrorData::new(
+                ErrorCode::INVALID_PARAMS,
+                "No actplane.yaml found",
+                None::<Value>,
+            )
+        })?;
+        let src = std::fs::read_to_string(&path).map_err(|e| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!("Cannot read {}: {e}", path.display()),
+                None::<Value>,
+            )
+        })?;
+        let config: serde_yaml::Value = serde_yaml::from_str(&src).map_err(|e| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!("YAML parse error: {e}"),
+                None::<Value>,
+            )
+        })?;
+        let dsl_src = config
+            .get("policy")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                rmcp::ErrorData::new(
+                    ErrorCode::INVALID_PARAMS,
+                    "No `policy:` field in actplane.yaml",
+                    None::<Value>,
+                )
+            })?;
+        let compiled = dsl::compile_str(dsl_src).map_err(|e| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!("Policy compile error: {e}"),
+                None::<Value>,
+            )
+        })?;
+        handle.reload_policy(&compiled.bytes).map_err(|e| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!("Reload failed: {e}"),
+                None::<Value>,
+            )
+        })?;
+
+        let msg = format!(
+            "Policy hot-reloaded ({} rules, {} updates) from {}",
+            compiled.meta.len(),
+            compiled.bytes.len() / 100, // approximate
+            path.display()
+        );
+        Ok(CallToolResult::success(vec![Content::text(msg)]))
+    }
 }
 
-// ── ServerHandler: resources only, no tools ─────────────────────────
+// ── ServerHandler ───────────────────────────────────────────────────
 
 impl ServerHandler for ActPlaneMcp {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_resources().build()).with_instructions(
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_resources()
+                .enable_tools()
+                .build(),
+        )
+        .with_instructions(
             "ActPlane: OS-level agent harness. This server exposes policy \
                  validation and the latest corrective feedback from the kernel \
                  enforcer.",
         )
+    }
+
+    fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
+    ) -> impl std::future::Future<Output = Result<ListToolsResult, rmcp::ErrorData>> + Send + '_
+    {
+        let schema: serde_json::Map<String, Value> =
+            serde_json::from_value(serde_json::json!({
+                "type": "object",
+                "properties": {},
+            }))
+            .unwrap();
+        let tools = vec![Tool::new(
+            "reload_policy",
+            "Hot-reload the policy from actplane.yaml into the running \
+             eBPF engine without restarting. Accumulated state (process \
+             labels, file labels, session gates) is preserved.",
+            schema,
+        )];
+        std::future::ready(Ok(ListToolsResult {
+            tools,
+            ..Default::default()
+        }))
+    }
+
+    fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
+    ) -> impl std::future::Future<Output = Result<CallToolResult, rmcp::ErrorData>> + Send + '_
+    {
+        let result = if request.name == "reload_policy" {
+            self.do_reload_policy()
+        } else {
+            Err(rmcp::ErrorData::new(
+                ErrorCode::METHOD_NOT_FOUND,
+                format!("Unknown tool: {}", request.name),
+                None::<Value>,
+            ))
+        };
+        std::future::ready(result)
     }
 
     fn list_resources(
@@ -308,7 +429,13 @@ async fn watch_policy_file(server: Arc<ActPlaneMcp>, peer: Peer<RoleServer>) {
 // ── Entry point ─────────────────────────────────────────────────────
 
 pub async fn run_mcp_server() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let server = ActPlaneMcp::new();
+    run_mcp_server_with_reload(None).await
+}
+
+pub async fn run_mcp_server_with_reload(
+    reload: Option<Arc<ReloadHandle>>,
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let server = ActPlaneMcp::new_with_reload(reload);
     let server_arc = Arc::new(server.clone());
     let transport = stdio();
     let service = server.serve(transport).await?;

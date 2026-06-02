@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use ebpf_ifc_engine::Loader;
+use ebpf_ifc_engine::{Loader, ReloadHandle};
 use tokio::process::{Child, Command};
 
 #[cfg(unix)]
@@ -69,6 +69,13 @@ pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
 pub(crate) struct AttachGuard {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    reload_handle: Option<Arc<ebpf_ifc_engine::ReloadHandle>>,
+}
+
+impl AttachGuard {
+    pub(crate) fn reload_handle(&self) -> Option<Arc<ReloadHandle>> {
+        self.reload_handle.clone()
+    }
 }
 
 impl Drop for AttachGuard {
@@ -102,7 +109,8 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
     prepare_feedback_files(&feedback, target_user(cli.run_as_root))?;
 
     let stop = Arc::new(AtomicBool::new(false));
-    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
+    type ReadyResult = std::result::Result<Option<ReloadHandle>, String>;
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<ReadyResult>();
     let blob = compiled.bytes;
     let meta = compiled.meta;
     let labels = compiled.labels;
@@ -120,14 +128,15 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
             let _ = ready_tx.send(Err(format!("seed parent pid {attach_pid}: {e}")));
             return;
         }
-        let _ = ready_tx.send(Ok(()));
+        let rh = loader.reload_handle().ok();
+        let _ = ready_tx.send(Ok(rh));
         let _ = loader.run(&stop_thread, |v| {
             append_violation_feedback(&meta, &labels, &to_violation(&v), &fb)
         });
     });
 
     match ready_rx.recv() {
-        Ok(Ok(())) => {
+        Ok(Ok(rh)) => {
             eprintln!(
                 "ActPlane: MCP auto-attached pid {} under COMMAND label 0x{:x}; feedback {}",
                 attach_pid,
@@ -137,6 +146,7 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
             Ok(AttachGuard {
                 stop,
                 thread: Some(thread),
+                reload_handle: rh.map(Arc::new),
             })
         }
         Ok(Err(e)) => {

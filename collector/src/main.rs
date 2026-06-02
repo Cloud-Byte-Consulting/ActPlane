@@ -122,12 +122,16 @@ async fn main() -> Result<()> {
             0
         }
         Commands::Mcp { auto_attach_parent } => {
-            let _attach = if *auto_attach_parent {
+            let attach = if *auto_attach_parent {
                 Some(runtime::start_mcp_auto_attach(&cli)?)
             } else {
                 None
             };
-            mcp::run_mcp_server().await?;
+            let reload = attach
+                .as_ref()
+                .and_then(|a| a.reload_handle());
+            mcp::run_mcp_server_with_reload(reload).await?;
+            drop(attach);
             0
         }
     };

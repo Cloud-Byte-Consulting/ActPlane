@@ -5,14 +5,47 @@
 
 /*
  * ActPlane in-kernel taint engine. Owns the label state (process / file /
- * endpoint) + lineage/session gates + the compiled rule tables (rodata, filled
- * from userspace before load), and provides the te_* helpers a hook program
- * calls. Requires vmlinux.h + bpf_helpers.h + "taint.h" already included.
+ * endpoint) + lineage/session gates + the compiled rule tables (writable
+ * array maps, hot-reloadable from userspace via the cap_req ring buffer),
+ * and provides the te_* helpers a hook program calls.
+ * Requires vmlinux.h + bpf_helpers.h + "taint.h" already included.
  */
 
 #ifndef __noinline
 #define __noinline __attribute__((noinline))
 #endif
+
+/* ── Writable policy tables (defined before capability.bpf.h so the reload
+ *    handler in the drain callback can reference them). ──────────────── */
+
+/* Compiled kernel IR tables. Stored in writable array maps so userspace can
+ * hot-reload them at runtime through the cap_req ring buffer without restarting
+ * the engine or losing accumulated label state.  Loop counts live in ts_counts
+ * (slots 0=rules, 1=updates) and drive bpf_loop iteration. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, MAX_TAINT_UPDATES);
+	__type(key, __u32);
+	__type(value, struct taint_update);
+} ts_updates SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, MAX_TAINT_RULES);
+	__type(key, __u32);
+	__type(value, struct taint_rule);
+} ts_rules SEC(".maps");
+
+/* Loop trip counts in a (non-frozen) map so the verifier treats them as unknown
+ * scalars: every table loop runs via bpf_loop(), whose callback is then verified
+ * exactly ONCE (a frozen/known count would make the verifier simulate per
+ * iteration and -E2BIG at scale). Slots: 0=rules 1=updates 5=labels. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 6);
+	__type(key, __u32);
+	__type(value, __u32);
+} ts_counts SEC(".maps");
 
 #include "capability.bpf.h"
 
@@ -206,23 +239,6 @@ struct {
 	__type(key, __u32); /* IPv4 (network order) */
 	__type(value, __u64);
 } ts_endp SEC(".maps");
-
-/* Compiled kernel IR tables, set from userspace before load. */
-const volatile unsigned int n_updates = 0;
-const volatile unsigned int n_rules = 0;
-const volatile struct taint_update taint_updates[MAX_TAINT_UPDATES] = {};
-const volatile struct taint_rule taint_rules[MAX_TAINT_RULES] = {};
-
-/* Loop trip counts in a (non-frozen) map so the verifier treats them as unknown
- * scalars: every table loop runs via bpf_loop(), whose callback is then verified
- * exactly ONCE (a frozen/known count would make the verifier simulate per
- * iteration and -E2BIG at scale). Slots: 0=rules 1=updates 5=labels. */
-struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__uint(max_entries, 6);
-	__type(key, __u32);
-	__type(value, __u32);
-} ts_counts SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -613,7 +629,10 @@ static int te_update_cb(__u32 i, void *vc)
 
 	if (i >= MAX_TAINT_UPDATES)
 		return 1;
-	struct taint_update u = taint_updates[i];
+	struct taint_update *up = bpf_map_lookup_elem(&ts_updates, &i);
+	if (!up)
+		return 1;
+	struct taint_update u = *up;
 	if (u.op != c->op)
 		return 0;
 	if (u.op == TOP_CONNECT)
@@ -761,7 +780,11 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 {
 	if (idx >= MAX_TAINT_RULES)
 		return -1;
-	struct taint_rule r = taint_rules[idx]; /* local copy: plain reads */
+	__u32 key = idx;
+	struct taint_rule *rp = bpf_map_lookup_elem(&ts_rules, &key);
+	if (!rp)
+		return -1;
+	struct taint_rule r = *rp;
 
 	if (r.op != e->op)
 		return -1;

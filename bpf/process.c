@@ -248,12 +248,8 @@ int main(int argc, char **argv)
 		bpf_program__set_autoload(skel->progs.enforce_socket_connect, false);
 	}
 
-	/* install compiled tables into rodata before load */
+	/* install enforce_mode into rodata before load */
 	skel->rodata->enforce_mode = enforce ? 1 : 0;
-	skel->rodata->n_updates = cfg.n_updates;
-	skel->rodata->n_rules = cfg.n_rules;
-	memcpy((void *)skel->rodata->taint_updates, cfg.updates, sizeof(cfg.updates));
-	memcpy((void *)skel->rodata->taint_rules, cfg.rules, sizeof(cfg.rules));
 	fprintf(stderr, "ActPlane: %u updates, %u rules\n",
 		cfg.n_updates, cfg.n_rules);
 	fprintf(stderr, "ActPlane: %s mode (%s)\n",
@@ -266,6 +262,24 @@ int main(int argc, char **argv)
 
 	err = process_bpf__load(skel);
 	if (err) { fprintf(stderr, "Failed to load BPF skeleton\n"); goto cleanup; }
+
+	/* Populate writable array maps for updates and rules. */
+	{
+		int ufd = bpf_map__fd(skel->maps.ts_updates);
+		for (__u32 i = 0; i < cfg.n_updates; i++) {
+			if (bpf_map_update_elem(ufd, &i, &cfg.updates[i], BPF_ANY) < 0) {
+				fprintf(stderr, "failed to set update %u: %s\n", i, strerror(errno));
+				err = -1; goto cleanup;
+			}
+		}
+		int rfd = bpf_map__fd(skel->maps.ts_rules);
+		for (__u32 i = 0; i < cfg.n_rules; i++) {
+			if (bpf_map_update_elem(rfd, &i, &cfg.rules[i], BPF_ANY) < 0) {
+				fprintf(stderr, "failed to set rule %u: %s\n", i, strerror(errno));
+				err = -1; goto cleanup;
+			}
+		}
+	}
 
 	/* Loop counts in a (non-frozen) map so the verifier checks each bpf_loop
 	 * callback once, not once per table entry. Slots: 0=rules 1=updates
