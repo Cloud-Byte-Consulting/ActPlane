@@ -461,7 +461,7 @@ Key properties:
 - **No actual execution of tested LLM's action**: we score the
   DECISION, not the execution. End-to-end execution is tested in RQ3
   (Terminal-Bench).
-- **Tested-model cost**: 1 LLM call × 1,160 scenarios = 1,160 calls,
+- **Tested-model cost**: 1 LLM call × 1,214 scenarios = 1,214 calls,
   plus optional scoring calls if a scorer model is used.
 
 #### Step 4: Score Result Records
@@ -728,12 +728,33 @@ Report p50 / p99 / p999.
 
 #### Measurement Method
 
-Custom C benchmark (or `bpf_prog_test_run`):
-- fork: measure `fork()` + `waitpid()` latency
-- exec: measure `execve("/bin/true")` latency
-- open: measure `open("/tmp/test", O_RDONLY)` + `close()` latency
-- write: measure `write(fd, buf, 4096)` latency
-- connect: measure `connect(127.0.0.1:discard)` latency
+Custom benchmark harness in `docs/corpus-test/perf/`:
+
+```bash
+python3 docs/corpus-test/perf/run_perf.py \
+  --build-actplane \
+  --configs baseline,ap-1,ap-10,ap-32,ap-100 \
+  --ops open,write,connect,fork,exec \
+  --repeats 7 \
+  --cpu 2 \
+  --raw-samples
+```
+
+The C microbenchmark reports raw per-iteration latency and p50 / p90 /
+p95 / p99 / p999 summaries. The Python runner generates the exact
+no-hit AP policies used for each rule count, preserves those policies
+with the result artifact, records machine/kernel/git metadata, and
+aggregates medians across repeats. Primary overhead tables use no-hit
+policies to isolate steady-state rule scanning and label propagation
+from ring-buffer/reporting cost; violation/reporting latency should be
+reported as a separate experiment if needed.
+
+Measured operations:
+- fork: `fork()` + parent `waitpid()`
+- exec: `fork()` + child `execve("/bin/true")` + parent `waitpid()`
+- open: `open(path, O_RDONLY|O_CLOEXEC)` with `close()` outside the timed region
+- write: `write(fd, 4096)` to an already-open temp file
+- connect: UDP `connect(127.0.0.1:9)` on an already-created socket
 
 ### 6.2 Macrobenchmarks (Agent Trace Replay)
 

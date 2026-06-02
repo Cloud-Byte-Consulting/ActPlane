@@ -1,0 +1,6 @@
+build/
+results/
+tmp/
+__pycache__/
+*.o
+syscall_microbench

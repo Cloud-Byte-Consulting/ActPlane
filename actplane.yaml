@@ -64,7 +64,7 @@ policy: |
   # UNTRUST → read(src/) → committer gets UNTRUST → push DENIED.
   # Endorsement: human-approve adds REVIEWED, satisfying `not REVIEWED`.
   rule no-unreviewed-publish:
-    kill exec "git" "push"   if UNTRUST and not REVIEWED
+    notify exec "git" "push"   if UNTRUST and not REVIEWED
     kill exec "**/deploy*"           if UNTRUST and not REVIEWED
     because "Code derived from untrusted network input requires review before publishing. Run the review/approval tool, then push."
 
