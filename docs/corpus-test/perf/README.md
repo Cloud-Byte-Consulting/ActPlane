@@ -22,6 +22,10 @@ difference against the same benchmark without ActPlane.
 `AP-1`, `AP-10`, `AP-32`, and `AP-100`, runs repeated trials, and writes raw
 run records plus aggregate CSV/JSON files.
 
+`run_macro.py` runs macro/end-to-end workloads with the same no-hit policy
+families: fixed-op `stress-ng` workloads plus real repository build/test
+commands wrapped with `/usr/bin/time -v`.
+
 ## Recommended Paper Run
 
 Run this on an otherwise idle machine, pin to an isolated CPU, keep the CPU
@@ -41,6 +45,15 @@ For a quick local sanity check without eBPF privileges:
 
 ```bash
 python3 docs/corpus-test/perf/run_perf.py --smoke --baseline-only
+```
+
+For macro workloads:
+
+```bash
+python3 docs/corpus-test/perf/run_macro.py \
+  --configs baseline,ap-32,ap-100 \
+  --workloads stressng-open,stressng-fork,stressng-exec,stressng-hdd,stressng-mixed,collector-release-build \
+  --repeats 3
 ```
 
 ## Output

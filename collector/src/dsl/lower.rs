@@ -401,10 +401,48 @@ pub struct Compiled {
     pub labels: HashMap<String, u64>,
 }
 
+fn collect_label_names(pol: &Policy) -> Vec<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for s in &pol.sources {
+        names.insert(s.label.clone());
+    }
+    for x in &pol.xforms {
+        names.insert(x.label.clone());
+    }
+    for r in &pol.rules {
+        for cl in &r.clauses {
+            collect_expr_labels(&cl.when, &mut names);
+        }
+    }
+    names.into_iter().collect()
+}
+
+fn collect_expr_labels(expr: &Expr, out: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        Expr::Label(l) | Expr::Not(l) => {
+            out.insert(l.clone());
+        }
+        Expr::And(a, b) | Expr::Or(a, b) => {
+            collect_expr_labels(a, out);
+            collect_expr_labels(b, out);
+        }
+        Expr::True => {}
+    }
+}
+
 pub fn compile(pol: &Policy) -> Result<Compiled, String> {
+    let sorted_labels = collect_label_names(pol);
+    let mut pre_labels = HashMap::new();
+    for (i, name) in sorted_labels.iter().enumerate() {
+        if i >= 64 {
+            return Err("too many labels (max 64)".into());
+        }
+        pre_labels.insert(name.clone(), 1u64 << i);
+    }
+
     let mut ctx = Ctx {
-        labels: HashMap::new(),
-        next_label: 0,
+        next_label: sorted_labels.len() as u32,
+        labels: pre_labels,
         updates: Vec::new(),
         gate_bits: HashMap::new(),
         next_gate: 0,
