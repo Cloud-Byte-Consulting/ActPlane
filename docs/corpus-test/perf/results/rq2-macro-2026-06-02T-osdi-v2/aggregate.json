@@ -1,0 +1,62 @@
+[
+  {
+    "config": "ap-100",
+    "elapsed_overhead_pct": 3.7735849056603765,
+    "median_elapsed_s": 2.75,
+    "median_stressng_total_bogo_ops": 0.0,
+    "median_sys_s": 0.55,
+    "median_user_s": 2.21,
+    "repeats": 3,
+    "workload": "agent-trace"
+  },
+  {
+    "config": "ap-32",
+    "elapsed_overhead_pct": 1.8867924528301883,
+    "median_elapsed_s": 2.7,
+    "median_stressng_total_bogo_ops": 0.0,
+    "median_sys_s": 0.51,
+    "median_user_s": 2.2,
+    "repeats": 3,
+    "workload": "agent-trace"
+  },
+  {
+    "config": "baseline",
+    "elapsed_overhead_pct": 0.0,
+    "median_elapsed_s": 2.65,
+    "median_stressng_total_bogo_ops": 0.0,
+    "median_sys_s": 0.44,
+    "median_user_s": 2.21,
+    "repeats": 3,
+    "workload": "agent-trace"
+  },
+  {
+    "config": "ap-100",
+    "elapsed_overhead_pct": 8.429793658782092,
+    "median_elapsed_s": 86.18,
+    "median_stressng_total_bogo_ops": 0.0,
+    "median_sys_s": 225.45,
+    "median_user_s": 1192.89,
+    "repeats": 3,
+    "workload": "linux-build"
+  },
+  {
+    "config": "ap-32",
+    "elapsed_overhead_pct": 6.504781077000499,
+    "median_elapsed_s": 84.65,
+    "median_stressng_total_bogo_ops": 0.0,
+    "median_sys_s": 213.5,
+    "median_user_s": 1194.77,
+    "repeats": 3,
+    "workload": "linux-build"
+  },
+  {
+    "config": "baseline",
+    "elapsed_overhead_pct": 0.0,
+    "median_elapsed_s": 79.48,
+    "median_stressng_total_bogo_ops": 0.0,
+    "median_sys_s": 201.4,
+    "median_user_s": 1185.6,
+    "repeats": 3,
+    "workload": "linux-build"
+  }
+]

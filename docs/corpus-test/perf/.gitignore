@@ -1,6 +1,16 @@
 build/
-results/
 tmp/
 __pycache__/
 *.o
 syscall_microbench
+results/*
+!results/rq2-micro-2026-06-02T-osdi/
+!results/rq2-micro-2026-06-02T-osdi/**
+results/rq2-micro-2026-06-02T-osdi/tmp/
+results/rq2-micro-2026-06-02T-osdi/logs/
+results/rq2-micro-2026-06-02T-osdi/raw/
+!results/rq2-macro-2026-06-02T-osdi-v2/
+!results/rq2-macro-2026-06-02T-osdi-v2/**
+results/rq2-macro-2026-06-02T-osdi-v2/agent-trace-workspaces/
+results/rq2-macro-2026-06-02T-osdi-v2/linux-builds/
+results/rq2-macro-2026-06-02T-osdi-v2/logs/
