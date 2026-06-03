@@ -38,8 +38,12 @@ improve agent instruction compliance on runnable, repository-grounded tasks?
 
 - [x] Validate ActPlane binary and eBPF mounts inside selected Docker images.
 - [x] Translate enforceable OS-observable checklist items into a shared ActPlane policy.
-- [x] Run the same 20 cases with ActPlane wrapping the scaffold command.
-- [x] Preserve raw trajectories, ActPlane feedback/violation logs, stdout/stderr, and timing locally.
+- [x] Audit the first ActPlane run and identify that `source AGENT = exec "**"` did not label the `bash -c` entry command.
+- [x] Fix the policy source to `source COMMAND = exec "bash"` and verify with a Docker smoke that `find` is killed.
+- [x] Run one real fixed-policy OctoBench case and confirm ActPlane kill events are produced.
+- [x] Judge that fixed-policy smoke case and record that reward decreased versus baseline.
+- [ ] Rerun the same 20 cases with ActPlane wrapping the scaffold command and the fixed policy.
+- [ ] Preserve raw trajectories, ActPlane feedback/violation logs, stdout/stderr, and timing locally.
 - [ ] Re-score ActPlane trajectories with official whole-case `evaluate.py` semantics and no fallback.
 
 ## Data Hygiene

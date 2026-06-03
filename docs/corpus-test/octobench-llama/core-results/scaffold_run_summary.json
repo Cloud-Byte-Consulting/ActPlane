@@ -257,11 +257,13 @@
         "returncode": 0,
         "elapsed_s": 152.164
       }
-    ]
+    ],
+    "validity_note": "This run proves wrapper/run feasibility only. It used the old policy source AGENT = exec \"**\", which did not label the bash -c entry process; rerun with source COMMAND = exec \"bash\" for enforcement data."
   },
   "comparison": {
     "elapsed_overhead_fraction": 0.1683,
     "elapsed_overhead_percent": 16.83,
-    "mean_elapsed_delta_s": 28.337
+    "mean_elapsed_delta_s": 28.337,
+    "validity_note": "Timing comparison is wrapper feasibility data, not final ActPlane-effectiveness data."
   }
 }

@@ -101,7 +101,7 @@ def run_case(args: argparse.Namespace) -> int:
     case = load_case(args.dataset, args.case)
     scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
     proxy_url = f"http://host.docker.internal:{args.proxy_port}"
-    run_dir = args.out_dir / f"actplane-{args.case}-{utc_stamp()}"
+    run_dir = args.out_dir.resolve() / f"actplane-{args.case}-{utc_stamp()}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     case_id_for_trajectory = f"actplane-{args.case}"

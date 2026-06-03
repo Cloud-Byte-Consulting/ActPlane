@@ -45,7 +45,7 @@ DEFAULT_PORT = 18080
 DEFAULT_DEVICE = "CUDA0"
 DEFAULT_GPU_LAYERS = "all"
 DEFAULT_CTX_SIZE = 128000
-DEFAULT_PARALLEL = 1
+DEFAULT_PARALLEL = 3
 
 
 class LlamaServer:
@@ -173,7 +173,11 @@ class LlamaServer:
             raise FileNotFoundError(f"model not found: {self.model_path}")
 
         cmd = self.command()
-        print(f"Starting llama-server with n_ctx={self.ctx_size}, device={self.device}, judge_json={self.judge_json}")
+        print(
+            "Starting llama-server with "
+            f"n_ctx={self.ctx_size}, device={self.device}, parallel={self.parallel}, "
+            f"judge_json={self.judge_json}"
+        )
         stdout = subprocess.DEVNULL
         stderr = subprocess.DEVNULL
         if self.log_path:

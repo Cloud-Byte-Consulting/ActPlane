@@ -25,6 +25,7 @@ node_modules/
 # Local benchmark artifacts. Keep curated summaries under core-results/.
 docs/corpus-test/octobench-llama/__pycache__/
 docs/corpus-test/octobench-llama/logs/
+docs/corpus-test/octobench-llama/docs/
 docs/corpus-test/octobench-llama/mini-vela/
 docs/corpus-test/octobench-llama/results/
 docs/corpus-test/octobench-llama/litellm_config.local.yaml

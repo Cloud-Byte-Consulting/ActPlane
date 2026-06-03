@@ -23,11 +23,19 @@ The scaffold execution data is usable for a feasibility and overhead statement:
 
 This supports the claim that the selected OctoBench units run through the real Docker/Claude Code scaffold and that ActPlane can wrap the run without breaking task execution.
 
+It does not yet support an ActPlane-effectiveness claim. The first ActPlane run used `source AGENT = exec "**"`, but this ActPlane build lowers exec-side patterns against `comm`/basename and did not label the `bash -c` entry process. As a result, rules guarded by `if AGENT` did not fire for Claude Code tool subprocesses. A controlled Docker smoke after fixing the policy to `source COMMAND = exec "bash"` confirmed that `find` is now killed and feedback is written.
+
 ## What Is Not Yet Paper-Usable
 
-The current judge scores must not be used as final RQ1 evidence. Baseline has whole-case judge JSON parse errors that were scored as zero, and ActPlane has an incomplete/failed p4 judge file. A previous category-level fallback path existed during experimentation; that path is disallowed for the final evaluation because it changes the official judge unit from whole-case to per-category requests.
+The current judge scores must not be used as final RQ1 evidence. Baseline has whole-case judge JSON parse errors that were scored as zero, ActPlane has an incomplete/failed p4 judge file, and the ActPlane run was collected before the policy source-label fix. A previous category-level fallback path existed during experimentation; that path is disallowed for the final evaluation because it changes the official judge unit from whole-case to per-category requests.
 
-Required next step: rerun judging with the official whole-case checklist call only, no fallback, preferably with server parallelism low enough that each request gets enough context.
+Required next step: rerun the ActPlane condition with the fixed policy, then rerun judging for both baseline and ActPlane with the official whole-case checklist call only, no fallback, preferably with server parallelism low enough that each request gets enough context.
+
+## Fixed-Policy Smoke
+
+I reran one real case, `benchmark-aws_lazy_validator_001`, with the fixed policy. The scaffold completed successfully in 123.033s and ActPlane produced 32 kill events (`git`, `grep`, `head`, `awk`, `sed`, `cat`, and `find`). This confirms ActPlane was actually active on a real OctoBench/Claude Code run.
+
+However, it is not a positive compliance result. Official whole-case judge reward dropped from the baseline `0.85` to `0.575` (`23/40` checks), because the policy over-constrained shell/file inspection and the agent did not complete the implementation and tests. See `actplane_fixed_smoke_case.json`.
 
 ## Fit For ActPlane
 

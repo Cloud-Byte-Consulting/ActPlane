@@ -40,7 +40,7 @@ sys.path.insert(0, str(EVAL_SCRIPTS))
 from llama_server import LlamaServer  # noqa: E402
 
 
-JUDGE_PARALLEL = 1
+JUDGE_PARALLEL = 3
 
 
 class _MaxTokensProxyServer(ThreadingHTTPServer):

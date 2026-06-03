@@ -73,7 +73,7 @@ def run_case(case: dict[str, Any], index: int, args: argparse.Namespace, run_dir
         "--timeout",
         str(args.timeout),
         "--out-dir",
-        str(case_dir),
+        str(case_dir.resolve()),
     ]
     if args.claude_feedback_hook:
         cmd.append("--claude-feedback-hook")
