@@ -1,0 +1,534 @@
+{
+  "case_ids": [
+    "md-aws-mcp-server-pathlib-over-ospath",
+    "md-course-builder-code-style",
+    "benchmark-aws_checklist_error_001"
+  ],
+  "conditions": {
+    "none": {
+      "run_dir": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/none-isolated-20260603T210656Z",
+      "scores": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/none-isolated-20260603T210656Z/official-eval/scores_llama_judge.json",
+      "cases": [
+        {
+          "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+          "official_reward": 0.667,
+          "binary_reward": 0,
+          "compliance_reward": 0.839,
+          "implementation_reward": 0.182,
+          "elapsed_s": 116.70737290382385,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 16,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "md-course-builder-code-style",
+          "official_reward": 0.676,
+          "binary_reward": 0,
+          "compliance_reward": 0.913,
+          "implementation_reward": 0.182,
+          "elapsed_s": 166.69084787368774,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 3,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "benchmark-aws_checklist_error_001",
+          "official_reward": 0.703,
+          "binary_reward": 0,
+          "compliance_reward": 0.821,
+          "implementation_reward": 0.333,
+          "elapsed_s": 148.43998551368713,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 22,
+          "bypass_events": 0
+        }
+      ],
+      "summary": {
+        "case_count": 3,
+        "avg_official_reward": 0.682,
+        "avg_compliance_reward": 0.858,
+        "avg_implementation_reward": 0.232,
+        "pass_count": 0,
+        "os_events_total": 0,
+        "tool_hook_events_total": 0,
+        "bypass_events_total": 0,
+        "avg_elapsed_s": 143.946
+      }
+    },
+    "prompt": {
+      "run_dir": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/prompt-isolated-20260603T211428Z",
+      "scores": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/prompt-isolated-20260603T211428Z/official-eval/scores_llama_judge.json",
+      "cases": [
+        {
+          "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+          "official_reward": 0.643,
+          "binary_reward": 0,
+          "compliance_reward": 0.806,
+          "implementation_reward": 0.182,
+          "elapsed_s": 104.70738315582275,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 16,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "md-course-builder-code-style",
+          "official_reward": 0.735,
+          "binary_reward": 0,
+          "compliance_reward": 1.0,
+          "implementation_reward": 0.182,
+          "elapsed_s": 46.48546576499939,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 0,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "benchmark-aws_checklist_error_001",
+          "official_reward": 1.0,
+          "binary_reward": 1,
+          "compliance_reward": 1.0,
+          "implementation_reward": 1.0,
+          "elapsed_s": 70.17001557350159,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 9,
+          "bypass_events": 0
+        }
+      ],
+      "summary": {
+        "case_count": 3,
+        "avg_official_reward": 0.793,
+        "avg_compliance_reward": 0.935,
+        "avg_implementation_reward": 0.455,
+        "pass_count": 1,
+        "os_events_total": 0,
+        "tool_hook_events_total": 0,
+        "bypass_events_total": 0,
+        "avg_elapsed_s": 73.788
+      }
+    },
+    "path_hook": {
+      "run_dir": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/path-hook-isolated-20260603T211830Z",
+      "scores": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/path-hook-isolated-20260603T211830Z/official-eval/scores_llama_judge.json",
+      "cases": [
+        {
+          "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+          "official_reward": 0.667,
+          "binary_reward": 0,
+          "compliance_reward": 0.839,
+          "implementation_reward": 0.182,
+          "elapsed_s": 111.7859001159668,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 41,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 43
+          },
+          "tool_visible_guarded_commands": 16,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "md-course-builder-code-style",
+          "official_reward": 0.971,
+          "binary_reward": 0,
+          "compliance_reward": 0.957,
+          "implementation_reward": 1.0,
+          "elapsed_s": 119.75943922996521,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 38,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 40
+          },
+          "tool_visible_guarded_commands": 0,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "benchmark-aws_checklist_error_001",
+          "official_reward": 0.784,
+          "binary_reward": 0,
+          "compliance_reward": 0.929,
+          "implementation_reward": 0.333,
+          "elapsed_s": 199.42501616477966,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 50,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 52
+          },
+          "tool_visible_guarded_commands": 21,
+          "bypass_events": 0
+        }
+      ],
+      "summary": {
+        "case_count": 3,
+        "avg_official_reward": 0.807,
+        "avg_compliance_reward": 0.908,
+        "avg_implementation_reward": 0.505,
+        "pass_count": 0,
+        "os_events_total": 0,
+        "tool_hook_events_total": 129,
+        "bypass_events_total": 0,
+        "avg_elapsed_s": 143.657
+      }
+    },
+    "prompt_path_hook": {
+      "run_dir": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/prompt-path-hook-isolated-20260603T212606Z",
+      "scores": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/prompt-path-hook-isolated-20260603T212606Z/official-eval/scores_llama_judge.json",
+      "cases": [
+        {
+          "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+          "official_reward": 0.667,
+          "binary_reward": 0,
+          "compliance_reward": 0.839,
+          "implementation_reward": 0.182,
+          "elapsed_s": 115.0944173336029,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 41,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 43
+          },
+          "tool_visible_guarded_commands": 16,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "md-course-builder-code-style",
+          "official_reward": 1.0,
+          "binary_reward": 1,
+          "compliance_reward": 1.0,
+          "implementation_reward": 1.0,
+          "elapsed_s": 204.18051433563232,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 49,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 51
+          },
+          "tool_visible_guarded_commands": 0,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "benchmark-aws_checklist_error_001",
+          "official_reward": 1.0,
+          "binary_reward": 1,
+          "compliance_reward": 1.0,
+          "implementation_reward": 1.0,
+          "elapsed_s": 88.75431752204895,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 27,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 29
+          },
+          "tool_visible_guarded_commands": 9,
+          "bypass_events": 0
+        }
+      ],
+      "summary": {
+        "case_count": 3,
+        "avg_official_reward": 0.889,
+        "avg_compliance_reward": 0.946,
+        "avg_implementation_reward": 0.727,
+        "pass_count": 2,
+        "os_events_total": 0,
+        "tool_hook_events_total": 117,
+        "bypass_events_total": 0,
+        "avg_elapsed_s": 136.01
+      }
+    },
+    "actplane": {
+      "run_dir": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/actplane-isolated-20260603T213315Z",
+      "scores": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/actplane-isolated-20260603T213315Z/official-eval/scores_llama_judge.json",
+      "cases": [
+        {
+          "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+          "official_reward": 0.643,
+          "binary_reward": 0,
+          "compliance_reward": 0.806,
+          "implementation_reward": 0.182,
+          "elapsed_s": 103.19027948379517,
+          "os_events_total": 11,
+          "os_effects": {
+            "notify": 11
+          },
+          "os_processes": {
+            "git": 2,
+            "pip": 9
+          },
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 12,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "md-course-builder-code-style",
+          "official_reward": 0.588,
+          "binary_reward": 0,
+          "compliance_reward": 0.783,
+          "implementation_reward": 0.182,
+          "elapsed_s": 101.2111747264862,
+          "os_events_total": 2,
+          "os_effects": {
+            "notify": 2
+          },
+          "os_processes": {
+            "git": 2
+          },
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 0,
+          "bypass_events": 2
+        },
+        {
+          "instance_id": "benchmark-aws_checklist_error_001",
+          "official_reward": 0.811,
+          "binary_reward": 0,
+          "compliance_reward": 0.964,
+          "implementation_reward": 0.333,
+          "elapsed_s": 188.96750664710999,
+          "os_events_total": 2,
+          "os_effects": {
+            "notify": 2
+          },
+          "os_processes": {
+            "git": 2
+          },
+          "tool_hook_events": 0,
+          "tool_hook_notify": 0,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {},
+          "tool_visible_guarded_commands": 15,
+          "bypass_events": 0
+        }
+      ],
+      "summary": {
+        "case_count": 3,
+        "avg_official_reward": 0.681,
+        "avg_compliance_reward": 0.851,
+        "avg_implementation_reward": 0.232,
+        "pass_count": 0,
+        "os_events_total": 15,
+        "tool_hook_events_total": 0,
+        "bypass_events_total": 2,
+        "avg_elapsed_s": 131.123
+      }
+    },
+    "prompt_path_hook_actplane": {
+      "run_dir": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/prompt-path-hook-actplane-isolated-20260603T214010Z",
+      "scores": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3/prompt-path-hook-actplane-isolated-20260603T214010Z/official-eval/scores_llama_judge.json",
+      "cases": [
+        {
+          "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+          "official_reward": 0.738,
+          "binary_reward": 0,
+          "compliance_reward": 0.935,
+          "implementation_reward": 0.182,
+          "elapsed_s": 62.485642433166504,
+          "os_events_total": 4,
+          "os_effects": {
+            "notify": 4
+          },
+          "os_processes": {
+            "git": 4
+          },
+          "tool_hook_events": 27,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 29
+          },
+          "tool_visible_guarded_commands": 9,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "md-course-builder-code-style",
+          "official_reward": 0.559,
+          "binary_reward": 0,
+          "compliance_reward": 0.739,
+          "implementation_reward": 0.182,
+          "elapsed_s": 221.4303331375122,
+          "os_events_total": 4,
+          "os_effects": {
+            "notify": 4
+          },
+          "os_processes": {
+            "git": 4
+          },
+          "tool_hook_events": 49,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 51
+          },
+          "tool_visible_guarded_commands": 1,
+          "bypass_events": 3
+        },
+        {
+          "instance_id": "benchmark-aws_checklist_error_001",
+          "official_reward": 0.865,
+          "binary_reward": 0,
+          "compliance_reward": 1.0,
+          "implementation_reward": 0.444,
+          "elapsed_s": 122.52097654342651,
+          "os_events_total": 4,
+          "os_effects": {
+            "notify": 4
+          },
+          "os_processes": {
+            "git": 4
+          },
+          "tool_hook_events": 27,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 29
+          },
+          "tool_visible_guarded_commands": 9,
+          "bypass_events": 0
+        }
+      ],
+      "summary": {
+        "case_count": 3,
+        "avg_official_reward": 0.721,
+        "avg_compliance_reward": 0.891,
+        "avg_implementation_reward": 0.269,
+        "pass_count": 0,
+        "os_events_total": 12,
+        "tool_hook_events_total": 103,
+        "bypass_events_total": 3,
+        "avg_elapsed_s": 135.479
+      }
+    },
+    "prompt_path_hook_actplane_quiet": {
+      "run_dir": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3-quiet/prompt-path-hook-actplane-isolated-20260603T220232Z",
+      "scores": "docs/corpus-test/octobench-llama/results/guardrail-matrix-selected3-quiet/prompt-path-hook-actplane-isolated-20260603T220232Z/official-eval/scores_llama_judge.json",
+      "cases": [
+        {
+          "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+          "official_reward": 0.643,
+          "binary_reward": 0,
+          "compliance_reward": 0.806,
+          "implementation_reward": 0.182,
+          "elapsed_s": 202.1371898651123,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 41,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 43
+          },
+          "tool_visible_guarded_commands": 16,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "md-course-builder-code-style",
+          "official_reward": 1.0,
+          "binary_reward": 1,
+          "compliance_reward": 1.0,
+          "implementation_reward": 1.0,
+          "elapsed_s": 141.58934807777405,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 49,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 51
+          },
+          "tool_visible_guarded_commands": 0,
+          "bypass_events": 0
+        },
+        {
+          "instance_id": "benchmark-aws_checklist_error_001",
+          "official_reward": 0.676,
+          "binary_reward": 0,
+          "compliance_reward": 0.786,
+          "implementation_reward": 0.333,
+          "elapsed_s": 42.15174388885498,
+          "os_events_total": 0,
+          "os_effects": {},
+          "os_processes": {},
+          "tool_hook_events": 16,
+          "tool_hook_notify": 2,
+          "tool_hook_block": 0,
+          "tool_hook_processes": {
+            "git": 18
+          },
+          "tool_visible_guarded_commands": 4,
+          "bypass_events": 0
+        }
+      ],
+      "summary": {
+        "case_count": 3,
+        "avg_official_reward": 0.773,
+        "avg_compliance_reward": 0.864,
+        "avg_implementation_reward": 0.505,
+        "pass_count": 1,
+        "os_events_total": 0,
+        "tool_hook_events_total": 106,
+        "bypass_events_total": 0,
+        "avg_elapsed_s": 128.626
+      }
+    }
+  }
+}
