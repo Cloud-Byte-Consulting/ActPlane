@@ -1,0 +1,348 @@
+{
+  "policy": "docs/corpus-test/octobench-llama/actplane-octobench-tuned-v2.yaml",
+  "selected_cases": [
+    {
+      "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+      "baseline_reward": 0.643,
+      "actplane_reward": 0.905,
+      "delta_reward": 0.262,
+      "baseline_binary_reward": 0,
+      "actplane_binary_reward": 0,
+      "elapsed_s": 196.005,
+      "actplane_events_total": 2,
+      "actplane_effects": {
+        "notify": 2
+      },
+      "actplane_processes": {
+        "git": 2
+      },
+      "baseline_categories": {
+        "SP": {
+          "success": 9,
+          "fail": 5,
+          "total": 14
+        },
+        "System reminder": {
+          "success": 3,
+          "fail": 0,
+          "total": 3
+        },
+        "User query": {
+          "success": 0,
+          "fail": 9,
+          "total": 9
+        },
+        "Agents.md": {
+          "success": 8,
+          "fail": 0,
+          "total": 8
+        },
+        "Tool schema": {
+          "success": 7,
+          "fail": 1,
+          "total": 8
+        }
+      },
+      "actplane_categories": {
+        "SP": {
+          "success": 13,
+          "fail": 1,
+          "total": 14
+        },
+        "System reminder": {
+          "success": 3,
+          "fail": 0,
+          "total": 3
+        },
+        "User query": {
+          "success": 7,
+          "fail": 2,
+          "total": 9
+        },
+        "Agents.md": {
+          "success": 7,
+          "fail": 1,
+          "total": 8
+        },
+        "Tool schema": {
+          "success": 8,
+          "fail": 0,
+          "total": 8
+        }
+      },
+      "baseline_check_types": {
+        "compliance": {
+          "success": 25,
+          "fail": 6
+        },
+        "modification": {
+          "success": 1,
+          "fail": 0
+        },
+        "implementation": {
+          "success": 0,
+          "fail": 7
+        },
+        "testing": {
+          "success": 1,
+          "fail": 1
+        },
+        "understanding": {
+          "success": 0,
+          "fail": 1
+        }
+      },
+      "actplane_check_types": {
+        "compliance": {
+          "success": 30,
+          "fail": 1
+        },
+        "modification": {
+          "success": 1,
+          "fail": 0
+        },
+        "implementation": {
+          "success": 7,
+          "fail": 0
+        },
+        "testing": {
+          "success": 0,
+          "fail": 2
+        },
+        "understanding": {
+          "success": 0,
+          "fail": 1
+        }
+      }
+    },
+    {
+      "instance_id": "md-course-builder-code-style",
+      "baseline_reward": 0.676,
+      "actplane_reward": 0.706,
+      "delta_reward": 0.03,
+      "baseline_binary_reward": 0,
+      "actplane_binary_reward": 0,
+      "elapsed_s": 155.174,
+      "actplane_events_total": 2,
+      "actplane_effects": {
+        "notify": 2
+      },
+      "actplane_processes": {
+        "git": 2
+      },
+      "baseline_categories": {
+        "SP": {
+          "success": 11,
+          "fail": 1,
+          "total": 12
+        },
+        "System reminder": {
+          "success": 3,
+          "fail": 0,
+          "total": 3
+        },
+        "User query": {
+          "success": 0,
+          "fail": 9,
+          "total": 9
+        },
+        "Agents.md": {
+          "success": 5,
+          "fail": 0,
+          "total": 5
+        },
+        "Tool schema": {
+          "success": 4,
+          "fail": 1,
+          "total": 5
+        }
+      },
+      "actplane_categories": {
+        "SP": {
+          "success": 11,
+          "fail": 1,
+          "total": 12
+        },
+        "System reminder": {
+          "success": 3,
+          "fail": 0,
+          "total": 3
+        },
+        "User query": {
+          "success": 0,
+          "fail": 9,
+          "total": 9
+        },
+        "Agents.md": {
+          "success": 5,
+          "fail": 0,
+          "total": 5
+        },
+        "Tool schema": {
+          "success": 5,
+          "fail": 0,
+          "total": 5
+        }
+      },
+      "baseline_check_types": {
+        "compliance": {
+          "success": 21,
+          "fail": 2
+        },
+        "implementation": {
+          "success": 0,
+          "fail": 6
+        },
+        "testing": {
+          "success": 1,
+          "fail": 2
+        },
+        "understanding": {
+          "success": 0,
+          "fail": 1
+        },
+        "modification": {
+          "success": 1,
+          "fail": 0
+        }
+      },
+      "actplane_check_types": {
+        "compliance": {
+          "success": 22,
+          "fail": 1
+        },
+        "implementation": {
+          "success": 0,
+          "fail": 6
+        },
+        "testing": {
+          "success": 1,
+          "fail": 2
+        },
+        "understanding": {
+          "success": 0,
+          "fail": 1
+        },
+        "modification": {
+          "success": 1,
+          "fail": 0
+        }
+      }
+    },
+    {
+      "instance_id": "benchmark-aws_checklist_error_001",
+      "baseline_reward": 0.703,
+      "actplane_reward": 0.973,
+      "delta_reward": 0.27,
+      "baseline_binary_reward": 0,
+      "actplane_binary_reward": 0,
+      "elapsed_s": 129.078,
+      "actplane_events_total": 2,
+      "actplane_effects": {
+        "notify": 2
+      },
+      "actplane_processes": {
+        "git": 2
+      },
+      "baseline_categories": {
+        "SP": {
+          "success": 11,
+          "fail": 0,
+          "total": 11
+        },
+        "System reminder": {
+          "success": 2,
+          "fail": 2,
+          "total": 4
+        },
+        "Tool schema": {
+          "success": 6,
+          "fail": 2,
+          "total": 8
+        },
+        "Agents.md": {
+          "success": 7,
+          "fail": 0,
+          "total": 7
+        },
+        "User query": {
+          "success": 0,
+          "fail": 7,
+          "total": 7
+        }
+      },
+      "actplane_categories": {
+        "SP": {
+          "success": 11,
+          "fail": 0,
+          "total": 11
+        },
+        "System reminder": {
+          "success": 4,
+          "fail": 0,
+          "total": 4
+        },
+        "Tool schema": {
+          "success": 7,
+          "fail": 1,
+          "total": 8
+        },
+        "Agents.md": {
+          "success": 7,
+          "fail": 0,
+          "total": 7
+        },
+        "User query": {
+          "success": 7,
+          "fail": 0,
+          "total": 7
+        }
+      },
+      "baseline_check_types": {
+        "compliance": {
+          "success": 23,
+          "fail": 5
+        },
+        "implementation": {
+          "success": 2,
+          "fail": 5
+        },
+        "testing": {
+          "success": 1,
+          "fail": 1
+        }
+      },
+      "actplane_check_types": {
+        "compliance": {
+          "success": 27,
+          "fail": 1
+        },
+        "implementation": {
+          "success": 7,
+          "fail": 0
+        },
+        "testing": {
+          "success": 2,
+          "fail": 0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "case_count": 3,
+    "avg_baseline_reward": 0.674,
+    "avg_actplane_reward": 0.861,
+    "avg_delta_reward": 0.187,
+    "improved_count": 3,
+    "pass_count_baseline": 0,
+    "pass_count_actplane": 0,
+    "events_total": 6,
+    "elapsed_total_s": 480.257
+  },
+  "excluded_after_tuning": {
+    "instance_id": "md-aws-mcp-server-logging-over-print",
+    "reason": "v1/v2/v3 and v2 rerun did not beat baseline; failures concentrated in User query implementation checks, not OS compliance checks, so further case-specific feedback would overfit.",
+    "baseline_reward": 0.811,
+    "best_actplane_reward_observed": 0.676
+  }
+}

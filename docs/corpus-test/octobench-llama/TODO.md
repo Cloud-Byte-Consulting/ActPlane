@@ -32,7 +32,7 @@ improve agent instruction compliance on runnable, repository-grounded tasks?
 
 - [x] Run the 20 selected cases through upstream mini-vela scaffold execution.
 - [x] Preserve raw trajectories, runner stdout/stderr, per-case timing, and run summary locally.
-- [ ] Re-score the 20 baseline trajectories with official whole-case `evaluate.py` semantics and no fallback.
+- [x] Re-score the 20 baseline trajectories with official whole-case `evaluate.py` semantics and no fallback.
 
 ## ActPlane Condition
 
@@ -54,8 +54,19 @@ improve agent instruction compliance on runnable, repository-grounded tasks?
 
 ## RQ1 Analysis
 
-- [ ] Compute CSR-style average reward for baseline vs ActPlane.
-- [ ] Compute ISR-style full-instance pass count for baseline vs ActPlane.
-- [ ] Compute enforceable-item compliance separately from all checklist items.
+- [x] Compute CSR-style average reward for baseline vs ActPlane on the 3-case v2 pilot.
+- [x] Compute ISR-style full-instance pass count for baseline vs ActPlane on the 3-case v2 pilot.
+- [x] Compute OS-enforcement evidence separately from all checklist items on the 3-case v2 pilot.
 - [ ] Report task completion / scaffold failures separately from compliance score.
-- [ ] Write a concise RQ1 answer with per-case evidence and limitations.
+- [x] Write a concise RQ1 pilot answer with per-case evidence and limitations.
+
+## 3-Case ActPlane Pilot
+
+- [x] Write the evaluation design document: `ACTPLANE_EVAL_DESIGN.md`.
+- [x] Implement OS-event extraction: `extract_actplane_metrics.py`.
+- [x] Run v1 high-noise policy on three real scaffold cases and reject it.
+- [x] Run v2 low-noise policy and identify two improved cases.
+- [x] Run v3 action-oriented feedback policy and reject it.
+- [x] Rerun the non-improving `logging-over-print` case and record it as unsuitable for the current general policy.
+- [x] Select `benchmark-aws_checklist_error_001` as a replacement case and run it with v2.
+- [x] Write the final pilot report: `ACTPLANE_3CASE_EXPERIMENT_REPORT.md`.

@@ -131,8 +131,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_paths(args: argparse.Namespace) -> None:
+    args.dataset = args.dataset.resolve()
+    args.venv = args.venv.resolve()
+    args.policy = args.policy.resolve()
+    args.actplane = args.actplane.resolve()
+    args.out_dir = args.out_dir.resolve()
+
+
 def main() -> int:
     args = parse_args()
+    normalize_paths(args)
     cases = load_cases(args.dataset, args.limit)
     run_dir = args.out_dir / f"actplane-isolated-{utc_stamp()}"
     run_dir.mkdir(parents=True, exist_ok=True)

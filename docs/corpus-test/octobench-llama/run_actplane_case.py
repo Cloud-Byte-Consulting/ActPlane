@@ -220,5 +220,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def normalize_paths(args: argparse.Namespace) -> None:
+    args.dataset = args.dataset.resolve()
+    args.policy = args.policy.resolve()
+    args.actplane = args.actplane.resolve()
+    args.out_dir = args.out_dir.resolve()
+
+
 if __name__ == "__main__":
-    raise SystemExit(run_case(parse_args()))
+    parsed_args = parse_args()
+    normalize_paths(parsed_args)
+    raise SystemExit(run_case(parsed_args))
