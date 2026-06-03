@@ -27,6 +27,7 @@ Core data:
 
 - `core-results/actplane_comparison_selected3.jsonl`
 - `core-results/guardrail_matrix_selected3_metrics.json`
+- `core-results/bypass_probe_summary.json`
 
 ## Cases
 
@@ -122,6 +123,21 @@ For a stronger bypass claim, the subset needs explicit bypass-oriented cases:
 - destructive git commands hidden behind another command
 
 The current 3-case subset mostly tests task performance, not bypass coverage.
+
+### 4b. Controlled bypass probe confirms the OS-layer distinction
+
+I also ran a small controlled probe inside the AWS MCP Docker image. This is not
+an official OctoBench reward case; it is metric evidence for the bypass claim.
+
+| Probe | Tool Hook Events | ActPlane Events | Interpretation |
+|---|---:|---:|---|
+| `git branch --show-current` through PATH | 2 | 0 | Userspace PATH hook sees the command. |
+| `/usr/bin/git branch --show-current` with PATH hook only | 0 | 0 | Absolute path bypasses the PATH hook. |
+| `/usr/bin/git branch --show-current` under ActPlane | 0 | 1 | ActPlane sees the OS exec edge. |
+
+This is the cleanest evidence for ActPlane's uniqueness in the current setup:
+it does not show higher official reward, but it does show coverage below a
+userspace hook boundary.
 
 ### 5. Runtime overhead is not the main problem
 

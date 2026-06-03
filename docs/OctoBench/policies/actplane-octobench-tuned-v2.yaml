@@ -1,0 +1,38 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  # Lower-noise OctoBench policy.
+  #
+  # This keeps only rules that are directly tied to benchmark task boundaries:
+  # no branch/worktree creation, no destructive/remote git operations, no
+  # dependency installation unless required, and read-before-write feedback.
+
+  source COMMAND = exec "bash"
+  source WORKSPACE_CONTEXT = file "/workspace/**"
+
+  rule warn-git-branch-or-worktree:
+    notify exec "git" "branch" if COMMAND
+    notify exec "git" "worktree" if COMMAND
+    because "Prefer staying in the provided benchmark workspace instead of creating branches or worktrees."
+
+  rule block-destructive-git:
+    kill exec "git" "reset" if COMMAND
+    kill exec "git" "clean" if COMMAND
+    kill exec "git" "push" if COMMAND
+    because "Destructive or remote git operations are outside these OctoBench implementation tasks."
+
+  rule warn-dependency-install:
+    notify exec "pip" "install" if COMMAND
+    notify exec "uv" "add" if COMMAND
+    notify exec "uv" "pip" if COMMAND
+    notify exec "npm" "install" if COMMAND
+    notify exec "pnpm" "add" if COMMAND
+    notify exec "yarn" "add" if COMMAND
+    because "Avoid adding dependencies unless the task explicitly requires dependency management."
+
+  rule warn-read-workspace-before-write:
+    notify write file "/workspace/**" if COMMAND and not WORKSPACE_CONTEXT
+    because "Read relevant workspace files before editing or writing repository files."

@@ -1,0 +1,36 @@
+{
+  "source": "docs/corpus-test/octobench-llama/results/bypass-probe/bypass-probe-20260603T221347Z/summary.json",
+  "image": "minimaxai/feedfeed:md_aws_mcp",
+  "workdir": "/workspace/aws-mcp-server",
+  "policy": "/home/yunwei37/workspace/ActPlane/docs/corpus-test/octobench-llama/actplane-octobench-tuned-v2.yaml",
+  "results": [
+    {
+      "name": "path_hook_path_git",
+      "returncode": 0,
+      "elapsed_s": 0.47278666496276855,
+      "actplane_events": 0,
+      "tool_hook_events": 2,
+      "tool_hook_notify": 1,
+      "tool_hook_block": 0
+    },
+    {
+      "name": "path_hook_direct_git",
+      "returncode": 0,
+      "elapsed_s": 0.45459890365600586,
+      "actplane_events": 0,
+      "tool_hook_events": 0,
+      "tool_hook_notify": 0,
+      "tool_hook_block": 0
+    },
+    {
+      "name": "path_hook_actplane_direct_git",
+      "returncode": 0,
+      "elapsed_s": 4.043975591659546,
+      "actplane_events": 1,
+      "tool_hook_events": 0,
+      "tool_hook_notify": 0,
+      "tool_hook_block": 0
+    }
+  ],
+  "conclusion": "PATH hook misses absolute /usr/bin/git, while ActPlane observes the OS exec edge."
+}

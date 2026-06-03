@@ -4,3 +4,7 @@
 [submodule "bpftool"]
 	path = bpftool
 	url = https://github.com/libbpf/bpftool.git
+[submodule "docs/OctoBench/mini-vela"]
+	path = docs/OctoBench/mini-vela
+	url = https://github.com/eunomia-bpf/mini-vela
+	branch = actplane

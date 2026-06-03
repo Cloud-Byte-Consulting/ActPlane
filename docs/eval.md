@@ -39,7 +39,7 @@ rule application (RQ3).
 
 | RQ | Question | What it proves | Method |
 |---|---|---|---|
-| **RQ1** | Compared with prompt-only, tool-layer guards, app-level IFC, and kernel-only mechanisms, does ActPlane improve final policy compliance for directive-derived policies across direct and bypass execution paths? | End-to-end policy-compliance advantage over existing mechanisms | Sampled directives × (direct + 3 bypass paths) × 7 systems, minimal agent (trace replay + LLM decision step) |
+| **RQ1** | Compared with prompt-only, tool-layer guards, app-level IFC, and kernel-only mechanisms, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Policy-compliance advantage over existing mechanisms under controlled agent contexts | Sampled directives × (direct + 3 bypass paths) × 7 systems, minimal agent (trace replay + LLM decision step) |
 | **RQ2** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Microbenchmark + trace replay |
 | **RQ3** | Does the ActPlane harness improve agent task completion, and does rule adaptation across rounds help? | End-to-end system value + adaptation | Terminal-Bench (89 tasks × 2 conditions, B2 with 3 rounds) |
 
@@ -262,6 +262,15 @@ lead the agent to a policy-compliant final action? Here "policy" means
 the directive-derived ActPlane rule for that scenario. This measures the
 runtime value of the "agent as control plane" design while keeping rule
 translation and trace generation as explicit artifact-generation steps.
+
+RQ1 is a **trace-conditioned policy-compliance** test rather than a
+full open-ended task-completion benchmark. It fixes the prior history
+trace, the directive-derived policy, the model, and the final decision
+point, then asks whether each enforcement layer can steer the agent's
+next action toward a compliant outcome. This is especially important for
+cross-event state (e.g., "run tests before commit") and for bypass paths
+that are not visible at the tool layer (e.g., `bash -c`, subprocesses,
+or helper binaries).
 
 The eval is uniform across all context levels: each trace includes
 a prompt and system actions; ground truth is determined by whether
