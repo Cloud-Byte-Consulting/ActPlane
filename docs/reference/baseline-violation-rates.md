@@ -158,7 +158,153 @@ Average across all models: only ~50% safe.
 
 ---
 
-## 4. Claw-Eval (Apr 2026)
+## 4. Guardrails Beat Guidance (Zhang et al., May 2026)
+
+**Paper:** "Guardrails Beat Guidance: A Large-Scale Study of Rules, Skills,
+and Persistent Configuration for Coding Agents." arXiv:2604.11088.
+PDF: `guardrails-beat-guidance.pdf`.
+**Setup:** 679 rule files (25,532 rules) scraped from GitHub (CLAUDE.md,
+.cursorrules, AGENTS.md). 5,000+ agent runs with Claude Code + Claude
+Opus 4.6 on SWE-bench Verified (58 discriminative tasks). Paired design:
+with rules vs without rules.
+
+### 4.1 Key Findings (Not Compliance, But Highly Relevant)
+
+This paper does NOT measure compliance (whether agents follow rules).
+It measures whether rules improve **task performance** (SWE-bench pass
+rate). But its findings are directly relevant to ActPlane:
+
+**Rules help, but not through compliance:**
+- All rule conditions outperform no-rule baseline by 7-14pp
+- **Random rules match curated rules** (both 63.8%) → rules work through
+  **context priming**, not specific instruction following
+- Even mismatched-domain and shuffled rules help similarly
+
+**Negative constraints ("don't X") help; positive directives ("do X") hurt:**
+- 3 shaping rules (removal hurts): all "don't" — "no unrelated refactor",
+  "no new dependencies", "no unrelated files"
+- 4 distorting rules (removal helps): all "do" — "read test files",
+  "follow code style", "handle edge cases", "preserve compat."
+- Fisher's exact test on polarity: p = 0.029
+
+**14/18 curated rules break previously-solved tasks** when applied
+individually, but ensemble effects cancel out (no degradation up to
+50 rules).
+
+### 4.2 Taxonomy of 25,532 Rules
+
+| Category | % | Examples |
+|---|---|---|
+| Project-specific | 64.9% | "API key is in .env" |
+| Behavior/persona | 10.8% | "think step by step" |
+| Tool/process | 8.9% | "run tests before committing" |
+| Code style | 6.5% | formatting conventions |
+| Architecture | 5.8% | structural guidance |
+| Safety | 3.0% | "do not modify unrelated files" |
+
+### 4.3 What This Paper Does NOT Measure (The Gap ActPlane Fills)
+
+The paper explicitly measures **task performance** (SWE-bench pass rate),
+not **rule compliance** (did the agent follow the rules?). Its key finding
+— that rules work through context priming, not specific instruction
+following — actually raises the question: **if agents don't follow rules
+specifically, how often do they violate them?**
+
+The paper's own recommendation is:
+> "Constrain what the agent must not do, rather than prescribing what
+> it should."
+
+This is exactly ActPlane's approach — enforce negative constraints at
+the OS level. The paper provides the motivation (negative constraints
+are the only beneficial rule type), ActPlane provides the mechanism
+(enforce them below the tool layer).
+
+---
+
+## 5. Instruction Adherence Studies (Direct Compliance Measurement)
+
+These papers directly measure how often coding agents follow project-level
+instructions — the closest existing data to ActPlane's "natural forgetfulness
+rate" question.
+
+### 5.1 McMillan et al. (May 2025, arXiv:2605.10039)
+
+**"Instruction Adherence in Coding Agent Configuration Files"**
+
+**The most directly relevant paper.** Measures CLAUDE.md compliance in
+1,650 Claude Code CLI sessions (16,050 function-level observations).
+
+| Finding | Number |
+|---|---|
+| **Within-session compliance decay** | −5.6% odds per generated function (OR=0.944) |
+| **Task-based variation** | 26.2pp gap: refactoring 45.1% → greenfield 71.3% |
+| **Codebase size effect** | ~11pp compliance drop on larger codebase |
+| **Model variation** | Opus 4.6 is 12.8pp lower than Sonnet 4.6 |
+
+**Key insight for ActPlane:** Compliance degrades within a session (agent
+"forgets" as it works longer) and varies dramatically by task type.
+Refactoring tasks → 45% compliance. This validates the
+"cooperative-but-forgetful" threat model: agents start compliant but
+drift as sessions grow.
+
+### 5.2 OctoBench (Dimond et al., Jan 2026, arXiv:2601.10343)
+
+**"Scaffold-Aware Instruction Following"** — tests repo-grounded coding
+agents on multi-constraint instruction sets.
+
+| Model | Per-check compliance (CSR) | End-to-end success (ISR) |
+|---|---|---|
+| Claude-Opus-4.5 (best) | 85.6% | **28.1%** |
+| Lowest model | 79.8% | **9.7%** |
+
+**"Scissors Gap":** High per-check compliance (~80%) masks very low
+end-to-end success (<30%). Agents follow individual rules well but fail
+to satisfy ALL rules simultaneously. This directly motivates runtime
+enforcement: even if agents comply 80% per-rule, the 20% misses on
+each rule compound across multiple rules.
+
+### 5.3 AGENTIF (Xu et al., May 2025, arXiv:2505.16944)
+
+**"Benchmarking Instruction Following in Agentic Scenarios"** — realistic,
+long, complex instructions.
+
+| Setting | Compliance rate |
+|---|---|
+| Simple benchmarks (IFEval) | 87.0% |
+| **Realistic agentic scenarios (AGENTIF)** | **58.0%** (GPT-4o) |
+| **Tool constraints** | **10-27%** (worst category) |
+| Condition constraints | 42-66% |
+| Vanilla constraints | 50-87% (best) |
+
+**Key insight for ActPlane:** Tool constraints (the category ActPlane
+enforces) have the LOWEST compliance rate at 10-27%. This is the
+strongest published motivation for tool-level enforcement.
+
+### 5.4 Summary: Published Compliance Rates
+
+| Source | Setting | Compliance rate |
+|---|---|---|
+| McMillan et al. | CLAUDE.md compliance, refactoring tasks | **45.1%** |
+| McMillan et al. | CLAUDE.md compliance, greenfield tasks | **71.3%** |
+| McMillan et al. | Session decay per function | **−5.6% per step** |
+| OctoBench | Per-check rule compliance | **80-86%** |
+| OctoBench | End-to-end (all rules simultaneously) | **9.7-28.1%** |
+| AGENTIF | Tool constraints in agentic scenarios | **10-27%** |
+| AGENTIF | Overall realistic scenario compliance | **58%** |
+
+**These numbers establish that the "forgetfulness" problem is real and
+measured:** agents comply with individual CLAUDE.md rules 45-86% of the
+time, but end-to-end compliance across multiple rules drops to 10-28%.
+Tool constraints are the worst category. Compliance decays within
+sessions.
+
+**What none of these papers test:** Whether runtime enforcement (like
+ActPlane) can improve these rates. They measure the problem; ActPlane
+measures the solution.
+
+---
+
+## 6. Claw-Eval (Apr 2026)
 
 **Paper:** arXiv 2504.14837. 300 tasks, 2,159 fine-grained rubric items, 14 frontier
 models. Three dimensions: Completion, Safety, Robustness.
@@ -200,18 +346,29 @@ extracted. TODO: obtain PDFs and extract violation rates.
 
 ## 7. Synthesis: What These Numbers Mean for ActPlane
 
-### 7.1 The Problem Is Real and Severe
+### 7.1 The Problem Is Real and Measured
+
+**Two types of evidence:**
+
+**A. Safety violation rates (unguarded agents doing dangerous things):**
 
 | Source | Setting | Violation rate | ActPlane relevance |
 |---|---|---|---|
 | OA-Safety | Benign intent, real tools | 50–86% unsafe | **Direct** — cooperative agent, OS-level tools |
 | OA-Safety | File system operations | 51–74% unsafe | **Direct** — ActPlane's enforcement scope |
 | OA-Safety | Bash/code execution | 39–63% unsafe | **Direct** — ActPlane's enforcement scope |
-| OA-Safety | Data loss category | 40–73% unsafe | **Direct** — "don't delete X" rules |
 | ODCV-Bench | Incentivized (KPI pressure) | 0–56% misaligned | **Direct** — task pressure = forgetfulness |
-| ODCV-Bench | Majority of 12 models | ≥25% misaligned | **Direct** — not a single-model fluke |
-| Agent-SafetyBench | Best model (Claude-3-Opus) | 40.2% unsafe | Broad corroboration |
-| Claw-Eval | Trajectory-level analysis | +44% missed by outcome-only | Methodology warning |
+| Agent-SafetyBench | Best model | 40.2% unsafe | Broad corroboration |
+
+**B. Instruction compliance rates (agents failing to follow project rules):**
+
+| Source | Setting | Non-compliance rate | ActPlane relevance |
+|---|---|---|---|
+| McMillan et al. | CLAUDE.md, refactoring tasks | **54.9%** non-compliant | **Direct** — exact same instruction files |
+| McMillan et al. | Session compliance decay | **−5.6% per step** | **Direct** — longer sessions = more forgetfulness |
+| OctoBench | End-to-end multi-rule compliance | **72-90%** failure | **Direct** — multiple rules compound |
+| AGENTIF | Tool constraints | **73-90%** non-compliant | **Direct** — tool constraints = ActPlane's domain |
+| Guardrails Beat Guidance | Random rules = curated rules | N/A (perf, not compliance) | Rules work through priming, not following |
 
 ### 7.2 Why These Support ActPlane's Threat Model
 

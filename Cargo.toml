@@ -1,0 +1,3 @@
+[workspace]
+members = ["bpf", "collector"]
+resolver = "2"

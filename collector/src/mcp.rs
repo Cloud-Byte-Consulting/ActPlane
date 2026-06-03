@@ -31,10 +31,6 @@ pub struct ActPlaneMcp {
 }
 
 impl ActPlaneMcp {
-    pub fn new() -> Self {
-        Self::new_with_reload(None)
-    }
-
     pub fn new_with_reload(reload: Option<Arc<ReloadHandle>>) -> Self {
         let project_dir = std::env::var("ACTPLANE_PROJECT_DIR")
             .or_else(|_| std::env::var("CODEX_PROJECT_DIR"))
@@ -248,12 +244,11 @@ impl ServerHandler for ActPlaneMcp {
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListToolsResult, rmcp::ErrorData>> + Send + '_
     {
-        let schema: serde_json::Map<String, Value> =
-            serde_json::from_value(serde_json::json!({
-                "type": "object",
-                "properties": {},
-            }))
-            .unwrap();
+        let schema: serde_json::Map<String, Value> = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": {},
+        }))
+        .unwrap();
         let tools = vec![Tool::new(
             "reload_policy",
             "Hot-reload the policy from actplane.yaml into the running \
@@ -424,12 +419,6 @@ async fn watch_policy_file(server: Arc<ActPlaneMcp>, peer: Peer<RoleServer>) {
                 .await;
         }
     }
-}
-
-// ── Entry point ─────────────────────────────────────────────────────
-
-pub async fn run_mcp_server() -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    run_mcp_server_with_reload(None).await
 }
 
 pub async fn run_mcp_server_with_reload(

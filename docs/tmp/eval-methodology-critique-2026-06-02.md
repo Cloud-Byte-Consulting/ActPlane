@@ -344,3 +344,156 @@ realistic use. A 1-page case study of ActPlane running on a real
 project (e.g., this repo, with the no-git-branch rule) would strengthen
 the paper significantly. This is not a gap in the formal evaluation but
 a gap in the paper's persuasiveness.
+
+---
+
+## 9. New Eval Harness: agent_sdk_eval.py (2026-06-02)
+
+Implemented a new eval harness that addresses the core methodology
+issues identified above.
+
+### Architecture
+
+```
+run_eval_isolated.sh (overlay on workspace — host untouched)
+  └─ agent_sdk_eval.py (outer driver)
+      └─ sudo actplane run --policy rule.yaml (per scenario)
+          └─ agent_sdk_eval.py --inner (overlay on real repo from corpus-evaluated/)
+              └─ OpenAI Agents SDK (Runner.run, multi-step agent loop)
+                  ├─ llama.cpp (local Qwen 27B) via HTTP
+                  └─ bash_tool / read_file / write_file → real subprocess → eBPF → ActPlane
+```
+
+### Key improvements over replay_agent.py
+
+| Issue | Old (replay_agent.py) | New (agent_sdk_eval.py) |
+|---|---|---|
+| Agent runtime | Manual: 1 LLM call, prose output | OpenAI Agents SDK: structured tool calls, multi-step loop |
+| Tool execution | Fake tools (stub scripts) | Real subprocess (eBPF hooks fire on real exec/open/write) |
+| Workdir | Empty tmpdir | Overlay on real repo (corpus-evaluated/), with real .git, real files |
+| Recovery | None — record text, never execute | Multi-step: agent tries → ActPlane responds → agent retries |
+| Compliance scoring | Text matching / LLM judge | Deterministic: ActPlane fires again during recovery → not compliant |
+| Isolation | None | Double overlay: inner (per-repo) + outer (workspace) |
+
+### Preliminary Results (10 repos × violation + compliant = 20 scenarios)
+
+First run with real repos showed ActPlane correctly firing on
+violation traces where trace setup leads to policy-relevant operations
+(e.g., git commit without tests). Agent receives semantic feedback and
+attempts recovery, but often fails because required tools (uv, prek,
+project-specific test commands) are not installed in the eval
+environment.
+
+Key finding: **compliance testing requires a realistic tool
+environment, not just realistic file state.** The real repo overlay
+provides the right file state, but the agent also needs the project's
+toolchain to actually perform the remediation (e.g., run tests).
+This is an inherent limitation of testing across diverse projects
+without per-project Docker environments (like Terminal-Bench provides).
+
+### Remaining work
+
+1. Per-project tool installation (or Terminal-Bench-style Docker)
+2. Multiple models (currently only Qwen 27B)
+3. Multiple systems (prompt-only, kernel-ifc, actplane) comparison
+4. Statistical analysis of results
+
+---
+
+## 10. Critical Discussion Conclusions (Late-Session Insights)
+
+### 10.1 Trace Replay Is Wrong for This Paper
+
+**Problem:** AgentSpec (ICSE '26) and Progent (2026) — the two closest
+comparison systems — both use free agent runs on existing benchmarks.
+Trace replay is unique to ActPlane's eval and looks weak in comparison.
+
+**But the deeper problem is threat model mismatch:**
+- AgentSpec/Progent test SAFETY (adversarial attacks) → injecting
+  attacks to test enforcement is methodologically correct
+- ActPlane tests COMPLIANCE (cooperative-but-forgetful) → injecting
+  forgetfulness via traces is methodologically wrong. You claim agents
+  naturally forget; you should OBSERVE natural forgetfulness, not
+  manufacture it.
+
+**Solution:** Free agent runs on normal coding tasks. Agent works in real
+repos with real policies. Observe natural policy violations. Measure
+how ActPlane reduces them.
+
+### 10.2 "Natural Forgetfulness Rate" IS Measured in Literature
+
+Previous claim that "no one measured this" was wrong. Key papers:
+
+- **McMillan et al. (2605.10039):** CLAUDE.md compliance decays 5.6% per
+  generation step; refactoring tasks = 45% compliance
+- **OctoBench (2601.10343):** End-to-end multi-rule compliance = 10-28%
+  (even though per-rule compliance is 80%+)
+- **AGENTIF (2505.16944):** Tool constraint compliance = 10-27% (lowest
+  category)
+- **Guardrails Beat Guidance (2604.11088):** Rules work through context
+  priming, not actual instruction following; negative constraints
+  ("don't X") are the only beneficial type
+
+These numbers can be cited as baseline motivation. ActPlane's eval
+should show it IMPROVES these rates through runtime enforcement.
+
+### 10.3 Correct Eval Methodology (Final)
+
+The paper should use the same methodology as AgentSpec/Progent but
+adapted for the compliance (not safety) threat model:
+
+```
+Experiment:
+  N tasks × M repos (each with CLAUDE.md policies)
+  Agent runs freely on normal coding tasks (not designed to trigger violations)
+  
+  Condition A: No ActPlane     → measure natural violation rate
+  Condition B: ActPlane (full) → measure enforced violation rate
+  Condition C: ActPlane (bare EPERM, no feedback) → isolate feedback contribution
+
+  Metrics:
+    - Policy compliance rate (A vs B vs C)
+    - Task completion rate (utility preservation)
+    - Recovery rate after enforcement (B vs C)
+    
+  Compliance is measured by:
+    - ActPlane detection (for enforcement conditions)
+    - Post-hoc audit (for no-enforcement condition)
+```
+
+This is methodologically identical to AgentSpec/Progent but:
+- Threat model: compliance, not safety
+- Policies: from real CLAUDE.md files, not synthesized safety rules
+- Benchmark: real coding tasks in real repos, not safety benchmarks
+
+### 10.4 What ActPlane's Eval Adds to the Literature
+
+| Existing measurement | What ActPlane adds |
+|---|---|
+| McMillan: CLAUDE.md compliance = 45-71% | Does enforcement improve this? |
+| OctoBench: multi-rule end-to-end = 10-28% | Does kernel-level enforcement help with multi-rule? |
+| AGENTIF: tool constraints = 10-27% | Does OS-level enforcement specifically help tool constraints? |
+| Guardrails BG: negative constraints help | Does ENFORCING negative constraints help more than just stating them? |
+
+The unique contribution is: **from measurement to intervention.** Everyone
+else measures the problem; ActPlane measures the solution.
+
+### 10.5 Papers to Cite
+
+**For motivation (baseline violation rates):**
+- McMillan et al. 2025 (CLAUDE.md compliance decay) — most directly relevant
+- OctoBench 2026 (scissors gap: per-rule vs end-to-end)
+- AGENTIF 2025 (tool constraints are worst category)
+- OA-Safety 2026 (49-73% unsafe on OS-level tools)
+- ODCV-Bench 2025 (0-56% misalignment under pressure)
+
+**For methodology comparison:**
+- AgentSpec, ICSE 2026 (free agent run, tool-layer enforcement)
+- Progent, 2026 (free agent run on AgentDojo/ASB)
+- Guardrails Beat Guidance, 2026 (rules affect performance, not compliance)
+- Lulla et al. ICSE JAWs 2026 (AGENTS.md affects efficiency, not compliance)
+
+**For system comparison:**
+- CamQuery, CCS 2018 (kernel IFC, closest system ancestor)
+- Tetragon (per-event eBPF enforcement)
+- FIDES / CaMeL (app-level IFC)

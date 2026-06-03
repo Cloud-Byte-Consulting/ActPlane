@@ -1,5 +1,6 @@
 .direnv
 /build
+/target
 ecapture
 res.txt
 save.log

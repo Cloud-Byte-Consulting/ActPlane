@@ -127,9 +127,7 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
-            let reload = attach
-                .as_ref()
-                .and_then(|a| a.reload_handle());
+            let reload = attach.as_ref().and_then(|a| a.reload_handle());
             mcp::run_mcp_server_with_reload(reload).await?;
             drop(attach);
             0
