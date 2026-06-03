@@ -1,0 +1,547 @@
+{
+  "source_manifest": "docs/corpus-test/octobench-llama/results/rq1-20-selection/manifest.json",
+  "selected_count": 20,
+  "selection_basis": "/home/yunwei37/workspace/ActPlane/docs/eval_benchmarks.md",
+  "cases": [
+    {
+      "rank": 1,
+      "instance_id": "md-basic-memory-async-client-pattern",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_basic_memory",
+      "workspace_abs_path": "/workspace/basic-memory",
+      "total_checks": 37,
+      "selection_score": 23.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 5,
+        "dependency_install": 2,
+        "git_operation": 2,
+        "test_or_lint": 11,
+        "workspace_file_scope": 18,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 2,
+      "instance_id": "md-course-builder-import-order",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_course_builder",
+      "workspace_abs_path": "/workspace/course-builder",
+      "total_checks": 33,
+      "selection_score": 22.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 4,
+        "dependency_install": 7,
+        "git_operation": 0,
+        "test_or_lint": 8,
+        "workspace_file_scope": 19,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 3,
+      "instance_id": "md-course-builder-utils-validation",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_course_builder",
+      "workspace_abs_path": "/workspace/course-builder",
+      "total_checks": 32,
+      "selection_score": 22.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 3,
+        "dependency_install": 8,
+        "git_operation": 3,
+        "test_or_lint": 6,
+        "workspace_file_scope": 13,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 4,
+      "instance_id": "benchmark-safety_git_careful_003",
+      "category": "SP",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 23,
+      "selection_score": 22.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 3,
+        "dependency_install": 0,
+        "git_operation": 14,
+        "test_or_lint": 2,
+        "workspace_file_scope": 6,
+        "network_or_secret": 1
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "git_operation",
+        "network_or_secret",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 5,
+      "instance_id": "md-aws-mcp-server-native-type-hints",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 35,
+      "selection_score": 20.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 7,
+        "dependency_install": 2,
+        "git_operation": 0,
+        "test_or_lint": 8,
+        "workspace_file_scope": 13,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 6,
+      "instance_id": "benchmark-aws_cancel_partial_001",
+      "category": "User Query",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 42,
+      "selection_score": 19.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 4,
+        "dependency_install": 2,
+        "git_operation": 3,
+        "test_or_lint": 8,
+        "workspace_file_scope": 9,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 7,
+      "instance_id": "md-basic-memory-textwrap-dedent",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_basic_memory",
+      "workspace_abs_path": "/workspace/basic-memory",
+      "total_checks": 40,
+      "selection_score": 19.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 6,
+        "dependency_install": 1,
+        "git_operation": 0,
+        "test_or_lint": 10,
+        "workspace_file_scope": 23,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 8,
+      "instance_id": "benchmark-aws_lazy_validator_001",
+      "category": "User Query",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 40,
+      "selection_score": 19.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 5,
+        "dependency_install": 1,
+        "git_operation": 1,
+        "test_or_lint": 8,
+        "workspace_file_scope": 10,
+        "network_or_secret": 1
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "network_or_secret",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 9,
+      "instance_id": "md-aws-mcp-server-logging-over-print",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 37,
+      "selection_score": 19.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 6,
+        "dependency_install": 1,
+        "git_operation": 0,
+        "test_or_lint": 9,
+        "workspace_file_scope": 20,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 10,
+      "instance_id": "md-basic-memory-export-cli",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_basic_memory",
+      "workspace_abs_path": "/workspace/basic-memory",
+      "total_checks": 40,
+      "selection_score": 18.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 4,
+        "dependency_install": 0,
+        "git_operation": 3,
+        "test_or_lint": 8,
+        "workspace_file_scope": 14,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 11,
+      "instance_id": "benchmark-aws_checklist_error_001",
+      "category": "User Query",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 37,
+      "selection_score": 18.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 3,
+        "dependency_install": 2,
+        "git_operation": 1,
+        "test_or_lint": 3,
+        "workspace_file_scope": 10,
+        "network_or_secret": 7
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "network_or_secret",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 12,
+      "instance_id": "benchmark-cb_append_payment_001",
+      "category": "User Query",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_course_builder",
+      "workspace_abs_path": "/workspace/course-builder",
+      "total_checks": 36,
+      "selection_score": 18.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 6,
+        "dependency_install": 3,
+        "git_operation": 2,
+        "test_or_lint": 3,
+        "workspace_file_scope": 17,
+        "network_or_secret": 1
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "network_or_secret",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 13,
+      "instance_id": "md-basic-memory-archive-tool",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_basic_memory",
+      "workspace_abs_path": "/workspace/basic-memory",
+      "total_checks": 52,
+      "selection_score": 17.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 5,
+        "dependency_install": 2,
+        "git_operation": 2,
+        "test_or_lint": 6,
+        "workspace_file_scope": 18,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 14,
+      "instance_id": "benchmark-aws_append_format_001",
+      "category": "User Query",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 47,
+      "selection_score": 17.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 3,
+        "dependency_install": 4,
+        "git_operation": 1,
+        "test_or_lint": 5,
+        "workspace_file_scope": 17,
+        "network_or_secret": 1
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "network_or_secret",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 15,
+      "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 42,
+      "selection_score": 17.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 4,
+        "dependency_install": 2,
+        "git_operation": 0,
+        "test_or_lint": 5,
+        "workspace_file_scope": 22,
+        "network_or_secret": 4
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "network_or_secret",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 16,
+      "instance_id": "benchmark-bm_lazy_validation_001",
+      "category": "User Query",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_basic_memory",
+      "workspace_abs_path": "/workspace/basic-memory",
+      "total_checks": 40,
+      "selection_score": 17.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 3,
+        "dependency_install": 1,
+        "git_operation": 2,
+        "test_or_lint": 8,
+        "workspace_file_scope": 10,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 17,
+      "instance_id": "md-course-builder-code-style",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_course_builder",
+      "workspace_abs_path": "/workspace/course-builder",
+      "total_checks": 34,
+      "selection_score": 17.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 4,
+        "dependency_install": 4,
+        "git_operation": 1,
+        "test_or_lint": 6,
+        "workspace_file_scope": 16,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 18,
+      "instance_id": "md-course-builder-migrate-utility",
+      "category": "Claude.md",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_course_builder",
+      "workspace_abs_path": "/workspace/course-builder",
+      "total_checks": 33,
+      "selection_score": 17.0,
+      "match_counts": {
+        "read_before_write": 1,
+        "bash_restriction": 4,
+        "dependency_install": 8,
+        "git_operation": 2,
+        "test_or_lint": 1,
+        "workspace_file_scope": 12,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 19,
+      "instance_id": "benchmark-aws_append_service_001",
+      "category": "User Query",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_aws_mcp",
+      "workspace_abs_path": "/workspace/aws-mcp-server",
+      "total_checks": 43,
+      "selection_score": 15.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 3,
+        "dependency_install": 1,
+        "git_operation": 3,
+        "test_or_lint": 4,
+        "workspace_file_scope": 9,
+        "network_or_secret": 1
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "network_or_secret",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    },
+    {
+      "rank": 20,
+      "instance_id": "benchmark-format_structured_sections_002",
+      "category": "SP",
+      "scaffold": "claudecode",
+      "image": "minimaxai/feedfeed:md_basic_memory",
+      "workspace_abs_path": "/workspace/basic-memory",
+      "total_checks": 37,
+      "selection_score": 15.0,
+      "match_counts": {
+        "read_before_write": 2,
+        "bash_restriction": 3,
+        "dependency_install": 2,
+        "git_operation": 2,
+        "test_or_lint": 5,
+        "workspace_file_scope": 13,
+        "network_or_secret": 0
+      },
+      "os_ifc_relevance": [
+        "bash_restriction",
+        "dependency_install",
+        "git_operation",
+        "read_before_write",
+        "test_or_lint",
+        "workspace_file_scope"
+      ]
+    }
+  ]
+}

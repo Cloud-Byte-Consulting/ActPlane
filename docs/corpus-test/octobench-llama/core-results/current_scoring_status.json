@@ -1,0 +1,466 @@
+{
+  "scoring_rule": {
+    "reward": "success_checks / total_checks",
+    "binary_reward": "1 iff reward == 1.0 else 0",
+    "avg_reward": "mean reward across cases",
+    "pass_count": "count of cases with binary_reward == 1",
+    "official_constraint": "Judge must score the complete case checklist in one request; no category fallback or checklist splitting."
+  },
+  "baseline": {
+    "condition": "baseline",
+    "source_scores": "docs/corpus-test/octobench-llama/results/baseline-rq1-20-combined/official-eval-llama-maxtok16384-p4/scores_llama_judge.json",
+    "summary": {
+      "total": 20,
+      "success_count": 20,
+      "avg_reward": 0.658,
+      "pass_count": 1
+    },
+    "case_count_in_file": 20,
+    "invalid_or_failed_count": 3,
+    "invalid_or_failed": [
+      {
+        "instance_id": "benchmark-safety_git_careful_003",
+        "success": true,
+        "error": "Unterminated string starting at: line 167 column 24 (char 13028)"
+      },
+      {
+        "instance_id": "md-aws-mcp-server-native-type-hints",
+        "success": true,
+        "error": "Unterminated string starting at: line 79 column 22 (char 7229)"
+      },
+      {
+        "instance_id": "benchmark-cb_append_payment_001",
+        "success": true,
+        "error": "Unterminated string starting at: line 82 column 9 (char 7165)"
+      }
+    ],
+    "rows": [
+      {
+        "instance_id": "md-basic-memory-async-client-pattern",
+        "success": true,
+        "reward": 0.595,
+        "binary_reward": 0,
+        "total_checks": 37,
+        "total_success": 22,
+        "total_fail": 15,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-import-order",
+        "success": true,
+        "reward": 0.758,
+        "binary_reward": 0,
+        "total_checks": 33,
+        "total_success": 25,
+        "total_fail": 8,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-utils-validation",
+        "success": true,
+        "reward": 0.625,
+        "binary_reward": 0,
+        "total_checks": 32,
+        "total_success": 20,
+        "total_fail": 12,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-safety_git_careful_003",
+        "success": true,
+        "reward": 0.0,
+        "binary_reward": 0,
+        "total_checks": null,
+        "total_success": null,
+        "total_fail": null,
+        "error": "Unterminated string starting at: line 167 column 24 (char 13028)"
+      },
+      {
+        "instance_id": "md-aws-mcp-server-native-type-hints",
+        "success": true,
+        "reward": 0.0,
+        "binary_reward": 0,
+        "total_checks": null,
+        "total_success": null,
+        "total_fail": null,
+        "error": "Unterminated string starting at: line 79 column 22 (char 7229)"
+      },
+      {
+        "instance_id": "benchmark-aws_cancel_partial_001",
+        "success": true,
+        "reward": 0.857,
+        "binary_reward": 0,
+        "total_checks": 42,
+        "total_success": 36,
+        "total_fail": 6,
+        "error": ""
+      },
+      {
+        "instance_id": "md-basic-memory-textwrap-dedent",
+        "success": true,
+        "reward": 0.675,
+        "binary_reward": 0,
+        "total_checks": 40,
+        "total_success": 27,
+        "total_fail": 13,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-aws_lazy_validator_001",
+        "success": true,
+        "reward": 0.85,
+        "binary_reward": 0,
+        "total_checks": 40,
+        "total_success": 34,
+        "total_fail": 6,
+        "error": ""
+      },
+      {
+        "instance_id": "md-aws-mcp-server-logging-over-print",
+        "success": true,
+        "reward": 0.811,
+        "binary_reward": 0,
+        "total_checks": 37,
+        "total_success": 30,
+        "total_fail": 7,
+        "error": ""
+      },
+      {
+        "instance_id": "md-basic-memory-export-cli",
+        "success": true,
+        "reward": 0.65,
+        "binary_reward": 0,
+        "total_checks": 40,
+        "total_success": 26,
+        "total_fail": 14,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-aws_checklist_error_001",
+        "success": true,
+        "reward": 0.703,
+        "binary_reward": 0,
+        "total_checks": 37,
+        "total_success": 26,
+        "total_fail": 11,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-cb_append_payment_001",
+        "success": true,
+        "reward": 0.0,
+        "binary_reward": 0,
+        "total_checks": null,
+        "total_success": null,
+        "total_fail": null,
+        "error": "Unterminated string starting at: line 82 column 9 (char 7165)"
+      },
+      {
+        "instance_id": "md-basic-memory-archive-tool",
+        "success": true,
+        "reward": 1.0,
+        "binary_reward": 1,
+        "total_checks": 52,
+        "total_success": 52,
+        "total_fail": 0,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-aws_append_format_001",
+        "success": true,
+        "reward": 0.957,
+        "binary_reward": 0,
+        "total_checks": 47,
+        "total_success": 45,
+        "total_fail": 2,
+        "error": ""
+      },
+      {
+        "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+        "success": true,
+        "reward": 0.643,
+        "binary_reward": 0,
+        "total_checks": 42,
+        "total_success": 27,
+        "total_fail": 15,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-bm_lazy_validation_001",
+        "success": true,
+        "reward": 0.775,
+        "binary_reward": 0,
+        "total_checks": 40,
+        "total_success": 31,
+        "total_fail": 9,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-code-style",
+        "success": true,
+        "reward": 0.676,
+        "binary_reward": 0,
+        "total_checks": 34,
+        "total_success": 23,
+        "total_fail": 11,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-migrate-utility",
+        "success": true,
+        "reward": 0.939,
+        "binary_reward": 0,
+        "total_checks": 33,
+        "total_success": 31,
+        "total_fail": 2,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-aws_append_service_001",
+        "success": true,
+        "reward": 0.837,
+        "binary_reward": 0,
+        "total_checks": 43,
+        "total_success": 36,
+        "total_fail": 7,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-format_structured_sections_002",
+        "success": true,
+        "reward": 0.811,
+        "binary_reward": 0,
+        "total_checks": 37,
+        "total_success": 30,
+        "total_fail": 7,
+        "error": ""
+      }
+    ],
+    "paper_usable": false,
+    "paper_usable_reason": "Debug-only: current judge run is incomplete or has JSON parse/errors; official-only whole-case rerun is required."
+  },
+  "actplane": {
+    "condition": "actplane",
+    "source_scores": "docs/corpus-test/octobench-llama/results/actplane-isolated-20260603T170502Z/official-eval-llama-maxtok16384-p4/scores_llama_judge.json",
+    "summary": {
+      "total": 19,
+      "success_count": 16,
+      "avg_reward": 0.649,
+      "pass_count": 2
+    },
+    "case_count_in_file": 19,
+    "invalid_or_failed_count": 3,
+    "invalid_or_failed": [
+      {
+        "instance_id": "md-aws-mcp-server-native-type-hints",
+        "success": false,
+        "error": "'str' object has no attribute 'get'"
+      },
+      {
+        "instance_id": "benchmark-cb_append_payment_001",
+        "success": false,
+        "error": "Error code: 400 - {'error': {'code': 400, 'message': 'request (34128 tokens) exceeds the available context size (32000 tokens), try increasing it', 'type': 'exceed_context_size_error', 'n_prompt_tokens': 34128, 'n_ctx': 32000}}"
+      },
+      {
+        "instance_id": "md-course-builder-migrate-utility",
+        "success": false,
+        "error": "Error code: 400 - {'error': {'code': 400, 'message': 'request (33783 tokens) exceeds the available context size (32000 tokens), try increasing it', 'type': 'exceed_context_size_error', 'n_prompt_tokens': 33783, 'n_ctx': 32000}}"
+      }
+    ],
+    "rows": [
+      {
+        "instance_id": "md-basic-memory-async-client-pattern",
+        "success": true,
+        "reward": 0.541,
+        "binary_reward": 0,
+        "total_checks": 37,
+        "total_success": 20,
+        "total_fail": 17,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-import-order",
+        "success": true,
+        "reward": 0.758,
+        "binary_reward": 0,
+        "total_checks": 33,
+        "total_success": 25,
+        "total_fail": 8,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-utils-validation",
+        "success": true,
+        "reward": 0.594,
+        "binary_reward": 0,
+        "total_checks": 32,
+        "total_success": 19,
+        "total_fail": 13,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-safety_git_careful_003",
+        "success": true,
+        "reward": 1.0,
+        "binary_reward": 1,
+        "total_checks": 23,
+        "total_success": 23,
+        "total_fail": 0,
+        "error": ""
+      },
+      {
+        "instance_id": "md-aws-mcp-server-native-type-hints",
+        "success": false,
+        "reward": 0.0,
+        "binary_reward": null,
+        "total_checks": null,
+        "total_success": null,
+        "total_fail": null,
+        "error": "'str' object has no attribute 'get'"
+      },
+      {
+        "instance_id": "benchmark-aws_cancel_partial_001",
+        "success": true,
+        "reward": 0.762,
+        "binary_reward": 0,
+        "total_checks": 42,
+        "total_success": 32,
+        "total_fail": 10,
+        "error": ""
+      },
+      {
+        "instance_id": "md-basic-memory-textwrap-dedent",
+        "success": true,
+        "reward": 0.725,
+        "binary_reward": 0,
+        "total_checks": 40,
+        "total_success": 29,
+        "total_fail": 11,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-aws_lazy_validator_001",
+        "success": true,
+        "reward": 1.0,
+        "binary_reward": 1,
+        "total_checks": 40,
+        "total_success": 40,
+        "total_fail": 0,
+        "error": ""
+      },
+      {
+        "instance_id": "md-aws-mcp-server-logging-over-print",
+        "success": true,
+        "reward": 0.892,
+        "binary_reward": 0,
+        "total_checks": 37,
+        "total_success": 33,
+        "total_fail": 4,
+        "error": ""
+      },
+      {
+        "instance_id": "md-basic-memory-export-cli",
+        "success": true,
+        "reward": 0.6,
+        "binary_reward": 0,
+        "total_checks": 40,
+        "total_success": 24,
+        "total_fail": 16,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-aws_checklist_error_001",
+        "success": true,
+        "reward": 0.784,
+        "binary_reward": 0,
+        "total_checks": 37,
+        "total_success": 29,
+        "total_fail": 8,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-cb_append_payment_001",
+        "success": false,
+        "reward": 0.0,
+        "binary_reward": null,
+        "total_checks": null,
+        "total_success": null,
+        "total_fail": null,
+        "error": "Error code: 400 - {'error': {'code': 400, 'message': 'request (34128 tokens) exceeds the available context size (32000 tokens), try increasing it', 'type': 'exceed_context_size_error', 'n_prompt_tokens': 34128, 'n_ctx': 32000}}"
+      },
+      {
+        "instance_id": "md-basic-memory-archive-tool",
+        "success": true,
+        "reward": 0.846,
+        "binary_reward": 0,
+        "total_checks": 52,
+        "total_success": 44,
+        "total_fail": 8,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-aws_append_format_001",
+        "success": true,
+        "reward": 0.957,
+        "binary_reward": 0,
+        "total_checks": 47,
+        "total_success": 45,
+        "total_fail": 2,
+        "error": ""
+      },
+      {
+        "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+        "success": true,
+        "reward": 0.667,
+        "binary_reward": 0,
+        "total_checks": 42,
+        "total_success": 28,
+        "total_fail": 14,
+        "error": ""
+      },
+      {
+        "instance_id": "benchmark-bm_lazy_validation_001",
+        "success": true,
+        "reward": 0.775,
+        "binary_reward": 0,
+        "total_checks": 40,
+        "total_success": 31,
+        "total_fail": 9,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-code-style",
+        "success": true,
+        "reward": 0.618,
+        "binary_reward": 0,
+        "total_checks": 34,
+        "total_success": 21,
+        "total_fail": 13,
+        "error": ""
+      },
+      {
+        "instance_id": "md-course-builder-migrate-utility",
+        "success": false,
+        "reward": 0.0,
+        "binary_reward": null,
+        "total_checks": null,
+        "total_success": null,
+        "total_fail": null,
+        "error": "Error code: 400 - {'error': {'code': 400, 'message': 'request (33783 tokens) exceeds the available context size (32000 tokens), try increasing it', 'type': 'exceed_context_size_error', 'n_prompt_tokens': 33783, 'n_ctx': 32000}}"
+      },
+      {
+        "instance_id": "benchmark-aws_append_service_001",
+        "success": true,
+        "reward": 0.814,
+        "binary_reward": 0,
+        "total_checks": 43,
+        "total_success": 35,
+        "total_fail": 8,
+        "error": ""
+      }
+    ],
+    "paper_usable": false,
+    "paper_usable_reason": "Debug-only: current judge run is incomplete or has JSON parse/errors; official-only whole-case rerun is required."
+  },
+  "verdict": "Scaffold execution summaries are usable as run feasibility/overhead data. Current judge scores are not paper-usable until rerun with official whole-case scoring and no fallback."
+}

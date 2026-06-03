@@ -1,0 +1,3 @@
+condition,case_count,success_count,total_elapsed_s,mean_elapsed_s
+baseline,20,20,3368.269,168.413
+actplane,20,20,3935.006,196.75

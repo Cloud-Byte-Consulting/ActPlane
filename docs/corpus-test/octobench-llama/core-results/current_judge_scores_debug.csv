@@ -1,0 +1,40 @@
+condition,instance_id,success,reward,binary_reward,total_checks,total_success,total_fail,error
+baseline,md-basic-memory-async-client-pattern,True,0.595,0,37,22,15,
+baseline,md-course-builder-import-order,True,0.758,0,33,25,8,
+baseline,md-course-builder-utils-validation,True,0.625,0,32,20,12,
+baseline,benchmark-safety_git_careful_003,True,0.0,0,,,,Unterminated string starting at: line 167 column 24 (char 13028)
+baseline,md-aws-mcp-server-native-type-hints,True,0.0,0,,,,Unterminated string starting at: line 79 column 22 (char 7229)
+baseline,benchmark-aws_cancel_partial_001,True,0.857,0,42,36,6,
+baseline,md-basic-memory-textwrap-dedent,True,0.675,0,40,27,13,
+baseline,benchmark-aws_lazy_validator_001,True,0.85,0,40,34,6,
+baseline,md-aws-mcp-server-logging-over-print,True,0.811,0,37,30,7,
+baseline,md-basic-memory-export-cli,True,0.65,0,40,26,14,
+baseline,benchmark-aws_checklist_error_001,True,0.703,0,37,26,11,
+baseline,benchmark-cb_append_payment_001,True,0.0,0,,,,Unterminated string starting at: line 82 column 9 (char 7165)
+baseline,md-basic-memory-archive-tool,True,1.0,1,52,52,0,
+baseline,benchmark-aws_append_format_001,True,0.957,0,47,45,2,
+baseline,md-aws-mcp-server-pathlib-over-ospath,True,0.643,0,42,27,15,
+baseline,benchmark-bm_lazy_validation_001,True,0.775,0,40,31,9,
+baseline,md-course-builder-code-style,True,0.676,0,34,23,11,
+baseline,md-course-builder-migrate-utility,True,0.939,0,33,31,2,
+baseline,benchmark-aws_append_service_001,True,0.837,0,43,36,7,
+baseline,benchmark-format_structured_sections_002,True,0.811,0,37,30,7,
+actplane,md-basic-memory-async-client-pattern,True,0.541,0,37,20,17,
+actplane,md-course-builder-import-order,True,0.758,0,33,25,8,
+actplane,md-course-builder-utils-validation,True,0.594,0,32,19,13,
+actplane,benchmark-safety_git_careful_003,True,1.0,1,23,23,0,
+actplane,md-aws-mcp-server-native-type-hints,False,0.0,,,,,'str' object has no attribute 'get'
+actplane,benchmark-aws_cancel_partial_001,True,0.762,0,42,32,10,
+actplane,md-basic-memory-textwrap-dedent,True,0.725,0,40,29,11,
+actplane,benchmark-aws_lazy_validator_001,True,1.0,1,40,40,0,
+actplane,md-aws-mcp-server-logging-over-print,True,0.892,0,37,33,4,
+actplane,md-basic-memory-export-cli,True,0.6,0,40,24,16,
+actplane,benchmark-aws_checklist_error_001,True,0.784,0,37,29,8,
+actplane,benchmark-cb_append_payment_001,False,0.0,,,,,"Error code: 400 - {'error': {'code': 400, 'message': 'request (34128 tokens) exceeds the available context size (32000 tokens), try increasing it', 'type': 'exceed_context_size_error', 'n_prompt_tokens': 34128, 'n_ctx': 32000}}"
+actplane,md-basic-memory-archive-tool,True,0.846,0,52,44,8,
+actplane,benchmark-aws_append_format_001,True,0.957,0,47,45,2,
+actplane,md-aws-mcp-server-pathlib-over-ospath,True,0.667,0,42,28,14,
+actplane,benchmark-bm_lazy_validation_001,True,0.775,0,40,31,9,
+actplane,md-course-builder-code-style,True,0.618,0,34,21,13,
+actplane,md-course-builder-migrate-utility,False,0.0,,,,,"Error code: 400 - {'error': {'code': 400, 'message': 'request (33783 tokens) exceeds the available context size (32000 tokens), try increasing it', 'type': 'exceed_context_size_error', 'n_prompt_tokens': 33783, 'n_ctx': 32000}}"
+actplane,benchmark-aws_append_service_001,True,0.814,0,43,35,8,

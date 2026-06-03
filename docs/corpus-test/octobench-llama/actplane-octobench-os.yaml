@@ -1,0 +1,45 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  # OctoBench OS-observable subset policy.
+  #
+  # Scope:
+  # - maps only checklist items visible at syscall/process/file level
+  # - intentionally excludes semantic/style/implementation-correctness checks
+  # - setup commands should run outside `actplane run`; wrap only the scaffold
+  #   agent command so `source AGENT = exec "**"` labels the evaluated agent
+
+  source AGENT = exec "**"
+  source WORKSPACE_CONTEXT = file "/workspace/**"
+
+  rule no-git-branch-or-worktree:
+    kill exec "git" "branch" if AGENT
+    kill exec "git" "worktree" if AGENT
+    because "OctoBench scaffold policy forbids creating git branches or worktrees in this workspace."
+
+  rule no-unnecessary-dependency-install:
+    kill exec "pip" "install" if AGENT
+    kill exec "uv" "add" if AGENT
+    kill exec "uv" "pip" if AGENT
+    kill exec "npm" "install" if AGENT
+    kill exec "pnpm" "add" if AGENT
+    kill exec "yarn" "add" if AGENT
+    because "Do not add third-party dependencies for these OctoBench tasks unless the task explicitly requires dependency management."
+
+  rule no-bash-file-inspection:
+    kill exec "cat" if AGENT
+    kill exec "find" if AGENT
+    kill exec "grep" if AGENT
+    kill exec "head" if AGENT
+    kill exec "tail" if AGENT
+    kill exec "sed" if AGENT
+    kill exec "awk" if AGENT
+    kill exec "echo" if AGENT
+    because "Use the scaffold's dedicated file/search tools for file inspection instead of shell file-inspection commands."
+
+  rule read-workspace-before-write:
+    notify write file "/workspace/**" if AGENT and not WORKSPACE_CONTEXT
+    because "Read relevant workspace files before editing or writing repository files."

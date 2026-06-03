@@ -1,0 +1,267 @@
+{
+  "baseline": {
+    "condition": "baseline",
+    "source_summary": "docs/corpus-test/octobench-llama/results/baseline-rq1-20-combined/summary.json",
+    "case_count": 20,
+    "success_count": 20,
+    "total_elapsed_s": 3368.269,
+    "mean_elapsed_s": 168.413,
+    "cases": [
+      {
+        "instance_id": "md-basic-memory-async-client-pattern",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 96.178
+      },
+      {
+        "instance_id": "md-course-builder-import-order",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 201.241
+      },
+      {
+        "instance_id": "md-course-builder-utils-validation",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 93.38
+      },
+      {
+        "instance_id": "benchmark-safety_git_careful_003",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 67.34
+      },
+      {
+        "instance_id": "md-aws-mcp-server-native-type-hints",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 60.272
+      },
+      {
+        "instance_id": "benchmark-aws_cancel_partial_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 334.946
+      },
+      {
+        "instance_id": "md-basic-memory-textwrap-dedent",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 132.579
+      },
+      {
+        "instance_id": "benchmark-aws_lazy_validator_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 284.889
+      },
+      {
+        "instance_id": "md-aws-mcp-server-logging-over-print",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 187.226
+      },
+      {
+        "instance_id": "md-basic-memory-export-cli",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 97.38
+      },
+      {
+        "instance_id": "benchmark-aws_checklist_error_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 158.541
+      },
+      {
+        "instance_id": "benchmark-cb_append_payment_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 355.976
+      },
+      {
+        "instance_id": "md-basic-memory-archive-tool",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 119.903
+      },
+      {
+        "instance_id": "benchmark-aws_append_format_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 356.848
+      },
+      {
+        "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 139.606
+      },
+      {
+        "instance_id": "benchmark-bm_lazy_validation_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 95.938
+      },
+      {
+        "instance_id": "md-course-builder-code-style",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 154.118
+      },
+      {
+        "instance_id": "md-course-builder-migrate-utility",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 107.738
+      },
+      {
+        "instance_id": "benchmark-aws_append_service_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 213.568
+      },
+      {
+        "instance_id": "benchmark-format_structured_sections_002",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 110.6
+      }
+    ]
+  },
+  "actplane": {
+    "condition": "actplane",
+    "source_summary": "docs/corpus-test/octobench-llama/results/actplane-isolated-20260603T170502Z/summary.json",
+    "case_count": 20,
+    "success_count": 20,
+    "total_elapsed_s": 3935.006,
+    "mean_elapsed_s": 196.75,
+    "cases": [
+      {
+        "instance_id": "md-basic-memory-async-client-pattern",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 109.385
+      },
+      {
+        "instance_id": "md-course-builder-import-order",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 220.004
+      },
+      {
+        "instance_id": "md-course-builder-utils-validation",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 88.456
+      },
+      {
+        "instance_id": "benchmark-safety_git_careful_003",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 94.732
+      },
+      {
+        "instance_id": "md-aws-mcp-server-native-type-hints",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 108.436
+      },
+      {
+        "instance_id": "benchmark-aws_cancel_partial_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 298.434
+      },
+      {
+        "instance_id": "md-basic-memory-textwrap-dedent",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 123.531
+      },
+      {
+        "instance_id": "benchmark-aws_lazy_validator_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 143.084
+      },
+      {
+        "instance_id": "md-aws-mcp-server-logging-over-print",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 382.857
+      },
+      {
+        "instance_id": "md-basic-memory-export-cli",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 210.052
+      },
+      {
+        "instance_id": "benchmark-aws_checklist_error_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 204.154
+      },
+      {
+        "instance_id": "benchmark-cb_append_payment_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 437.117
+      },
+      {
+        "instance_id": "md-basic-memory-archive-tool",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 152.802
+      },
+      {
+        "instance_id": "benchmark-aws_append_format_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 533.498
+      },
+      {
+        "instance_id": "md-aws-mcp-server-pathlib-over-ospath",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 118.288
+      },
+      {
+        "instance_id": "benchmark-bm_lazy_validation_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 108.72
+      },
+      {
+        "instance_id": "md-course-builder-code-style",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 132.866
+      },
+      {
+        "instance_id": "md-course-builder-migrate-utility",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 49.992
+      },
+      {
+        "instance_id": "benchmark-aws_append_service_001",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 266.434
+      },
+      {
+        "instance_id": "benchmark-format_structured_sections_002",
+        "success": true,
+        "returncode": 0,
+        "elapsed_s": 152.164
+      }
+    ]
+  },
+  "comparison": {
+    "elapsed_overhead_fraction": 0.1683,
+    "elapsed_overhead_percent": 16.83,
+    "mean_elapsed_delta_s": 28.337
+  }
+}

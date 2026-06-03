@@ -21,8 +21,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-
-import requests
+from urllib.request import urlopen
+from urllib.error import URLError
 
 DEFAULT_LLAMA_SERVER = Path(
     os.environ.get(
@@ -42,8 +42,10 @@ DEFAULT_MODEL = Path(
 )
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18080
-DEFAULT_GPU_LAYERS = os.environ.get("LLAMA_GPU_LAYERS", "all")
-DEFAULT_CTX_SIZE = int(os.environ.get("LLAMA_CTX_SIZE", "32768"))
+DEFAULT_DEVICE = "CUDA0"
+DEFAULT_GPU_LAYERS = "all"
+DEFAULT_CTX_SIZE = 128000
+DEFAULT_PARALLEL = 1
 
 
 class LlamaServer:
@@ -53,26 +55,114 @@ class LlamaServer:
         model_path: Path = DEFAULT_MODEL,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
+        device: str = DEFAULT_DEVICE,
         gpu_layers: str = DEFAULT_GPU_LAYERS,
         ctx_size: int = DEFAULT_CTX_SIZE,
+        parallel: int = DEFAULT_PARALLEL,
+        judge_json: bool = False,
+        log_path: Path | None = None,
+        restart_existing: bool = False,
     ):
         self.server_bin = Path(server_bin)
         self.model_path = Path(model_path)
         self.host = host
         self.port = port
+        self.device = device
         self.gpu_layers = gpu_layers
         self.ctx_size = ctx_size
+        self.parallel = parallel
+        self.judge_json = judge_json
+        self.log_path = Path(log_path) if log_path else None
+        self.restart_existing = restart_existing
         self.base_url = f"http://{host}:{port}"
         self.proc: subprocess.Popen | None = None
+        self._log_file = None
 
     def healthy(self) -> bool:
         try:
-            r = requests.get(f"{self.base_url}/health", timeout=2)
-            return r.status_code == 200
-        except requests.RequestException:
+            with urlopen(f"{self.base_url}/health", timeout=2) as response:
+                return response.status == 200
+        except (OSError, URLError):
             return False
 
+    def _existing_pids(self) -> list[int]:
+        result = subprocess.run(
+            ["pgrep", "-af", f"llama-server.*--port {self.port}"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        pids: list[int] = []
+        own_pid = os.getpid()
+        for line in result.stdout.splitlines():
+            parts = line.split(maxsplit=1)
+            if not parts:
+                continue
+            try:
+                pid = int(parts[0])
+            except ValueError:
+                continue
+            if pid != own_pid:
+                pids.append(pid)
+        return pids
+
+    def stop_existing(self, grace_s: float = 20) -> None:
+        pids = self._existing_pids()
+        if not pids:
+            return
+        print(f"Stopping existing llama-server processes on port {self.port}: {pids}")
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        deadline = time.time() + grace_s
+        while time.time() < deadline:
+            live = []
+            for pid in pids:
+                try:
+                    os.kill(pid, 0)
+                    live.append(pid)
+                except ProcessLookupError:
+                    pass
+            if not live:
+                return
+            time.sleep(0.5)
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    def command(self) -> list[str]:
+        cmd = [
+            str(self.server_bin),
+            "-m",
+            str(self.model_path),
+            "--host",
+            self.host,
+            "--port",
+            str(self.port),
+            "--device",
+            self.device,
+            "--fit",
+            "off",
+            "-ngl",
+            self.gpu_layers,
+            "-c",
+            str(self.ctx_size),
+            "--parallel",
+            str(self.parallel),
+            "--no-webui",
+        ]
+        if self.judge_json:
+            cmd.extend(["--reasoning", "off", "--reasoning-format", "none", "--json-schema", "{}"])
+        return cmd
+
     def start(self, timeout: float = 120) -> None:
+        if self.restart_existing:
+            self.stop_existing()
+
         if self.healthy():
             print(f"llama-server already running at {self.base_url}")
             return
@@ -82,29 +172,28 @@ class LlamaServer:
         if not self.model_path.exists():
             raise FileNotFoundError(f"model not found: {self.model_path}")
 
-        cmd = [
-            str(self.server_bin),
-            "-m", str(self.model_path),
-            "--host", self.host,
-            "--port", str(self.port),
-            "-ngl", self.gpu_layers,
-            "-c", str(self.ctx_size),
-            "--no-webui",
-            "--log-disable",
-        ]
-        print(f"Starting llama-server: {' '.join(cmd[:6])}...")
+        cmd = self.command()
+        print(f"Starting llama-server with n_ctx={self.ctx_size}, device={self.device}, judge_json={self.judge_json}")
+        stdout = subprocess.DEVNULL
+        stderr = subprocess.DEVNULL
+        if self.log_path:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_file = self.log_path.open("w", encoding="utf-8")
+            stdout = self._log_file
+            stderr = subprocess.STDOUT
         self.proc = subprocess.Popen(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stdout=stdout,
+            stderr=stderr,
             text=True,
+            preexec_fn=os.setsid,
         )
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                stderr = self.proc.stderr.read() if self.proc.stderr else ""
+                log_hint = f" See {self.log_path}" if self.log_path else ""
                 raise RuntimeError(
-                    f"llama-server exited with code {self.proc.returncode}:\n{stderr[:500]}"
+                    f"llama-server exited with code {self.proc.returncode}.{log_hint}"
                 )
             if self.healthy():
                 print(f"llama-server healthy at {self.base_url}")
@@ -116,13 +205,23 @@ class LlamaServer:
         if not self.proc:
             return
         print("Stopping llama-server...")
-        self.proc.send_signal(signal.SIGINT)
+        try:
+            os.killpg(self.proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            self.proc = None
+            return
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            self.proc.terminate()
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             self.proc.wait(timeout=10)
         self.proc = None
+        if self._log_file:
+            self._log_file.close()
+            self._log_file = None
         print("llama-server stopped.")
 
     def model_name(self) -> str:
@@ -131,7 +230,7 @@ class LlamaServer:
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "start"
-    srv = LlamaServer()
+    srv = LlamaServer(judge_json="--judge-json" in sys.argv, restart_existing="--restart-existing" in sys.argv)
 
     if action == "health":
         if srv.healthy():

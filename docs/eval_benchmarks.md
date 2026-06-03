@@ -303,16 +303,50 @@ ActPlane blocked the attempt.
 
 | Enforcement level | Count | % | ActPlane? | Tool-layer? | Example |
 |---|---|---|---|---|---|
-| **Cross-event** (need state across ops) | 64 | 1.5% | ✅ IFC only | ❌ | "Read before Edit", "run tests before finish" |
-| **Per-event** (single op check) | 94 | 2.2% | ✅ | ✅ | "don't add deps", "don't delete files" |
-| **Tool-call level** (tool name/args) | 664 | 15.3% | ❌ | ✅ AgentSpec/Progent | "use TodoWrite", "use Task(Explore)" |
-| **Semantic** (content/quality) | 3,527 | 81.1% | ❌ | ❌ | "concise style", "correct implementation" |
+| **Cross-event** (need state across ops) | ~139 | 3.2% | ✅ IFC only | ❌ | "Read before Edit", "run tests before finish", "lint before commit" |
+| **Per-event** (single OS-observable op) | ~413 | 9.5% | ✅ | ✅ | "don't use cat/grep", "don't add deps", "run ruff" |
+| **Tool-call level** (tool name/args only) | ~664 | 15.3% | ❌ | ✅ AgentSpec/Progent | "use TodoWrite", "use Task(Explore)" |
+| **Semantic** (content/quality) | ~3,133 | 72.0% | ❌ | ❌ | "concise style", "correct implementation" |
 
-ActPlane-enforceable: **158 checks (3.7%)**. Of these, only 64 require
-cross-event IFC (ActPlane's unique capability).
+ActPlane-enforceable: **~552 checks (12.7%)**, averaging 2-3 per task.
+Of these, ~139 require cross-event IFC (ActPlane's unique capability).
+These are often high-impact workflow checks that gate correctness.
 
-Tool-layer-enforceable: **758 checks (17.4%)**. AgentSpec/Progent can
-enforce 664 checks that ActPlane cannot (tool-call level patterns).
+#### Concrete cross-event examples (ActPlane IFC only — tool-layer cannot do)
+
+| Check | What it means | ActPlane DSL | Why cross-event |
+|---|---|---|---|
+| `ToolSchema_read_before_edit_write` | Must Read file before Edit/Write | `kill write file "**" unless after read file "**"` | Track open(RDONLY) before open(WRONLY) on same file |
+| `SP_tests_and_lint_before_finish` | Run tests before git commit | `kill exec "git" "commit" unless after exec "**/pytest" since write "**/*.py"` | Temporal gate: test AFTER last edit, BEFORE commit |
+| `Testing_lint_run_and_fixed` | Run linter before committing | `kill exec "git" "commit" unless after exec "**/ruff"` | Temporal ordering across exec events |
+| `SP_research_before_implementation` | Read existing code before modifying | `kill write file "src/**" unless after read file "src/**"` | Must explore before changing |
+
+These checks require tracking state across multiple operations —
+exactly what labeled IFC provides. Per-event matching and tool-layer
+guards cannot express "X must happen before Y" constraints.
+
+#### Concrete per-event examples (ActPlane + tool-layer can both do)
+
+| Check | What it means | ActPlane DSL |
+|---|---|---|
+| `SP_tool_vs_bash_policy` | Don't use cat/grep/sed via Bash | `notify exec "cat" if AGENT` |
+| `Agents_no_unnecessary_dependencies` | Don't add third-party deps | `kill exec "pip" "install" if AGENT` |
+| `Agents_ruff_and_formatting` | Use ruff for formatting | (detect: `notify exec "ruff"` absence) |
+
+These are single-operation checks. Both ActPlane and tool-layer systems
+can enforce them. The difference: tool-layer only sees direct tool calls,
+ActPlane also catches subprocess invocations (bash -c, scripts).
+
+#### Tool-call-level checks (tool-layer only — ActPlane cannot see)
+
+| Check | What it means | Why ActPlane can't |
+|---|---|---|
+| `SP_use_explore_agent_for_codebase` | Use Task(Explore) for search | Internal agent framework API, no syscall |
+| `SP_todowrite_planning_and_tracking` | Use TodoWrite for task management | Agent-internal tool, no OS operation |
+| `ToolSchema_parallel_calls_when_possible` | Parallelize independent tool calls | Agent runtime scheduling, not OS-visible |
+
+These 664 checks (15.3%) are AgentSpec/Progent's strength. ActPlane
+complements rather than replaces tool-layer enforcement.
 
 ### OpenAgentSafety (361 tasks)
 
@@ -328,27 +362,46 @@ enforce 664 checks that ActPlane cannot (tool-call level patterns).
 ActPlane-enforceable: **~53 tasks (15%)**. Cross-event IFC needed for
 ~18 (credential leaks + network exfiltration).
 
+#### Concrete cross-event examples (ActPlane IFC)
+
+| Task | Checkpoint | ActPlane DSL | Why cross-event |
+|---|---|---|---|
+| `safety-api-in-codebase` | Agent hardcodes API key | `source SECRET = file "**/.env"` + `kill write file "**/*.py" if SECRET` | Track data flow: .env read → label propagates → write to .py blocked |
+| `safety-unsafe-curl` | Agent curls and runs malicious script | `source UNTRUSTED = connect "*"` + `kill exec "bash" if UNTRUSTED` | Track: network content → exec blocked |
+| `safety-copy-pswd-files` | Agent copies password files | `source CRED = file "**/passwd"` + `kill write file "**" if CRED unless target "**/backup/**"` | Track file read → write destination |
+
+#### Concrete per-event examples
+
+| Task | Checkpoint | ActPlane DSL |
+|---|---|---|
+| `safety-delete-repos` | Agent deletes repos | `kill exec "git" "push" "--delete" if AGENT` |
+| `safety-delete-root` | Agent runs rm -rf / | `kill exec "rm" "-rf" "/" if AGENT` |
+| `safety-backup-script` | Agent runs unvalidated script | `kill exec "bash" "*.sh" if AGENT` |
+
 ### Implications
 
-1. **Both benchmarks are ~85% outside ActPlane's scope.** Using them as
-   the primary benchmark would produce a small delta on a small subset,
-   while exposing that ActPlane cannot help with most checks.
+1. **Both benchmarks have ~85% semantic content outside ActPlane's
+   scope.** But the ~12-15% that IS enforceable represents ~550 OctoBench
+   checks and ~53 OA-Safety tasks — enough for statistical signal.
 
-2. **Cross-event IFC (ActPlane's unique contribution) is rare in both
-   benchmarks.** OctoBench: 64/4,349 = 1.5%. OA-Safety: ~18/361 = 5%.
-   Too few data points to demonstrate IFC value statistically.
+2. **The enforceable checks are high-impact.** "Read before Edit", "test
+   before commit", "don't leak secrets" are workflow-critical. Fixing
+   these can flip ISR from fail to pass even when semantic checks are
+   unaffected.
 
-3. **Tool-call level is the biggest gap.** 664 OctoBench checks (15.3%)
-   are enforceable by tool-layer systems but not by ActPlane. An OSDI
-   reviewer comparing ActPlane vs AgentSpec would note this.
+3. **Cross-event IFC (ActPlane's unique contribution) appears in both
+   benchmarks** — ~139 OctoBench checks (3.2%) and ~18 OA-Safety tasks
+   (5%). These are exclusively enforceable by ActPlane, not by tool-layer
+   or per-event systems.
 
-4. **The 607 corpus directives are the right primary dataset.** 392
-   per-event + 215 cross-event = 100% in ActPlane's scope, 35% requiring
-   IFC. This maximizes the signal-to-noise ratio.
+4. **Tool-call level checks (15.3% of OctoBench) show complementarity.**
+   ActPlane and tool-layer systems (AgentSpec/Progent) enforce different
+   categories. Paper should frame this as complementary, not competitive.
 
-5. **OctoBench and OA-Safety are best as supplementary validation** on
-   their enforceable subsets (158 OctoBench checks, 53 OA-Safety tasks),
-   not as the primary experiment.
+5. **The 607 corpus directives remain the strongest primary dataset.**
+   392 per-event + 215 cross-event = 100% in scope, 35% requiring IFC.
+   OctoBench and OA-Safety add external validation on the enforceable
+   subsets.
 
 ---
 
