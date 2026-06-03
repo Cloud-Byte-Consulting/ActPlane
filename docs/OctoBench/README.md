@@ -26,7 +26,8 @@ wrappers do not modify official `mini-vela` files.
   `actplane`, and `actplane-feedback` conditions.
 - `evaluate_with_llama.py`: official whole-case OctoBench evaluator using local
   llama.cpp as the judge model.
-- `extract_actplane_metrics.py`: OS violation/runtime metric extraction.
+- `extract_actplane_metrics.py`: ActPlane OS evidence extraction. It does not
+  compute or modify benchmark reward.
 
 ## What The Paper Actually Needs
 
@@ -40,11 +41,12 @@ The main OctoBench evidence should be paired, same-case data:
 
 The paper-facing table should report:
 
-- official reward: does ActPlane preserve or improve OctoBench task completion?
-- compliance reward: does ActPlane improve rule-following checks?
-- implementation reward: does ActPlane avoid harming requested code changes?
+- official OctoBench reward/pass count from `evaluate_with_llama.py`
 - OS violations: which policy rules fired and how often?
 - runtime overhead: baseline elapsed time vs ActPlane elapsed time.
+
+Any compliance/implementation breakdown should be derived from the official
+OctoBench checklist results only, not from a custom ActPlane scoring rule.
 
 Direct llama smoke tests, PATH-wrapper guardrail experiments, and bypass probes
 are not main OctoBench RQ1 data. They can support an appendix or motivation
@@ -131,6 +133,20 @@ python3 evaluate_with_llama.py --run-dir results/actplane-isolated-YYYYMMDDTHHMM
 
 The evaluator calls upstream `mini-vela/evaluate.py::evaluate_single` at the
 whole-case/full-checklist level. It does not split checklist categories.
+
+## ActPlane Evidence
+
+ActPlane evidence is extracted separately and is not a benchmark score:
+
+```bash
+python3 extract_actplane_metrics.py \
+  --run-dir results/actplane-isolated-YYYYMMDDTHHMMSSZ \
+  --out results/actplane-isolated-YYYYMMDDTHHMMSSZ/actplane_metrics.json
+```
+
+This reports event counts, effects, processes, targets, reasons, and short
+evidence excerpts from ActPlane output. It does not report reward, delta reward,
+or combined score.
 
 ## Result Policy
 

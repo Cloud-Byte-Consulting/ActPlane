@@ -17,13 +17,6 @@ PROVENANCE_RE = re.compile(r"^\s+provenance:\s+(.+)$")
 ACTPLANE_RE = re.compile(r"\[ActPlane\].*规则「([^」]+)」")
 
 
-def load_scores(path: Path | None) -> dict[str, dict[str, Any]]:
-    if not path:
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {row["instance_id"]: row for row in data.get("results", [])}
-
-
 def iter_text_files(run_dir: Path) -> list[Path]:
     names = {"stdout.txt", "stderr.txt", "wrapper.stdout.txt", "wrapper.stderr.txt"}
     return sorted(path for path in run_dir.rglob("*") if path.is_file() and path.name in names)
@@ -86,7 +79,7 @@ def case_id_from_case_dir(case_dir: Path) -> str:
     return case_dir.name
 
 
-def summarize_case(case_dir: Path, baseline: dict[str, dict[str, Any]], official: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def summarize_case(case_dir: Path) -> dict[str, Any]:
     instance_id = case_id_from_case_dir(case_dir)
     events: list[dict[str, Any]] = []
     for path in iter_text_files(case_dir):
@@ -104,14 +97,6 @@ def summarize_case(case_dir: Path, baseline: dict[str, dict[str, Any]], official
         if reason:
             reasons[reason] = reasons.get(reason, 0) + 1
 
-    baseline_row = baseline.get(instance_id, {})
-    official_row = official.get(instance_id, {})
-    baseline_reward = baseline_row.get("reward")
-    official_reward = official_row.get("reward")
-    delta = None
-    if isinstance(baseline_reward, (int, float)) and isinstance(official_reward, (int, float)):
-        delta = round(official_reward - baseline_reward, 3)
-
     return {
         "instance_id": instance_id,
         "case_dir": str(case_dir),
@@ -122,36 +107,23 @@ def summarize_case(case_dir: Path, baseline: dict[str, dict[str, Any]], official
         "reasons": reasons,
         "trajectory_patterns": count_trajectory_patterns(case_dir),
         "evidence_excerpt": events[:5],
-        "baseline_reward": baseline_reward,
-        "actplane_reward": official_reward,
-        "delta_reward": delta,
-        "actplane_binary_reward": official_row.get("binary_reward"),
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--baseline-scores", type=Path)
-    parser.add_argument("--official-scores", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
 
-    baseline = load_scores(args.baseline_scores)
-    official = load_scores(args.official_scores)
     case_dirs = sorted(path for path in args.run_dir.iterdir() if path.is_dir() and path.name[:2].isdigit())
-    cases = [summarize_case(case_dir, baseline, official) for case_dir in case_dirs]
+    cases = [summarize_case(case_dir) for case_dir in case_dirs]
     output = {
         "run_dir": str(args.run_dir),
         "case_count": len(cases),
         "cases": cases,
         "summary": {
             "events_total": sum(case["events_total"] for case in cases),
-            "mean_delta_reward": round(
-                sum(case["delta_reward"] for case in cases if isinstance(case["delta_reward"], (int, float)))
-                / max(1, sum(1 for case in cases if isinstance(case["delta_reward"], (int, float)))),
-                3,
-            ),
         },
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
