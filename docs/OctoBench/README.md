@@ -235,9 +235,10 @@ python3 -m venv /tmp/octobench-litellm-venv
 The runner expects Docker, the OctoBench task images, a working Claude Code
 scaffold environment inside those images, and local llama.cpp configured by
 `docs/eval_scripts/llama_server.py`. That helper defaults to GPU `CUDA0`,
-`n_ctx=128000`, and parallel `3`.
-The OctoBench runner and judge wrapper also use `server_parallel=3`; do not
-override this to `1` for new runs.
+`n_ctx=192000`, and does not pass llama.cpp `--parallel` or `--fit`; those stay
+at llama.cpp defaults. `run_cases.py` executes cases serially because the
+official proxy trajectory path is global. `evaluate_with_llama.py` sends judge
+requests with `judge_parallel=3`.
 
 `run_cases.py` starts LiteLLM through the local config
 `configs/litellm_llama_cpp.yaml`. The submodule's official proxy code and

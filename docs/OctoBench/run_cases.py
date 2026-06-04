@@ -699,15 +699,30 @@ def actplane_feedback_hook_setup_script() -> str:
     return merge_claude_settings_script(hook_settings)
 
 
-def force_claude_settings(commands: list[str], scaffold_name: str) -> list[str]:
+def force_claude_settings(
+    commands: list[str],
+    scaffold_name: str,
+    extra_options: list[str] | None = None,
+) -> list[str]:
     if scaffold_name != "claudecode":
         return commands
+    option_text = ""
+    if extra_options:
+        option_text = " " + " ".join(extra_options)
     return [
-        command.replace("claude ", "claude --settings ~/.claude/settings.json ", 1)
+        command.replace("claude ", f"claude --settings ~/.claude/settings.json{option_text} ", 1)
         if command.startswith("claude ")
         else command
         for command in commands
     ]
+
+
+def load_tool_regex_disallowed_tools(policy_path: Path) -> list[str]:
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    tools = policy.get("disallowed_tools", [])
+    if not isinstance(tools, list):
+        return []
+    return [str(tool) for tool in tools if str(tool).strip()]
 
 
 def build_plain_container_command(
@@ -732,6 +747,7 @@ def build_tool_regex_container_command(
     case: dict[str, Any],
     proxy_url: str,
     model: str,
+    policy_path: Path,
 ) -> tuple[str, list[str], dict[str, str]]:
     scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
     scaffold = get_scaffold(scaffold_name)
@@ -745,7 +761,15 @@ def build_tool_regex_container_command(
     commands = [setup_script]
     if scaffold_name == "claudecode":
         commands.append(tool_regex_hook_setup_script())
-        task_commands = force_claude_settings(task_commands, scaffold_name)
+        disallowed_tools = load_tool_regex_disallowed_tools(policy_path)
+        extra_options = []
+        if disallowed_tools:
+            extra_options = ["--disallowedTools", shlex.quote(",".join(disallowed_tools))]
+        task_commands = force_claude_settings(
+            task_commands,
+            scaffold_name,
+            extra_options=extra_options,
+        )
     commands.extend(task_commands)
     return " && ".join(commands), task_commands, scaffold.get_docker_env(proxy_url, model=model)
 
@@ -975,6 +999,7 @@ def run_tool_regex_case(
         case=case,
         proxy_url=proxy_url,
         model=args.model,
+        policy_path=policy_path,
     )
 
     container_name = f"octobench-tool-regex-{instance_id[:36]}-{int(time.time())}"
@@ -1025,6 +1050,7 @@ def run_tool_regex_case(
             "policy": str(policy_path),
             "hook": str(TOOL_REGEX_HOOK),
             "events_file": str(events_file),
+            "cli_disallowed_tools": load_tool_regex_disallowed_tools(policy_path),
             "task_commands": task_commands,
             "docker_command": docker_cmd,
             "trajectory_session_id": instance_id,
@@ -1182,8 +1208,6 @@ def main() -> int:
             "litellm_config": str(args.litellm_config),
             "managed_llama": args.managed_llama,
             "n_ctx": MANAGED_LLAMA_CTX,
-            "llama_server_parallel": "llama.cpp default",
-            "llama_fit": "llama.cpp default",
             "case_parallel": 1,
             "case_count": len(cases),
         },

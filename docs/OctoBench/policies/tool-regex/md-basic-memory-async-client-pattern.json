@@ -1,5 +1,12 @@
 {
   "case_id": "md-basic-memory-async-client-pattern",
+  "disallowed_tools": [
+    "Bash(*.md*)",
+    "Bash(curl:*)",
+    "Bash(wget:*)",
+    "Bash(gh:*)",
+    "Bash(stripe:*)"
+  ],
   "rules": [
     {
       "id": "no-direct-markdown-file-write",

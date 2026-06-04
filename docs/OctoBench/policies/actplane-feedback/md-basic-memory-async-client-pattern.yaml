@@ -7,8 +7,8 @@ policy: |
   source AGENT = exec "claude"
 
   rule direct_markdown_write:
-    notify write file "/workspace/basic-memory/**/*.md" if AGENT
-    because "Use the project API/client path for markdown content updates instead of direct local markdown file writes."
+    notify write file "*.md" if AGENT
+    because "For normalize_frontmatter, read and update note markdown through the existing Basic Memory API/client helpers, not by directly opening or writing markdown files on disk."
 
   rule external_cli:
     notify exec "curl" if AGENT

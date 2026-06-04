@@ -48,6 +48,15 @@ def main() -> int:
     payload = json.loads(sys.stdin.read() or "{}")
     policy = load_policy(args.policy)
     command = find_command(payload.get("tool_input", payload))
+    write_event(
+        args.events,
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "case_id": policy.get("case_id"),
+            "event": "checked",
+            "command": command,
+        },
+    )
 
     for rule in policy.get("rules", []):
         pattern = rule.get("pattern", "")
@@ -55,6 +64,7 @@ def main() -> int:
             event = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "case_id": policy.get("case_id"),
+                "event": "blocked",
                 "rule_id": rule.get("id"),
                 "effect": rule.get("effect", "block"),
                 "reason": rule.get("reason", ""),

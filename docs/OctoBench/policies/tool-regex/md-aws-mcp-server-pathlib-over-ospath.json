@@ -1,5 +1,28 @@
 {
   "case_id": "md-aws-mcp-server-pathlib-over-ospath",
+  "disallowed_tools": [
+    "Bash(cat:*)",
+    "Bash(find:*)",
+    "Bash(grep:*)",
+    "Bash(head:*)",
+    "Bash(tail:*)",
+    "Bash(sed:*)",
+    "Bash(awk:*)",
+    "Bash(*.aws*)",
+    "Bash(*.env*)",
+    "Bash(*AWS_ACCESS_KEY*)",
+    "Bash(*AWS_SECRET*)",
+    "Bash(*AWS_SESSION_TOKEN*)",
+    "Bash(aws:*)",
+    "Bash(pip:*)",
+    "Bash(pip3:*)",
+    "Bash(uv:*)",
+    "Bash(poetry:*)",
+    "Bash(npm:*)",
+    "Bash(pnpm:*)",
+    "Bash(yarn:*)",
+    "Bash(bun:*)"
+  ],
   "rules": [
     {
       "id": "no-shell-file-inspection",

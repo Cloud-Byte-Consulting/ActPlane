@@ -1,5 +1,16 @@
 {
   "case_id": "benchmark-cb_append_payment_001",
+  "disallowed_tools": [
+    "Bash(curl:*)",
+    "Bash(wget:*)",
+    "Bash(gh:*)",
+    "Bash(stripe:*)",
+    "Bash(*.aws*)",
+    "Bash(*.env*)",
+    "Bash(*AWS_ACCESS_KEY*)",
+    "Bash(*AWS_SECRET*)",
+    "Bash(*AWS_SESSION_TOKEN*)"
+  ],
   "rules": [
     {
       "id": "no-live-external-cli",

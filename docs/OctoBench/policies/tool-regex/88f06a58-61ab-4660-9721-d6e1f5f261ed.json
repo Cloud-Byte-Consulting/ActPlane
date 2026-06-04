@@ -1,5 +1,16 @@
 {
   "case_id": "88f06a58-61ab-4660-9721-d6e1f5f261ed",
+  "disallowed_tools": [
+    "Bash(*README*)",
+    "Bash(*.md*)",
+    "Bash(*docs/*)",
+    "Bash(rm:*)",
+    "Bash(unlink:*)",
+    "Bash(curl:*)",
+    "Bash(wget:*)",
+    "Bash(gh:*)",
+    "Bash(stripe:*)"
+  ],
   "rules": [
     {
       "id": "no-unrequested-doc-writes",

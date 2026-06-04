@@ -456,8 +456,6 @@ def main() -> int:
                 "model": args.model,
                 "base_url": f"{token_proxy.base_url}/v1",
                 "judge_parallel": JUDGE_PARALLEL,
-                "llama_server_parallel": "llama.cpp default",
-                "llama_fit": "llama.cpp default",
                 "judge_max_tokens": args.judge_max_tokens,
                 "official_unit": "whole_case_full_checklist",
             },

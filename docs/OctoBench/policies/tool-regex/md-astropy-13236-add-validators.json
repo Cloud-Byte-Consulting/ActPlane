@@ -1,5 +1,18 @@
 {
   "case_id": "md-astropy-13236-add-validators",
+  "disallowed_tools": [
+    "Bash(*README*)",
+    "Bash(*.md*)",
+    "Bash(*docs/*)",
+    "Bash(pip:*)",
+    "Bash(pip3:*)",
+    "Bash(uv:*)",
+    "Bash(poetry:*)",
+    "Bash(npm:*)",
+    "Bash(pnpm:*)",
+    "Bash(yarn:*)",
+    "Bash(bun:*)"
+  ],
   "rules": [
     {
       "id": "no-unrequested-doc-writes",
