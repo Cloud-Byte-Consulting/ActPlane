@@ -37,10 +37,112 @@ The submodule is not modified by the local runner.
 
 Generated artifacts belong under ignored `results/`.
 
+## OctoBench OS-Effect Census
+
+The local full OctoBench dataset used for this workspace is:
+
+```text
+docs/corpus-test/octobench-llama/mini-vela/data/octobench_full.jsonl
+```
+
+It contains 217 tasks, 34 Docker images, 20 workspace paths, and six
+instruction-source categories. The benchmark overview in
+`docs/eval_benchmarks.md` gives the same full-task count and category split.
+
+For ActPlane, the paper-relevant question is not "how many tasks have any
+generic tool-schema rule," because nearly every task contains scaffold-level
+rules such as no emoji, TodoWrite, tool argument validity, or generic
+Read-before-Edit guidance. The useful count is: how many tasks have an
+instruction-source-specific behavior that can be observed at ActPlane's current
+OS hooks (`exec`, `open`, `write`, `connect`).
+
+Counting rule:
+
+- Counted OS effects:
+  - `exec`: shell file-inspection commands, dependency/package-manager commands,
+    test/lint commands, live cloud/network CLI calls, destructive commands
+  - `open`: credentials, secrets, local config files
+  - `write`: scoped file creation/modification, docs/Markdown creation,
+    dependency-file changes, protected-file changes
+  - `connect`: external network/API/cloud operations
+- Excluded from the ActPlane pool:
+  - pure response style checks, no emoji, language matching, time estimates
+  - TodoWrite/task-planning checks
+  - generic tool parameter/schema validity checks
+  - system-reminder confidentiality
+  - semantic implementation quality that has no direct OS action
+
+Resulting local counts:
+
+| Pool | Count | Why it matters |
+|---|---:|---|
+| Full OctoBench | 217 | Complete benchmark; too broad for ActPlane-specific claims |
+| Any broad OS-observable checklist text | 211 | Includes generic SP/tool-schema rules; not suitable as the main ActPlane pool |
+| Main instruction source with any OS-observable item | 129 | Includes `SP`, `Skill`, and `memory`; useful for auxiliary analysis |
+| Repo-grounded categories with OS evidence, including test/lint exec | 57 | `Claude.md` + `AGENTS.md` + `User Query`; includes three tests-only cases |
+| Repo-grounded categories with clear ActPlane policy effects | 54 | Recommended paper pool before runability filtering |
+
+So the answer for the main OctoBench/ActPlane experiment is: **54 tasks** have
+clear, instruction-source-specific, ActPlane-observable OS policy effects. If
+we also count "must run tests/lint" as positive exec evidence, the number is
+**57 tasks**.
+
+Those 54 tasks cover 10 workspace paths and 12 Docker image tags. The `md_*`
+prefix is OctoBench's image naming for several repository-grounded tasks; it
+does not mean the task is only about Markdown. Still, a paper subset should not
+look like it only uses one image family. For a cleaner experiment, use 5-10 real
+GitHub repos instead of all image variants. The best repo-balanced pool is 50
+tasks across these nine GitHub repos:
+
+| Repo / image group | Workspace | Candidate tasks |
+|---|---|---:|
+| `md_aws_mcp` | `/workspace/aws-mcp-server` | 10 |
+| `md_course_builder` | `/workspace/course-builder` | 8 |
+| `md_jsbeeb` | `/workspace/jsbeeb` | 7 |
+| `md_basic_memory` | `/workspace/basic-memory` | 6 |
+| `md_sgcarstrends` | `/workspace/sgcarstrends` | 6 |
+| `astropy__astropy-*` | `/testbed` | 5 |
+| `md_spy` | `/workspace/spy` | 4 |
+| `md_inkline` | `/workspace/inkline` | 3 |
+| `pydata__xarray-3151` | `/testbed` | 1 |
+
+The remaining four repo-grounded OS-effect tasks are from one-off or less
+repo-comparable images (`terminal_bench-neuron-to-jaxley-conversion` and
+`emoji_test`). They can be used as robustness checks, but they are less useful
+than the nine-repo pool for a balanced paper table.
+
+Recommended staged experiment:
+
+1. Run a 20-task main subset across the nine repos above.
+2. If the deltas are stable, expand to 30 tasks from the same 50-task pool.
+3. Treat all 54 repo-grounded OS-effect tasks as the upper bound for this
+   OctoBench ActPlane subset.
+4. Do not use the full 217 tasks as the main ActPlane result; many are semantic,
+   SP-only, Skill-only, or memory-only tasks where OS enforcement is not the
+   mechanism under test.
+
+Recommended 20-task starting subset:
+
+| Repo | Task IDs |
+|---|---|
+| `md_aws_mcp` | `md-aws-mcp-server-pathlib-over-ospath`, `benchmark-aws_checklist_error_001`, `md-aws-mcp-command-validation`, `benchmark-aws_cancel_partial_001` |
+| `md_course_builder` | `md-course-builder-code-style`, `benchmark-cb_append_payment_001`, `md-course-builder-migrate-utility` |
+| `md_jsbeeb` | `agents-jsbeeb-async-error-handling`, `agents-jsbeeb-config-object`, `md-jsbeeb-storage-adapter` |
+| `md_basic_memory` | `md-basic-memory-archive-tool`, `benchmark-bm_append_export_001` |
+| `md_sgcarstrends` | `md-sgcarstrends-vehicles-endpoint`, `md-sgcarstrends-dealers-table` |
+| `astropy` | `88f06a58-61ab-4660-9721-d6e1f5f261ed`, `md-astropy-13236-add-validators` |
+| `pydata/xarray` | `f7105d63-0ed4-4bb5-a1a9-e7c6cb7df217` |
+| `md_spy` | `agents-spy-type-annotations`, `md-spy-error-types` |
+| `md_inkline` | `md-inkline-clone-schema` |
+
+Each selected task still needs a case-specific policy file before running
+`tool-regex` or `actplane-feedback`. Shared guardrails are intentionally not
+allowed in this workspace.
+
 ## Selected Cases
 
-The subset uses three cases that are already known to run through the scaffold
-and have OS-observable policy effects:
+The current checked-in subset uses three cases that are already known to run
+through the scaffold and have OS-observable policy effects:
 
 1. `md-aws-mcp-server-pathlib-over-ospath`
    - workspace: `/workspace/aws-mcp-server`
@@ -55,7 +157,8 @@ and have OS-observable policy effects:
    - OS effects: shell file-inspection execs, live `aws` CLI execs.
 
 These are not claimed to be the full OctoBench benchmark. They are a small
-case-specific-policy subset for validating the experiment design.
+case-specific-policy smoke subset for validating the experiment design before
+expanding to the 20-task/eight-repo subset above.
 
 ## Conditions
 
