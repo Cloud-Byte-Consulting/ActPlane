@@ -1,0 +1,26 @@
+case_id: 88f06a58-61ab-4660-9721-d6e1f5f261ed
+policy_intent:
+  - id: docs
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: docs
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+  - id: destructive
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: destructive
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+  - id: external_cli
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: external_cli
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+notes:
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

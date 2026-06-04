@@ -1,0 +1,17 @@
+{
+  "case_id": "benchmark-aws_cancel_partial_001",
+  "rules": [
+    {
+      "id": "no-shell-completion-integration",
+      "effect": "block",
+      "pattern": "(?:\\bcomplete\\b|\\bcompgen\\b|bash-completion|\\.bashrc|\\.zshrc|completions?/)",
+      "reason": "Do not implement shell-level completion integration for this task; the requested scope excludes auto-completion."
+    },
+    {
+      "id": "no-package-install",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:(?:pip3?|uv|poetry)\\s+(?:install|add)|(?:npm|pnpm|yarn|bun)\\s+(?:install|i|add))\\b",
+      "reason": "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+    }
+  ]
+}

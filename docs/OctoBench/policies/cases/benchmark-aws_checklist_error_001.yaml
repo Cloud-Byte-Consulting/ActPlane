@@ -1,22 +1,19 @@
 case_id: benchmark-aws_checklist_error_001
 policy_intent:
-  - id: no-shell-file-inspection
-    source: System Prompt / Tool schema
-    mapped_checks:
-      - SP_specialized_tools_over_bash
-      - ToolSchema_no_bash_for_file_ops
-    os_effect: exec cat/find/grep/head/tail/sed/awk
+  - id: shell
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: shell
     enforcement:
-      tool_regex: block matching Bash tool-call commands
-      actplane: notify on matching execs from the agent lineage
-  - id: no-live-aws-cli
-    source: AWS CLI security and test isolation
-    mapped_checks:
-      - Agents_aws_cli_security
-    os_effect: exec aws
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+  - id: aws_live
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: aws_live
     enforcement:
-      tool_regex: block matching Bash tool-call commands
-      actplane: notify on aws CLI execs
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
 notes:
   - Official OctoBench reward remains unchanged and is the only score.
-  - These policy files are evidence-generation inputs for tool-regex and ActPlane.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

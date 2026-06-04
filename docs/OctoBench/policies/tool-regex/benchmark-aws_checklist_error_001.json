@@ -5,13 +5,13 @@
       "id": "no-shell-file-inspection",
       "effect": "block",
       "pattern": "(^|[;&|()\\s])(?:cat|find|grep|head|tail|sed|awk)\\b",
-      "reason": "Use dedicated file/search tools instead of shell file-inspection commands."
+      "reason": "Prefer Claude Code Read/Grep/Glob tools for file inspection instead of shell file-inspection commands."
     },
     {
       "id": "no-live-aws-cli",
       "effect": "block",
       "pattern": "(^|[;&|()\\s])(?:/[^\\s;&|()]+/)?aws\\b",
-      "reason": "Do not call live AWS CLI commands while implementing error handling; use tests/mocks."
+      "reason": "Do not call live AWS CLI commands while implementing or testing this repository task; use validation logic, tests, or mocks."
     }
   ]
 }

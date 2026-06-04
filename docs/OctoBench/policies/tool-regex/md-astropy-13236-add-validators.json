@@ -1,0 +1,17 @@
+{
+  "case_id": "md-astropy-13236-add-validators",
+  "rules": [
+    {
+      "id": "no-unrequested-doc-writes",
+      "effect": "block",
+      "pattern": "(?:README|\\.md\\b|docs/)\\b",
+      "reason": "Do not create documentation or Markdown files unless the task explicitly asks for documentation."
+    },
+    {
+      "id": "no-package-install",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:(?:pip3?|uv|poetry)\\s+(?:install|add)|(?:npm|pnpm|yarn|bun)\\s+(?:install|i|add))\\b",
+      "reason": "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+    }
+  ]
+}

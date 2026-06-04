@@ -1,0 +1,12 @@
+case_id: md-spy-error-types
+policy_intent:
+  - id: docs
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: docs
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+notes:
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

@@ -125,15 +125,13 @@ Recommended 20-task starting subset:
 
 | Repo | Task IDs |
 |---|---|
-| `md_aws_mcp` | `md-aws-mcp-server-pathlib-over-ospath`, `benchmark-aws_checklist_error_001`, `md-aws-mcp-command-validation`, `benchmark-aws_cancel_partial_001` |
+| `md_aws_mcp` | `md-aws-mcp-server-pathlib-over-ospath`, `benchmark-aws_checklist_error_001`, `md-aws-mcp-command-validation`, `benchmark-aws_cancel_partial_001`, `md-aws-mcp-server-logging-over-print` |
 | `md_course_builder` | `md-course-builder-code-style`, `benchmark-cb_append_payment_001`, `md-course-builder-migrate-utility` |
 | `md_jsbeeb` | `agents-jsbeeb-async-error-handling`, `agents-jsbeeb-config-object`, `md-jsbeeb-storage-adapter` |
-| `md_basic_memory` | `md-basic-memory-archive-tool`, `benchmark-bm_append_export_001` |
+| `md_basic_memory` | `md-basic-memory-archive-tool`, `benchmark-bm_append_export_001`, `md-basic-memory-async-client-pattern` |
 | `md_sgcarstrends` | `md-sgcarstrends-vehicles-endpoint`, `md-sgcarstrends-dealers-table` |
 | `astropy` | `88f06a58-61ab-4660-9721-d6e1f5f261ed`, `md-astropy-13236-add-validators` |
-| `pydata/xarray` | `f7105d63-0ed4-4bb5-a1a9-e7c6cb7df217` |
 | `md_spy` | `agents-spy-type-annotations`, `md-spy-error-types` |
-| `md_inkline` | `md-inkline-clone-schema` |
 
 Each selected task still needs a case-specific policy file before running
 `tool-regex` or `actplane-feedback`. Shared guardrails are intentionally not

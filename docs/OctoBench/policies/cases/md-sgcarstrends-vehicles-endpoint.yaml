@@ -1,0 +1,12 @@
+case_id: md-sgcarstrends-vehicles-endpoint
+policy_intent:
+  - id: package
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: package
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+notes:
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

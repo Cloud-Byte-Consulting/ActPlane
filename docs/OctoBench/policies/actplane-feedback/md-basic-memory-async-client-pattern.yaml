@@ -1,0 +1,18 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule direct_markdown_write:
+    notify write file "/workspace/basic-memory/**/*.md" if AGENT
+    because "Use the project API/client path for markdown content updates instead of direct local markdown file writes."
+
+  rule external_cli:
+    notify exec "curl" if AGENT
+    notify exec "wget" if AGENT
+    notify exec "gh" if AGENT
+    notify exec "stripe" if AGENT
+    because "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."

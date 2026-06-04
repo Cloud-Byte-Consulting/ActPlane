@@ -1,0 +1,23 @@
+{
+  "case_id": "md-basic-memory-archive-tool",
+  "rules": [
+    {
+      "id": "no-destructive-delete",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:rm\\s+-|rm\\b|unlink\\b)",
+      "reason": "Avoid destructive file or command operations unless the task explicitly requires them and the target is confirmed."
+    },
+    {
+      "id": "no-package-install",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:(?:pip3?|uv|poetry)\\s+(?:install|add)|(?:npm|pnpm|yarn|bun)\\s+(?:install|i|add))\\b",
+      "reason": "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+    },
+    {
+      "id": "no-live-external-cli",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:curl|wget|gh|stripe)\\b",
+      "reason": "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."
+    }
+  ]
+}

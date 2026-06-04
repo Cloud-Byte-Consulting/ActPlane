@@ -1,0 +1,20 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "bash"
+
+  rule package:
+    notify exec "pip" "install" if AGENT
+    notify exec "pip3" "install" if AGENT
+    notify exec "uv" "add" if AGENT
+    notify exec "poetry" "add" if AGENT
+    notify exec "npm" "install" if AGENT
+    notify exec "npm" "i" if AGENT
+    notify exec "pnpm" "add" if AGENT
+    notify exec "pnpm" "install" if AGENT
+    notify exec "yarn" "add" if AGENT
+    notify exec "bun" "add" if AGENT
+    because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."

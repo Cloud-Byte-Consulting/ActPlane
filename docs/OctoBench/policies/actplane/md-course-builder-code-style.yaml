@@ -6,7 +6,7 @@ feedback:
 policy: |
   source AGENT = exec "bash"
 
-  rule no-shell-file-inspection:
+  rule shell:
     notify exec "cat" if AGENT
     notify exec "find" if AGENT
     notify exec "grep" if AGENT
@@ -14,8 +14,23 @@ policy: |
     notify exec "tail" if AGENT
     notify exec "sed" if AGENT
     notify exec "awk" if AGENT
-    because "Use dedicated file/search tools instead of shell file-inspection commands."
+    because "Prefer Claude Code Read/Grep/Glob tools for file inspection instead of shell file-inspection commands."
 
-  rule no-unrequested-doc-files:
+  rule docs:
     notify write file "**/*.md" if AGENT
-    because "Do not create documentation files unless the task explicitly requests documentation."
+    notify write file "**/README*" if AGENT
+    notify write file "**/docs/**" if AGENT
+    because "Do not create documentation or Markdown files unless the task explicitly asks for documentation."
+
+  rule package:
+    notify exec "pip" "install" if AGENT
+    notify exec "pip3" "install" if AGENT
+    notify exec "uv" "add" if AGENT
+    notify exec "poetry" "add" if AGENT
+    notify exec "npm" "install" if AGENT
+    notify exec "npm" "i" if AGENT
+    notify exec "pnpm" "add" if AGENT
+    notify exec "pnpm" "install" if AGENT
+    notify exec "yarn" "add" if AGENT
+    notify exec "bun" "add" if AGENT
+    because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."

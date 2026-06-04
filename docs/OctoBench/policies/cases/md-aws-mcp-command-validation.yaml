@@ -1,0 +1,40 @@
+case_id: md-aws-mcp-command-validation
+policy_intent:
+  - id: credential
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: credential
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+  - id: aws_live
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: aws_live
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+  - id: package
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: package
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+  - id: destructive
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: destructive
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+  - id: external_cli
+    source: selected task checklist/user query
+    mapped_checks: []
+    os_effect: external_cli
+    enforcement:
+      tool_regex: case-specific Bash PreToolUse regex where expressible
+      actplane: notify-only OS-level observation with feedback
+notes:
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

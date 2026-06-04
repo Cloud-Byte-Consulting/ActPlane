@@ -1285,11 +1285,11 @@ def run_one_scenario(spec_and_args):
         if "error" in r:
             print(f"  [{label}] ERROR: {r['error']}")
         else:
-            status = "compliant" if r.get("compliant") else "violated"
+            runtime_status = (r.get("score") or {}).get("status", "unknown")
             setup_fbs = len(r.get("setup_feedbacks", []))
             recovery_fbs = len(r.get("recovery_feedbacks", []))
             print(
-                f"  [{label}] {status} | steps={r.get('step_count', '?')} "
+                f"  [{label}] runtime={runtime_status} | steps={r.get('step_count', '?')} "
                 f"| setup_fbs={setup_fbs} | recovery_fbs={recovery_fbs}"
             )
 
@@ -1330,9 +1330,11 @@ def main_outer(args):
             results.append(run_one_scenario(w))
 
     total = len(results)
-    compliant = sum(1 for r in results if r.get("compliant"))
     if total:
-        print(f"\nDone: {compliant}/{total} compliant ({100*compliant/total:.1f}%)")
+        print(
+            f"\nDone: {total} runner results written. "
+            f"Run judge_trajectory.py and summarize_agent_sdk_results.py for TPCR."
+        )
     return 0
 
 

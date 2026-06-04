@@ -1,0 +1,20 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "bash"
+
+  rule external_cli:
+    notify exec "curl" if AGENT
+    notify exec "wget" if AGENT
+    notify exec "gh" if AGENT
+    notify exec "stripe" if AGENT
+    because "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."
+
+  rule credential:
+    notify open file "**/.aws/config" if AGENT
+    notify open file "**/.aws/credentials" if AGENT
+    notify open file "**/.env" if AGENT
+    because "Do not expose credentials or secret material; only inspect existence or validation status required by the task."

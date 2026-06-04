@@ -1,0 +1,14 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule destructive:
+    notify exec "rm" if AGENT
+    notify unlink file "/workspace/**" if AGENT
+    notify unlink file "/testbed/**" if AGENT
+    notify unlink file "/app/**" if AGENT
+    because "Avoid destructive file or command operations unless the task explicitly requires them and the target is confirmed."

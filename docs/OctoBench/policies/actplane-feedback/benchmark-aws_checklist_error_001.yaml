@@ -6,7 +6,7 @@ feedback:
 policy: |
   source AGENT = exec "claude"
 
-  rule shell-file-inspection-feedback:
+  rule shell:
     notify exec "cat" if AGENT
     notify exec "find" if AGENT
     notify exec "grep" if AGENT
@@ -16,6 +16,6 @@ policy: |
     notify exec "awk" if AGENT
     because "Prefer Claude Code Read/Grep/Glob tools for file inspection instead of shell file-inspection commands."
 
-  rule no-live-aws-cli:
+  rule aws_live:
     notify exec "aws" if AGENT
-    because "Do not call live AWS CLI commands while implementing error handling; use tests/mocks."
+    because "Do not call live AWS CLI commands while implementing or testing this repository task; use validation logic, tests, or mocks."

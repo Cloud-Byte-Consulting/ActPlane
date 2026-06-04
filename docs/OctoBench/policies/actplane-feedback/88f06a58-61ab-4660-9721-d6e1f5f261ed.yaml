@@ -1,0 +1,27 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule docs:
+    notify write file "**/*.md" if AGENT
+    notify write file "**/README*" if AGENT
+    notify write file "**/docs/**" if AGENT
+    because "Do not create documentation or Markdown files unless the task explicitly asks for documentation."
+
+  rule destructive:
+    notify exec "rm" if AGENT
+    notify unlink file "/workspace/**" if AGENT
+    notify unlink file "/testbed/**" if AGENT
+    notify unlink file "/app/**" if AGENT
+    because "Avoid destructive file or command operations unless the task explicitly requires them and the target is confirmed."
+
+  rule external_cli:
+    notify exec "curl" if AGENT
+    notify exec "wget" if AGENT
+    notify exec "gh" if AGENT
+    notify exec "stripe" if AGENT
+    because "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."

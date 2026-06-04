@@ -1,0 +1,11 @@
+{
+  "case_id": "agents-spy-type-annotations",
+  "rules": [
+    {
+      "id": "no-package-install",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:(?:pip3?|uv|poetry)\\s+(?:install|add)|(?:npm|pnpm|yarn|bun)\\s+(?:install|i|add))\\b",
+      "reason": "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+    }
+  ]
+}

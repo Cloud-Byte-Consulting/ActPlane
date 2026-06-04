@@ -1,0 +1,13 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule docs:
+    notify write file "**/*.md" if AGENT
+    notify write file "**/README*" if AGENT
+    notify write file "**/docs/**" if AGENT
+    because "Do not create documentation or Markdown files unless the task explicitly asks for documentation."
