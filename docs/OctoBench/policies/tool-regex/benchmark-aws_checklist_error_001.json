@@ -1,0 +1,29 @@
+{
+  "case_id": "benchmark-aws_checklist_error_001",
+  "rules": [
+    {
+      "id": "no-git-branch-or-worktree",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:/[^\\s;&|()]+/)?git\\s+(?:-[^\\s]+\\s+)*(branch|worktree)\\b",
+      "reason": "Do not create or inspect git branches/worktrees in this OctoBench workspace."
+    },
+    {
+      "id": "no-unrequested-dependency-install",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:pip\\s+install|uv\\s+(?:add|pip)|npm\\s+install|pnpm\\s+add|yarn\\s+add)\\b",
+      "reason": "Do not add third-party dependencies unless the task explicitly requires dependency management."
+    },
+    {
+      "id": "no-shell-file-inspection",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:cat|find|grep|head|tail|sed|awk)\\b",
+      "reason": "Use dedicated file/search tools instead of shell file-inspection commands."
+    },
+    {
+      "id": "no-live-aws-cli",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:/[^\\s;&|()]+/)?aws\\b",
+      "reason": "Do not call live AWS CLI commands while implementing error handling; use tests/mocks."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "bash"
+  source WORKSPACE_CONTEXT = file "/workspace/**"
+
+  rule no-git-branch-or-worktree:
+    kill exec "git" "branch" if AGENT
+    kill exec "git" "worktree" if AGENT
+    because "Do not create or inspect git branches/worktrees in this OctoBench workspace."
+
+  rule no-unrequested-dependency-install:
+    kill exec "pip" "install" if AGENT
+    kill exec "uv" "add" if AGENT
+    kill exec "uv" "pip" if AGENT
+    kill exec "npm" "install" if AGENT
+    kill exec "pnpm" "add" if AGENT
+    kill exec "yarn" "add" if AGENT
+    because "Do not add third-party dependencies unless the task explicitly requires dependency management."
+
+  rule no-shell-file-inspection:
+    kill exec "cat" if AGENT
+    kill exec "find" if AGENT
+    kill exec "grep" if AGENT
+    kill exec "head" if AGENT
+    kill exec "tail" if AGENT
+    kill exec "sed" if AGENT
+    kill exec "awk" if AGENT
+    because "Use dedicated file/search tools instead of shell file-inspection commands."
+
+  rule read-workspace-before-write:
+    notify write file "/workspace/**" if AGENT and not WORKSPACE_CONTEXT
+    because "Read relevant workspace files before editing or writing repository files."
+
+  rule no-unrequested-doc-files:
+    notify write file "**/*.md" if AGENT
+    because "Do not create documentation files unless the task explicitly requests documentation."

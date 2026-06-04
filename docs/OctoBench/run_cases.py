@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Run OctoBench cases under baseline or ActPlane conditions.
+"""Run OctoBench cases under baseline, tool-regex, or ActPlane conditions.
 
 The baseline condition calls upstream mini-vela's benchmark_runner.py directly.
-The ActPlane conditions keep upstream mini-vela unchanged, reuse its scaffold
-builders, and wrap only the generated task command with ActPlane.
+The enforcement conditions keep upstream mini-vela unchanged, reuse its scaffold
+builders, and change only where the case-specific policy is enforced.
 """
 
 from __future__ import annotations
@@ -26,12 +26,13 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent
 MINI_VELA = ROOT / "mini-vela"
 EVAL_SCRIPTS = ROOT.parent / "eval_scripts"
-DEFAULT_DATASET = ROOT / "data" / "actplane_selected3.jsonl"
+DEFAULT_DATASET = ROOT / "data" / "selected_cases.jsonl"
 DEFAULT_VENV = Path("/tmp/octobench-litellm-venv")
 DEFAULT_ACTPLANE = ROOT.parents[1] / "collector" / "target" / "release" / "actplane"
-DEFAULT_POLICY = ROOT / "policies" / "actplane-octobench-tuned-v2.yaml"
+DEFAULT_POLICY_ROOT = ROOT / "policies"
+TOOL_REGEX_HOOK = ROOT / "tool_regex_hook.py"
 INSTANCE_ID_FILE = Path("/tmp/current_instance_id.txt")
-CONDITIONS = ("baseline", "actplane", "actplane-feedback")
+CONDITIONS = ("baseline", "tool-regex", "actplane")
 
 sys.path.insert(0, str(EVAL_SCRIPTS))
 sys.path.insert(0, str(MINI_VELA))
@@ -140,14 +141,31 @@ def archive_mini_vela_results(mini_results: Path, case_dir: Path) -> list[str]:
     return sorted(str(path) for path in (archive / "trajectories").glob("*.jsonl"))
 
 
-def claude_feedback_hook_script() -> str:
+def case_policy_path(policy_root: Path, condition: str, instance_id: str) -> Path:
+    if condition == "tool-regex":
+        return policy_root / "tool-regex" / f"{instance_id}.json"
+    if condition == "actplane":
+        return policy_root / "actplane" / f"{instance_id}.yaml"
+    raise ValueError(f"condition has no policy file: {condition}")
+
+
+def tool_regex_hook_setup_script() -> str:
     hook_settings = {
         "hooks": {
-            "PostToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "actplane feedback-hook"}]}
-            ],
-            "PostToolUseFailure": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": "actplane feedback-hook"}]}
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": (
+                                "python3 /tmp/tool_regex_hook.py "
+                                "--policy /tmp/tool-regex-policy.json "
+                                "--events /tmp/tool-regex-events.jsonl"
+                            ),
+                        }
+                    ],
+                }
             ],
         }
     }
@@ -161,7 +179,6 @@ def build_actplane_container_command(
     model: str,
     policy_in_container: str,
     actplane_in_container: str,
-    enable_feedback_hook: bool,
 ) -> tuple[str, list[str], dict[str, str]]:
     scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
     scaffold = get_scaffold(scaffold_name)
@@ -173,9 +190,6 @@ def build_actplane_container_command(
     )
 
     commands = [setup_script]
-    if enable_feedback_hook and scaffold_name == "claudecode":
-        commands.append(claude_feedback_hook_script())
-
     actplane_prefix = (
         f"{shlex.quote(actplane_in_container)} "
         f"--policy {shlex.quote(policy_in_container)} "
@@ -184,6 +198,27 @@ def build_actplane_container_command(
     for task_command in task_commands:
         commands.append(f"{actplane_prefix} bash -c {shlex.quote(task_command)}")
 
+    return " && ".join(commands), task_commands, scaffold.get_docker_env(proxy_url, model=model)
+
+
+def build_tool_regex_container_command(
+    case: dict[str, Any],
+    proxy_url: str,
+    model: str,
+) -> tuple[str, list[str], dict[str, str]]:
+    scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
+    scaffold = get_scaffold(scaffold_name)
+    setup_script = scaffold.get_setup_script(proxy_url, model=model)
+    task_commands = scaffold.build_commands(
+        case["user_query"],
+        case.get("system_prompt", ""),
+        model=model,
+    )
+
+    commands = [setup_script]
+    if scaffold_name == "claudecode":
+        commands.append(tool_regex_hook_setup_script())
+    commands.extend(task_commands)
     return " && ".join(commands), task_commands, scaffold.get_docker_env(proxy_url, model=model)
 
 
@@ -236,7 +271,7 @@ def run_actplane_case(
     instance_id = case["instance_id"]
     scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
     proxy_url = "http://host.docker.internal:4000"
-    enable_feedback_hook = args.condition == "actplane-feedback"
+    policy_path = case_policy_path(args.policy_root, "actplane", instance_id)
     INSTANCE_ID_FILE.write_text(instance_id, encoding="utf-8")
 
     full_command, task_commands, env_vars = build_actplane_container_command(
@@ -245,7 +280,6 @@ def run_actplane_case(
         model=args.model,
         policy_in_container="/tmp/actplane-policy.yaml",
         actplane_in_container="/usr/local/bin/actplane",
-        enable_feedback_hook=enable_feedback_hook,
     )
 
     container_name = f"octobench-{args.condition}-{instance_id[:36]}-{int(time.time())}"
@@ -267,7 +301,7 @@ def run_actplane_case(
         "-v",
         f"{args.actplane}:/usr/local/bin/actplane:ro",
         "-v",
-        f"{args.policy}:/tmp/actplane-policy.yaml:ro",
+        f"{policy_path}:/tmp/actplane-policy.yaml:ro",
         "-v",
         "/sys/kernel/tracing:/sys/kernel/tracing",
         "-v",
@@ -298,12 +332,11 @@ def run_actplane_case(
             "image": case["image"],
             "workspace_abs_path": case.get("workspace_abs_path"),
             "proxy_url": proxy_url,
-            "policy": str(args.policy),
+            "policy": str(policy_path),
             "actplane": str(args.actplane),
             "task_commands": task_commands,
             "docker_command": docker_cmd,
             "trajectory_session_id": instance_id,
-            "feedback_hook": enable_feedback_hook,
         },
     )
 
@@ -323,7 +356,6 @@ def run_actplane_case(
             "success": proc.returncode == 0,
             "timeout": False,
             "elapsed_s": time.time() - started,
-            "feedback_hook": enable_feedback_hook,
         }
         stdout = proc.stdout
         stderr = proc.stderr
@@ -342,7 +374,122 @@ def run_actplane_case(
             "timeout": True,
             "timeout_s": args.timeout,
             "elapsed_s": time.time() - started,
-            "feedback_hook": enable_feedback_hook,
+        }
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+
+    (case_dir / "stdout.txt").write_text(stdout or "", encoding="utf-8")
+    (case_dir / "stderr.txt").write_text(stderr or "", encoding="utf-8")
+    return result
+
+
+def run_tool_regex_case(
+    case: dict[str, Any],
+    args: argparse.Namespace,
+    case_dir: Path,
+) -> dict[str, Any]:
+    instance_id = case["instance_id"]
+    scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
+    proxy_url = "http://host.docker.internal:4000"
+    policy_path = case_policy_path(args.policy_root, "tool-regex", instance_id)
+    events_file = case_dir / "tool_regex_events.jsonl"
+    events_file.touch()
+    INSTANCE_ID_FILE.write_text(instance_id, encoding="utf-8")
+
+    full_command, task_commands, env_vars = build_tool_regex_container_command(
+        case=case,
+        proxy_url=proxy_url,
+        model=args.model,
+    )
+
+    container_name = f"octobench-tool-regex-{instance_id[:36]}-{int(time.time())}"
+    subprocess.run(
+        ["docker", "rm", "-f", container_name],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    docker_cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--name",
+        container_name,
+        "--add-host=host.docker.internal:host-gateway",
+        "-v",
+        f"{TOOL_REGEX_HOOK}:/tmp/tool_regex_hook.py:ro",
+        "-v",
+        f"{policy_path}:/tmp/tool-regex-policy.json:ro",
+        "-v",
+        f"{events_file}:/tmp/tool-regex-events.jsonl",
+    ]
+    for key, value in env_vars.items():
+        docker_cmd.extend(["-e", f"{key}={value}"])
+    docker_cmd.extend(
+        [
+            "-w",
+            case.get("workspace_abs_path", "/app"),
+            case["image"],
+            "bash",
+            "-c",
+            full_command,
+        ]
+    )
+
+    write_json(
+        case_dir / "command.json",
+        {
+            "condition": args.condition,
+            "container_name": container_name,
+            "scaffold": scaffold_name,
+            "model": args.model,
+            "image": case["image"],
+            "workspace_abs_path": case.get("workspace_abs_path"),
+            "proxy_url": proxy_url,
+            "policy": str(policy_path),
+            "hook": str(TOOL_REGEX_HOOK),
+            "events_file": str(events_file),
+            "task_commands": task_commands,
+            "docker_command": docker_cmd,
+            "trajectory_session_id": instance_id,
+        },
+    )
+
+    started = time.time()
+    try:
+        proc = subprocess.run(
+            docker_cmd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=None if args.timeout == 0 else args.timeout,
+        )
+        result = {
+            "instance_id": instance_id,
+            "condition": args.condition,
+            "returncode": proc.returncode,
+            "success": proc.returncode == 0,
+            "timeout": False,
+            "elapsed_s": time.time() - started,
+        }
+        stdout = proc.stdout
+        stderr = proc.stderr
+    except subprocess.TimeoutExpired as exc:
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        result = {
+            "instance_id": instance_id,
+            "condition": args.condition,
+            "returncode": None,
+            "success": False,
+            "timeout": True,
+            "timeout_s": args.timeout,
+            "elapsed_s": time.time() - started,
         }
         stdout = exc.stdout if isinstance(exc.stdout, str) else ""
         stderr = exc.stderr if isinstance(exc.stderr, str) else ""
@@ -363,6 +510,8 @@ def run_case(case: dict[str, Any], index: int, args: argparse.Namespace, run_dir
     try:
         if args.condition == "baseline":
             result = run_baseline_case(case, args, case_dir)
+        elif args.condition == "tool-regex":
+            result = run_tool_regex_case(case, args, case_dir)
         else:
             result = run_actplane_case(case, args, case_dir)
     finally:
@@ -384,7 +533,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--venv", type=Path, default=DEFAULT_VENV)
-    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+    parser.add_argument("--policy-root", type=Path, default=DEFAULT_POLICY_ROOT)
     parser.add_argument("--actplane", type=Path, default=DEFAULT_ACTPLANE)
     parser.add_argument("--managed-llama", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--out-dir", type=Path, default=ROOT / "results")
@@ -394,7 +543,7 @@ def parse_args() -> argparse.Namespace:
 def normalize_and_validate_args(args: argparse.Namespace) -> None:
     args.dataset = args.dataset.resolve()
     args.venv = args.venv.resolve()
-    args.policy = args.policy.resolve()
+    args.policy_root = args.policy_root.resolve()
     args.actplane = args.actplane.resolve()
     args.out_dir = args.out_dir.resolve()
 
@@ -402,9 +551,11 @@ def normalize_and_validate_args(args: argparse.Namespace) -> None:
         raise SystemExit(f"dataset not found: {args.dataset}")
     if not (args.venv / "bin" / "python").exists():
         raise SystemExit(f"venv python not found: {args.venv / 'bin' / 'python'}")
-    if args.condition != "baseline":
-        if not args.policy.exists():
-            raise SystemExit(f"policy not found: {args.policy}")
+    if args.condition in {"tool-regex", "actplane"} and not args.policy_root.exists():
+        raise SystemExit(f"policy root not found: {args.policy_root}")
+    if args.condition == "tool-regex" and not TOOL_REGEX_HOOK.exists():
+        raise SystemExit(f"tool-regex hook not found: {TOOL_REGEX_HOOK}")
+    if args.condition == "actplane":
         if not args.actplane.exists():
             raise SystemExit(f"actplane binary not found: {args.actplane}")
 
@@ -413,9 +564,13 @@ def main() -> int:
     args = parse_args()
     normalize_and_validate_args(args)
     cases = load_cases(args.dataset, args.limit, args.case)
-    feedback_hook = args.condition == "actplane-feedback"
+    for case in cases:
+        if args.condition in {"tool-regex", "actplane"}:
+            policy_path = case_policy_path(args.policy_root, args.condition, case["instance_id"])
+            if not policy_path.exists():
+                raise SystemExit(f"policy not found for {case['instance_id']}: {policy_path}")
 
-    run_dir = args.out_dir / f"{args.condition}-isolated-{utc_stamp()}"
+    run_dir = args.out_dir / args.condition / f"{args.condition}-isolated-{utc_stamp()}"
     run_dir.mkdir(parents=True, exist_ok=True)
     write_json(
         run_dir / "metadata.json",
@@ -427,11 +582,10 @@ def main() -> int:
             "timeout_s": args.timeout,
             "model": args.model,
             "venv": str(args.venv),
-            "policy": str(args.policy) if args.condition != "baseline" else None,
-            "actplane": str(args.actplane) if args.condition != "baseline" else None,
+            "policy_root": str(args.policy_root) if args.condition != "baseline" else None,
+            "actplane": str(args.actplane) if args.condition == "actplane" else None,
             "managed_llama": args.managed_llama,
             "n_ctx": 128000,
-            "feedback_hook": feedback_hook,
             "case_count": len(cases),
         },
     )

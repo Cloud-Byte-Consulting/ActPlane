@@ -32,7 +32,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
 MINI_VELA = ROOT / "mini-vela"
-DEFAULT_DATASET = ROOT / "data" / "actplane_selected3.jsonl"
+DEFAULT_DATASET = ROOT / "data" / "selected_cases.jsonl"
 DEFAULT_VENV = Path("/tmp/octobench-litellm-venv")
 EVAL_SCRIPTS = ROOT.parent / "eval_scripts"
 sys.path.insert(0, str(EVAL_SCRIPTS))

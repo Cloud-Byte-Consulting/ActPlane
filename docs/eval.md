@@ -26,12 +26,12 @@ All evaluation rules are drawn from the empirical study corpus
 We evaluate ActPlane on a sample of the 607 system-level behavioral policies
 drawn from the empirical study of 64 real projects. Directives are translated
 into DSL rules, then evaluated across direct and bypass execution paths under
-7 systems; ActPlane improves policy compliance by XX% over the best
-tool-layer baseline and maintains compliance on bypass paths where
-tool-layer guards drop to XX% (RQ1). Per-event overhead is ~XX µs at
-p99 with 32 active rules (RQ2). On Terminal-Bench (89 tasks), semantic
-feedback improves post-match guided completion rate by ~XX pp over bare
-rule application (RQ3).
+the active real-execution systems (prompt-only, kernel IFC, ActPlane);
+tool-layer baselines are added to the same harness before being reported
+as paper results (RQ1). Per-event overhead is ~XX µs at p99 with 32
+active rules (RQ2). On Terminal-Bench (89 tasks), semantic feedback
+improves post-match guided completion rate by ~XX pp over bare rule
+application (RQ3).
 
 ---
 
@@ -39,7 +39,7 @@ rule application (RQ3).
 
 | RQ | Question | What it proves | Method |
 |---|---|---|---|
-| **RQ1** | Compared with prompt-only, tool-layer guards, app-level IFC, and kernel-only mechanisms, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Policy-compliance advantage over existing mechanisms under controlled agent contexts | Sampled directives × (direct + 3 bypass paths) × 7 systems, minimal agent (trace replay + LLM decision step) |
+| **RQ1** | Compared with prompt-only and kernel-only mechanisms, and with first-class tool-layer modes once added, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Policy-compliance advantage over existing mechanisms under controlled agent contexts | Sampled directives × (direct + bypass paths) × active systems, real Agent SDK trace setup + next-step execution |
 | **RQ2** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Microbenchmark + trace replay |
 | **RQ3** | Does the ActPlane harness improve agent task completion, and does rule adaptation across rounds help? | End-to-end system value + adaptation | Terminal-Bench (89 tasks × 2 conditions, B2 with 3 rounds) |
 
@@ -66,27 +66,24 @@ rule application (RQ3).
 
 ### 3.3 Baseline Systems
 
-All baselines use the **same DSL rules** — the difference is the
-enforcement layer. Tool-layer baselines are Python scripts
-(`docs/eval_scripts/`) that read the same `rule.yaml` and implement
-DSL semantics at the tool-call level. Kernel baselines are ActPlane
-with features disabled.
+All active runs use the **same DSL rules** and the same real Agent SDK
+execution harness; the difference is the enforcement layer exposed to the
+agent. Tool-layer and app-level IFC baselines remain comparison targets,
+but should be added as first-class modes in the same harness before they
+are reported as paper results. The earlier standalone prototype scripts
+were removed to keep the active eval path auditable.
 
 | System | Implementation | Layer | What it represents |
 |---|---|---|---|
-| **Prompt-only** | Directive in LLM system prompt, no enforcement | Intent | Prompt compliance baseline |
-| **TL-1** | `eval_scripts/tool_layer.py --mode per-call` | Tool call | AgentSpec, Progent |
-| **TL-N** | `eval_scripts/tool_layer.py --mode sequence` | Tool call | AgentSpec (sequence-aware) |
-| **App-level IFC** | `eval_scripts/tool_layer.py --mode ifc` | Tool call + labels | FIDES, CaMeL |
-| **Per-event eBPF** | ActPlane `--no-labels` | Kernel (per-event) | Tetragon, eBPF-PATROL |
-| **Kernel IFC** | ActPlane `--no-feedback` | Kernel (cross-event) | CamQuery, Flume |
-| **ActPlane** | Full system | Kernel (cross-event + feedback) | This system |
+| **Prompt-only** | `agent_sdk_eval.py --system prompt-only` | Intent | Prompt compliance baseline |
+| **Kernel IFC** | `agent_sdk_eval.py --system kernel-ifc` | Kernel (cross-event) | Kernel enforcement without semantic feedback |
+| **ActPlane** | `agent_sdk_eval.py --system actplane` | Kernel (cross-event + feedback) | This system |
+| **TL-1 / TL-N / App-level IFC** | Planned first-class modes | Tool call | Tool-layer comparison class |
 
-Each layer is a strict superset of the previous. Same DSL, same rules,
-different enforcement capability. The tool-layer Python script
-(~300 lines) parses the ActPlane DSL and implements pattern matching,
-temporal gates, and label tracking at the tool-call level — naturally
-missing bypass paths and subprocess-level flows.
+The active path tests prompt-only, kernel-only, and full ActPlane under
+the same trace setup and real next-step execution. Tool-layer baselines
+should reuse the same result schema and Agent SDK tool execution path
+rather than a separate replay-only harness.
 
 ---
 
@@ -135,12 +132,12 @@ docs/corpus-rq3/                        # RQ3: Terminal-Bench
     rules.yaml                          # strong-model-generated rules
     round1/ round2/ round3/             # per-round results
 
-docs/eval_scripts/                      # baseline implementations
-  tool_layer.py                         # TL-1 / TL-N / App-level IFC
-  replay_agent.py                       # minimal agent (trace replay + LLM)
+docs/eval_scripts/                      # active real-execution harness
+  agent_sdk_eval.py                     # trace setup + real Agent SDK next-step execution
+  summarize_agent_sdk_results.py        # hard-signal aggregation
+  llama_server.py                       # optional local llama.cpp helper
   codex_base_instructions.md            # public Codex CLI base instructions
-  score_results.py                      # optional result-record scorer/filler
-  generate_bypass.py                    # programmatic bypass wrapping
+  README.md                             # usage and scope
 ```
 
 `rule.yaml` and `trace_*.jsonl` are stable inputs. `results/{run_id}.json`
@@ -573,8 +570,9 @@ Existing approaches fail in three common ways: tool-layer guards lose
 track of system-level actions (bypass), OS-level mechanisms lack
 cross-event state (no IFC), and kernel mechanisms return only system
 events without semantic context (no feedback). This sub-experiment
-tests all three by comparing 7 systems on the same directives and
-measuring policy compliance.
+tests these dimensions by comparing active systems on the same
+directives and measuring policy compliance. Tool-layer systems should be
+added here only after they are implemented in the real-execution harness.
 
 #### Method
 
