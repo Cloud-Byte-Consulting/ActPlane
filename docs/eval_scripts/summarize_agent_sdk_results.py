@@ -107,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--system",
-        choices=["actplane", "kernel-ifc", "prompt-only"],
+        choices=["prompt-only", "tool-regex", "actplane", "actplane-opaque"],
         help="Only include one system",
     )
     parser.add_argument(

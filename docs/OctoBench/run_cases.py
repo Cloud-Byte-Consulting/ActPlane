@@ -32,8 +32,9 @@ DEFAULT_ACTPLANE = ROOT.parents[1] / "target" / "release" / "actplane"
 DEFAULT_POLICY_ROOT = ROOT / "policies"
 DEFAULT_LITELLM_CONFIG = ROOT / "configs" / "litellm_llama_cpp.yaml"
 TOOL_REGEX_HOOK = ROOT / "tool_regex_hook.py"
+ACTPLANE_FEEDBACK_HOOK = ROOT / "actplane_feedback_hook.py"
 INSTANCE_ID_FILE = Path("/tmp/current_instance_id.txt")
-CONDITIONS = ("baseline", "tool-regex", "actplane")
+CONDITIONS = ("baseline", "tool-regex", "actplane", "actplane-feedback")
 
 sys.path.insert(0, str(EVAL_SCRIPTS))
 sys.path.insert(0, str(MINI_VELA))
@@ -249,8 +250,8 @@ def parse_official_case_result(instance_id: str) -> dict[str, Any] | None:
 def case_policy_path(policy_root: Path, condition: str, instance_id: str) -> Path:
     if condition == "tool-regex":
         return policy_root / "tool-regex" / f"{instance_id}.json"
-    if condition == "actplane":
-        return policy_root / "actplane" / f"{instance_id}.yaml"
+    if condition in {"actplane", "actplane-feedback"}:
+        return policy_root / condition / f"{instance_id}.yaml"
     raise ValueError(f"condition has no policy file: {condition}")
 
 
@@ -268,6 +269,37 @@ def tool_regex_hook_setup_script() -> str:
                                 "--policy /tmp/tool-regex-policy.json "
                                 "--events /tmp/tool-regex-events.jsonl"
                             ),
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+    payload = json.dumps(hook_settings, ensure_ascii=False)
+    return "mkdir -p ~/.claude && printf %s " + shlex.quote(payload) + " > ~/.claude/settings.local.json"
+
+
+def actplane_feedback_hook_setup_script() -> str:
+    hook_settings = {
+        "hooks": {
+            "PostToolUse": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "python3 /tmp/actplane_feedback_hook.py",
+                        }
+                    ],
+                }
+            ],
+            "PostToolUseFailure": [
+                {
+                    "matcher": "*",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "python3 /tmp/actplane_feedback_hook.py",
                         }
                     ],
                 }
@@ -315,6 +347,31 @@ def build_tool_regex_container_command(
         commands.append(tool_regex_hook_setup_script())
     commands.extend(task_commands)
     return " && ".join(commands), task_commands, scaffold.get_docker_env(proxy_url, model=model)
+
+
+def build_actplane_feedback_container_command(
+    case: dict[str, Any],
+    proxy_url: str,
+    model: str,
+) -> tuple[str, list[str], dict[str, str]]:
+    scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
+    scaffold = get_scaffold(scaffold_name)
+    setup_script = scaffold.get_setup_script(proxy_url, model=model)
+    task_commands = scaffold.build_commands(
+        case["user_query"],
+        case.get("system_prompt", ""),
+        model=model,
+    )
+
+    commands = [setup_script]
+    if scaffold_name == "claudecode":
+        commands.append(actplane_feedback_hook_setup_script())
+    commands.extend(task_commands)
+
+    env_vars = scaffold.get_docker_env(proxy_url, model=model)
+    env_vars["ACTPLANE_FEEDBACK_FILE"] = "/tmp/actplane-feedback/last-violation.txt"
+    env_vars["ACTPLANE_HOOK_STATE"] = "/tmp/actplane-feedback-hook.state.json"
+    return " && ".join(commands), task_commands, env_vars
 
 
 def run_baseline_case(
@@ -371,16 +428,26 @@ def run_actplane_case(
     instance_id = case["instance_id"]
     scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
     proxy_url = "http://host.docker.internal:4000"
-    policy_path = case_policy_path(args.policy_root, "actplane", instance_id)
+    policy_path = case_policy_path(args.policy_root, args.condition, instance_id)
     INSTANCE_ID_FILE.write_text(instance_id, encoding="utf-8")
 
-    full_command, task_commands, env_vars = build_plain_container_command(
-        case=case,
-        proxy_url=proxy_url,
-        model=args.model,
-    )
+    if args.condition == "actplane-feedback":
+        full_command, task_commands, env_vars = build_actplane_feedback_container_command(
+            case=case,
+            proxy_url=proxy_url,
+            model=args.model,
+        )
+    else:
+        full_command, task_commands, env_vars = build_plain_container_command(
+            case=case,
+            proxy_url=proxy_url,
+            model=args.model,
+        )
 
     container_name = f"octobench-{args.condition}-{instance_id[:36]}-{int(time.time())}"
+    feedback_dir = ROOT.parents[1] / ".actplane"
+    if args.condition == "actplane-feedback":
+        feedback_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["docker", "rm", "-f", container_name],
         check=False,
@@ -396,6 +463,15 @@ def run_actplane_case(
         container_name,
         "--add-host=host.docker.internal:host-gateway",
     ]
+    if args.condition == "actplane-feedback":
+        docker_cmd.extend(
+            [
+                "-v",
+                f"{ACTPLANE_FEEDBACK_HOOK}:/tmp/actplane_feedback_hook.py:ro",
+                "-v",
+                f"{feedback_dir}:/tmp/actplane-feedback:ro",
+            ]
+        )
     for key, value in env_vars.items():
         docker_cmd.extend(["-e", f"{key}={value}"])
     docker_cmd.extend(
@@ -422,6 +498,7 @@ def run_actplane_case(
             "policy": str(policy_path),
             "actplane": str(args.actplane),
             "actplane_mode": "host-watch",
+            "feedback_hook": str(ACTPLANE_FEEDBACK_HOOK) if args.condition == "actplane-feedback" else None,
             "task_commands": task_commands,
             "docker_command": docker_cmd,
             "trajectory_session_id": instance_id,
@@ -649,11 +726,13 @@ def normalize_and_validate_args(args: argparse.Namespace) -> None:
         raise SystemExit(f"venv python not found: {args.venv / 'bin' / 'python'}")
     if not args.litellm_config.exists():
         raise SystemExit(f"LiteLLM config not found: {args.litellm_config}")
-    if args.condition in {"tool-regex", "actplane"} and not args.policy_root.exists():
+    if args.condition in {"tool-regex", "actplane", "actplane-feedback"} and not args.policy_root.exists():
         raise SystemExit(f"policy root not found: {args.policy_root}")
     if args.condition == "tool-regex" and not TOOL_REGEX_HOOK.exists():
         raise SystemExit(f"tool-regex hook not found: {TOOL_REGEX_HOOK}")
-    if args.condition == "actplane":
+    if args.condition == "actplane-feedback" and not ACTPLANE_FEEDBACK_HOOK.exists():
+        raise SystemExit(f"ActPlane feedback hook not found: {ACTPLANE_FEEDBACK_HOOK}")
+    if args.condition in {"actplane", "actplane-feedback"}:
         if not args.actplane.exists():
             raise SystemExit(f"actplane binary not found: {args.actplane}")
 
@@ -663,7 +742,7 @@ def main() -> int:
     normalize_and_validate_args(args)
     cases = load_cases(args.dataset, args.limit, args.case)
     for case in cases:
-        if args.condition in {"tool-regex", "actplane"}:
+        if args.condition in {"tool-regex", "actplane", "actplane-feedback"}:
             policy_path = case_policy_path(args.policy_root, args.condition, case["instance_id"])
             if not policy_path.exists():
                 raise SystemExit(f"policy not found for {case['instance_id']}: {policy_path}")
@@ -681,7 +760,7 @@ def main() -> int:
             "model": args.model,
             "venv": str(args.venv),
             "policy_root": str(args.policy_root) if args.condition != "baseline" else None,
-            "actplane": str(args.actplane) if args.condition == "actplane" else None,
+            "actplane": str(args.actplane) if args.condition in {"actplane", "actplane-feedback"} else None,
             "litellm_config": str(args.litellm_config),
             "managed_llama": args.managed_llama,
             "n_ctx": 128000,

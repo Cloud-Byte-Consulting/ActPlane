@@ -62,7 +62,7 @@ case-specific-policy subset for validating the experiment design.
 
 ## Conditions
 
-The main experiment has three conditions:
+The main experiment keeps the original three conditions:
 
 1. `baseline`
    - no extra policy enforcement
@@ -85,8 +85,20 @@ The main experiment has three conditions:
    - can observe actual exec/open/write/connect effects below the tool layer
    - avoids depending on the task image's glibc version
 
-`actplane-feedback` is intentionally not part of the main setup. Feedback changes
-the agent's future behavior and should be treated as a separate ablation later.
+`actplane-feedback` is not folded into the original three-condition baseline.
+Feedback changes the agent's future behavior and is treated as a separate
+ablation:
+
+4. `actplane-feedback`
+   - same official scaffold, Docker image, LiteLLM proxy, local model, and
+     official scoring
+   - starts host-side ActPlane like `actplane`
+   - installs a Claude Code `PostToolUse` / `PostToolUseFailure` hook inside the
+     container
+   - the hook reads the host ActPlane feedback file through a read-only bind
+     mount and injects compacted corrective feedback into the next model turn
+   - uses `policies/actplane-feedback/<case_id>.yaml`, where high-risk effects
+     are still killed and lower-risk workflow guidance is reported with `notify`
 
 ## Scoring
 
@@ -139,6 +151,7 @@ From `docs/OctoBench`:
 python3 run_cases.py --condition baseline --limit 3 --timeout 3600 --managed-llama
 python3 run_cases.py --condition tool-regex --limit 3 --timeout 3600 --managed-llama
 python3 run_cases.py --condition actplane --limit 3 --timeout 3600 --managed-llama
+python3 run_cases.py --condition actplane-feedback --limit 3 --timeout 3600 --managed-llama
 ```
 
 Each run writes under:
@@ -147,6 +160,7 @@ Each run writes under:
 results/baseline/
 results/tool-regex/
 results/actplane/
+results/actplane-feedback/
 ```
 
 To run one case:
@@ -167,6 +181,7 @@ Evaluate a run directory:
 python3 evaluate_with_llama.py --run-dir results/baseline/<run-id>
 python3 evaluate_with_llama.py --run-dir results/tool-regex/<run-id>
 python3 evaluate_with_llama.py --run-dir results/actplane/<run-id>
+python3 evaluate_with_llama.py --run-dir results/actplane-feedback/<run-id>
 ```
 
 The judge uses local llama.cpp as an OpenAI-compatible backend. The reward
@@ -185,6 +200,9 @@ python3 extract_actplane_metrics.py \
 This reports event counts, effects, processes, targets, reasons, and short
 evidence excerpts from ActPlane output. It does not report reward, delta reward,
 or combined score.
+
+The proposed OS-effect reward extension is documented in
+`os_effect_reward.md`. It is not active in the current official-score runs.
 
 ## Current Smoke Result
 
@@ -206,6 +224,28 @@ Headline official OctoBench scores for this smoke run:
 ActPlane produced 1106 OS-level kill events across the three cases. This
 validates the end-to-end integration, but this exact policy/subset is not yet a
 positive aggregate compliance result for ActPlane.
+
+## Feedback Ablation Result
+
+The first official-score `actplane-feedback` ablation is summarized in:
+
+```text
+core-results/actplane_feedback_official_20260604.md
+core-results/actplane_feedback_official_20260604.json
+```
+
+Headline official OctoBench scores:
+
+| condition | avg_reward | pass_count | total |
+|---|---:|---:|---:|
+| baseline | 0.767 | 1 | 3 |
+| tool-regex | 0.798 | 1 | 3 |
+| actplane hard/no-feedback | 0.678 | 0 | 3 |
+| actplane-feedback final | 0.774 | 1 | 3 |
+
+This improves over the original baseline only slightly and does not beat the
+tool-regex aggregate. It does show that feedback-oriented policies avoid the
+large task-completion regression from broad hard kills.
 
 ## Result Policy
 

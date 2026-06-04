@@ -8,6 +8,9 @@ from one real-execution path.
 
 - `agent_sdk_eval.py` — main runner. Replays trace setup, then runs a real
   OpenAI Agents SDK agent with executable Bash/read/write tools.
+- `judge_trajectory.py` — optional LLM-as-a-judge pass over completed result
+  JSON files. It judges trace-conditioned policy compliance only, not task
+  completion.
 - `summarize_agent_sdk_results.py` — aggregates result JSON files into hard
   runtime signals.
 - `llama_server.py` — optional helper for the local llama.cpp endpoint.
@@ -15,11 +18,25 @@ from one real-execution path.
 
 ## Typical Runs
 
-Prompt-only baseline:
+Prompt-only baseline: the directive is only added to the model prompt; no
+runtime checker is active.
 
 ```bash
 python3 docs/eval_scripts/agent_sdk_eval.py \
   --system prompt-only \
+  --statement-dir docs/corpus-test/<repo>/<statement_id> \
+  --base-url http://127.0.0.1:18080/v1 \
+  --model-name Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M
+```
+
+Tool-layer regex baseline: the same `rule.yaml` is approximated at the
+Agent SDK tool-call layer. It only inspects declared `Bash`, `Read`, and
+`Write`/`Edit` tool inputs plus their tool-call history; it cannot observe
+subprocesses, direct syscalls, or hidden file effects inside shell commands.
+
+```bash
+python3 docs/eval_scripts/agent_sdk_eval.py \
+  --system tool-regex \
   --statement-dir docs/corpus-test/<repo>/<statement_id> \
   --base-url http://127.0.0.1:18080/v1 \
   --model-name Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M
@@ -56,7 +73,8 @@ GLM_API_KEY=... python3 docs/eval_scripts/agent_sdk_eval.py \
   --base-url https://api.z.ai/api/coding/paas/v4 \
   --model-name glm-4.7-flash \
   --api-key-env GLM_API_KEY \
-  --thinking disabled
+  --thinking disabled \
+  --response-format none
 ```
 
 Notes:
@@ -86,12 +104,48 @@ python3 docs/eval_scripts/agent_sdk_eval.py \
 The harness defaults to `./target/release/actplane`. If overriding the binary,
 avoid stale `collector/target/release/actplane` artifacts from older builds.
 
+ActPlane opaque ablation: the same OS/syscall enforcement path runs, but the
+agent does not receive structured `[ActPlane]` corrective feedback. A killed
+operation is visible only as an ordinary runtime failure; a `notify` event is
+recorded in the result JSON but not injected into the model context.
+
+```bash
+python3 docs/eval_scripts/agent_sdk_eval.py \
+  --system actplane-opaque \
+  --statement-dir docs/corpus-test/<repo>/<statement_id> \
+  --base-url http://127.0.0.1:18080/v1 \
+  --model-name Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M
+```
+
 Summarize results:
 
 ```bash
 python3 docs/eval_scripts/summarize_agent_sdk_results.py \
   docs/corpus-test/<repo>/<statement_id>/results
 ```
+
+Judge completed trajectories:
+
+```bash
+GLM_API_KEY=... python3 docs/eval_scripts/judge_trajectory.py \
+  docs/corpus-test/<repo>/<statement_id>/results \
+  --base-url https://api.z.ai/api/coding/paas/v4 \
+  --model-name glm-4.7-flash \
+  --api-key-env GLM_API_KEY \
+  --thinking disabled
+```
+
+Judge outputs are written beside the runner results under
+`results/trajectory_judges/`. The judge is intentionally blind-ish by default:
+it sees the directive, policy, original trace, ActPlane feedback, recovery tool
+log, and final agent output, but not the source system label or hard score.
+Pass `--include-system` only for debugging.
+
+The judge prompt explicitly does not evaluate completion rate. It answers
+whether the observed trace-conditioned trajectory is compliant, whether an
+intervention was appropriate, whether feedback was used, whether recovery
+succeeded, whether a second violation occurred, and whether the policy appears
+aligned with the natural-language directive.
 
 ## Pilot Log
 
