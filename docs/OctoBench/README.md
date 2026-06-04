@@ -236,6 +236,8 @@ The runner expects Docker, the OctoBench task images, a working Claude Code
 scaffold environment inside those images, and local llama.cpp configured by
 `docs/eval_scripts/llama_server.py`. That helper defaults to GPU `CUDA0`,
 `n_ctx=128000`, and parallel `3`.
+The OctoBench runner and judge wrapper also use `server_parallel=3`; do not
+override this to `1` for new runs.
 
 `run_cases.py` starts LiteLLM through the local config
 `configs/litellm_llama_cpp.yaml`. The submodule's official proxy code and
@@ -381,8 +383,31 @@ This run uses the official whole-case OctoBench checklist evaluator with no
 category fallback. It has 20/20 scorable trajectories, 20/20 judge successes, no
 startup-banner feedback injection, and official `avg_reward = 0.821`
 (`pass_count = 3`). It is usable as the clean ActPlane-feedback condition for
-the selected subset. It is not yet a paired improvement claim; fresh
-baseline/tool-regex runs over the same 20 cases are still required for that.
+the selected subset.
+
+The fresh paired clean 20-case comparison is summarized in:
+
+```text
+core-results/paired_clean_20case_20260604.md
+core-results/paired_clean_20case_20260604.json
+```
+
+Headline official OctoBench scores:
+
+| condition | avg_reward | pass_count | success_count |
+|---|---:|---:|---:|
+| baseline | 0.853 | 6 / 20 | 20 / 20 |
+| tool-regex | 0.834 | 3 / 20 | 20 / 20 |
+| actplane-feedback | 0.821 | 3 / 20 | 20 / 20 |
+
+This paired result is clean but not positive for the current ActPlane official
+score claim: baseline has the highest official `avg_reward` and `pass_count`.
+ActPlane-feedback did produce OS evidence, with 57 notify events in 11/20 cases
+and 18 feedback mentions in trajectories, but that did not translate into a
+higher official OctoBench reward under this evaluator. The current tool-regex
+ablation is also weak as a blocking baseline: it produced 0 block events in the
+combined run, and it is currently a no-op for `kilo-dev` cases because the hook
+is implemented only for Claude Code `PreToolUse`.
 
 ## Result Policy
 

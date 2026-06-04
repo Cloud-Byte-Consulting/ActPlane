@@ -5,7 +5,7 @@ This script intentionally keeps mini-vela's official files unchanged:
 
 1. collect raw trajectories from a benchmark run directory
 2. run upstream convert/convert_cc_traj_to_msg.py
-3. start local llama.cpp judge server with fixed n_ctx=128000 on GPU
+3. start local llama.cpp judge server on GPU; leave llama.cpp scheduling defaults intact
 4. call upstream evaluate.py's whole-case evaluate_single for every case
 5. stop the judge server that this script started
 """
@@ -41,7 +41,6 @@ from llama_server import LlamaServer  # noqa: E402
 
 
 JUDGE_PARALLEL = 3
-JUDGE_SERVER_PARALLEL = 1
 
 
 class _MaxTokensProxyServer(ThreadingHTTPServer):
@@ -438,7 +437,6 @@ def main() -> int:
     scores = out_dir / "scores_llama_judge.json"
     server = LlamaServer(
         judge_json=True,
-        parallel=JUDGE_SERVER_PARALLEL,
         restart_existing=True,
         log_path=out_dir / "llama-judge-server.log",
     )
@@ -458,7 +456,8 @@ def main() -> int:
                 "model": args.model,
                 "base_url": f"{token_proxy.base_url}/v1",
                 "judge_parallel": JUDGE_PARALLEL,
-                "server_parallel": JUDGE_SERVER_PARALLEL,
+                "llama_server_parallel": "llama.cpp default",
+                "llama_fit": "llama.cpp default",
                 "judge_max_tokens": args.judge_max_tokens,
                 "official_unit": "whole_case_full_checklist",
             },

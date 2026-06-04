@@ -39,8 +39,8 @@ TOOL_REGEX_HOOK = ROOT / "tool_regex_hook.py"
 ACTPLANE_FEEDBACK_HOOK = ROOT / "actplane_feedback_hook.py"
 INSTANCE_ID_FILE = Path("/tmp/current_instance_id.txt")
 CONDITIONS = ("baseline", "tool-regex", "actplane", "actplane-feedback")
-MANAGED_LLAMA_CTX = 128000
-AGENT_LLAMA_PARALLEL = 1
+MANAGED_LLAMA_CTX = 192000
+UPSTREAM_NO_TIMEOUT_COMPAT_S = 86400
 FORBIDDEN_SHARED_POLICY_TOKENS = (
     "no-git-branch-or-worktree",
     "no-unrequested-dependency-install",
@@ -777,6 +777,9 @@ def run_baseline_case(
     case_dir: Path,
 ) -> dict[str, Any]:
     instance_id = case["instance_id"]
+    upstream_timeout = (
+        UPSTREAM_NO_TIMEOUT_COMPAT_S if args.timeout == 0 else args.timeout
+    )
     cmd = [
         str(args.venv / "bin" / "python"),
         "benchmark_runner.py",
@@ -787,10 +790,19 @@ def run_baseline_case(
         "--case",
         instance_id,
         "--timeout",
-        str(args.timeout),
+        str(upstream_timeout),
         "--skip-proxy-check",
     ]
-    write_json(case_dir / "command.json", {"cmd": cmd, "cwd": str(MINI_VELA)})
+    write_json(
+        case_dir / "command.json",
+        {
+            "cmd": cmd,
+            "cwd": str(MINI_VELA),
+            "requested_timeout_s": args.timeout,
+            "upstream_timeout_s": upstream_timeout,
+            "upstream_timeout_compat": args.timeout == 0,
+        },
+    )
 
     started = time.time()
     proc = subprocess.run(
@@ -1170,8 +1182,9 @@ def main() -> int:
             "litellm_config": str(args.litellm_config),
             "managed_llama": args.managed_llama,
             "n_ctx": MANAGED_LLAMA_CTX,
-            "server_parallel": AGENT_LLAMA_PARALLEL,
-            "effective_request_ctx": MANAGED_LLAMA_CTX // AGENT_LLAMA_PARALLEL,
+            "llama_server_parallel": "llama.cpp default",
+            "llama_fit": "llama.cpp default",
+            "case_parallel": 1,
             "case_count": len(cases),
         },
     )
@@ -1181,7 +1194,6 @@ def main() -> int:
         server = LlamaServer(
             judge_json=False,
             ctx_size=MANAGED_LLAMA_CTX,
-            parallel=AGENT_LLAMA_PARALLEL,
             restart_existing=True,
             log_path=run_dir / "llama-server.log",
         )

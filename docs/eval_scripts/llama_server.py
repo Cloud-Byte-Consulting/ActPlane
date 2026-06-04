@@ -44,8 +44,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18080
 DEFAULT_DEVICE = "CUDA0"
 DEFAULT_GPU_LAYERS = "all"
-DEFAULT_CTX_SIZE = 128000
-DEFAULT_PARALLEL = 3
+DEFAULT_CTX_SIZE = 192000
 
 
 class LlamaServer:
@@ -58,7 +57,6 @@ class LlamaServer:
         device: str = DEFAULT_DEVICE,
         gpu_layers: str = DEFAULT_GPU_LAYERS,
         ctx_size: int = DEFAULT_CTX_SIZE,
-        parallel: int = DEFAULT_PARALLEL,
         judge_json: bool = False,
         log_path: Path | None = None,
         restart_existing: bool = False,
@@ -70,7 +68,6 @@ class LlamaServer:
         self.device = device
         self.gpu_layers = gpu_layers
         self.ctx_size = ctx_size
-        self.parallel = parallel
         self.judge_json = judge_json
         self.log_path = Path(log_path) if log_path else None
         self.restart_existing = restart_existing
@@ -145,14 +142,10 @@ class LlamaServer:
             str(self.port),
             "--device",
             self.device,
-            "--fit",
-            "off",
             "-ngl",
             self.gpu_layers,
             "-c",
             str(self.ctx_size),
-            "--parallel",
-            str(self.parallel),
             "--no-webui",
         ]
         if self.judge_json:
@@ -175,7 +168,7 @@ class LlamaServer:
         cmd = self.command()
         print(
             "Starting llama-server with "
-            f"n_ctx={self.ctx_size}, device={self.device}, parallel={self.parallel}, "
+            f"n_ctx={self.ctx_size}, device={self.device}, "
             f"judge_json={self.judge_json}"
         )
         stdout = subprocess.DEVNULL
