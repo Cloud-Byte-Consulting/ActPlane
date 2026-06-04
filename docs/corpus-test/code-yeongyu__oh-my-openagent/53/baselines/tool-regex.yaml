@@ -1,0 +1,30 @@
+version: 1
+rules:
+  - id: no-delete-ts-tests
+    effect: kill
+    op: exec
+    target: rm
+    arg: "**/*.test.ts"
+    if: AGENT
+    reason: "Never delete test files to make a build green; fix the underlying code instead"
+  - id: no-delete-js-tests
+    effect: kill
+    op: exec
+    target: rm
+    arg: "**/*.test.js"
+    if: AGENT
+    reason: "Never delete test files to make a build green; fix the underlying code instead"
+  - id: no-delete-python-tests
+    effect: kill
+    op: exec
+    target: rm
+    arg: "**/test_*.py"
+    if: AGENT
+    reason: "Never delete test files to make a build green; fix the underlying code instead"
+  - id: no-delete-go-tests
+    effect: kill
+    op: exec
+    target: rm
+    arg: "**/*_test.go"
+    if: AGENT
+    reason: "Never delete test files to make a build green; fix the underlying code instead"

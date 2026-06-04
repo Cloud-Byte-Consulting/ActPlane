@@ -13,6 +13,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 
 use crate::config::{FeedbackPaths, feedback_paths, load_policy, policy_source};
+use crate::hook::write_hook_state;
 use crate::report::{append_violation_feedback, report, to_violation};
 use crate::{Cli, Result, dsl};
 
@@ -105,8 +106,12 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
     let policy = policy_source(&loaded, cli.domain.as_deref())?;
     let compiled = dsl::compile_str(&policy)?;
     let agent_label = runner_label(&compiled)?;
-    let feedback = feedback_paths(&loaded);
+    let feedback = scoped_feedback_paths(&feedback_paths(&loaded), "mcp");
     prepare_feedback_files(&feedback, target_user(cli.run_as_root))?;
+    write_hook_state(&feedback.state, &feedback.feedback, attach_pid)?;
+    if let Some((uid, gid)) = target_user(cli.run_as_root) {
+        chown_path(&feedback.state, uid, gid)?;
+    }
 
     let stop = Arc::new(AtomicBool::new(false));
     type ReadyResult = std::result::Result<Option<ReloadHandle>, String>;
@@ -249,12 +254,16 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     let policy = policy_source(&loaded, cli.domain.as_deref())?;
     let compiled = dsl::compile_str(&policy)?;
     let agent_label = runner_label(&compiled)?;
-    let feedback = feedback_paths(&loaded);
+    let feedback = scoped_feedback_paths(&feedback_paths(&loaded), "run");
     let target_owner = target_user(cli.run_as_root);
     prepare_feedback_files(&feedback, target_owner)?;
 
     let mut target = spawn_stopped_target(cmd, &feedback, loaded.path.as_deref(), cli.run_as_root)?;
     let target_pid = target.id().ok_or("target process has no pid")?;
+    write_hook_state(&feedback.state, &feedback.feedback, target_pid as i32)?;
+    if let Some((uid, gid)) = target_owner {
+        chown_path(&feedback.state, uid, gid)?;
+    }
 
     let stop = Arc::new(AtomicBool::new(false));
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
@@ -344,6 +353,27 @@ fn prepare_feedback_files(
         Err(e) => return Err(e.into()),
     }
     Ok(())
+}
+
+fn scoped_feedback_paths(base: &FeedbackPaths, prefix: &str) -> FeedbackPaths {
+    let root = base
+        .feedback
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let run_dir = root.join("runs").join(run_id(prefix));
+    FeedbackPaths {
+        feedback: run_dir.join("feedback.txt"),
+        state: run_dir.join("hook-state.json"),
+    }
+}
+
+fn run_id(prefix: &str) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{prefix}-{}-{now}", std::process::id())
 }
 
 fn chown_path(path: &Path, uid: libc::uid_t, gid: libc::gid_t) -> std::io::Result<()> {

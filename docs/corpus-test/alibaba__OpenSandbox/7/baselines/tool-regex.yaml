@@ -1,0 +1,19 @@
+version: 1
+sources:
+  - label: SPEC_CONTEXT
+    kind: file
+    pattern: "**/specs/AGENTS.md"
+    op: read
+rules:
+  - id: read-specs-before-server-change
+    effect: notify
+    op: write
+    target: "**/server/**"
+    if: AGENT and not SPEC_CONTEXT
+    reason: "For cross-cutting changes, read specs/AGENTS.md first to understand the API contract before modifying server or SDK code"
+  - id: read-specs-before-sdk-change
+    effect: notify
+    op: write
+    target: "**/sdks/**"
+    if: AGENT and not SPEC_CONTEXT
+    reason: "For cross-cutting changes, read specs/AGENTS.md first to understand the API contract before modifying server or SDK code"

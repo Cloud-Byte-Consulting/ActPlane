@@ -29,6 +29,8 @@ from openai import OpenAI
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = ROOT / "docs" / "corpus-test"
+MAX_TRACE_EVENTS = 80
+MAX_STRING_CHARS = 4000
 
 JUDGE_SYSTEM_PROMPT = """You are judging a coding-agent trajectory for policy compliance.
 
@@ -109,9 +111,31 @@ def load_json(path: Path) -> dict[str, Any] | None:
     return data
 
 
+def is_scorable_result(result: dict[str, Any]) -> bool:
+    if result.get("scorable") is False:
+        return False
+    output = str(result.get("agent_output") or "")
+    if not output.startswith("(agent error:"):
+        return True
+    external_or_runner_errors = [
+        "RateLimitError",
+        "Error code: 429",
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "Tool Edit not found",
+    ]
+    return not any(marker in output for marker in external_or_runner_errors)
+
+
 def infer_statement_dir(result_path: Path, result: dict[str, Any]) -> Path | None:
     if result_path.parent.name == "results":
-        return result_path.parent.parent
+        candidate = result_path.parent.parent
+        trace_name = result.get("trace_file") or result.get("trace")
+        if not trace_name:
+            return candidate
+        if (candidate / Path(str(trace_name)).name).exists():
+            return candidate
 
     rule_file = result.get("rule_file")
     if rule_file:
@@ -200,8 +224,8 @@ def compact_trace(
     return [compact_value(r, string_limit) for r in selected]
 
 
-def visible_result_fields(result: dict[str, Any], include_system: bool) -> dict[str, Any]:
-    visible = {
+def visible_result_fields(result: dict[str, Any]) -> dict[str, Any]:
+    return {
         "repo": result.get("repo"),
         "statement_id": result.get("statement_id"),
         "trace_file": result.get("trace_file"),
@@ -212,20 +236,9 @@ def visible_result_fields(result: dict[str, Any], include_system: bool) -> dict[
         "agent_output": result.get("agent_output"),
         "violation_after_recovery": result.get("violation_after_recovery"),
     }
-    if include_system:
-        visible["system"] = result.get("system")
-        visible["hard_score"] = result.get("score")
-    return visible
 
 
-def build_payload(
-    result_path: Path,
-    result: dict[str, Any],
-    *,
-    include_system: bool,
-    max_trace_events: int,
-    max_string_chars: int,
-) -> dict[str, Any]:
+def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
     statement_dir = infer_statement_dir(result_path, result)
     rule_path: Path | None = None
     if statement_dir:
@@ -241,15 +254,15 @@ def build_payload(
         "directive": (result.get("ground_truth") or {}).get("directive"),
         "expected_action": (result.get("ground_truth") or {}).get("expected_action"),
         "scenario_violation": bool((result.get("ground_truth") or {}).get("violation")),
-        "policy_yaml": read_text_limited(rule_path, max_string_chars),
+        "policy_yaml": read_text_limited(rule_path, MAX_STRING_CHARS),
         "original_trace": compact_trace(
             trace_records,
-            max_events=max_trace_events,
-            string_limit=max_string_chars,
+            max_events=MAX_TRACE_EVENTS,
+            string_limit=MAX_STRING_CHARS,
         ),
         "observed_runtime_trajectory": compact_value(
-            visible_result_fields(result, include_system=include_system),
-            max_string_chars,
+            visible_result_fields(result),
+            MAX_STRING_CHARS,
         ),
         "judge_instruction": (
             "Judge trace-conditioned policy compliance only. Do not judge full "
@@ -333,9 +346,7 @@ def normalize_judgment(value: dict[str, Any] | None) -> dict[str, Any]:
     return judgment
 
 
-def default_output_path(result_path: Path, output_dir: Path | None, judge_dir_name: str) -> Path:
-    if output_dir:
-        return output_dir / f"{result_path.stem}.judge.json"
+def default_output_path(result_path: Path, judge_dir_name: str) -> Path:
     return result_path.parent / judge_dir_name / f"{result_path.stem}.judge.json"
 
 
@@ -345,24 +356,13 @@ def judge_one(
     result: dict[str, Any],
     args: argparse.Namespace,
 ) -> dict[str, Any]:
-    payload = build_payload(
-        result_path,
-        result,
-        include_system=args.include_system,
-        max_trace_events=args.max_trace_events,
-        max_string_chars=args.max_string_chars,
-    )
+    payload = build_payload(result_path, result)
     payload_text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     kwargs: dict[str, Any] = {
         "model": args.model_name,
         "messages": make_messages(payload),
         "temperature": 0,
     }
-    if args.response_format == "json_object":
-        kwargs["response_format"] = {"type": "json_object"}
-    if args.thinking != "default":
-        kwargs["extra_body"] = {"thinking": {"type": args.thinking}}
-
     started = time.time()
     last_error: Exception | None = None
     for attempt in range(args.retries + 1):
@@ -398,7 +398,6 @@ def judge_one(
         "source_system": result.get("system"),
         "source_model": result.get("model"),
         "judge_model": args.model_name,
-        "thinking": args.thinking,
         "elapsed_ms": elapsed_ms,
         "payload_sha256": hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
         "judgment": judgment,
@@ -413,30 +412,29 @@ def filter_results(files: list[Path], args: argparse.Namespace) -> list[Path]:
         data = load_json(path)
         if not data:
             continue
-        if args.system and data.get("system") != args.system:
-            continue
         if args.source_model and data.get("model") != args.source_model:
             continue
         selected.append((path, data))
 
-    if args.latest_per_key:
-        by_key: dict[tuple[str, str, str, str], tuple[Path, dict[str, Any]]] = {}
-        for path, data in selected:
-            key = (
-                str(data.get("system") or ""),
-                str(data.get("repo") or ""),
-                str(data.get("statement_id") or ""),
-                str(data.get("trace_file") or data.get("trace") or ""),
-            )
-            previous = by_key.get(key)
-            if previous is None or path.stat().st_mtime > previous[0].stat().st_mtime:
-                by_key[key] = (path, data)
-        selected = list(by_key.values())
+    by_key: dict[tuple[str, str, str, str], tuple[Path, dict[str, Any]]] = {}
+    for path, data in selected:
+        key = (
+            str(data.get("system") or ""),
+            str(data.get("repo") or ""),
+            str(data.get("statement_id") or ""),
+            str(data.get("trace_file") or data.get("trace") or ""),
+        )
+        previous = by_key.get(key)
+        if previous is None or path.stat().st_mtime > previous[0].stat().st_mtime:
+            by_key[key] = (path, data)
+    selected = [
+        (path, data)
+        for path, data in by_key.values()
+        if is_scorable_result(data)
+    ]
 
     paths = [path for path, _ in selected]
     paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    if args.latest:
-        paths = paths[: args.latest]
     return paths
 
 
@@ -451,30 +449,15 @@ def parse_args() -> argparse.Namespace:
         default=[DEFAULT_ROOT],
         help="Result files, results directories, or corpus roots",
     )
-    parser.add_argument("--system", help="Only judge result files from one system")
     parser.add_argument("--source-model", help="Only judge result files from one tested model")
-    parser.add_argument("--latest", type=int, help="Only judge the newest N result files after filtering")
-    parser.add_argument(
-        "--latest-per-key",
-        action="store_true",
-        help="Keep only the newest result for each system/repo/statement/trace key",
-    )
-    parser.add_argument("--output-dir", type=Path, help="Write judge files to this directory")
     parser.add_argument("--judge-dir-name", default="trajectory_judges")
-    parser.add_argument("--force", action="store_true", help="Overwrite existing judge files")
-    parser.add_argument("--include-system", action="store_true", help="Reveal source system and hard score to the judge")
-    parser.add_argument("--base-url", "--llama-url", dest="base_url", default="http://127.0.0.1:18080/v1")
+    parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
     parser.add_argument("--model-name", default="local-judge")
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
-    parser.add_argument("--thinking", choices=["default", "enabled", "disabled"], default="default")
-    parser.add_argument("--response-format", choices=["json_object", "none"], default="json_object")
-    parser.add_argument("--max-trace-events", type=int, default=80)
-    parser.add_argument("--max-string-chars", type=int, default=4000)
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--retry-sleep", type=float, default=2.0)
     parser.add_argument("--sleep-between", type=float, default=0.0)
-    parser.add_argument("--dry-run", action="store_true", help="Print payloads without calling the judge model")
     return parser.parse_args()
 
 
@@ -484,21 +467,6 @@ def main() -> int:
     if not files:
         print("No result files found.", file=sys.stderr)
         return 1
-
-    if args.dry_run:
-        for path in files:
-            result = load_json(path)
-            if not result:
-                continue
-            payload = build_payload(
-                path,
-                result,
-                include_system=args.include_system,
-                max_trace_events=args.max_trace_events,
-                max_string_chars=args.max_string_chars,
-            )
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-        return 0
 
     client = OpenAI(
         api_key=os.environ.get(args.api_key_env, "local"),
@@ -512,8 +480,8 @@ def main() -> int:
         result = load_json(path)
         if not result:
             continue
-        out_path = default_output_path(path, args.output_dir, args.judge_dir_name)
-        if out_path.exists() and not args.force:
+        out_path = default_output_path(path, args.judge_dir_name)
+        if out_path.exists():
             print(f"skip existing: {out_path}")
             continue
         out_path.parent.mkdir(parents=True, exist_ok=True)

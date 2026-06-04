@@ -370,6 +370,20 @@ files, compacts ActPlane feedback, and reports official `avg_reward = 0.818`
 across the selected three cases. Fresh baseline/tool-regex reruns under the same
 cleaned setup are still needed before using it as a paired paper result.
 
+The current clean 20-case `actplane-feedback` run is summarized in:
+
+```text
+core-results/twenty_case_actplane_feedback_clean_20260604.md
+core-results/twenty_case_actplane_feedback_clean_20260604.json
+```
+
+This run uses the official whole-case OctoBench checklist evaluator with no
+category fallback. It has 20/20 scorable trajectories, 20/20 judge successes, no
+startup-banner feedback injection, and official `avg_reward = 0.821`
+(`pass_count = 3`). It is usable as the clean ActPlane-feedback condition for
+the selected subset. It is not yet a paired improvement claim; fresh
+baseline/tool-regex runs over the same 20 cases are still required for that.
+
 ## Result Policy
 
 No old results are copied into this directory. New generated artifacts stay under

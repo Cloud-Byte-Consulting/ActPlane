@@ -44,11 +44,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import fnmatch
 import json
 import os
 import re
-import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -71,11 +70,17 @@ from agents import (
 )
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
+from tool_regex_baseline import (
+    ToolPolicyEvent,
+    ToolRegexPolicy,
+    format_tool_policy_feedback,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
 DEFAULT_BASE_INSTRUCTIONS = Path(__file__).resolve().parent / "codex_base_instructions.md"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
+TOOL_REGEX_POLICY = Path("baselines") / "tool-regex.yaml"
 
 # ---------------------------------------------------------------------------
 # Shared mutable context
@@ -90,355 +95,12 @@ class EvalContext:
     tool_log: list[dict[str, Any]] = field(default_factory=list)
     setup_feedbacks: list[str] = field(default_factory=list)
     actplane_feedbacks: list[str] = field(default_factory=list)
+    setup_errors: list[str] = field(default_factory=list)
     violation_after_recovery: bool = False
     setup_visible_intervention: bool = False
     in_recovery: bool = False
     max_steps: int = 10
     step_count: int = 0
-
-
-@dataclass
-class ToolSource:
-    label: str
-    kind: str
-    pattern: str
-
-
-@dataclass
-class ToolRule:
-    rule_id: str
-    effect: str
-    op: str
-    pattern: str
-    label_expr: str
-    arg_pattern: str | None = None
-    unless_target: str | None = None
-    after_exec: str | None = None
-    since_writes: list[str] = field(default_factory=list)
-    reason: str = ""
-    since_seen: bool = False
-    after_satisfied: bool = False
-
-
-@dataclass
-class ToolPolicyEvent:
-    rule_id: str
-    effect: str
-    op: str
-    reason: str
-    tool: str
-    command: str | None = None
-    file_path: str | None = None
-
-
-@dataclass
-class ToolRegexPolicy:
-    sources: list[ToolSource] = field(default_factory=list)
-    rules: list[ToolRule] = field(default_factory=list)
-    labels: set[str] = field(default_factory=lambda: {"AGENT"})
-
-    @classmethod
-    def from_rule_file(cls, path: Path) -> "ToolRegexPolicy":
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "policy: |" in text:
-            text = text.split("policy: |", 1)[1]
-
-        sources: list[ToolSource] = []
-        rules: list[ToolRule] = []
-        current_rule_id = "unnamed"
-        current_rules: list[ToolRule] = []
-
-        for raw in text.splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("source "):
-                match = re.match(r'source\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(exec|file)\s+"([^"]+)"', line)
-                if match:
-                    sources.append(ToolSource(match.group(1), match.group(2), match.group(3)))
-                continue
-            if line.startswith("rule "):
-                current_rule_id = line.split(None, 1)[1].rstrip(":")
-                current_rules = []
-                continue
-            if line.startswith(("kill ", "notify ")):
-                rule = parse_tool_rule(line, current_rule_id)
-                if rule:
-                    rules.append(rule)
-                    current_rules.append(rule)
-                continue
-            if line.startswith("because "):
-                reason = extract_quoted_or_rest(line[len("because "):])
-                for rule in current_rules:
-                    rule.reason = reason
-
-        return cls(sources=sources, rules=rules)
-
-    def check_before(
-        self,
-        tool: str,
-        *,
-        command: str | None = None,
-        file_path: str | None = None,
-    ) -> ToolPolicyEvent | None:
-        op = tool_to_policy_op(tool)
-        for rule in self.rules:
-            if rule.op != op:
-                continue
-            if not self._target_matches(rule, command=command, file_path=file_path):
-                continue
-            if not eval_label_expr(rule.label_expr, self.labels):
-                continue
-            if rule.unless_target and file_path and match_file_pattern(rule.unless_target, file_path):
-                continue
-            if rule.after_exec:
-                if not rule.since_seen:
-                    continue
-                if rule.after_satisfied:
-                    continue
-            return ToolPolicyEvent(
-                rule_id=rule.rule_id,
-                effect=rule.effect,
-                op=rule.op,
-                reason=rule.reason,
-                tool=tool,
-                command=command,
-                file_path=file_path,
-            )
-        return None
-
-    def record_after(
-        self,
-        tool: str,
-        *,
-        command: str | None = None,
-        file_path: str | None = None,
-    ) -> None:
-        op = tool_to_policy_op(tool)
-        if op == "read" and file_path:
-            for source in self.sources:
-                if source.kind == "file" and match_file_pattern(source.pattern, file_path):
-                    self.labels.add(source.label)
-        elif op == "write" and file_path:
-            for source in self.sources:
-                if source.kind == "file" and match_file_pattern(source.pattern, file_path):
-                    self.labels.add(source.label)
-            for rule in self.rules:
-                if any(match_file_pattern(pattern, file_path) for pattern in rule.since_writes):
-                    rule.since_seen = True
-                    rule.after_satisfied = False
-        elif op == "exec" and command:
-            for source in self.sources:
-                if source.kind == "exec" and command_matches_exec(command, source.pattern, None):
-                    self.labels.add(source.label)
-            for rule in self.rules:
-                if rule.after_exec and command_matches_exec(command, rule.after_exec, None):
-                    rule.after_satisfied = True
-
-    def _target_matches(
-        self,
-        rule: ToolRule,
-        *,
-        command: str | None,
-        file_path: str | None,
-    ) -> bool:
-        if rule.op == "exec":
-            return bool(command and command_matches_exec(command, rule.pattern, rule.arg_pattern))
-        if rule.op == "write":
-            return bool(file_path and match_file_pattern(rule.pattern, file_path))
-        if rule.op == "unlink":
-            return bool(file_path and match_file_pattern(rule.pattern, file_path))
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Tool-layer policy parser/checker
-# ---------------------------------------------------------------------------
-
-def extract_quoted_or_rest(text: str) -> str:
-    match = re.search(r'"([^"]*)"', text)
-    if match:
-        return match.group(1)
-    return text.strip()
-
-
-def parse_tool_rule(line: str, rule_id: str) -> ToolRule | None:
-    exec_match = re.match(
-        r'^(kill|notify)\s+exec\s+"([^"]+)"(?:\s+"([^"]+)")?\s+if\s+(.+)$',
-        line,
-    )
-    if exec_match:
-        effect, pattern, arg_pattern, rest = exec_match.groups()
-        label_expr, unless_target, after_exec, since_writes = parse_condition_tail(rest)
-        return ToolRule(
-            rule_id=rule_id,
-            effect=effect,
-            op="exec",
-            pattern=pattern,
-            arg_pattern=arg_pattern,
-            label_expr=label_expr,
-            unless_target=unless_target,
-            after_exec=after_exec,
-            since_writes=since_writes,
-        )
-
-    file_match = re.match(
-        r'^(kill|notify)\s+(write|unlink|read)\s+file\s+"([^"]+)"\s+if\s+(.+)$',
-        line,
-    )
-    if file_match:
-        effect, op, pattern, rest = file_match.groups()
-        label_expr, unless_target, after_exec, since_writes = parse_condition_tail(rest)
-        return ToolRule(
-            rule_id=rule_id,
-            effect=effect,
-            op=op,
-            pattern=pattern,
-            label_expr=label_expr,
-            unless_target=unless_target,
-            after_exec=after_exec,
-            since_writes=since_writes,
-        )
-
-    return None
-
-
-def parse_condition_tail(rest: str) -> tuple[str, str | None, str | None, list[str]]:
-    label_expr = rest.strip()
-    unless_target = None
-    after_exec = None
-    since_writes: list[str] = []
-
-    if " unless " not in label_expr:
-        return label_expr, unless_target, after_exec, since_writes
-
-    label_expr, unless_part = label_expr.split(" unless ", 1)
-    label_expr = label_expr.strip()
-    unless_part = unless_part.strip()
-
-    target_match = re.search(r'target\s+"([^"]+)"', unless_part)
-    if target_match:
-        unless_target = target_match.group(1)
-
-    after_match = re.search(r'after\s+exec\s+"([^"]+)"', unless_part)
-    if after_match:
-        after_exec = after_match.group(1)
-        since_writes = re.findall(r'write\s+"([^"]+)"', unless_part)
-
-    return label_expr, unless_target, after_exec, since_writes
-
-
-def tool_to_policy_op(tool: str) -> str:
-    if tool == "Bash":
-        return "exec"
-    if tool == "Read":
-        return "read"
-    if tool in {"Write", "Edit"}:
-        return "write"
-    return tool.lower()
-
-
-def normalize_tool_path(value: str) -> str:
-    if not value:
-        return value
-    value = value.replace("\\", "/")
-    while value.startswith("./"):
-        value = value[2:]
-    return value
-
-
-def match_glob(pattern: str, value: str) -> bool:
-    value = normalize_tool_path(value)
-    candidates = {value}
-    if value.startswith("/"):
-        candidates.add(value[1:])
-    else:
-        candidates.add(f"/{value}")
-    if "/" in value:
-        candidates.add(Path(value).name)
-
-    patterns = {pattern}
-    if pattern.startswith("**/"):
-        patterns.add(pattern[3:])
-    if pattern.startswith("/"):
-        patterns.add(pattern[1:])
-
-    for pat in patterns:
-        for candidate in candidates:
-            if fnmatch.fnmatchcase(candidate, pat):
-                return True
-    return False
-
-
-def match_file_pattern(pattern: str, file_path: str) -> bool:
-    return match_glob(pattern, file_path)
-
-
-def shell_tokens(command: str) -> list[str]:
-    try:
-        return shlex.split(command, posix=True)
-    except ValueError:
-        return command.split()
-
-
-def is_shell_separator(token: str) -> bool:
-    return token in {"&&", "||", ";", "|", "(", ")"}
-
-
-def command_matches_exec(command: str, prog_pattern: str, arg_pattern: str | None) -> bool:
-    tokens = shell_tokens(command)
-    for idx, token in enumerate(tokens):
-        if is_shell_separator(token):
-            continue
-        basename = Path(token).name
-        if not (match_glob(prog_pattern, token) or match_glob(prog_pattern, basename)):
-            continue
-        if not arg_pattern:
-            return True
-        for later in tokens[idx + 1:]:
-            if is_shell_separator(later):
-                break
-            if match_glob(arg_pattern, later) or match_glob(arg_pattern, Path(later).name):
-                return True
-    return False
-
-
-def eval_label_expr(expr: str, labels: set[str]) -> bool:
-    expr = expr.strip()
-    if not expr:
-        return True
-
-    def replace_label(match: re.Match[str]) -> str:
-        word = match.group(0)
-        if word in {"and", "or", "not", "True", "False"}:
-            return word
-        return str(word in labels)
-
-    py_expr = re.sub(r"\b[A-Za-z_][A-Za-z0-9_]*\b", replace_label, expr)
-    if re.search(r"[^()\sA-Za-z0-9_.]", py_expr):
-        return False
-    try:
-        return bool(eval(py_expr, {"__builtins__": {}}, {}))
-    except Exception:
-        return False
-
-
-def format_tool_policy_feedback(event: ToolPolicyEvent) -> str:
-    target = event.command if event.command is not None else event.file_path
-    payload = {
-        "tool_rule": event.rule_id,
-        "effect": event.effect,
-        "action": "block" if event.effect == "kill" else "report",
-        "tool": event.tool,
-        "target": target,
-    }
-    action = "blocked" if event.effect == "kill" else "reported"
-    return (
-        f"[tool-regex] Tool-layer policy {action} rule \"{event.rule_id}\" "
-        f"for {event.tool} {target!r}.\n"
-        f"- Reason: {event.reason or 'policy matched this tool call'}\n"
-        f"{json.dumps(payload, ensure_ascii=False)}"
-    )
 
 
 def check_tool_policy_before(
@@ -510,6 +172,46 @@ def actplane_feedback_effect(feedback: str) -> str | None:
     return None
 
 
+def is_transient_agent_error(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    transient_markers = [
+        "ratelimit",
+        "rate limit",
+        "timeout",
+        "temporarily unavailable",
+        "internalservererror",
+        "internal server error",
+        "bad gateway",
+        "service unavailable",
+        "connection",
+        "server disconnected",
+        "status code: 429",
+        "status code: 500",
+        "status code: 502",
+        "status code: 503",
+        "status code: 504",
+    ]
+    return any(marker in text for marker in transient_markers)
+
+
+def error_record(exc: Exception) -> dict[str, Any]:
+    message = str(exc)
+    type_name = type(exc).__name__
+    runner_markers = [
+        "Tool Edit not found",
+        "Tool Bash not found",
+        "Tool Read not found",
+        "Tool Write not found",
+    ]
+    return {
+        "type": type_name,
+        "message": message,
+        "transient": is_transient_agent_error(exc),
+        "unscorable": is_transient_agent_error(exc)
+        or any(marker in message for marker in runner_markers),
+    }
+
+
 def log_tool(
     ec: EvalContext,
     tool: str,
@@ -530,6 +232,76 @@ def log_tool(
     if file_path is not None:
         entry["file_path"] = file_path
     ec.tool_log.append(entry)
+
+
+def record_setup_error(ctx: EvalContext, message: str) -> None:
+    ctx.setup_errors.append(message)
+
+
+def format_command_result(stdout: str, stderr: str, returncode: int) -> str:
+    output = stdout
+    if stderr:
+        output += f"\nSTDERR: {stderr}"
+    if returncode != 0:
+        output += f"\n(exit code {returncode})"
+    return output.strip() or "(no output)"
+
+
+def cleanup_workdir(mounted: bool, workdir: Path, ovl_base: Path) -> None:
+    if mounted:
+        subprocess.run(["umount", "-l", str(workdir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    shutil.rmtree(ovl_base, ignore_errors=True)
+
+
+def make_unscorable_result(
+    *,
+    statement_dir: Path,
+    trace_path: Path,
+    ground_truth: dict[str, Any],
+    system: str,
+    model_name: str,
+    thinking: str,
+    setup_errors: list[str],
+    tool_log: list[dict[str, Any]],
+    setup_fired: bool = False,
+    setup_visible_intervention: bool = False,
+    setup_feedbacks: list[str] | None = None,
+    recovery_feedbacks: list[str] | None = None,
+    workdir_backend: str = "validation-copy",
+) -> dict[str, Any]:
+    setup_message = "; ".join(setup_errors)
+    return {
+        "run_id": f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}",
+        "repo": statement_dir.parent.name.replace("__", "/"),
+        "statement_id": statement_dir.name,
+        "system": system,
+        "trace_file": trace_path.name,
+        "ground_truth": ground_truth,
+        "setup_fired": setup_fired,
+        "setup_visible_intervention": setup_visible_intervention,
+        "setup_feedbacks": list(setup_feedbacks or []),
+        "setup_errors": list(setup_errors),
+        "recovery_feedbacks": list(recovery_feedbacks or []),
+        "tool_log": tool_log,
+        "step_count": 0,
+        "agent_output": f"(setup error: {setup_message})",
+        "agent_error": {
+            "type": "SetupReplayError",
+            "message": setup_message,
+            "transient": False,
+            "unscorable": True,
+        },
+        "scorable": False,
+        "violation_after_recovery": False,
+        "score": {
+            "status": "unscorable",
+            "scenario_violation": bool(ground_truth.get("violation")),
+            "needs_trajectory_judge": False,
+        },
+        "model": model_name,
+        "thinking": thinking,
+        "workdir_backend": workdir_backend,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +326,7 @@ def safe_path(workdir: Path, rel: str) -> Path:
 # Agent tools — subprocesses are monitored by ActPlane (parent is actplane run)
 # ---------------------------------------------------------------------------
 
-@function_tool
+@function_tool(name_override="Bash")
 def bash_tool(ctx: RunContextWrapper[EvalContext], command: str) -> str:
     """Execute a shell command and return its output."""
     ec = ctx.context
@@ -611,7 +383,7 @@ def bash_tool(ctx: RunContextWrapper[EvalContext], command: str) -> str:
     return output.strip() or "(no output)"
 
 
-@function_tool
+@function_tool(name_override="Read")
 def read_file(ctx: RunContextWrapper[EvalContext], file_path: str) -> str:
     """Read the contents of a file."""
     ec = ctx.context
@@ -650,7 +422,7 @@ def read_file(ctx: RunContextWrapper[EvalContext], file_path: str) -> str:
     return content[:8192]
 
 
-@function_tool
+@function_tool(name_override="Write")
 def write_file(ctx: RunContextWrapper[EvalContext], file_path: str, content: str) -> str:
     """Write content to a file, creating parent directories as needed."""
     ec = ctx.context
@@ -668,6 +440,53 @@ def write_file(ctx: RunContextWrapper[EvalContext], file_path: str, content: str
 
     log_tool(ec, "Write", file_path=file_path, step=ec.step_count)
     record_tool_policy_after(ec, "Write", file_path=file_path)
+
+    if policy_event and policy_event.effect == "notify":
+        feedback = format_tool_policy_feedback(policy_event)
+        append_policy_feedback(ec, feedback)
+        return feedback
+
+    feedback = wait_feedback(ec.feedback_file)
+    if feedback:
+        ec.actplane_feedbacks.append(feedback)
+        if ec.in_recovery:
+            ec.violation_after_recovery = True
+        if ec.deliver_feedback:
+            return f"[ActPlane] {feedback}"
+
+    return "ok"
+
+
+@function_tool(name_override="Edit")
+def edit_file(
+    ctx: RunContextWrapper[EvalContext],
+    file_path: str,
+    old_string: str,
+    new_string: str,
+) -> str:
+    """Replace old_string with new_string in a file."""
+    ec = ctx.context
+    ec.step_count += 1
+    policy_event = check_tool_policy_before(ec, "Edit", file_path=file_path)
+    if policy_event and policy_event.effect == "kill":
+        log_tool(ec, "Edit", file_path=file_path, returncode=126, step=ec.step_count)
+        feedback = format_tool_policy_feedback(policy_event)
+        append_policy_feedback(ec, feedback)
+        return feedback
+
+    p = safe_path(ec.workdir, file_path)
+    if not p.exists():
+        return f"Error: file not found: {file_path}"
+    try:
+        content = p.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return f"Error: {e}"
+    if old_string not in content:
+        return f"Error: old_string not found in {file_path}"
+    p.write_text(content.replace(old_string, new_string, 1), encoding="utf-8")
+
+    log_tool(ec, "Edit", file_path=file_path, step=ec.step_count)
+    record_tool_policy_after(ec, "Edit", file_path=file_path)
 
     if policy_event and policy_event.effect == "notify":
         feedback = format_tool_policy_feedback(policy_event)
@@ -753,9 +572,6 @@ def replay_trace_setup(
                 setup_step += 1
                 name = tool_use["name"]
                 inp = tool_use.get("input", {})
-                traced_result = ""
-                if i + 1 < len(trace_records) and trace_records[i + 1].get("type") == "tool_result":
-                    traced_result = str(trace_records[i + 1].get("content", ""))
 
                 policy_command = inp.get("command", "") if name == "Bash" else None
                 policy_file_path = (
@@ -791,29 +607,53 @@ def replay_trace_setup(
                 if name == "Read":
                     file_path = inp.get("file_path", "file.txt")
                     p = safe_path(ctx.workdir, file_path)
-                    p.parent.mkdir(parents=True, exist_ok=True)
-                    if traced_result and not p.exists():
-                        p.write_text(traced_result, encoding="utf-8")
-                    elif not p.exists():
-                        p.write_text("(placeholder for eval)", encoding="utf-8")
-                    try:
-                        actual_result = p.read_text(encoding="utf-8", errors="replace")
-                    except OSError as e:
-                        actual_result = f"Error: {e}"
+                    if not p.exists():
+                        actual_result = f"Error: file not found: {file_path}"
+                        record_setup_error(ctx, actual_result)
+                    else:
+                        try:
+                            actual_result = p.read_text(encoding="utf-8", errors="replace")
+                        except OSError as e:
+                            actual_result = f"Error: {e}"
+                            record_setup_error(ctx, actual_result)
                     log_tool(ctx, "Read", file_path=file_path, step=setup_step)
                     record_tool_policy_after(ctx, "Read", file_path=file_path)
 
-                elif name in ("Edit", "Write"):
+                elif name == "Edit":
+                    file_path = inp.get("file_path", "file.txt")
+                    old_string = str(inp.get("old_string", ""))
+                    new_string = str(inp.get("new_string", ""))
+                    p = safe_path(ctx.workdir, file_path)
+                    if not p.exists():
+                        actual_result = f"Error: file not found: {file_path}"
+                        record_setup_error(ctx, actual_result)
+                    else:
+                        try:
+                            content = p.read_text(encoding="utf-8", errors="replace")
+                            if old_string not in content:
+                                actual_result = f"Error: old_string not found in {file_path}"
+                                record_setup_error(ctx, actual_result)
+                            else:
+                                p.write_text(content.replace(old_string, new_string, 1), encoding="utf-8")
+                                actual_result = "ok"
+                        except OSError as e:
+                            actual_result = f"Error: {e}"
+                            record_setup_error(ctx, actual_result)
+                    log_tool(ctx, "Edit", file_path=file_path, step=setup_step)
+                    record_tool_policy_after(ctx, "Edit", file_path=file_path)
+
+                elif name == "Write":
                     file_path = inp.get("file_path", "file.txt")
                     p = safe_path(ctx.workdir, file_path)
                     p.parent.mkdir(parents=True, exist_ok=True)
-                    p.write_text(
-                        str(inp.get("new_string", inp.get("content", ""))),
-                        encoding="utf-8",
-                    )
-                    actual_result = traced_result or "ok"
-                    log_tool(ctx, name, file_path=file_path, step=setup_step)
-                    record_tool_policy_after(ctx, name, file_path=file_path)
+                    try:
+                        p.write_text(str(inp.get("content", "")), encoding="utf-8")
+                        actual_result = "ok"
+                    except OSError as e:
+                        actual_result = f"Error: {e}"
+                        record_setup_error(ctx, actual_result)
+                    log_tool(ctx, "Write", file_path=file_path, step=setup_step)
+                    record_tool_policy_after(ctx, "Write", file_path=file_path)
 
                 elif name == "Bash":
                     cmd = inp.get("command", "")
@@ -821,24 +661,32 @@ def replay_trace_setup(
                     stdout = ""
                     stderr = ""
                     if cmd:
-                        proc = subprocess.run(
-                            ["/bin/bash", "-c", cmd],
-                            cwd=ctx.workdir,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                            timeout=30,
-                        )
-                        returncode = proc.returncode
-                        stdout = proc.stdout
-                        stderr = proc.stderr
-                    actual_result = traced_result or (stdout + (f"\nSTDERR: {stderr}" if stderr else "")).strip()
-                    if returncode != 0:
-                        actual_result = (actual_result + f"\n(exit code {returncode})").strip()
+                        try:
+                            proc = subprocess.run(
+                                ["/bin/bash", "-c", cmd],
+                                cwd=ctx.workdir,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                timeout=30,
+                            )
+                            returncode = proc.returncode
+                            stdout = proc.stdout
+                            stderr = proc.stderr
+                        except subprocess.TimeoutExpired:
+                            returncode = 124
+                            stderr = "command timed out after 30s"
+                            record_setup_error(ctx, f"Bash timed out: {cmd}")
+                        except OSError as e:
+                            returncode = 126
+                            stderr = str(e)
+                            record_setup_error(ctx, f"Bash failed to execute: {cmd}: {e}")
+                    actual_result = format_command_result(stdout, stderr, returncode)
                     log_tool(ctx, "Bash", command=cmd, returncode=returncode, step=setup_step)
                     record_tool_policy_after(ctx, "Bash", command=cmd)
                 else:
-                    actual_result = traced_result or f"unsupported setup tool: {name}"
+                    actual_result = f"unsupported setup tool: {name}"
+                    record_setup_error(ctx, actual_result)
 
                 messages.append({
                     "role": "user",
@@ -886,6 +734,22 @@ def replay_trace_setup(
     return messages, fired
 
 
+def validate_trace_setup(
+    real_repo: Path,
+    trace_records: list[dict[str, Any]],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Replay the full setup without any policy to catch invalid trace artifacts."""
+    tmp = Path(tempfile.mkdtemp(prefix="actplane-validate-"))
+    try:
+        workdir = tmp / "repo"
+        shutil.copytree(real_repo, workdir, symlinks=True)
+        ctx = EvalContext(workdir=workdir)
+        replay_trace_setup(trace_records, ctx)
+        return list(ctx.setup_errors), list(ctx.tool_log)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # Main eval flow (runs inside actplane run for enforcement systems)
 # ---------------------------------------------------------------------------
@@ -895,13 +759,14 @@ async def run_scenario_inner(
     rule_path: Path,
     trace_path: Path,
     base_instructions: str,
-    llama_base_url: str,
+    base_url: str,
     model_name: str,
     api_key_env: str,
     thinking: str,
     request_timeout: float,
     system: str,
     max_steps: int,
+    skip_prevalidation: bool,
 ) -> dict[str, Any]:
     trace_records = read_jsonl(trace_path)
     if not trace_records or trace_records[0].get("type") != "ground_truth":
@@ -913,33 +778,47 @@ async def run_scenario_inner(
     repo_name = statement_dir.parent.name
     real_repo = CORPUS_EVALUATED / repo_name / "repo"
 
+    if not real_repo.is_dir():
+        raise RuntimeError(f"missing evaluated repo: {real_repo}")
+
+    if not skip_prevalidation:
+        validation_errors, validation_tool_log = validate_trace_setup(real_repo, trace_records)
+        if validation_errors:
+            return make_unscorable_result(
+                statement_dir=statement_dir,
+                trace_path=trace_path,
+                ground_truth=gt,
+                system=system,
+                model_name=model_name,
+                thinking=thinking,
+                setup_errors=validation_errors,
+                tool_log=validation_tool_log,
+            )
+
     ovl_base = Path(tempfile.mkdtemp(prefix="actplane-eval-"))
     mounted = False
-    if real_repo.is_dir():
-        ovl_upper = ovl_base / "upper"
-        ovl_work = ovl_base / "work"
-        ovl_merged = ovl_base / "merged"
-        ovl_upper.mkdir()
-        ovl_work.mkdir()
-        ovl_merged.mkdir()
-        mount_proc = subprocess.run(
-            [
-                "mount", "-t", "overlay", "overlay",
-                "-o", f"lowerdir={real_repo},upperdir={ovl_upper},workdir={ovl_work}",
-                str(ovl_merged),
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if mount_proc.returncode == 0:
-            mounted = True
-            workdir = ovl_merged
-        else:
-            workdir = ovl_base / "scratch"
-            workdir.mkdir()
+    ovl_upper = ovl_base / "upper"
+    ovl_work = ovl_base / "work"
+    ovl_merged = ovl_base / "merged"
+    ovl_upper.mkdir()
+    ovl_work.mkdir()
+    ovl_merged.mkdir()
+    mount_proc = subprocess.run(
+        [
+            "mount", "-t", "overlay", "overlay",
+            "-o", f"lowerdir={real_repo},upperdir={ovl_upper},workdir={ovl_work}",
+            str(ovl_merged),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if mount_proc.returncode == 0:
+        mounted = True
+        workdir = ovl_merged
     else:
-        workdir = ovl_base
+        workdir = ovl_base / "scratch"
+        shutil.copytree(real_repo, workdir, symlinks=True)
 
     if not (workdir / ".git").exists():
         subprocess.run(["git", "init"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -948,15 +827,16 @@ async def run_scenario_inner(
 
     fb_path: Path | None = None
     if system in ("actplane", "actplane-opaque"):
-        cwd_fb = Path.cwd() / ".actplane" / "last-violation.txt"
-        if cwd_fb.exists():
-            fb_path = cwd_fb
+        env_fb = os.environ.get("ACTPLANE_FEEDBACK_FILE")
+        if env_fb:
+            fb_path = Path(env_fb)
         else:
             fb_path = workdir / ".actplane" / "last-violation.txt"
             fb_path.parent.mkdir(parents=True, exist_ok=True)
             fb_path.write_text("", encoding="utf-8")
 
-    tool_policy = ToolRegexPolicy.from_rule_file(rule_path) if system == "tool-regex" else None
+    tool_policy_file = statement_dir / TOOL_REGEX_POLICY
+    tool_policy = ToolRegexPolicy.from_policy_file(tool_policy_file) if system == "tool-regex" else None
     ctx = EvalContext(
         workdir=workdir,
         feedback_file=fb_path,
@@ -966,6 +846,23 @@ async def run_scenario_inner(
     )
 
     history, setup_fired = replay_trace_setup(trace_records, ctx)
+    if ctx.setup_errors:
+        cleanup_workdir(mounted, workdir, ovl_base)
+        return make_unscorable_result(
+            statement_dir=statement_dir,
+            trace_path=trace_path,
+            ground_truth=gt,
+            system=system,
+            model_name=model_name,
+            thinking=thinking,
+            setup_errors=list(ctx.setup_errors),
+            tool_log=ctx.tool_log,
+            setup_fired=setup_fired,
+            setup_visible_intervention=ctx.setup_visible_intervention,
+            setup_feedbacks=ctx.setup_feedbacks,
+            recovery_feedbacks=ctx.actplane_feedbacks,
+            workdir_backend="overlay" if mounted else "copy",
+        )
 
     ctx.in_recovery = True
     ctx.violation_after_recovery = False
@@ -994,7 +891,7 @@ async def run_scenario_inner(
 
     client = AsyncOpenAI(
         api_key=os.environ.get(api_key_env, "local"),
-        base_url=llama_base_url,
+        base_url=base_url,
         timeout=request_timeout,
     )
     model = OpenAIChatCompletionsModel(model=model_name, openai_client=client)
@@ -1002,7 +899,7 @@ async def run_scenario_inner(
     agent = Agent(
         name="eval-agent",
         instructions=instructions,
-        tools=[bash_tool, read_file, write_file],
+        tools=[bash_tool, read_file, write_file, edit_file],
         model=model,
         model_settings=make_model_settings(thinking),
     )
@@ -1030,28 +927,39 @@ async def run_scenario_inner(
             "content": "Continue with the task. What would you do next?",
         })
 
+    agent_error: dict[str, Any] | None = None
+    final_output: Any = None
+    max_agent_attempts = 4
     try:
-        result = await Runner.run(
-            agent,
-            input=history,
-            context=ctx,
-            max_turns=max_steps,
-            hooks=EvalHooks(),
-            run_config=RunConfig(tracing_disabled=True),
-        )
-        final_output = result.final_output
-    except StopIteration:
-        final_output = "(max steps reached)"
-    except Exception as e:
-        final_output = f"(agent error: {type(e).__name__}: {e})"
+        for attempt in range(max_agent_attempts):
+            try:
+                result = await Runner.run(
+                    agent,
+                    input=history,
+                    context=ctx,
+                    max_turns=max_steps,
+                    hooks=EvalHooks(),
+                    run_config=RunConfig(tracing_disabled=True),
+                )
+                final_output = result.final_output
+                agent_error = None
+                break
+            except StopIteration:
+                final_output = "(max steps reached)"
+                agent_error = None
+                break
+            except Exception as e:
+                agent_error = error_record(e)
+                if not agent_error["transient"] or attempt + 1 >= max_agent_attempts:
+                    final_output = f"(agent error: {type(e).__name__}: {e})"
+                    break
+                await asyncio.sleep(5 * (2 ** attempt))
     finally:
         try:
             await client.close()
         except Exception:
             pass
-        if mounted:
-            subprocess.run(["umount", "-l", str(workdir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(["rm", "-rf", str(ovl_base)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cleanup_workdir(mounted, workdir, ovl_base)
 
     score = score_scenario(gt, system, setup_fired, ctx, final_output)
 
@@ -1065,16 +973,19 @@ async def run_scenario_inner(
         "setup_fired": setup_fired,
         "setup_visible_intervention": ctx.setup_visible_intervention,
         "setup_feedbacks": list(ctx.setup_feedbacks),
+        "setup_errors": list(ctx.setup_errors),
         "recovery_feedbacks": list(ctx.actplane_feedbacks),
         "tool_log": ctx.tool_log,
         "step_count": ctx.step_count,
         "agent_output": final_output,
+        "agent_error": agent_error,
+        "scorable": (not ctx.setup_errors)
+        and (agent_error is None or not agent_error.get("unscorable", False)),
         "violation_after_recovery": ctx.violation_after_recovery,
         "score": score,
-        "compliant": score["status"] == "hard_pass",
         "model": model_name,
         "thinking": thinking,
-        "workdir_backend": "overlay" if mounted else "scratch",
+        "workdir_backend": "overlay" if mounted else "copy",
     }
 
 
@@ -1157,7 +1068,6 @@ def run_under_actplane(
     if preserve_env:
         preserve = f"{preserve},{preserve_env}"
     cmd = [
-        "sudo", f"--preserve-env={preserve}",
         str(actplane_bin),
         "--policy", str(rule_path.resolve()),
         "run", "--run-as-root", "--",
@@ -1165,6 +1075,8 @@ def run_under_actplane(
         "--inner",
         *inner_args,
     ]
+    if os.geteuid() != 0:
+        cmd = ["sudo", f"--preserve-env={preserve}", *cmd]
     env = os.environ.copy()
     pythonpath = env.get("PYTHONPATH", "")
     user_site = Path.home() / ".local" / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
@@ -1187,7 +1099,7 @@ def run_under_actplane(
         "error": f"actplane run failed (rc={proc.returncode})",
         "stdout": proc.stdout[-500:],
         "stderr": proc.stderr[-500:],
-        "compliant": False,
+        "scorable": False,
     }
 
 
@@ -1225,37 +1137,57 @@ async def main_inner(args):
         rule_path=Path(args.rule) if args.rule else Path(args.statement_dir) / "rule.yaml",
         trace_path=Path(args.trace),
         base_instructions=base_instructions,
-        llama_base_url=args.llama_url,
+        base_url=args.base_url,
         model_name=args.model_name,
         api_key_env=args.api_key_env,
         thinking=args.thinking,
         request_timeout=args.request_timeout,
         system=args.system,
         max_steps=args.max_steps,
+        skip_prevalidation=args.skip_prevalidation,
     )
     print(json.dumps(r, ensure_ascii=False))
     return 0
 
 
 def run_one_scenario(spec_and_args):
-    """Run a single scenario (used by both sequential and parallel modes)."""
+    """Run a single scenario."""
     sd, rule, trace, args = spec_and_args
     label = f"{sd.parent.name}/{sd.name} — {trace.name}"
 
     try:
-        if args.system in ("actplane", "actplane-opaque"):
+        trace_records = read_jsonl(trace)
+        if not trace_records or trace_records[0].get("type") != "ground_truth":
+            raise RuntimeError(f"{trace}: must start with ground_truth")
+        real_repo = CORPUS_EVALUATED / sd.parent.name / "repo"
+        if not real_repo.is_dir():
+            raise RuntimeError(f"missing evaluated repo: {real_repo}")
+        validation_errors, validation_tool_log = validate_trace_setup(real_repo, trace_records)
+        if validation_errors:
+            r = make_unscorable_result(
+                statement_dir=sd,
+                trace_path=trace,
+                ground_truth=trace_records[0],
+                system=args.system,
+                model_name=args.model_name,
+                thinking=args.thinking,
+                setup_errors=validation_errors,
+                tool_log=validation_tool_log,
+            )
+        elif args.system in ("actplane", "actplane-opaque"):
             inner_args = [
+                "--skip-prevalidation",
                 "--statement-dir", str(sd),
                 "--rule", str(rule),
                 "--trace", str(trace),
                 "--system", args.system,
-                "--llama-url", args.llama_url,
+                "--base-url", args.base_url,
                 "--model-name", args.model_name,
                 "--api-key-env", args.api_key_env,
-        "--thinking", args.thinking,
-        "--request-timeout", str(args.request_timeout),
-        "--max-steps", str(args.max_steps),
-        "--base-instructions", str(args.base_instructions),
+                "--thinking", args.thinking,
+                "--request-timeout", str(args.request_timeout),
+                "--max-steps", str(args.max_steps),
+                "--base-instructions", str(args.base_instructions),
             ]
             r = run_under_actplane(args.actplane, rule, inner_args, preserve_env=args.api_key_env)
         else:
@@ -1265,13 +1197,14 @@ def run_one_scenario(spec_and_args):
                 rule_path=rule,
                 trace_path=trace,
                 base_instructions=base_instructions,
-                llama_base_url=args.llama_url,
+                base_url=args.base_url,
                 model_name=args.model_name,
                 api_key_env=args.api_key_env,
                 thinking=args.thinking,
                 request_timeout=args.request_timeout,
                 system=args.system,
                 max_steps=args.max_steps,
+                skip_prevalidation=True,
             ))
 
         r.setdefault("repo", sd.parent.name.replace("__", "/"))
@@ -1279,6 +1212,10 @@ def run_one_scenario(spec_and_args):
         r.setdefault("system", args.system)
         r.setdefault("trace_file", trace.name)
         r.setdefault("rule_file", str(rule))
+        r.setdefault(
+            "tool_policy_file",
+            str(sd / TOOL_REGEX_POLICY) if args.system == "tool-regex" else None,
+        )
         r.setdefault("model", args.model_name)
         r.setdefault("thinking", args.thinking)
 
@@ -1302,13 +1239,11 @@ def run_one_scenario(spec_and_args):
 
     except Exception as e:
         print(f"  [{label}] ERROR: {e}", file=sys.stderr)
-        return {"error": str(e), "compliant": False}
+        return {"error": str(e), "scorable": False}
 
 
 def main_outer(args):
     """Outer mode: manage actplane run invocations."""
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-
     specs = discover_specs(args)
     if not specs:
         print("No scenarios found.", file=sys.stderr)
@@ -1316,31 +1251,23 @@ def main_outer(args):
 
     work = [(sd, rule, trace, args) for sd, rule, trace in specs]
 
-    if args.parallel > 1:
-        print(f"Running {len(work)} scenarios with --parallel {args.parallel}")
-        results = []
-        with ProcessPoolExecutor(max_workers=args.parallel) as pool:
-            futures = {pool.submit(run_one_scenario, w): w for w in work}
-            for f in as_completed(futures):
-                results.append(f.result())
-    else:
-        results = []
-        for w in work:
-            print(f"Running: {w[0].parent.name}/{w[0].name} — {w[2].name} — system={args.system}")
-            results.append(run_one_scenario(w))
+    results = []
+    for w in work:
+        print(f"Running: {w[0].parent.name}/{w[0].name} — {w[2].name} — system={args.system}")
+        results.append(run_one_scenario(w))
 
     total = len(results)
     if total:
         print(
             f"\nDone: {total} runner results written. "
-            f"Run judge_trajectory.py and summarize_agent_sdk_results.py for TPCR."
+            f"Run judge_trajectory.py and summarize_agent_sdk_results.py for directive compliance."
         )
     return 0
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="ActPlane eval with OpenAI Agents SDK")
-    p.add_argument("--inner", action="store_true", help="Inner mode (already under actplane run)")
+    p.add_argument("--inner", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--root", type=Path, default=ROOT / "docs" / "corpus-test")
     p.add_argument("--statement-dir", type=Path, default=None)
     p.add_argument("--rule", type=Path, default=None)
@@ -1353,13 +1280,13 @@ def parse_args():
     )
     p.add_argument("--actplane", type=Path, default=DEFAULT_ACTPLANE)
     p.add_argument("--base-instructions", type=Path, default=DEFAULT_BASE_INSTRUCTIONS)
-    p.add_argument("--llama-url", "--base-url", dest="llama_url", default="http://127.0.0.1:18080/v1")
+    p.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
     p.add_argument("--model-name", default="local-model")
     p.add_argument("--api-key-env", default="OPENAI_API_KEY")
     p.add_argument("--thinking", choices=["default", "enabled", "disabled"], default="default")
     p.add_argument("--request-timeout", type=float, default=90.0)
     p.add_argument("--max-steps", type=int, default=10)
-    p.add_argument("--parallel", type=int, default=1, help="Number of scenarios to run in parallel")
+    p.add_argument("--skip-prevalidation", action="store_true", help=argparse.SUPPRESS)
     return p.parse_args()
 
 

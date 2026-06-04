@@ -1,0 +1,26 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        coreutils \
+        findutils \
+        git \
+        grep \
+        procps \
+        ripgrep \
+        util-linux \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir \
+        openai \
+        openai-agents \
+        pyyaml
+
+COPY docker_eval_entrypoint.py /usr/local/bin/actplane-docker-eval
+
+ENTRYPOINT ["python3", "/usr/local/bin/actplane-docker-eval"]

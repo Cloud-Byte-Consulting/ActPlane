@@ -1,0 +1,32 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "node"
+  source AGENT = exec "kilocode"
+
+  rule package:
+    notify exec "pip" "install" if AGENT
+    notify exec "pip3" "install" if AGENT
+    notify exec "uv" "add" if AGENT
+    notify exec "poetry" "add" if AGENT
+    notify exec "npm" "install" if AGENT
+    notify exec "npm" "i" if AGENT
+    notify exec "pnpm" "add" if AGENT
+    notify exec "pnpm" "install" if AGENT
+    notify exec "yarn" "add" if AGENT
+    notify exec "bun" "add" if AGENT
+    because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+
+  rule destructive:
+    notify exec "rm" if AGENT
+    because "Avoid destructive file or command operations unless the task explicitly requires them and the target is confirmed."
+
+  rule external_cli:
+    notify exec "curl" if AGENT
+    notify exec "wget" if AGENT
+    notify exec "gh" if AGENT
+    notify exec "stripe" if AGENT
+    because "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."

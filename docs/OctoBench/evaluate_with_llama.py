@@ -41,6 +41,7 @@ from llama_server import LlamaServer  # noqa: E402
 
 
 JUDGE_PARALLEL = 3
+JUDGE_SERVER_PARALLEL = 1
 
 
 class _MaxTokensProxyServer(ThreadingHTTPServer):
@@ -437,7 +438,7 @@ def main() -> int:
     scores = out_dir / "scores_llama_judge.json"
     server = LlamaServer(
         judge_json=True,
-        parallel=JUDGE_PARALLEL,
+        parallel=JUDGE_SERVER_PARALLEL,
         restart_existing=True,
         log_path=out_dir / "llama-judge-server.log",
     )
@@ -457,7 +458,7 @@ def main() -> int:
                 "model": args.model,
                 "base_url": f"{token_proxy.base_url}/v1",
                 "judge_parallel": JUDGE_PARALLEL,
-                "server_parallel": JUDGE_PARALLEL,
+                "server_parallel": JUDGE_SERVER_PARALLEL,
                 "judge_max_tokens": args.judge_max_tokens,
                 "official_unit": "whole_case_full_checklist",
             },

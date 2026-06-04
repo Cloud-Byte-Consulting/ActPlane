@@ -26,9 +26,8 @@ All evaluation rules are drawn from the empirical study corpus
 We evaluate ActPlane on a sample of the 607 system-level behavioral policies
 drawn from the empirical study of 64 real projects. Directives are translated
 into DSL rules, then evaluated across direct and bypass execution paths under
-the active real-execution systems (prompt-only, kernel IFC, ActPlane);
-tool-layer baselines are added to the same harness before being reported
-as paper results (RQ1). Per-event overhead is ~XX µs at p99 with 32
+the active real-execution systems (prompt-only, tool-regex, ActPlane, and
+ActPlane opaque-feedback ablation). Per-event overhead is ~XX µs at p99 with 32
 active rules (RQ2). On Terminal-Bench (89 tasks), semantic feedback
 improves post-match guided completion rate by ~XX pp over bare rule
 application (RQ3).
@@ -39,7 +38,7 @@ application (RQ3).
 
 | RQ | Question | What it proves | Method |
 |---|---|---|---|
-| **RQ1** | Compared with prompt-only and kernel-only mechanisms, and with first-class tool-layer modes once added, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Policy-compliance advantage over existing mechanisms under controlled agent contexts | Sampled directives × (direct + bypass paths) × active systems, real Agent SDK trace setup + next-step execution |
+| **RQ1** | Compared with prompt-only, tool-layer, and feedback-ablation baselines, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Policy-compliance advantage over existing mechanisms under controlled agent contexts | Sampled directives × (direct + bypass paths) × active systems, real Agent SDK trace setup + next-step execution |
 | **RQ2** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Microbenchmark + trace replay |
 | **RQ3** | Does the ActPlane harness improve agent task completion, and does rule adaptation across rounds help? | End-to-end system value + adaptation | Terminal-Bench (89 tasks × 2 conditions, B2 with 3 rounds) |
 
@@ -66,24 +65,23 @@ application (RQ3).
 
 ### 3.3 Baseline Systems
 
-All active runs use the **same DSL rules** and the same real Agent SDK
-execution harness; the difference is the enforcement layer exposed to the
-agent. Tool-layer and app-level IFC baselines remain comparison targets,
-but should be added as first-class modes in the same harness before they
-are reported as paper results. The earlier standalone prototype scripts
-were removed to keep the active eval path auditable.
+All active runs use the same real Agent SDK execution harness and the same
+trace-conditioned decision points; the difference is the enforcement layer
+exposed to the agent. ActPlane consumes `rule.yaml`, while tool-layer baselines
+consume explicit per-case policies under `baselines/tool-regex.yaml`. The
+runner does not lower ActPlane DSL into a tool-layer policy at runtime.
 
 | System | Implementation | Layer | What it represents |
 |---|---|---|---|
 | **Prompt-only** | `agent_sdk_eval.py --system prompt-only` | Intent | Prompt compliance baseline |
-| **Kernel IFC** | `agent_sdk_eval.py --system kernel-ifc` | Kernel (cross-event) | Kernel enforcement without semantic feedback |
+| **Tool-regex** | `agent_sdk_eval.py --system tool-regex` | Tool call | Tool-layer policy check over Agent SDK tool inputs |
 | **ActPlane** | `agent_sdk_eval.py --system actplane` | Kernel (cross-event + feedback) | This system |
-| **TL-1 / TL-N / App-level IFC** | Planned first-class modes | Tool call | Tool-layer comparison class |
+| **ActPlane opaque** | `agent_sdk_eval.py --system actplane-opaque` | Kernel (cross-event, no structured feedback) | Feedback ablation |
 
-The active path tests prompt-only, kernel-only, and full ActPlane under
-the same trace setup and real next-step execution. Tool-layer baselines
-should reuse the same result schema and Agent SDK tool execution path
-rather than a separate replay-only harness.
+The active path tests prompt-only, tool-regex, ActPlane, and ActPlane opaque
+under the same trace setup and real next-step execution. Additional baselines
+should reuse the same result schema and Agent SDK tool execution path rather
+than a separate replay-only harness.
 
 ---
 
@@ -332,8 +330,16 @@ Total: 607 × 2 = **1,214 trace scenarios**. Census (all directives).
 
 #### Step 3: Execute End-to-End (Trace Replay + LLM Decision)
 
-We implement a minimal eval harness (~100 lines Python) with three
-phases: deterministic trace replay under ActPlane, a tested LLM decision
+Before any system-specific run, each trace must pass a system-independent
+prevalidation pass: the full setup trace is replayed on a copy of the real repo
+under `docs/corpus-evaluated/<repo>/repo`, with no policy active. Missing files,
+`Edit.old_string` mismatches, unsupported tools, and setup execution exceptions
+mark the scenario `scorable=false`. These invalid trace artifacts are omitted
+from model calls, judging, and paper metrics; they are not counted as system
+failures.
+
+We implement a minimal eval harness with three
+phases: deterministic trace replay under the selected system, a tested LLM decision
 step, and result-record creation. Scoring is
 a separate pass over `results/*.json` so reruns and manual audits do not
 overwrite the raw tested-model output.
@@ -341,9 +347,9 @@ overwrite the raw tested-model output.
 ```python
 def run_scenario(trace_jsonl, rule_yaml):
     ground_truth = trace_jsonl[0]  # first line is ground_truth
-    # Phase 1: Replay trace under ActPlane (deterministic, no LLM)
-    # All execution under ActPlane — labels propagate from first tool call.
-    start_actplane(rule_yaml)
+    # Phase 1: Replay trace under the selected system (deterministic, no LLM)
+    # For ActPlane, labels propagate from the seeded runner process.
+    start_selected_system(rule_yaml)
     context = []
     for msg in trace_jsonl:
         if msg["type"] == "user":

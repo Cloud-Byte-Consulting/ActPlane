@@ -57,40 +57,40 @@ pub fn format_payload(input: PayloadInput<'_>) -> String {
     let body = match (effect, action) {
         (Effect::Notify, _) => {
             format!(
-                "[ActPlane] 操作「{op} {target}」触发了通知规则「{name}」（操作未被拦截）。\n\
-                 - 原因：{reason}\n\
+                "[ActPlane] Operation `{op} {target}` matched notify rule `{name}`. The operation was not blocked.\n\
+                 - Reason: {reason}\n\
                  {prov}\
-                 - 建议：后续请避免该操作。"
+                 - Next step: avoid repeating this action unchanged; choose a compliant alternative."
             )
         }
         (Effect::Block, "block") => {
             format!(
-                "[ActPlane] 操作被规则「{name}」拒绝。\n\
-                 - 目标操作：{op} {target}\n\
-                 - 触发原因：{reason}\n\
+                "[ActPlane] Operation blocked by rule `{name}`.\n\
+                 - Target operation: {op} {target}\n\
+                 - Reason: {reason}\n\
                  {prov}\
-                 - BPF-LSM 已在内核提交前返回 EPERM；重试相同操作不会成功。\n\
-                 - 如何继续：请改用不触发该约束的等价方式完成任务；若确无替代路径，请向用户说明并确认。"
+                 - The BPF-LSM hook returned EPERM before the operation committed; retrying the same operation will not succeed.\n\
+                 - Next step: use an equivalent path that satisfies the policy, or explain to the user why no compliant alternative exists."
             )
         }
         (Effect::Block, _) => {
             format!(
-                "[ActPlane] 规则「{name}」要求 block，但当前 backend 不支持 block。\n\
-                 - 目标操作：{op} {target}\n\
-                 - 触发原因：{reason}\n\
+                "[ActPlane] Rule `{name}` requested block, but this backend cannot block the operation.\n\
+                 - Target operation: {op} {target}\n\
+                 - Reason: {reason}\n\
                  {prov}\
-                 - block 只由 BPF-LSM pre-op hook 实现；tracepoint backend 不支持 block，也不会把它降级成 notify 或 kill。\n\
-                 - 如何继续：启用 BPF-LSM，或把这条规则改成 notify / kill。"
+                 - Blocking requires the BPF-LSM pre-operation hook; this backend did not downgrade the rule to notify or kill.\n\
+                 - Next step: enable BPF-LSM or change this rule to notify/kill."
             )
         }
         (Effect::Kill, _) => {
             format!(
-                "[ActPlane] 操作被规则「{name}」终止。\n\
-                 - 目标操作：{op} {target}\n\
-                 - 触发原因：{reason}\n\
+                "[ActPlane] Operation killed by rule `{name}`.\n\
+                 - Target operation: {op} {target}\n\
+                 - Reason: {reason}\n\
                  {prov}\
-                 - 该规则显式要求终止当前违规进程，重试相同操作不会成功。\n\
-                 - 如何继续：请停止该路径，改用不触发该约束的等价方式；若确无替代路径，请向用户说明并确认。"
+                 - The policy terminated the violating process; retrying the same operation will not succeed.\n\
+                 - Next step: stop this path and use a compliant alternative, or explain to the user why no compliant alternative exists."
             )
         }
     };
@@ -116,8 +116,8 @@ pub fn format_payload(input: PayloadInput<'_>) -> String {
 fn provenance_line(p: Option<&Provenance>, op: &str, target: &str) -> String {
     match p {
         Some(p) => format!(
-            "- 污点来源：PID {} 在内核时间戳 {} ns 通过「{} {}」获得 {} label；该 label 随进程状态传播到当前「{} {}」操作。\n",
-            p.origin_pid, p.origin_timestamp_ns, p.origin_op, p.origin_target, p.label, op, target
+            "- Provenance: PID {} acquired label {} at kernel timestamp {} ns via `{}` `{}`; that label propagated through process state to the current `{}` `{}` operation.\n",
+            p.origin_pid, p.label, p.origin_timestamp_ns, p.origin_op, p.origin_target, op, target
         ),
         None => String::new(),
     }
@@ -176,7 +176,7 @@ mod tests {
             killed: false,
             provenance: None,
         });
-        assert!(s.contains("当前 backend 不支持 block"));
+        assert!(s.contains("this backend cannot block"));
         assert!(s.contains("\"effect\":\"block\""));
         assert!(s.contains("\"action\":\"unsupported\""));
     }
@@ -201,7 +201,7 @@ mod tests {
             provenance: Some(&p),
         });
         assert!(s.contains("PID 1234"));
-        assert!(s.contains("通过「read /repo/.env」获得 SECRET label"));
-        assert!(s.contains("传播到当前「connect 1.2.3.4」操作"));
+        assert!(s.contains("acquired label SECRET"));
+        assert!(s.contains("current `connect` `1.2.3.4` operation"));
     }
 }

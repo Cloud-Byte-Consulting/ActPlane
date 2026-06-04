@@ -1,0 +1,29 @@
+version: 1
+sources:
+  - label: SECRET
+    kind: file
+    pattern: "**/.env"
+  - label: SECRET
+    kind: file
+    pattern: "**/.env.local"
+  - label: SECRET
+    kind: file
+    pattern: "**/*credentials*"
+  - label: SECRET
+    kind: file
+    pattern: "**/*secret*"
+rules:
+  - id: no-git-add-api-keys
+    effect: kill
+    op: exec
+    target: git
+    arg: add
+    if: SECRET and AGENT
+    reason: "Never commit API keys or secret files to version control; use environment variables or .env files that are in .gitignore"
+  - id: no-git-commit-api-keys
+    effect: kill
+    op: exec
+    target: git
+    arg: commit
+    if: SECRET and AGENT
+    reason: "Never commit API keys or secret files to version control; use environment variables or .env files that are in .gitignore"

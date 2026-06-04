@@ -9,7 +9,6 @@ policy: |
   rule credential:
     notify open file "**/.aws/config" if AGENT
     notify open file "**/.aws/credentials" if AGENT
-    notify open file "**/.env" if AGENT
     because "Do not expose credentials or secret material; only inspect existence or validation status required by the task."
 
   rule aws_live:

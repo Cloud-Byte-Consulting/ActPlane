@@ -4,7 +4,8 @@ feedback:
   path: .actplane/last-violation.txt
 
 policy: |
-  source AGENT = exec "claude"
+  source AGENT = exec "node"
+  source AGENT = exec "kilocode"
 
   rule docs:
     notify write file "**/*.md" if AGENT

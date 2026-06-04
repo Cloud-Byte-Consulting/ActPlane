@@ -1,0 +1,18 @@
+version: 1
+rules:
+  - id: scripts-in-scripts-dir-sh
+    effect: notify
+    op: write
+    target: "**/*.sh"
+    if: AGENT
+    unless:
+      target: "**/scripts/**"
+    reason: "Helper scripts must be placed in the scripts/ directory, not written inline; reference them from SKILL.md by relative path"
+  - id: scripts-in-scripts-dir-py
+    effect: notify
+    op: write
+    target: "**/*.py"
+    if: AGENT
+    unless:
+      target: "**/scripts/**"
+    reason: "Helper scripts must be placed in the scripts/ directory, not written inline; reference them from SKILL.md by relative path"

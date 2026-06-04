@@ -51,6 +51,23 @@ def load_json(path: Path) -> dict[str, Any] | None:
     return data
 
 
+def is_scorable_result(result: dict[str, Any]) -> bool:
+    if result.get("scorable") is False:
+        return False
+    output = str(result.get("agent_output") or "")
+    if not output.startswith("(agent error:"):
+        return True
+    external_or_runner_errors = [
+        "RateLimitError",
+        "Error code: 429",
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "Tool Edit not found",
+    ]
+    return not any(marker in output for marker in external_or_runner_errors)
+
+
 def result_key(result: dict[str, Any]) -> tuple[str, str, str, str]:
     return (
         str(result.get("system") or ""),
@@ -159,8 +176,10 @@ def summarize_system(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def print_summary(summary: dict[str, dict[str, Any]]) -> None:
+def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -> None:
     print("Final metric: Directive Compliance Rate")
+    if omitted_unscorable:
+        print(f"Omitted unscorable runner results: {omitted_unscorable}")
     print()
     print("| system | Compliance | TP | TN | FP | FN | unclear | judged | mean confidence |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
@@ -214,6 +233,8 @@ def main() -> int:
         return 1
 
     results = select_latest(results)
+    omitted_unscorable = sum(1 for item in results if not is_scorable_result(item))
+    results = [item for item in results if is_scorable_result(item)]
 
     judged_rows, missing = load_judged_rows(
         results,
@@ -237,7 +258,7 @@ def main() -> int:
         if rows
     }
 
-    print_summary(summary)
+    print_summary(summary, omitted_unscorable)
     return 0
 
 

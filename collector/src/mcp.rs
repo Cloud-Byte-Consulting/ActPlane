@@ -106,6 +106,9 @@ impl ActPlaneMcp {
     }
 
     fn feedback_file(&self) -> PathBuf {
+        if let Ok(path) = std::env::var("ACTPLANE_FEEDBACK_FILE") {
+            return PathBuf::from(path);
+        }
         let Some(policy) = self.discover_policy_file() else {
             return self.project_dir.join(DEFAULT_FEEDBACK_FILE);
         };
@@ -119,6 +122,9 @@ impl ActPlaneMcp {
         let Ok(config) = serde_yaml::from_str::<serde_yaml::Value>(&src) else {
             return root.join(DEFAULT_FEEDBACK_FILE);
         };
+        if let Some(path) = latest_run_feedback(&root) {
+            return path;
+        }
         config
             .get("feedback")
             .and_then(|v| v.get("path"))
@@ -219,6 +225,18 @@ impl ActPlaneMcp {
         );
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
+}
+
+fn latest_run_feedback(root: &std::path::Path) -> Option<PathBuf> {
+    let runs = root.join(".actplane").join("runs");
+    let mut candidates = Vec::new();
+    for entry in std::fs::read_dir(runs).ok()?.flatten() {
+        let path = entry.path().join("feedback.txt");
+        let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
+        candidates.push((modified, path));
+    }
+    candidates.sort_by_key(|(modified, _)| *modified);
+    candidates.pop().map(|(_, path)| path)
 }
 
 // ── ServerHandler ───────────────────────────────────────────────────
