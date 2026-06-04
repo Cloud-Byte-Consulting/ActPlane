@@ -19,6 +19,8 @@ The submodule is not modified by the local runner.
 - `mini-vela/`: official OctoBench harness as a git submodule.
 - `data/selected_cases.jsonl`: selected 3-case OS-effect subset.
 - `data/policy_manifest.jsonl`: selected case to policy-file mapping.
+- `configs/litellm_llama_cpp.yaml`: local LiteLLM routing from OctoBench
+  Claude model names to the llama.cpp OpenAI-compatible endpoint.
 - `policies/cases/<case_id>.yaml`: canonical case-specific policy intent and
   mapped checklist items.
 - `policies/tool-regex/<case_id>.json`: tool-call regex implementation of that
@@ -26,6 +28,7 @@ The submodule is not modified by the local runner.
 - `policies/actplane/<case_id>.yaml`: ActPlane OS-level implementation of that
   case policy.
 - `run_cases.py`: single runner for `baseline`, `tool-regex`, and `actplane`.
+  It also launches the LiteLLM proxy with the upstream trajectory callback.
 - `tool_regex_hook.py`: Claude Code `PreToolUse` hook used by `tool-regex`.
 - `evaluate_with_llama.py`: official OctoBench whole-case judge wrapper.
 - `extract_actplane_metrics.py`: ActPlane OS evidence extraction. It does not
@@ -119,6 +122,11 @@ The runner expects Docker, the OctoBench task images, a working Claude Code
 scaffold environment inside those images, and local llama.cpp configured by
 `docs/eval_scripts/llama_server.py`. That helper defaults to GPU `CUDA0`,
 `n_ctx=128000`, and parallel `3`.
+
+`run_cases.py` starts LiteLLM through the local config
+`configs/litellm_llama_cpp.yaml`. The submodule's official proxy code and
+trajectory logger are imported, but no local config is written into the
+submodule.
 
 ## Run
 

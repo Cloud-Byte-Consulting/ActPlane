@@ -30,6 +30,7 @@ DEFAULT_DATASET = ROOT / "data" / "selected_cases.jsonl"
 DEFAULT_VENV = Path("/tmp/octobench-litellm-venv")
 DEFAULT_ACTPLANE = ROOT.parents[1] / "collector" / "target" / "release" / "actplane"
 DEFAULT_POLICY_ROOT = ROOT / "policies"
+DEFAULT_LITELLM_CONFIG = ROOT / "configs" / "litellm_llama_cpp.yaml"
 TOOL_REGEX_HOOK = ROOT / "tool_regex_hook.py"
 INSTANCE_ID_FILE = Path("/tmp/current_instance_id.txt")
 CONDITIONS = ("baseline", "tool-regex", "actplane")
@@ -102,14 +103,44 @@ def kill_process_tree(proc: subprocess.Popen, grace_s: int = 10) -> None:
     proc.wait(timeout=10)
 
 
-def start_proxy(venv: Path, log_path: Path) -> subprocess.Popen:
+def run_proxy_main(config_path: Path, port: int) -> None:
+    proxy_dir = MINI_VELA / "proxy"
+    sys.path.insert(0, str(proxy_dir))
+    os.chdir(proxy_dir)
+
+    import litellm  # noqa: PLC0415
+    from trajectory_logger import trajectory_logger_instance  # noqa: PLC0415
+
+    litellm.callbacks.append(trajectory_logger_instance)
+
+    print("=" * 60)
+    print("[run_cases proxy] registered upstream TrajectoryLogger callback")
+    print(f"[run_cases proxy] trajectory dir: {trajectory_logger_instance.output_dir}")
+    print(f"[run_cases proxy] config: {config_path}")
+    print(f"[run_cases proxy] port: {port}")
+    print("=" * 60)
+
+    sys.argv = [
+        "litellm",
+        "--config",
+        str(config_path),
+        "--port",
+        str(port),
+    ]
+
+    from litellm.proxy.proxy_cli import run_server  # noqa: PLC0415
+
+    run_server()
+
+
+def start_proxy(venv: Path, log_path: Path, config_path: Path) -> subprocess.Popen:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_path.open("w", encoding="utf-8")
     env = os.environ.copy()
     env["PATH"] = f"{venv / 'bin'}:{env.get('PATH', '')}"
     proc = subprocess.Popen(
-        [str(venv / "bin" / "python"), "proxy/start_proxy.py"],
-        cwd=MINI_VELA,
+        [str(venv / "bin" / "python"), str(ROOT / "run_cases.py"), "__proxy__", str(config_path), "4000"],
+        cwd=ROOT,
         env=env,
         stdout=log_file,
         stderr=subprocess.STDOUT,
@@ -122,23 +153,54 @@ def start_proxy(venv: Path, log_path: Path) -> subprocess.Popen:
     return proc
 
 
-def reset_mini_vela_results() -> Path:
+def reset_mini_vela_results(instance_id: str) -> Path:
     mini_results = MINI_VELA / "results"
-    if mini_results.exists():
-        shutil.rmtree(mini_results)
+    run_results = mini_results / "run_results.json"
+    if run_results.exists():
+        run_results.unlink()
+
+    trajectory = mini_results / "trajectories" / f"{instance_id}.jsonl"
+    if trajectory.exists():
+        trajectory.unlink()
+
     (mini_results / "trajectories").mkdir(parents=True, exist_ok=True)
     return mini_results
 
 
-def archive_mini_vela_results(mini_results: Path, case_dir: Path) -> list[str]:
+def archive_mini_vela_results(mini_results: Path, case_dir: Path, instance_id: str) -> list[str]:
     if not mini_results.exists():
         return []
 
     archive = case_dir / "mini-vela-results"
     if archive.exists():
         shutil.rmtree(archive)
-    shutil.copytree(mini_results, archive)
-    return sorted(str(path) for path in (archive / "trajectories").glob("*.jsonl"))
+    (archive / "trajectories").mkdir(parents=True, exist_ok=True)
+
+    run_results = mini_results / "run_results.json"
+    if run_results.exists():
+        shutil.copy2(run_results, archive / "run_results.json")
+
+    trajectory = mini_results / "trajectories" / f"{instance_id}.jsonl"
+    if trajectory.exists():
+        shutil.copy2(trajectory, archive / "trajectories" / trajectory.name)
+
+    return sorted(str(path) for path in (archive / "trajectories").glob(f"{instance_id}.jsonl"))
+
+
+def parse_official_case_result(instance_id: str) -> dict[str, Any] | None:
+    result_path = MINI_VELA / "results" / "run_results.json"
+    if not result_path.exists():
+        return None
+    try:
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, list):
+        return None
+    for item in payload:
+        if isinstance(item, dict) and item.get("instance_id") == instance_id:
+            return item
+    return None
 
 
 def case_policy_path(policy_root: Path, condition: str, instance_id: str) -> Path:
@@ -254,11 +316,16 @@ def run_baseline_case(
     )
     (case_dir / "stdout.txt").write_text(proc.stdout or "", encoding="utf-8")
     (case_dir / "stderr.txt").write_text(proc.stderr or "", encoding="utf-8")
+    official_result = parse_official_case_result(instance_id)
+    official_success = official_result.get("success") if official_result else None
     return {
         "instance_id": instance_id,
         "condition": args.condition,
         "returncode": proc.returncode,
-        "success": proc.returncode == 0,
+        "process_success": proc.returncode == 0,
+        "official_success": official_success,
+        "official_result": official_result,
+        "success": proc.returncode == 0 and official_success is True,
         "elapsed_s": time.time() - started,
     }
 
@@ -505,8 +572,8 @@ def run_case(case: dict[str, Any], index: int, args: argparse.Namespace, run_dir
     case_dir.mkdir(parents=True, exist_ok=True)
     write_json(case_dir / "case.json", case)
 
-    mini_results = reset_mini_vela_results()
-    proxy = start_proxy(args.venv, case_dir / "proxy.log")
+    mini_results = reset_mini_vela_results(instance_id)
+    proxy = start_proxy(args.venv, case_dir / "proxy.log", args.litellm_config)
     try:
         if args.condition == "baseline":
             result = run_baseline_case(case, args, case_dir)
@@ -517,9 +584,12 @@ def run_case(case: dict[str, Any], index: int, args: argparse.Namespace, run_dir
     finally:
         kill_process_tree(proxy)
 
-    trajectories = archive_mini_vela_results(mini_results, case_dir)
+    trajectories = archive_mini_vela_results(mini_results, case_dir, instance_id)
     result["trajectory_files"] = trajectories
     result["trajectory_count"] = len(trajectories)
+    result["scorable"] = len(trajectories) == 1
+    if not result["scorable"]:
+        result["success"] = False
     write_json(case_dir / "result.json", result)
     return result
 
@@ -535,6 +605,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--venv", type=Path, default=DEFAULT_VENV)
     parser.add_argument("--policy-root", type=Path, default=DEFAULT_POLICY_ROOT)
     parser.add_argument("--actplane", type=Path, default=DEFAULT_ACTPLANE)
+    parser.add_argument("--litellm-config", type=Path, default=DEFAULT_LITELLM_CONFIG)
     parser.add_argument("--managed-llama", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--out-dir", type=Path, default=ROOT / "results")
     return parser.parse_args()
@@ -545,12 +616,15 @@ def normalize_and_validate_args(args: argparse.Namespace) -> None:
     args.venv = args.venv.resolve()
     args.policy_root = args.policy_root.resolve()
     args.actplane = args.actplane.resolve()
+    args.litellm_config = args.litellm_config.resolve()
     args.out_dir = args.out_dir.resolve()
 
     if not args.dataset.exists():
         raise SystemExit(f"dataset not found: {args.dataset}")
     if not (args.venv / "bin" / "python").exists():
         raise SystemExit(f"venv python not found: {args.venv / 'bin' / 'python'}")
+    if not args.litellm_config.exists():
+        raise SystemExit(f"LiteLLM config not found: {args.litellm_config}")
     if args.condition in {"tool-regex", "actplane"} and not args.policy_root.exists():
         raise SystemExit(f"policy root not found: {args.policy_root}")
     if args.condition == "tool-regex" and not TOOL_REGEX_HOOK.exists():
@@ -584,6 +658,7 @@ def main() -> int:
             "venv": str(args.venv),
             "policy_root": str(args.policy_root) if args.condition != "baseline" else None,
             "actplane": str(args.actplane) if args.condition == "actplane" else None,
+            "litellm_config": str(args.litellm_config),
             "managed_llama": args.managed_llama,
             "n_ctx": 128000,
             "case_count": len(cases),
@@ -617,4 +692,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 2 and sys.argv[1] == "__proxy__":
+        if len(sys.argv) != 4:
+            raise SystemExit("usage: run_cases.py __proxy__ <litellm-config> <port>")
+        run_proxy_main(Path(sys.argv[2]).resolve(), int(sys.argv[3]))
+        raise SystemExit(0)
     raise SystemExit(main())
