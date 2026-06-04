@@ -33,6 +33,7 @@ The submodule is not modified by the local runner.
 - `evaluate_with_llama.py`: official OctoBench whole-case judge wrapper.
 - `extract_actplane_metrics.py`: ActPlane OS evidence extraction. It does not
   compute or modify benchmark reward.
+- `core-results/`: compact paper-facing summaries generated from complete runs.
 
 Generated artifacts belong under ignored `results/`.
 
@@ -78,9 +79,11 @@ The main experiment has three conditions:
 3. `actplane`
    - same selected case and model
    - enforces the same case policy at the OS/syscall layer
-   - wraps the generated scaffold task command with
-     `actplane --policy <case-policy> --run-as-root run`
+   - starts host-side `actplane --policy <case-policy> watch`
+   - then runs the same Docker task scaffold without mounting ActPlane into the
+     container
    - can observe actual exec/open/write/connect effects below the tool layer
+   - avoids depending on the task image's glibc version
 
 `actplane-feedback` is intentionally not part of the main setup. Feedback changes
 the agent's future behavior and should be treated as a separate ablation later.
@@ -182,6 +185,27 @@ python3 extract_actplane_metrics.py \
 This reports event counts, effects, processes, targets, reasons, and short
 evidence excerpts from ActPlane output. It does not report reward, delta reward,
 or combined score.
+
+## Current Smoke Result
+
+The first complete three-condition run is summarized in:
+
+```text
+core-results/three_case_smoke_20260604.md
+core-results/three_case_smoke_20260604.json
+```
+
+Headline official OctoBench scores for this smoke run:
+
+| condition | avg_reward | pass_count | total |
+|---|---:|---:|---:|
+| baseline | 0.767 | 1 | 3 |
+| tool-regex | 0.798 | 1 | 3 |
+| actplane | 0.678 | 0 | 3 |
+
+ActPlane produced 1106 OS-level kill events across the three cases. This
+validates the end-to-end integration, but this exact policy/subset is not yet a
+positive aggregate compliance result for ActPlane.
 
 ## Result Policy
 

@@ -99,6 +99,42 @@ struct {
 	__type(value, struct open_pend);
 } ts_openpend SEC(".maps");
 
+struct exec_scratch {
+	char match[TAINT_TEXT_BUF];       /* >= PAT_LEN+SUF_MAX for suffix tail copy */
+	char display[MAX_FILENAME_LEN];
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct exec_scratch);
+} ts_exec_scratch SEC(".maps");
+
+struct file_scratch {
+	char path[MAX_FILENAME_LEN];
+	struct file_id fid;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct file_scratch);
+} ts_file_scratch SEC(".maps");
+
+static __always_inline struct exec_scratch *exec_scratch_buf(void)
+{
+	__u32 key = 0;
+
+	return bpf_map_lookup_elem(&ts_exec_scratch, &key);
+}
+
+static __always_inline struct file_scratch *file_scratch_buf(void)
+{
+	__u32 key = 0;
+
+	return bpf_map_lookup_elem(&ts_file_scratch, &key);
+}
+
 /* The one and only output channel. */
 static __always_inline void fill_violation_provenance(struct event *v, pid_t pid,
 						      __u64 matched_req)
@@ -163,11 +199,7 @@ static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 
 static __always_inline int file_path(struct file *file, char *path, int path_sz)
 {
-	struct path fpath;
-
-	__builtin_memset(&fpath, 0, sizeof(fpath));
-	BPF_CORE_READ_INTO(&fpath, file, f_path);
-	if (bpf_d_path(&fpath, path, path_sz) > 0)
+	if (bpf_d_path(&file->f_path, path, path_sz) > 0)
 		return 0;
 
 	struct dentry *de = BPF_CORE_READ(file, f_path.dentry);
@@ -180,11 +212,7 @@ static __always_inline int file_path(struct file *file, char *path, int path_sz)
 static __always_inline int path_to_str(const struct path *src, char *path,
 				       int path_sz)
 {
-	struct path p;
-
-	__builtin_memset(&p, 0, sizeof(p));
-	bpf_probe_read_kernel(&p, sizeof(p), src);
-	if (bpf_d_path(&p, path, path_sz) > 0)
+	if (bpf_d_path((struct path *)src, path, path_sz) > 0)
 		return 0;
 	return -1;
 }
@@ -499,25 +527,27 @@ static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 					  const void *b, __u32 access,
 					  __u32 mode)
 {
-	char path[MAX_FILENAME_LEN] = {};
+	struct file_scratch *scratch = file_scratch_buf();
 	struct te_event ev = {};
-	struct file_id fid = {};
 
 	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
 	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
 		return 0;
 	if (!access)
 		return 0;
-	if (te_resolve_file_ref(ref_kind, a, b, path, sizeof(path)) < 0)
+	if (!scratch)
 		return 0;
-	te_resolve_file_id(ref_kind, a, b, path, &fid);
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	if (te_resolve_file_ref(ref_kind, a, b, scratch->path, sizeof(scratch->path)) < 0)
+		return 0;
+	te_resolve_file_id(ref_kind, a, b, scratch->path, &scratch->fid);
 
 	ev.pid = bpf_get_current_pid_tgid() >> 32;
 	ev.obj_kind = TE_OBJ_FILE;
 	ev.access = access;
 	ev.mode = mode;
-	ev.target = path;
-	return te_handle_event(&ev, &fid);
+	ev.target = scratch->path;
+	return te_handle_event(&ev, &scratch->fid);
 }
 
 static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
@@ -548,42 +578,51 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 
 static __always_inline int te_handle_channel(int fd, __u32 access, __u32 mode)
 {
-	char target[MAX_FILENAME_LEN] = {};
+	struct file_scratch *scratch = file_scratch_buf();
 	struct te_event ev = {};
-	struct file_id fid = {};
 
 	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
 	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
 		return 0;
-	if (!chan_fd_target(fd, access, target, sizeof(target)))
+	if (!scratch)
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	if (!chan_fd_target(fd, access, scratch->path, sizeof(scratch->path)))
 		return 0;
 
-	fid.ino = te_fnv1a(target);
+	scratch->fid.ino = te_fnv1a(scratch->path);
 	ev.pid = bpf_get_current_pid_tgid() >> 32;
 	ev.obj_kind = TE_OBJ_FILE;
 	ev.access = access;
 	ev.mode = mode;
-	ev.target = target;
-	return te_handle_event(&ev, &fid);
+	ev.target = scratch->path;
+	return te_handle_event(&ev, &scratch->fid);
 }
 
 static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
 					  const void *b, __u32 mode)
 {
-	char match[TAINT_TEXT_BUF] = {}; /* >= PAT_LEN+SUF_MAX for suffix tail copy */
-	char display[MAX_FILENAME_LEN] = {};
-	const char *target = match;
-	const char *shown = display;
+	const char *target;
+	const char *shown;
 	struct te_event ev = {};
 
 	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
 	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
 		return 0;
 	if (ref_kind == TE_REF_BPRM) {
-		if (bprm_basename((struct linux_binprm *)a, match, sizeof(match)) < 0)
+		struct exec_scratch *scratch = exec_scratch_buf();
+		if (!scratch)
 			return 0;
-		if (bprm_filename((struct linux_binprm *)a, display, sizeof(display)) < 0)
-			__builtin_memcpy(display, match, sizeof(match));
+		__builtin_memset(scratch, 0, sizeof(*scratch));
+		if (bprm_basename((struct linux_binprm *)a, scratch->match,
+				  sizeof(scratch->match)) < 0)
+			return 0;
+		if (bprm_filename((struct linux_binprm *)a, scratch->display,
+				  sizeof(scratch->display)) < 0)
+			__builtin_memcpy(scratch->display, scratch->match,
+					 sizeof(scratch->match));
+		target = scratch->match;
+		shown = scratch->display;
 	} else if (ref_kind == TE_REF_STRINGS) {
 		target = a;
 		shown = b ? b : a;
@@ -619,27 +658,31 @@ int BPF_PROG(enforce_file_open, struct file *file)
 SEC("lsm/file_permission")
 int BPF_PROG(enforce_file_permission, struct file *file, int mask)
 {
-	return te_handle_file(TE_REF_FILE, file, 0, te_access_from_perm_mask(mask),
-			      TE_MODE_BLOCK);
+	(void)file;
+	(void)mask;
+	return 0;
 }
 
 SEC("lsm/file_truncate")
 int BPF_PROG(enforce_file_truncate, struct file *file)
 {
-	return te_handle_file(TE_REF_FILE, file, 0, TE_ACCESS_WRITE, TE_MODE_BLOCK);
+	(void)file;
+	return 0;
 }
 
 SEC("lsm/path_truncate")
 int BPF_PROG(enforce_path_truncate, const struct path *path_arg)
 {
-	return te_handle_file(TE_REF_PATH, path_arg, 0, TE_ACCESS_WRITE, TE_MODE_BLOCK);
+	(void)path_arg;
+	return 0;
 }
 
 SEC("lsm/path_unlink")
 int BPF_PROG(enforce_path_unlink, const struct path *dir, struct dentry *dentry)
 {
-	return te_handle_file(TE_REF_PATH_DENTRY, dir, dentry, TE_ACCESS_WRITE,
-			      TE_MODE_BLOCK);
+	(void)dir;
+	(void)dentry;
+	return 0;
 }
 
 SEC("lsm/path_rename")
@@ -647,13 +690,11 @@ int BPF_PROG(enforce_path_rename, const struct path *old_dir,
 	     struct dentry *old_dentry, const struct path *new_dir,
 	     struct dentry *new_dentry, unsigned int flags)
 {
+	(void)old_dir;
+	(void)old_dentry;
+	(void)new_dir;
+	(void)new_dentry;
 	(void)flags;
-	if (te_handle_file(TE_REF_PATH_DENTRY, old_dir, old_dentry,
-			   TE_ACCESS_WRITE, TE_MODE_BLOCK) < 0)
-		return -EPERM;
-	if (te_handle_file(TE_REF_PATH_DENTRY, new_dir, new_dentry,
-			   TE_ACCESS_WRITE, TE_MODE_BLOCK) < 0)
-		return -EPERM;
 	return 0;
 }
 
@@ -679,13 +720,16 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 {
 	pid_t pid = bpf_get_current_pid_tgid() >> 32;
 	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-	char comm[TAINT_TEXT_BUF] = {}; /* >= PAT_LEN+SUF_MAX so matchers stay in-bounds */
-	char fname[MAX_FILENAME_LEN] = {};
+	struct exec_scratch *scratch = exec_scratch_buf();
 	unsigned fname_off;
 	int alen = 0;
 
-	bpf_get_current_comm(&comm, TASK_COMM_LEN);
-	te_exec_update(pid, comm);
+	if (!scratch)
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+
+	bpf_get_current_comm(&scratch->match, TASK_COMM_LEN);
+	te_exec_update(pid, scratch->match);
 
 	/* read argv blob (NUL-separated) into per-CPU scratch, then tokenize into
 	 * fixed slots there for @arg matching — see te_tokenize_args_eng / taint_arg_match. */
@@ -704,8 +748,8 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	}
 
 	fname_off = ctx->__data_loc_filename & 0xFFFF;
-	bpf_probe_read_str(fname, sizeof(fname), (void *)ctx + fname_off);
-	te_handle_exec(TE_REF_STRINGS, comm, fname, te_tracepoint_mode());
+	bpf_probe_read_str(scratch->display, sizeof(scratch->display), (void *)ctx + fname_off);
+	te_handle_exec(TE_REF_STRINGS, scratch->match, scratch->display, te_tracepoint_mode());
 	return 0;
 }
 

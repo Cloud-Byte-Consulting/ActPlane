@@ -58,6 +58,7 @@ from typing import Any
 
 from agents import (
     Agent,
+    ModelSettings,
     RunConfig,
     RunContextWrapper,
     RunHooks,
@@ -69,7 +70,7 @@ from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_ACTPLANE = ROOT / "collector" / "target" / "release" / "actplane"
+DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
 DEFAULT_BASE_INSTRUCTIONS = Path(__file__).resolve().parent / "codex_base_instructions.md"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
 
@@ -405,6 +406,7 @@ async def run_scenario_inner(
     llama_base_url: str,
     model_name: str,
     api_key_env: str,
+    thinking: str,
     system: str,
     max_steps: int,
 ) -> dict[str, Any]:
@@ -492,6 +494,7 @@ async def run_scenario_inner(
         instructions=instructions,
         tools=[bash_tool, read_file, write_file],
         model=model,
+        model_settings=make_model_settings(thinking),
     )
 
     if setup_fired:
@@ -547,8 +550,15 @@ async def run_scenario_inner(
         "score": score,
         "compliant": score["status"] == "hard_pass",
         "model": model_name,
+        "thinking": thinking,
         "workdir_backend": "overlay" if mounted else "scratch",
     }
+
+
+def make_model_settings(thinking: str) -> ModelSettings:
+    if thinking == "default":
+        return ModelSettings()
+    return ModelSettings(extra_body={"thinking": {"type": thinking}})
 
 
 def score_scenario(
@@ -687,6 +697,7 @@ async def main_inner(args):
         llama_base_url=args.llama_url,
         model_name=args.model_name,
         api_key_env=args.api_key_env,
+        thinking=args.thinking,
         system=args.system,
         max_steps=args.max_steps,
     )
@@ -709,6 +720,7 @@ def run_one_scenario(spec_and_args):
                 "--llama-url", args.llama_url,
                 "--model-name", args.model_name,
                 "--api-key-env", args.api_key_env,
+                "--thinking", args.thinking,
                 "--max-steps", str(args.max_steps),
                 "--base-instructions", str(args.base_instructions),
             ]
@@ -723,6 +735,7 @@ def run_one_scenario(spec_and_args):
                 llama_base_url=args.llama_url,
                 model_name=args.model_name,
                 api_key_env=args.api_key_env,
+                thinking=args.thinking,
                 system=args.system,
                 max_steps=args.max_steps,
             ))
@@ -733,6 +746,7 @@ def run_one_scenario(spec_and_args):
         r.setdefault("trace_file", trace.name)
         r.setdefault("rule_file", str(rule))
         r.setdefault("model", args.model_name)
+        r.setdefault("thinking", args.thinking)
 
         if "error" in r:
             print(f"  [{label}] ERROR: {r['error']}")
@@ -797,6 +811,7 @@ def parse_args():
     p.add_argument("--llama-url", "--base-url", dest="llama_url", default="http://127.0.0.1:18080/v1")
     p.add_argument("--model-name", default="local-model")
     p.add_argument("--api-key-env", default="OPENAI_API_KEY")
+    p.add_argument("--thinking", choices=["default", "enabled", "disabled"], default="default")
     p.add_argument("--max-steps", type=int, default=10)
     p.add_argument("--parallel", type=int, default=1, help="Number of scenarios to run in parallel")
     return p.parse_args()

@@ -203,10 +203,8 @@ static long cap_request_cb(struct bpf_dynptr *dynptr, void *data)
 			cap_count(CAP_STAT_DROP);
 			return 0;
 		}
-		struct taint_update tmp;
-		__builtin_memcpy(&tmp, &r->entry, sizeof(tmp));
 		__u32 idx = r->index;
-		bpf_map_update_elem(&ts_updates, &idx, &tmp, BPF_ANY);
+		bpf_map_update_elem(&ts_updates, &idx, &r->entry, BPF_ANY);
 		cap_count(CAP_STAT_ACCEPT);
 		return 0;
 	}
@@ -217,10 +215,8 @@ static long cap_request_cb(struct bpf_dynptr *dynptr, void *data)
 			cap_count(CAP_STAT_DROP);
 			return 0;
 		}
-		struct taint_rule tmp;
-		__builtin_memcpy(&tmp, &r->entry, sizeof(tmp));
 		__u32 idx = r->index;
-		bpf_map_update_elem(&ts_rules, &idx, &tmp, BPF_ANY);
+		bpf_map_update_elem(&ts_rules, &idx, &r->entry, BPF_ANY);
 		cap_count(CAP_STAT_ACCEPT);
 		return 0;
 	}

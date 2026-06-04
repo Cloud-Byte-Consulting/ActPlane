@@ -784,39 +784,38 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 	struct taint_rule *rp = bpf_map_lookup_elem(&ts_rules, &key);
 	if (!rp)
 		return -1;
-	struct taint_rule r = *rp;
 
-	if (r.op != e->op)
+	if (rp->op != e->op)
 		return -1;
 	if (e->effect_mask) {
-		if (r.effect > TEFFECT_KILL)
+		if (rp->effect > TEFFECT_KILL)
 			return -1;
-		if (!(e->effect_mask & (1U << r.effect)))
+		if (!(e->effect_mask & (1U << rp->effect)))
 			return -1;
 	}
-	if (!taint_mask_ok(e->labels, r.req, r.forbid))
+	if (!taint_mask_ok(e->labels, rp->req, rp->forbid))
 		return -1;
 	if (e->op == TOP_CONNECT) {
-		if ((e->ip & r.ipv4_mask) != r.ipv4)
+		if ((e->ip & rp->ipv4_mask) != rp->ipv4)
 			return -1;
 	} else if (e->op == TOP_EXEC) {
-		if (!taint_exec_match(r.match, e->target, r.target))
+		if (!taint_exec_match(rp->match, e->target, rp->target))
 			return -1;
-	} else if (!taint_match(r.match, e->target, r.target)) {
+	} else if (!taint_match(rp->match, e->target, rp->target)) {
 		return -1;
 	}
-	if (e->op == TOP_EXEC && r.arg[0] != '\0') {
+	if (e->op == TOP_EXEC && rp->arg[0] != '\0') {
 		/* Match against the pre-tokenized arg slots. Re-look-up the per-CPU
 		 * scratch here so the verifier keeps the map_value bound. */
 		struct te_argslots *a = te_argslots_buf();
-		if (!a || !taint_arg_match(a->slots, r.arg))
+		if (!a || !taint_arg_match(a->slots, rp->arg))
 			return -1;
 	}
-	if (te_cond_satisfied(&r, e))
+	if (te_cond_satisfied(rp, e))
 		return -1;
-	e->matched_rule = (int)r.rule_id;
-	e->matched_req = r.req;
-	return (int)r.effect;
+	e->matched_rule = (int)rp->rule_id;
+	e->matched_req = rp->req;
+	return (int)rp->effect;
 }
 
 struct te_rule_ctx { struct te_rule_eval *e; unsigned int best_effect; int best_rule; };

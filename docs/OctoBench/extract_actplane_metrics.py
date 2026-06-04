@@ -18,7 +18,7 @@ ACTPLANE_RE = re.compile(r"\[ActPlane\].*规则「([^」]+)」")
 
 
 def iter_text_files(run_dir: Path) -> list[Path]:
-    names = {"stdout.txt", "stderr.txt", "wrapper.stdout.txt", "wrapper.stderr.txt"}
+    names = {"stdout.txt", "stderr.txt", "wrapper.stdout.txt", "wrapper.stderr.txt", "actplane-watch.log"}
     return sorted(path for path in run_dir.rglob("*") if path.is_file() and path.name in names)
 
 

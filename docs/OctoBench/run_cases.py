@@ -28,7 +28,7 @@ MINI_VELA = ROOT / "mini-vela"
 EVAL_SCRIPTS = ROOT.parent / "eval_scripts"
 DEFAULT_DATASET = ROOT / "data" / "selected_cases.jsonl"
 DEFAULT_VENV = Path("/tmp/octobench-litellm-venv")
-DEFAULT_ACTPLANE = ROOT.parents[1] / "collector" / "target" / "release" / "actplane"
+DEFAULT_ACTPLANE = ROOT.parents[1] / "target" / "release" / "actplane"
 DEFAULT_POLICY_ROOT = ROOT / "policies"
 DEFAULT_LITELLM_CONFIG = ROOT / "configs" / "litellm_llama_cpp.yaml"
 TOOL_REGEX_HOOK = ROOT / "tool_regex_hook.py"
@@ -103,6 +103,22 @@ def kill_process_tree(proc: subprocess.Popen, grace_s: int = 10) -> None:
     proc.wait(timeout=10)
 
 
+def stop_process_tree_with_signal(proc: subprocess.Popen, sig: int, grace_s: int = 10) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        return
+
+    deadline = time.time() + grace_s
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return
+        time.sleep(0.5)
+    kill_process_tree(proc, grace_s=2)
+
+
 def run_proxy_main(config_path: Path, port: int) -> None:
     proxy_dir = MINI_VELA / "proxy"
     sys.path.insert(0, str(proxy_dir))
@@ -151,6 +167,33 @@ def start_proxy(venv: Path, log_path: Path, config_path: Path) -> subprocess.Pop
         kill_process_tree(proc)
         raise RuntimeError(f"proxy did not become live; see {log_path}")
     return proc
+
+
+def start_actplane_watch(actplane: Path, policy_path: Path, log_path: Path) -> subprocess.Popen:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = log_path.open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+        [str(actplane), "--policy", str(policy_path), "watch"],
+        cwd=ROOT.parents[1],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        text=True,
+        preexec_fn=os.setsid,
+    )
+
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"ActPlane watch exited early; see {log_path}")
+        try:
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            text = ""
+        if "ActPlane: watching with feedback file" in text:
+            return proc
+        time.sleep(0.5)
+    stop_process_tree_with_signal(proc, signal.SIGINT)
+    raise RuntimeError(f"ActPlane watch did not become ready; see {log_path}")
 
 
 def reset_mini_vela_results(instance_id: str) -> Path:
@@ -235,12 +278,10 @@ def tool_regex_hook_setup_script() -> str:
     return "mkdir -p ~/.claude && printf %s " + shlex.quote(payload) + " > ~/.claude/settings.local.json"
 
 
-def build_actplane_container_command(
+def build_plain_container_command(
     case: dict[str, Any],
     proxy_url: str,
     model: str,
-    policy_in_container: str,
-    actplane_in_container: str,
 ) -> tuple[str, list[str], dict[str, str]]:
     scaffold_name = case.get("scaffold", {}).get("name", "claudecode")
     scaffold = get_scaffold(scaffold_name)
@@ -251,15 +292,7 @@ def build_actplane_container_command(
         model=model,
     )
 
-    commands = [setup_script]
-    actplane_prefix = (
-        f"{shlex.quote(actplane_in_container)} "
-        f"--policy {shlex.quote(policy_in_container)} "
-        f"--run-as-root run"
-    )
-    for task_command in task_commands:
-        commands.append(f"{actplane_prefix} bash -c {shlex.quote(task_command)}")
-
+    commands = [setup_script] + task_commands
     return " && ".join(commands), task_commands, scaffold.get_docker_env(proxy_url, model=model)
 
 
@@ -341,12 +374,10 @@ def run_actplane_case(
     policy_path = case_policy_path(args.policy_root, "actplane", instance_id)
     INSTANCE_ID_FILE.write_text(instance_id, encoding="utf-8")
 
-    full_command, task_commands, env_vars = build_actplane_container_command(
+    full_command, task_commands, env_vars = build_plain_container_command(
         case=case,
         proxy_url=proxy_url,
         model=args.model,
-        policy_in_container="/tmp/actplane-policy.yaml",
-        actplane_in_container="/usr/local/bin/actplane",
     )
 
     container_name = f"octobench-{args.condition}-{instance_id[:36]}-{int(time.time())}"
@@ -361,20 +392,9 @@ def run_actplane_case(
         "docker",
         "run",
         "--rm",
-        "--privileged",
         "--name",
         container_name,
         "--add-host=host.docker.internal:host-gateway",
-        "-v",
-        f"{args.actplane}:/usr/local/bin/actplane:ro",
-        "-v",
-        f"{policy_path}:/tmp/actplane-policy.yaml:ro",
-        "-v",
-        "/sys/kernel/tracing:/sys/kernel/tracing",
-        "-v",
-        "/sys/kernel/debug:/sys/kernel/debug",
-        "-v",
-        "/sys/fs/bpf:/sys/fs/bpf",
     ]
     for key, value in env_vars.items():
         docker_cmd.extend(["-e", f"{key}={value}"])
@@ -401,6 +421,7 @@ def run_actplane_case(
             "proxy_url": proxy_url,
             "policy": str(policy_path),
             "actplane": str(args.actplane),
+            "actplane_mode": "host-watch",
             "task_commands": task_commands,
             "docker_command": docker_cmd,
             "trajectory_session_id": instance_id,
@@ -408,6 +429,7 @@ def run_actplane_case(
     )
 
     started = time.time()
+    watch = start_actplane_watch(args.actplane, policy_path, case_dir / "actplane-watch.log")
     try:
         proc = subprocess.run(
             docker_cmd,
@@ -444,6 +466,8 @@ def run_actplane_case(
         }
         stdout = exc.stdout if isinstance(exc.stdout, str) else ""
         stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+    finally:
+        stop_process_tree_with_signal(watch, signal.SIGINT)
 
     (case_dir / "stdout.txt").write_text(stdout or "", encoding="utf-8")
     (case_dir / "stderr.txt").write_text(stderr or "", encoding="utf-8")
