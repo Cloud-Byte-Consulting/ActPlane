@@ -247,6 +247,30 @@ This improves over the original baseline only slightly and does not beat the
 tool-regex aggregate. It does show that feedback-oriented policies avoid the
 large task-completion regression from broad hard kills.
 
+The fixed-policy repeated runs are summarized in:
+
+```text
+core-results/actplane_feedback_replicates_20260604.md
+core-results/actplane_feedback_replicates_20260604.json
+```
+
+Across three fixed-policy repeats, `actplane-feedback` has mean official
+`avg_reward = 0.772` with stdev `0.100`. This is effectively tied with the
+single-run baseline (`0.767`) and below the single-run tool-regex result
+(`0.798`), so the current official-score evidence supports non-regression rather
+than a robust improvement claim.
+
+Additional prompt-guidance attempts are summarized in:
+
+```text
+core-results/score_improvement_attempts_20260604.md
+```
+
+Both append-system guidance and user-prompt prefix guidance scored `0.588` on
+`md-course-builder-code-style`, with zero ActPlane events. The failure mode was
+again model-side completion: the trajectory stopped after exploration and did
+not reach `Write`/`Edit`.
+
 ## Result Policy
 
 No old results are copied into this directory. New generated artifacts stay under

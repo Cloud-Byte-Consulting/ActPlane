@@ -364,7 +364,25 @@ def judge_one(
         kwargs["extra_body"] = {"thinking": {"type": args.thinking}}
 
     started = time.time()
-    response = client.chat.completions.create(**kwargs)
+    last_error: Exception | None = None
+    for attempt in range(args.retries + 1):
+        try:
+            response = client.chat.completions.create(**kwargs)
+            break
+        except Exception as e:
+            last_error = e
+            if attempt >= args.retries:
+                raise
+            sleep_s = args.retry_sleep * (2 ** attempt)
+            print(
+                f"{result_path.name}: judge request failed "
+                f"({type(e).__name__}); retry {attempt + 1}/{args.retries} "
+                f"in {sleep_s:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(sleep_s)
+    else:
+        raise RuntimeError(f"judge request failed: {last_error}")
     elapsed_ms = int((time.time() - started) * 1000)
     raw = response.choices[0].message.content or ""
     parsed, parse_error = parse_json_response(raw)
@@ -390,18 +408,36 @@ def judge_one(
 
 
 def filter_results(files: list[Path], args: argparse.Namespace) -> list[Path]:
-    selected: list[Path] = []
+    selected: list[tuple[Path, dict[str, Any]]] = []
     for path in files:
         data = load_json(path)
         if not data:
             continue
         if args.system and data.get("system") != args.system:
             continue
-        selected.append(path)
-    selected.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        if args.source_model and data.get("model") != args.source_model:
+            continue
+        selected.append((path, data))
+
+    if args.latest_per_key:
+        by_key: dict[tuple[str, str, str, str], tuple[Path, dict[str, Any]]] = {}
+        for path, data in selected:
+            key = (
+                str(data.get("system") or ""),
+                str(data.get("repo") or ""),
+                str(data.get("statement_id") or ""),
+                str(data.get("trace_file") or data.get("trace") or ""),
+            )
+            previous = by_key.get(key)
+            if previous is None or path.stat().st_mtime > previous[0].stat().st_mtime:
+                by_key[key] = (path, data)
+        selected = list(by_key.values())
+
+    paths = [path for path, _ in selected]
+    paths.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     if args.latest:
-        selected = selected[: args.latest]
-    return selected
+        paths = paths[: args.latest]
+    return paths
 
 
 def parse_args() -> argparse.Namespace:
@@ -416,7 +452,13 @@ def parse_args() -> argparse.Namespace:
         help="Result files, results directories, or corpus roots",
     )
     parser.add_argument("--system", help="Only judge result files from one system")
+    parser.add_argument("--source-model", help="Only judge result files from one tested model")
     parser.add_argument("--latest", type=int, help="Only judge the newest N result files after filtering")
+    parser.add_argument(
+        "--latest-per-key",
+        action="store_true",
+        help="Keep only the newest result for each system/repo/statement/trace key",
+    )
     parser.add_argument("--output-dir", type=Path, help="Write judge files to this directory")
     parser.add_argument("--force", action="store_true", help="Overwrite existing judge files")
     parser.add_argument("--include-system", action="store_true", help="Reveal source system and hard score to the judge")
@@ -428,6 +470,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-trace-events", type=int, default=80)
     parser.add_argument("--max-string-chars", type=int, default=4000)
     parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--retry-sleep", type=float, default=2.0)
+    parser.add_argument("--sleep-between", type=float, default=0.0)
     parser.add_argument("--dry-run", action="store_true", help="Print payloads without calling the judge model")
     return parser.parse_args()
 
@@ -484,6 +529,8 @@ def main() -> int:
             f"confidence={j['confidence']:.2f} -> {out_path}"
         )
         written += 1
+        if args.sleep_between > 0:
+            time.sleep(args.sleep_between)
 
     print(f"Done: wrote {written}/{len(files)} judge files; failed={failed}")
     return 1 if failed else 0

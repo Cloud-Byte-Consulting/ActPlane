@@ -498,7 +498,9 @@ def run_actplane_case(
             "policy": str(policy_path),
             "actplane": str(args.actplane),
             "actplane_mode": "host-watch",
-            "feedback_hook": str(ACTPLANE_FEEDBACK_HOOK) if args.condition == "actplane-feedback" else None,
+            "feedback_hook": str(ACTPLANE_FEEDBACK_HOOK)
+            if args.condition == "actplane-feedback"
+            else None,
             "task_commands": task_commands,
             "docker_command": docker_cmd,
             "trajectory_session_id": instance_id,
@@ -760,7 +762,9 @@ def main() -> int:
             "model": args.model,
             "venv": str(args.venv),
             "policy_root": str(args.policy_root) if args.condition != "baseline" else None,
-            "actplane": str(args.actplane) if args.condition in {"actplane", "actplane-feedback"} else None,
+            "actplane": str(args.actplane)
+            if args.condition in {"actplane", "actplane-feedback"}
+            else None,
             "litellm_config": str(args.litellm_config),
             "managed_llama": args.managed_llama,
             "n_ctx": 128000,
