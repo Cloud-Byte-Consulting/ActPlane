@@ -333,10 +333,10 @@ def normalize_judgment(value: dict[str, Any] | None) -> dict[str, Any]:
     return judgment
 
 
-def default_output_path(result_path: Path, output_dir: Path | None) -> Path:
+def default_output_path(result_path: Path, output_dir: Path | None, judge_dir_name: str) -> Path:
     if output_dir:
         return output_dir / f"{result_path.stem}.judge.json"
-    return result_path.parent / "trajectory_judges" / f"{result_path.stem}.judge.json"
+    return result_path.parent / judge_dir_name / f"{result_path.stem}.judge.json"
 
 
 def judge_one(
@@ -460,6 +460,7 @@ def parse_args() -> argparse.Namespace:
         help="Keep only the newest result for each system/repo/statement/trace key",
     )
     parser.add_argument("--output-dir", type=Path, help="Write judge files to this directory")
+    parser.add_argument("--judge-dir-name", default="trajectory_judges")
     parser.add_argument("--force", action="store_true", help="Overwrite existing judge files")
     parser.add_argument("--include-system", action="store_true", help="Reveal source system and hard score to the judge")
     parser.add_argument("--base-url", "--llama-url", dest="base_url", default="http://127.0.0.1:18080/v1")
@@ -511,7 +512,7 @@ def main() -> int:
         result = load_json(path)
         if not result:
             continue
-        out_path = default_output_path(path, args.output_dir)
+        out_path = default_output_path(path, args.output_dir, args.judge_dir_name)
         if out_path.exists() and not args.force:
             print(f"skip existing: {out_path}")
             continue

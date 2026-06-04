@@ -44,18 +44,15 @@ and have OS-observable policy effects:
 
 1. `md-aws-mcp-server-pathlib-over-ospath`
    - workspace: `/workspace/aws-mcp-server`
-   - OS effects: shell file-inspection execs, dependency install execs,
-     git branch/worktree execs, workspace writes, credentials-file observation.
+   - OS effects: shell file-inspection execs, credentials-file observation.
 
 2. `md-course-builder-code-style`
    - workspace: `/workspace/course-builder`
-   - OS effects: shell file-inspection execs, dependency install execs,
-     git branch/worktree execs, workspace writes, markdown-file writes.
+   - OS effects: shell file-inspection execs, markdown-file writes.
 
 3. `benchmark-aws_checklist_error_001`
    - workspace: `/workspace/aws-mcp-server`
-   - OS effects: shell file-inspection execs, dependency install execs,
-     git branch/worktree execs, workspace writes, live `aws` CLI execs.
+   - OS effects: shell file-inspection execs, live `aws` CLI execs.
 
 These are not claimed to be the full OctoBench benchmark. They are a small
 case-specific-policy subset for validating the experiment design.
@@ -79,6 +76,7 @@ The main experiment keeps the original three conditions:
 3. `actplane`
    - same selected case and model
    - enforces the same case policy at the OS/syscall layer
+   - current policies are notify-only and case-specific
    - starts host-side `actplane --policy <case-policy> watch`
    - then runs the same Docker task scaffold without mounting ActPlane into the
      container
@@ -97,8 +95,8 @@ ablation:
      container
    - the hook reads the host ActPlane feedback file through a read-only bind
      mount and injects compacted corrective feedback into the next model turn
-   - uses `policies/actplane-feedback/<case_id>.yaml`, where high-risk effects
-     are still killed and lower-risk workflow guidance is reported with `notify`
+   - uses `policies/actplane-feedback/<case_id>.yaml`, where all effects are
+     reported with `notify`
 
 ## Scoring
 
@@ -260,16 +258,16 @@ single-run baseline (`0.767`) and below the single-run tool-regex result
 (`0.798`), so the current official-score evidence supports non-regression rather
 than a robust improvement claim.
 
-Additional prompt-guidance attempts are summarized in:
+The cleaned case-specific notify-only run is summarized in:
 
 ```text
-core-results/score_improvement_attempts_20260604.md
+core-results/case_specific_notify_only_20260604.md
 ```
 
-Both append-system guidance and user-prompt prefix guidance scored `0.588` on
-`md-course-builder-code-style`, with zero ActPlane events. The failure mode was
-again model-side completion: the trajectory stopped after exploration and did
-not reach `Write`/`Edit`.
+It removes shared guardrails from the active policies, uses only per-case policy
+files, compacts ActPlane feedback, and reports official `avg_reward = 0.818`
+across the selected three cases. Fresh baseline/tool-regex reruns under the same
+cleaned setup are still needed before using it as a paired paper result.
 
 ## Result Policy
 

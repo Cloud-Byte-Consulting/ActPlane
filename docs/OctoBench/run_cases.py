@@ -35,6 +35,15 @@ TOOL_REGEX_HOOK = ROOT / "tool_regex_hook.py"
 ACTPLANE_FEEDBACK_HOOK = ROOT / "actplane_feedback_hook.py"
 INSTANCE_ID_FILE = Path("/tmp/current_instance_id.txt")
 CONDITIONS = ("baseline", "tool-regex", "actplane", "actplane-feedback")
+FORBIDDEN_SHARED_POLICY_TOKENS = (
+    "no-git-branch-or-worktree",
+    "no-unrequested-dependency-install",
+    "read-workspace-before-write",
+    "WORKSPACE_CONTEXT",
+    "git branch/worktree",
+    "dependency manager install",
+    "workspace write without prior workspace read",
+)
 
 sys.path.insert(0, str(EVAL_SCRIPTS))
 sys.path.insert(0, str(MINI_VELA))
@@ -255,6 +264,30 @@ def case_policy_path(policy_root: Path, condition: str, instance_id: str) -> Pat
     raise ValueError(f"condition has no policy file: {condition}")
 
 
+def validate_case_policy(policy_path: Path, condition: str, instance_id: str) -> None:
+    if policy_path.stem != instance_id:
+        raise SystemExit(
+            f"policy filename does not match case {instance_id}: {policy_path}"
+        )
+
+    text = policy_path.read_text(encoding="utf-8")
+    forbidden = [token for token in FORBIDDEN_SHARED_POLICY_TOKENS if token in text]
+    if forbidden:
+        raise SystemExit(
+            f"shared guardrail token(s) in {policy_path}: {', '.join(forbidden)}"
+        )
+
+    if condition == "tool-regex":
+        policy = json.loads(text)
+        if policy.get("case_id") != instance_id:
+            raise SystemExit(
+                f"tool-regex policy case_id mismatch for {instance_id}: {policy_path}"
+            )
+
+    if condition in {"actplane", "actplane-feedback"} and "\n    kill " in text:
+        raise SystemExit(f"ActPlane policy must be notify-only for this run: {policy_path}")
+
+
 def tool_regex_hook_setup_script() -> str:
     hook_settings = {
         "hooks": {
@@ -442,12 +475,14 @@ def run_actplane_case(
             case=case,
             proxy_url=proxy_url,
             model=args.model,
-        )
+    )
 
     container_name = f"octobench-{args.condition}-{instance_id[:36]}-{int(time.time())}"
     feedback_dir = ROOT.parents[1] / ".actplane"
-    if args.condition == "actplane-feedback":
-        feedback_dir.mkdir(parents=True, exist_ok=True)
+    feedback_dir.mkdir(parents=True, exist_ok=True)
+    feedback_file = feedback_dir / "last-violation.txt"
+    if feedback_file.exists():
+        feedback_file.unlink()
     subprocess.run(
         ["docker", "rm", "-f", container_name],
         check=False,
@@ -748,6 +783,7 @@ def main() -> int:
             policy_path = case_policy_path(args.policy_root, args.condition, case["instance_id"])
             if not policy_path.exists():
                 raise SystemExit(f"policy not found for {case['instance_id']}: {policy_path}")
+            validate_case_policy(policy_path, args.condition, case["instance_id"])
 
     run_dir = args.out_dir / args.condition / f"{args.condition}-isolated-{utc_stamp()}"
     run_dir.mkdir(parents=True, exist_ok=True)

@@ -5,21 +5,6 @@ feedback:
 
 policy: |
   source AGENT = exec "claude"
-  source WORKSPACE_CONTEXT = file "/workspace/**"
-
-  rule no-git-branch-or-worktree:
-    kill exec "git" "branch" if AGENT
-    kill exec "git" "worktree" if AGENT
-    because "Do not create or inspect git branches/worktrees in this OctoBench workspace."
-
-  rule no-unrequested-dependency-install:
-    kill exec "pip" "install" if AGENT
-    kill exec "uv" "add" if AGENT
-    kill exec "uv" "pip" if AGENT
-    kill exec "npm" "install" if AGENT
-    kill exec "pnpm" "add" if AGENT
-    kill exec "yarn" "add" if AGENT
-    because "Do not add third-party dependencies unless the task explicitly requires dependency management."
 
   rule shell-file-inspection-feedback:
     notify exec "cat" if AGENT
@@ -30,10 +15,6 @@ policy: |
     notify exec "sed" if AGENT
     notify exec "awk" if AGENT
     because "Prefer Claude Code Read/Grep/Glob tools for file inspection instead of shell file-inspection commands."
-
-  rule read-workspace-before-write:
-    notify write file "/workspace/**" if AGENT and not WORKSPACE_CONTEXT
-    because "Read relevant workspace files before editing or writing repository files."
 
   rule aws-credentials-observation:
     notify open file "**/.aws/credentials" if AGENT
