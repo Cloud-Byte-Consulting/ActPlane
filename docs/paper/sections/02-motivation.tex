@@ -1,66 +1,32 @@
 \section{Background}
 \label{sec:background}
 
-\subsection{Agent Harnesses and Behavioral Policies}
+\textbf{Coding agents.}
+AI coding agents act on repositories through an execution harness rather
+than by producing text alone. The harness mediates tool calls, shell
+commands, file and repository access, network access, and feedback to the
+model~\cite{langchain-harness,fowler-harness}. A single tool invocation
+can run scripts, spawn subprocesses, and interact with many files and
+endpoints before control returns to the model.
 
-An agent harness is the non-model infrastructure that mediates between an LLM
-agent and its execution
-environment~\cite{langchain-harness,fowler-harness}. Harness components
-include tool dispatch, memory management, orchestration, observation,
-enforcement, and feedback. This paper focuses on the observation,
-enforcement, and feedback components: the mechanisms that ensure an
-agent's behavioral policies hold at runtime.
+\textbf{Information-flow control.}
+Information-flow control (IFC) is a systems technique for reasoning about
+how data or authority moves from sources to sinks over time. Dynamic IFC
+and provenance systems maintain labels or records across processes,
+files, and communication channels, then check later operations against
+that accumulated state~\cite{enck2010taintdroid,clause2007dytan,pasquier2017camflow}.
+This provides a vocabulary for constraints whose correctness depends on
+execution history, not just on one visible action.
 
-Behavioral policies are constraints that govern an agent's observable
-effects rather than its internal reasoning. Projects encode them in
-instruction files such as \texttt{CLAUDE.md} and
-\texttt{AGENTS.md}~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}:
-do not push directly to \texttt{main}; run tests before committing; never
-expose secrets to the network. These policies differ from coding-style
-directives (e.g., ``prefer \texttt{const} over \texttt{let}'') in that they
-produce observable effects at the system-call boundary.
-
-\subsection{The Semantic Gap}
-
-Agent policies are written as natural-language instructions plus current
-task intent, but an agent harness usually observes tool calls rather than
-the system effects those tool calls produce. This creates two mismatches. A
-single tool call such as \texttt{run\_command("make")} can trigger
-hundreds of system calls. Conversely, the same forbidden effect, such as
-\texttt{git push}, can be reached through a direct tool call, a
-\texttt{bash~-c} string, a Python \texttt{subprocess}, or a compiled
-helper binary. This opacity creates a \emph{semantic gap}: policies
-declared in project instructions cannot be reliably enforced at only the
-prompt or tool-call boundary.
-
-Prompt instructions are probabilistic: LLM compliance degrades with
-context length and task complexity~\cite{liu2024lost}. Tool-call
-guards~\cite{wang2025agentspec,shi2025progent} are deterministic but
-incomplete: they intercept framework actions, not the system effects that
-shells, scripts, and subprocesses produce. OS-level mechanisms such as
-syscall filters and sandboxes~\cite{pasquier2018camquery,ciliumtetragon}
-see those effects, but typically require static administrator-written
-policies and return opaque \texttt{-EPERM} failures with no connection to
-the agent's declared rules. Existing mechanisms therefore cover different
-parts of the stack, but none connects instruction-level policy, tool
-execution, system-level effects, and semantic feedback.
-
-A cooperative agent does not intentionally bypass tool-layer guards, but
-the opacity of the tool-to-effect mapping causes unintentional bypass in
-routine operation. Three representative scenarios illustrate this.
-(1)~An agent calls \texttt{run\_command("npm~test")}; the test harness
-internally invokes \texttt{git~push} to a staging server. The tool-call
-guard sees \texttt{npm~test} (a permitted action), while the kernel
-observes the forbidden \texttt{git~push} effect.
-(2)~An agent calls \texttt{read\_file(".env")} to inspect a configuration
-value, then later calls \texttt{run\_command("curl~api.example.com")}.
-Each tool call is individually permitted, but the combination constitutes
-secret exfiltration, a cross-event condition visible only to an enforcer
-that tracks information flow from file read to network connect.
-(3)~An agent writes a Python script containing
-\texttt{subprocess.run(["git",~"push",~"--force"])} and executes it. The
-tool-call guard sees \texttt{run\_command("python~script.py")}; the kernel
-observes the nested \texttt{execve("git",~["push",~"--force"])}.
+\textbf{Agent harness enforcement.}
+Current agent harnesses commonly rely on prompt instructions, tool-call
+filters, or sandbox-style OS policies. Prompt and tool-call mechanisms are
+close to the agent's intent, but they see the harness request rather than
+all effects that occur after a tool starts executing. OS mechanisms can
+observe process, file, and network events, but are usually configured as
+static policies and report low-level failures rather than agent-facing
+rule context. The empirical study asks whether real project instructions
+exhibit constraints that require connecting these levels.
 
 \section{Empirical Study}
 \label{sec:empirical}
