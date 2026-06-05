@@ -241,6 +241,17 @@ trace_opaque_fixture_violation.jsonl
 
 The runner does not translate ActPlane DSL into a tool-regex policy at runtime.
 
+Tool-regex policies are raw string regex policies. `pattern` is a Python
+regular expression evaluated with `re.search(..., IGNORECASE | MULTILINE)`.
+For `op: exec`, it is matched directly against the full Agent SDK
+`Bash.command` string. For `op: read`, `op: write`, and `op: unlink`, it is
+matched against the normalized tool path string. Optional `arg`,
+`unless.pattern`, `unless.after_exec`, `unless.since_write`, and source
+`pattern` fields are also regexes over those same raw strings. The baseline does
+not run `shlex`, split shell tokens, lower ActPlane DSL, inspect generated
+script contents beyond the explicit tool input string, or observe runtime
+subprocess/syscall effects.
+
 The original pilot corpus still uses `trace_compliant.jsonl` and
 `trace_violation.jsonl` for many cases. Expanded RQ1 cases should use the five
 trace roles above so the intent is explicit.
@@ -311,7 +322,8 @@ For each selected repo:
    provenance/path/schema rule.
 2. Write the natural-language directive, `rule.yaml`, and
    `baselines/tool-regex.yaml` independently. Do not lower ActPlane DSL into the
-   baseline policy.
+   baseline policy. The tool-regex artifact must contain explicit raw regex
+   patterns, not glob patterns or ActPlane rule fragments.
 3. Create the five trace roles listed above. Every `Read`, `Edit`, `Write`, and
    `Bash` setup step must be executable on the real repo snapshot. `Edit.old_string`
    must match real file content.

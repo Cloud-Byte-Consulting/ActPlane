@@ -3,6 +3,6 @@ rules:
 - id: no-normal-changelog-edit
   effect: notify
   op: write
-  pattern: (?s:CHANGELOG\.md)\Z
+  pattern: (?:^|.*/)CHANGELOG\.md$
   if: AGENT
   reason: Do not edit CHANGELOG.md for normal PRs or direct fixes.

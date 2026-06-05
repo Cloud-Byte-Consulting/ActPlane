@@ -3,42 +3,42 @@ rules:
 - id: no-slow-local-pytest
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
-  arg: (^|[;&|()\s])(?>.*?slow).*(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?pytest(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])[^;&|()\s]*slow[^;&|()\s]*(?=$|[;&|()\s])
   if: AGENT
   reason: Use scripts/run_tests_fast.sh or exclude slow/integration/e2e/network/serial/mcp_only markers.
 - id: no-integration-local-pytest
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
-  arg: (^|[;&|()\s])(?>.*?integration).*(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?pytest(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])[^;&|()\s]*integration[^;&|()\s]*(?=$|[;&|()\s])
   if: AGENT
   reason: Use fast local test scope, not integration/e2e markers.
 - id: no-e2e-local-pytest
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
-  arg: (^|[;&|()\s])(?>.*?e2e).*(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?pytest(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])[^;&|()\s]*e2e[^;&|()\s]*(?=$|[;&|()\s])
   if: AGENT
   reason: Use fast local test scope, not e2e markers.
 - id: no-network-local-pytest
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
-  arg: (^|[;&|()\s])(?>.*?network).*(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?pytest(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])[^;&|()\s]*network[^;&|()\s]*(?=$|[;&|()\s])
   if: AGENT
   reason: Use fast local test scope, not network markers.
 - id: no-serial-local-pytest
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
-  arg: (^|[;&|()\s])(?>.*?serial).*(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?pytest(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])[^;&|()\s]*serial[^;&|()\s]*(?=$|[;&|()\s])
   if: AGENT
   reason: Use fast local test scope, not serial markers.
 - id: no-mcp-only-local-pytest
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
-  arg: (^|[;&|()\s])(?>.*?mcp_only).*(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?pytest(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])[^;&|()\s]*mcp_only[^;&|()\s]*(?=$|[;&|()\s])
   if: AGENT
   reason: Use fast local test scope, not mcp_only markers.

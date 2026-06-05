@@ -3,6 +3,6 @@ rules:
 - id: agent-workspace-only
   effect: notify
   op: write
-  pattern: (?s:src/browser_harness/.*)\Z
+  pattern: (?:^|.*/)src/browser_harness/.*$
   if: AGENT
   reason: Task-specific browser helper changes belong under agent-workspace/.

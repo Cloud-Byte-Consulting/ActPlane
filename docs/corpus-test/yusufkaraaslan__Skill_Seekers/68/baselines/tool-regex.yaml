@@ -2,28 +2,28 @@ version: 1
 sources:
 - label: SECRET
   kind: file
-  pattern: '**/.env'
+  pattern: (?:^|.*/)\.env$
 - label: SECRET
   kind: file
-  pattern: '**/.env.local'
+  pattern: (?:^|.*/)\.env\.local$
 - label: SECRET
   kind: file
-  pattern: '**/*credentials*'
+  pattern: (?:^|.*/)[^/]*credentials[^/]*$
 - label: SECRET
   kind: file
-  pattern: '**/*secret*'
+  pattern: (?:^|.*/)[^/]*secret[^/]*$
 rules:
 - id: no-git-add-api-keys
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?git(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?git(?=$|[;&|()\s])
   arg: (^|[;&|()\s])add(?=$|[;&|()\s])
   if: SECRET and AGENT
   reason: Never commit API keys or secret files to version control; use environment variables or .env files that are in .gitignore
 - id: no-git-commit-api-keys
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?git(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?git(?=$|[;&|()\s])
   arg: (^|[;&|()\s])commit(?=$|[;&|()\s])
   if: SECRET and AGENT
   reason: Never commit API keys or secret files to version control; use environment variables or .env files that are in .gitignore

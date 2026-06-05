@@ -3,13 +3,13 @@ rules:
 - id: no-write-env-test-secret
   effect: notify
   op: write
-  pattern: (?s:\.env\.test)\Z
+  pattern: (?:^|.*/)\.env\.test$
   if: AGENT
   reason: Sensitive test values belong in .env.test.local, not committed env files.
 - id: no-commit-env-test
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?git(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?git(?=$|[;&|()\s])
   arg: (^|[;&|()\s])commit(?=$|[;&|()\s])
   if: AGENT
   reason: Do not stage/commit sensitive test env files.

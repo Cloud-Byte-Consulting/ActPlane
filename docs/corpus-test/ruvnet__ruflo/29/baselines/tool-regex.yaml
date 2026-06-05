@@ -8,9 +8,9 @@ rules:
   if: AGENT
   unless:
     pattern:
-    - (?s:src/.*)\Z
-    - (?s:tests/.*)\Z
-    - (?s:docs/.*)\Z
-    - (?s:config/.*)\Z
-    - (?s:scripts/.*)\Z
+    - (?:^|.*/)src/.*$
+    - (?:^|.*/)tests/.*$
+    - (?:^|.*/)docs/.*$
+    - (?:^|.*/)config/.*$
+    - (?:^|.*/)scripts/.*$
   reason: Never save files to the root folder; use /src, /tests, /docs, /config, or /scripts instead

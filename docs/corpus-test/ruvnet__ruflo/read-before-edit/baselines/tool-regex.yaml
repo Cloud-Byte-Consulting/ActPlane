@@ -2,7 +2,7 @@ version: 1
 sources:
 - label: READ_ANY
   kind: file
-  pattern: '**/*'
+  pattern: .*
   op: read
 rules:
 - id: read-before-write

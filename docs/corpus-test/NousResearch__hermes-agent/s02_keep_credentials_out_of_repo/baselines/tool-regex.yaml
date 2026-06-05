@@ -3,20 +3,20 @@ rules:
 - id: no-env-secret-file
   effect: notify
   op: write
-  pattern: (?s:.*/\.env)\Z
+  pattern: (?:^|.*/)\.env$
   if: AGENT
   reason: Credential values must not be written into tracked repo files.
 - id: no-env-secret-files
   effect: notify
   op: write
-  pattern: (?s:(?>.*?/).*\.env)\Z
+  pattern: (?:^|.*/)[^/]*\.env$
   if: AGENT
   unless:
-    pattern: (?s:(?>.*?/).*\.local)\Z
+    pattern: (?:^|.*/)[^/]*\.local$
   reason: Credential values must stay out of tracked env files.
 - id: no-main-config-secret
   effect: notify
   op: write
-  pattern: (?s:(?>.*?/config/).*)\Z
+  pattern: (?:^|.*/)config/.*$
   if: AGENT
   reason: Credential values must stay in operator credential storage, not main config.

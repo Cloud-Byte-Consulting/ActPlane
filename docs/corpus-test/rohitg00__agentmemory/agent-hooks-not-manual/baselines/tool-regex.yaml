@@ -3,13 +3,13 @@ rules:
 - id: no-hook-script-exec
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?>.*?/plugin/scripts/).*\.mjs(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)*plugin/scripts/[^;&|()\s]*\.mjs(?=$|[;&|()\s])
   if: AGENT
   reason: Do not execute lifecycle hook scripts directly.
 - id: no-node-hook-script
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?node(?=$|[;&|()\s])
-  arg: (^|[;&|()\s])plugin/scripts/.*\.mjs(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?node(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])plugin/scripts/[^;&|()\s]*\.mjs(?=$|[;&|()\s])
   if: AGENT
   reason: Do not execute lifecycle hook scripts through node directly.

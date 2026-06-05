@@ -3,8 +3,8 @@ rules:
 - id: no-new-js
   effect: notify
   op: write
-  pattern: (?s:(?>.*?/).*\.js)\Z
+  pattern: (?:^|.*/)[^/]*\.js$
   if: AGENT
   unless:
-    pattern: (?s:(?>.*?/dist/).*)\Z
+    pattern: (?:^|.*/)dist/.*$
   reason: All new source files should be TypeScript, not JavaScript.

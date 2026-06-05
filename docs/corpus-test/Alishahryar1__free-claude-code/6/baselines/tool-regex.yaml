@@ -2,12 +2,12 @@ version: 1
 sources:
 - label: ENV_AWARE
   kind: file
-  pattern: '**/.env.example'
+  pattern: (?:^|.*/)\.env\.example$
   op: read
 rules:
 - id: read-env-example
   effect: notify
   op: write
-  pattern: (?s:.*/\.env)\Z
+  pattern: (?:^|.*/)\.env$
   if: AGENT and not ENV_AWARE
   reason: Read .env.example before creating or modifying .env files to understand required environment variables

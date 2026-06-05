@@ -3,18 +3,18 @@ rules:
 - id: no-direct-pyproject-deps
   effect: notify
   op: write
-  pattern: (?s:pyproject\.toml)\Z
+  pattern: (?:^|.*/)pyproject\.toml$
   if: AGENT
   reason: Use uv commands for dependency changes instead of hand-editing dependency files.
 - id: no-direct-uv-lock
   effect: notify
   op: write
-  pattern: (?s:uv\.lock)\Z
+  pattern: (?:^|.*/)uv\.lock$
   if: AGENT
   reason: Use uv commands for dependency changes instead of hand-editing uv.lock.
 - id: no-direct-requirements
   effect: notify
   op: write
-  pattern: (?s:requirements.*\.txt)\Z
+  pattern: (?:^|.*/)requirements[^/]*\.txt$
   if: AGENT
   reason: Use uv commands for dependency changes instead of hand-editing requirements files.

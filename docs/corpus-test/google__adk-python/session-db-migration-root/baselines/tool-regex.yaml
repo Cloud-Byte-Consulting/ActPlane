@@ -9,14 +9,14 @@ rules:
 - id: no-bash-root-db-migration
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?bash(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?bash(?=$|[;&|()\s])
   arg: (^|[;&|()\s])scripts/db_migration\.sh(?=$|[;&|()\s])
   if: AGENT
   reason: Run db_migration.sh only from intended sample/target database directory.
 - id: no-sh-root-db-migration
   effect: notify
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?sh(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?sh(?=$|[;&|()\s])
   arg: (^|[;&|()\s])scripts/db_migration\.sh(?=$|[;&|()\s])
   if: AGENT
   reason: Run db_migration.sh only from intended sample/target database directory.

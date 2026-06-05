@@ -3,18 +3,18 @@ rules:
 - id: scripts-in-scripts-dir-sh
   effect: notify
   op: write
-  pattern: (?s:(?>.*?/).*\.sh)\Z
+  pattern: (?:^|.*/)[^/]*\.sh$
   if: AGENT
   unless:
-    pattern: (?s:(?>.*?/scripts/).*)\Z
+    pattern: (?:^|.*/)scripts/.*$
   reason: Helper scripts must be placed in the scripts/ directory, not written inline; reference them from SKILL.md by relative
     path
 - id: scripts-in-scripts-dir-py
   effect: notify
   op: write
-  pattern: (?s:(?>.*?/).*\.py)\Z
+  pattern: (?:^|.*/)[^/]*\.py$
   if: AGENT
   unless:
-    pattern: (?s:(?>.*?/scripts/).*)\Z
+    pattern: (?:^|.*/)scripts/.*$
   reason: Helper scripts must be placed in the scripts/ directory, not written inline; reference them from SKILL.md by relative
     path

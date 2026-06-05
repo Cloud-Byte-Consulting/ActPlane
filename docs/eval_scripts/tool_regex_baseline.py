@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -93,7 +94,7 @@ class ToolRegexPolicy:
             if not eval_label_expr(rule.label_expr, self.labels):
                 continue
             if file_path and any(
-                regex_matches(pattern, normalized_tool_path(file_path))
+                regex_matches(pattern, normalize_tool_path(file_path))
                 for pattern in rule.unless_targets
             ):
                 continue
@@ -127,12 +128,12 @@ class ToolRegexPolicy:
                     continue
                 if source.op and source.op != op:
                     continue
-                if regex_matches(source.pattern, normalized_tool_path(file_path)):
+                if regex_matches(source.pattern, normalize_tool_path(file_path)):
                     self.labels.add(source.label)
             if op == "write":
                 for rule in self.rules:
                     if any(
-                        regex_matches(pattern, normalized_tool_path(file_path))
+                        regex_matches(pattern, normalize_tool_path(file_path))
                         for pattern in rule.since_writes
                     ):
                         rule.since_seen = True
@@ -161,7 +162,10 @@ class ToolRegexPolicy:
                 return False
             return not rule.arg_pattern or regex_matches(rule.arg_pattern, command)
         if rule.op in {"read", "write", "unlink"}:
-            return bool(file_path and regex_matches(rule.pattern, normalized_tool_path(file_path)))
+            return bool(
+                file_path
+                and regex_matches(rule.pattern, normalize_tool_path(file_path))
+            )
         return False
 
 
@@ -179,6 +183,10 @@ def load_policy_yaml(path: Path) -> dict[str, Any]:
 
 
 def parse_policy_rule(item: dict[str, Any]) -> ToolRule:
+    pattern = item.get("pattern", item.get("target"))
+    if pattern is None:
+        raise ValueError(f"tool-regex rule {item.get('id', '<unknown>')!r} is missing `pattern`")
+
     unless = item.get("unless") if isinstance(item.get("unless"), dict) else {}
     unless_pattern = unless.get("pattern", unless.get("target"))
     if isinstance(unless_pattern, list):
@@ -200,7 +208,7 @@ def parse_policy_rule(item: dict[str, Any]) -> ToolRule:
         rule_id=str(item["id"]),
         effect=str(item.get("effect", "notify")),
         op=str(item["op"]),
-        pattern=str(item.get("pattern", item.get("target"))),
+        pattern=str(pattern),
         tool=str(item["tool"]) if item.get("tool") is not None else None,
         arg_pattern=(
             str(item.get("arg_pattern", item.get("arg")))

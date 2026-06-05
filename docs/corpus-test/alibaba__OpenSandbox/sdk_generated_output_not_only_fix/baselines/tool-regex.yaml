@@ -3,18 +3,18 @@ rules:
 - id: no-python-sdk-generated-only
   effect: notify
   op: write
-  pattern: (?s:sdks/sandbox/python/src/opensandbox/api/.*)\Z
+  pattern: (?:^|.*/)sdks/sandbox/python/src/opensandbox/api/.*$
   if: AGENT
   reason: Do not manually patch generated SDK output as the only fix.
 - id: no-js-sdk-generated-only
   effect: notify
   op: write
-  pattern: (?s:sdks/sandbox/javascript/src/api/.*\.ts)\Z
+  pattern: (?:^|.*/)sdks/sandbox/javascript/src/api/[^/]*\.ts$
   if: AGENT
   reason: Do not manually patch generated SDK output as the only fix.
 - id: no-kotlin-sdk-generated-only
   effect: notify
   op: write
-  pattern: (?s:sdks/sandbox/kotlin/sandbox\-api/build/generated/.*)\Z
+  pattern: (?:^|.*/)sdks/sandbox/kotlin/sandbox\-api/build/generated/.*$
   if: AGENT
   reason: Do not manually patch generated SDK output as the only fix.

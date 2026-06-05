@@ -3,6 +3,6 @@ rules:
 - id: no-app-server-v1-api-edit
   effect: notify
   op: write
-  pattern: (?s:codex\-rs/app\-server\-protocol/src/protocol/v1\.rs)\Z
+  pattern: (?:^|.*/)codex\-rs/app\-server\-protocol/src/protocol/v1\.rs$
   if: AGENT
   reason: Active app-server API development must target protocol/v2, not v1.rs.

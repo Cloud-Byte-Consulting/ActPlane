@@ -22,49 +22,36 @@ produce observable effects at the system-call boundary.
 
 \subsection{The Semantic Gap}
 
-An agent's execution spans three abstraction levels.
+Agent policies are written as natural-language instructions plus current
+task intent, but an agent harness usually observes tool calls rather than
+the OS effects those tool calls produce. This creates two mismatches. A
+single tool call such as \texttt{run\_command("make")} can trigger
+hundreds of system calls. Conversely, the same forbidden effect, such as
+\texttt{git push}, can be reached through a direct tool call, a
+\texttt{bash~-c} string, a Python \texttt{subprocess}, or a compiled
+helper binary. This opacity creates a \emph{semantic gap}: policies
+declared in project instructions cannot be reliably enforced at only the
+prompt or tool-call boundary.
 
-\textbf{Intent} is the agent's own goals and self-constraints, i.e., what it
-declares it will and will not do. 
-% In ActPlane's design, the agent
-% formalizes its intent in a compact DSL, just as a program formalizes its
-% capability intent via \texttt{pledge()}~\cite{openbsd-pledge}. ActPlane
-% does not infer intent from the agent's behavior (cf.\ AgentSight's
-% passive observation~\cite{agentsight}); it receives intent as an active
-% declaration that the agent itself writes and maintains.
-\textbf{Action} is the tool calls the agent issues through its runtime
-(\texttt{read\_file}, \texttt{run\_command}, \texttt{edit\_file}), mediated
-by the agent framework.
-
-\textbf{Behavior} is the actual OS-level operations that result:
-\texttt{open}, \texttt{execve}, \texttt{connect}, and \texttt{fork}.
-
-The mapping from action to behavior is many-to-many and opaque. A single
-\texttt{run\_command("make")} triggers hundreds of system calls. The same
-\texttt{git push} can be reached through a direct tool call, a
-\texttt{bash~-c} string, a Python \texttt{subprocess}, or a compiled helper
-binary. This opacity creates a \emph{semantic gap}: policies
-declared at the intent level cannot be reliably enforced at a single
-intermediate level.
-
-Enforcement placed at the intent level (prompt instructions) is
-probabilistic: LLM compliance degrades with context length and task
-complexity~\cite{liu2024lost}. Enforcement placed at the action level (tool-call
-guards~\cite{wang2025agentspec,shi2025progent}) is deterministic but
-bypassable: it intercepts tool calls, not the OS behavior they produce.
-Enforcement placed at the behavior level (syscall filters,
-sandboxes~\cite{pasquier2018camquery,ciliumtetragon}) is complete but
-returns opaque \texttt{-EPERM} failures with no connection to the agent's
-declared policies. Each level addresses a different part of the stack;
-none spans the full gap from intent to behavior.
+Prompt instructions are probabilistic: LLM compliance degrades with
+context length and task complexity~\cite{liu2024lost}. Tool-call
+guards~\cite{wang2025agentspec,shi2025progent} are deterministic but
+incomplete: they intercept framework actions, not the system effects that
+shells, scripts, and subprocesses produce. OS-level mechanisms such as
+syscall filters and sandboxes~\cite{pasquier2018camquery,ciliumtetragon}
+see those effects, but typically require static administrator-written
+policies and return opaque \texttt{-EPERM} failures with no connection to
+the agent's declared rules. Existing mechanisms therefore cover different
+parts of the stack, but none connects instruction-level policy, tool
+execution, OS-level effects, and semantic feedback.
 
 A cooperative agent does not intentionally bypass tool-layer guards, but
-the opacity of the action-to-behavior mapping causes unintentional bypass
-in routine operation. Three representative scenarios illustrate this.
+the opacity of the tool-to-effect mapping causes unintentional bypass in
+routine operation. Three representative scenarios illustrate this.
 (1)~An agent calls \texttt{run\_command("npm~test")}; the test harness
 internally invokes \texttt{git~push} to a staging server. The tool-call
 guard sees \texttt{npm~test} (a permitted action), while the kernel
-observes the forbidden \texttt{git~push} behavior.
+observes the forbidden \texttt{git~push} effect.
 (2)~An agent calls \texttt{read\_file(".env")} to inspect a configuration
 value, then later calls \texttt{run\_command("curl~api.example.com")}.
 Each tool call is individually permitted, but the combination constitutes

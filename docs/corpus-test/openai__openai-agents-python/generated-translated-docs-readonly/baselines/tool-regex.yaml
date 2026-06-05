@@ -3,18 +3,18 @@ rules:
 - id: no-ja-generated-docs
   effect: kill
   op: write
-  pattern: (?s:docs/ja/.*)\Z
+  pattern: (?:^|.*/)docs/ja/.*$
   if: AGENT
   reason: Do not edit generated translated docs; update source docs.
 - id: no-ko-generated-docs
   effect: kill
   op: write
-  pattern: (?s:docs/ko/.*)\Z
+  pattern: (?:^|.*/)docs/ko/.*$
   if: AGENT
   reason: Do not edit generated translated docs; update source docs.
 - id: no-zh-generated-docs
   effect: kill
   op: write
-  pattern: (?s:docs/zh/.*)\Z
+  pattern: (?:^|.*/)docs/zh/.*$
   if: AGENT
   reason: Do not edit generated translated docs; update source docs.

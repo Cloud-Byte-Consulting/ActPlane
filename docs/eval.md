@@ -78,6 +78,14 @@ runner does not lower ActPlane DSL into a tool-layer policy at runtime.
 | **ActPlane** | `agent_sdk_eval.py --system actplane` | Kernel (cross-event + feedback) | This system |
 | **ActPlane opaque** | `agent_sdk_eval.py --system actplane-opaque` | Kernel (cross-event, no structured feedback) | Feedback ablation |
 
+The tool-regex baseline is intentionally a raw tool-input checker. Its
+`baselines/tool-regex.yaml` artifact uses Python regular expressions matched
+with `re.search(..., IGNORECASE | MULTILINE)` against the full `Bash.command`
+string for exec checks and against the normalized tool path string for
+read/write/unlink checks. It does not tokenize shell commands, parse argument
+vectors, translate ActPlane DSL, or observe subprocess/syscall effects after the
+tool call begins.
+
 The active path tests prompt-only, tool-regex, ActPlane, and ActPlane opaque
 under the same trace setup and real next-step execution. Additional baselines
 should reuse the same result schema and Agent SDK tool execution path rather

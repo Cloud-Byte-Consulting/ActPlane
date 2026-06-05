@@ -3,35 +3,35 @@ rules:
 - id: no-uv-browser-harness
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?uv(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?uv(?=$|[;&|()\s])
   arg: (^|[;&|()\s])browser\-harness(?=$|[;&|()\s])
   if: AGENT
   reason: Use browser-harness executable directly, not uv run browser-harness.
 - id: no-python-module-harness
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?python(?=$|[;&|()\s])
   arg: (^|[;&|()\s])browser_harness\.run(?=$|[;&|()\s])
   if: AGENT
   reason: Use browser-harness executable directly, not python -m browser_harness.run.
 - id: no-python3-module-harness
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python3(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?python3(?=$|[;&|()\s])
   arg: (^|[;&|()\s])browser_harness\.run(?=$|[;&|()\s])
   if: AGENT
   reason: Use browser-harness executable directly, not python3 -m browser_harness.run.
 - id: no-python-script-harness
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?python(?=$|[;&|()\s])
   arg: (^|[;&|()\s])src/browser_harness/run\.py(?=$|[;&|()\s])
   if: AGENT
   reason: Use browser-harness executable directly, not python src/browser_harness/run.py.
 - id: no-python3-script-harness
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python3(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?python3(?=$|[;&|()\s])
   arg: (^|[;&|()\s])src/browser_harness/run\.py(?=$|[;&|()\s])
   if: AGENT
   reason: Use browser-harness executable directly, not python3 src/browser_harness/run.py.

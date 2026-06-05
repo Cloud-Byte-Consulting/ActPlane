@@ -3,42 +3,42 @@ rules:
 - id: no-root-md
   effect: notify
   op: write
-  pattern: (?s:.*\.md)\Z
+  pattern: (?:^|.*/)[^/]*\.md$
   if: AGENT
   unless:
     pattern:
-    - (?s:docs/.*)\Z
-    - (?s:tests/.*)\Z
-    - (?s:src/.*)\Z
-    - (?s:config/.*)\Z
-    - (?s:scripts/.*)\Z
-    - (?s:examples/.*)\Z
+    - (?:^|.*/)docs/.*$
+    - (?:^|.*/)tests/.*$
+    - (?:^|.*/)src/.*$
+    - (?:^|.*/)config/.*$
+    - (?:^|.*/)scripts/.*$
+    - (?:^|.*/)examples/.*$
   reason: Place working notes and drafts in an appropriate directory, not repo root.
 - id: no-root-txt
   effect: notify
   op: write
-  pattern: (?s:.*\.txt)\Z
+  pattern: (?:^|.*/)[^/]*\.txt$
   if: AGENT
   unless:
     pattern:
-    - (?s:docs/.*)\Z
-    - (?s:tests/.*)\Z
-    - (?s:src/.*)\Z
-    - (?s:config/.*)\Z
-    - (?s:scripts/.*)\Z
-    - (?s:examples/.*)\Z
+    - (?:^|.*/)docs/.*$
+    - (?:^|.*/)tests/.*$
+    - (?:^|.*/)src/.*$
+    - (?:^|.*/)config/.*$
+    - (?:^|.*/)scripts/.*$
+    - (?:^|.*/)examples/.*$
   reason: Place working files in an appropriate directory, not repo root.
 - id: no-root-py
   effect: notify
   op: write
-  pattern: (?s:.*\.py)\Z
+  pattern: (?:^|.*/)[^/]*\.py$
   if: AGENT
   unless:
     pattern:
-    - (?s:docs/.*)\Z
-    - (?s:tests/.*)\Z
-    - (?s:src/.*)\Z
-    - (?s:config/.*)\Z
-    - (?s:scripts/.*)\Z
-    - (?s:examples/.*)\Z
+    - (?:^|.*/)docs/.*$
+    - (?:^|.*/)tests/.*$
+    - (?:^|.*/)src/.*$
+    - (?:^|.*/)config/.*$
+    - (?:^|.*/)scripts/.*$
+    - (?:^|.*/)examples/.*$
   reason: Place tests/helpers in an appropriate directory, not repo root.

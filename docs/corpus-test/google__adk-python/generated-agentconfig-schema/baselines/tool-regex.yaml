@@ -3,6 +3,6 @@ rules:
 - id: no-agentconfig-schema-edit
   effect: kill
   op: write
-  pattern: (?s:src/google/adk/agents/config_schemas/AgentConfig\.json)\Z
+  pattern: (?:^|.*/)src/google/adk/agents/config_schemas/AgentConfig\.json$
   if: AGENT
   reason: Update source/generator and regenerate AgentConfig.json; do not edit it directly.

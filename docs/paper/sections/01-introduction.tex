@@ -38,14 +38,14 @@ requested'') that cannot be resolved without the agent's own project
 and session context (\S\ref{sec:empirical}). A static policy authored
 by an external administrator cannot supply this context.
 
-Second, a \emph{semantic gap} between intent and system actions.
-Intent-level guards~\cite{wang2025agentspec,shi2025progent} lose coverage
-when agents shell out or spawn subprocesses:
-the same \texttt{git~push} can be reached through a tool call, a
-\texttt{bash~-c} string, or a compiled binary.
-OS-level policy~\cite{ciliumtetragon,flume,pasquier2018camquery} is
-unbypassable but requires policies to be statically pre-written
-and returns opaque errors with no connection to declared intent.
+Second, a \emph{semantic gap} between declared policy and system effects.
+Prompt constraints remain probabilistic, while tool-level
+guards~\cite{wang2025agentspec,shi2025progent} lose coverage when agents
+shell out or spawn subprocesses: the same \texttt{git~push} can be reached
+through a tool call, a \texttt{bash~-c} string, or a compiled binary.
+OS-level policy~\cite{ciliumtetragon,flume,pasquier2018camquery} sees
+these effects but requires policies to be statically pre-written and
+returns opaque errors with no connection to declared intent.
 The agent---the entity that holds both the project context and the
 task intent needed to instantiate 74\% of its own rules---has no
 programmatic interface to define or evolve the constraints governing
@@ -76,12 +76,6 @@ Policies are layered: higher-authority rules (e.g., platform-level
 ``do not leak secrets'') cannot be weakened by the agent, while
 agent-authored rules can be revised as task intent evolves.
 
-% ¶7: Results — TODO: replace with headline numbers
-% ActPlane catches all five bypass paths that tool-layer guards miss,
-% improves agent task-completion rate from X% to Y% under semantic feedback,
-% incurs Z µs per-event overhead, and produces no false positives on N benign
-% workloads.
-
 This paper makes three contributions.
 
 \begin{enumerate}
@@ -97,9 +91,10 @@ and network boundaries, returns semantic feedback that reconnects rule
 matches to intent-level remediation, and supports layered policies where
 higher-authority constraints cannot be weakened by the agent.
 
-\item An \textbf{evaluation} on 607 OS-level directives from the
-empirical study, measuring DSL expressiveness, LLM-based
-natural-language-to-DSL translation correctness, system correctness
-across bypass paths, per-event overhead, and feedback effectiveness on
-repository-grounded OctoBench tasks.
+\item An \textbf{evaluation} of ActPlane's policy coverage, runtime
+cost, and feedback effect. We measure coverage over 607~OS-level
+directives from the empirical study, quantify per-event and end-to-end
+overhead, and evaluate repository-grounded checklist satisfaction on a
+20-task OS-observable OctoBench subset against prompt-only and tool-regex
+baselines.
 \end{enumerate}

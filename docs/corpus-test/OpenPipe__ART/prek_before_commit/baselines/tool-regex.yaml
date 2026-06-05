@@ -3,12 +3,12 @@ rules:
 - id: test-before-commit
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?git(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?git(?=$|[;&|()\s])
   arg: (^|[;&|()\s])commit(?=$|[;&|()\s])
   if: AGENT
   unless:
-    after_exec: (^|[;&|()\s]).*/prek(?=$|[;&|()\s])
+    after_exec: (^|[;&|()\s])(?:[^;&|()\s]+/)*prek(?=$|[;&|()\s])
     since_write:
-    - (?s:(?>.*?/).*\.py)\Z
-    - (?s:(?>.*?/).*\.ts)\Z
+    - (?:^|.*/)[^/]*\.py$
+    - (?:^|.*/)[^/]*\.ts$
   reason: Run uv run prek run --all-files after source edits and before committing.

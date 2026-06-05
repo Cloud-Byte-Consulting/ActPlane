@@ -3,18 +3,18 @@ rules:
 - id: no-bare-python
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?python(?=$|[;&|()\s])
   if: AGENT
   reason: Run repo Python commands through uv run.
 - id: no-bare-python3
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python3(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?python3(?=$|[;&|()\s])
   if: AGENT
   reason: Run repo Python commands through uv run.
 - id: no-bare-pytest
   effect: kill
   op: exec
-  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
+  pattern: (^|[;&|()\s])(?:[^;&|()\s]+/)?pytest(?=$|[;&|()\s])
   if: AGENT
   reason: Run repo tests through uv run.

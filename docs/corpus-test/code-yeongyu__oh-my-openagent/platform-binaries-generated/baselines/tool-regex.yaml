@@ -3,6 +3,6 @@ rules:
 - id: no-platform-bin-write
   effect: kill
   op: write
-  pattern: (?s:packages/oh\-my\-opencode\-(?>.*?/bin/).*)\Z
+  pattern: (?:^|.*/)packages/oh\-my\-opencode\-[^/]*/bin/.*$
   if: AGENT
   reason: Do not hand-edit generated platform binary artifacts.
