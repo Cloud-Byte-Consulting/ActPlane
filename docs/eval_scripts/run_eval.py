@@ -153,6 +153,28 @@ def trace_specs(root: Path, limit: int | None = None) -> list[tuple[str, str, st
     return [key for _, _, key in trace_jobs(root, limit)]
 
 
+def manifest_trace_files(statement_dir: Path) -> list[Path]:
+    manifest_path = statement_dir / "statement.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing statement manifest: {rel(manifest_path)}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid statement manifest: {rel(manifest_path)}: {exc}") from exc
+    trace_names = manifest.get("trace_files")
+    if not isinstance(trace_names, list) or not trace_names:
+        raise ValueError(f"statement manifest has no trace_files list: {rel(manifest_path)}")
+    traces: list[Path] = []
+    for name in trace_names:
+        if not isinstance(name, str) or "/" in name or name.startswith("."):
+            raise ValueError(f"invalid trace file name in {rel(manifest_path)}: {name!r}")
+        trace = statement_dir / name
+        if not trace.exists():
+            raise FileNotFoundError(f"manifest trace not found: {rel(trace)}")
+        traces.append(trace)
+    return traces
+
+
 def trace_jobs(
     root: Path,
     limit: int | None = None,
@@ -162,7 +184,7 @@ def trace_jobs(
         statement_dir = rule.parent
         repo = statement_dir.parent.name.replace("__", "/")
         statement_id = statement_dir.name
-        for trace in sorted(statement_dir.glob("trace_*.jsonl")):
+        for trace in manifest_trace_files(statement_dir):
             key = (repo, statement_id, trace.name)
             jobs.append((statement_dir, trace, key))
     if limit is not None:

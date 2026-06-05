@@ -19,5 +19,12 @@
       "lines": "15-17",
       "text": "The project registers the browser-harness console script as the supported entrypoint."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

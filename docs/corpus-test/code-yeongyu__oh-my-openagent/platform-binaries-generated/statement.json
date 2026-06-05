@@ -19,13 +19,15 @@
       "script/build-binaries.ts",
       "script/build-binaries.test.ts"
     ],
-    "context_files": ["packages/AGENTS.md"]
+    "context_files": [
+      "packages/AGENTS.md"
+    ]
   },
   "trace_files": [
-    "canonical_compliant.json",
-    "edge_compliant.json",
-    "visible_violation.json",
-    "script_visible_violation.json",
-    "opaque_fixture_violation.json"
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

@@ -21,5 +21,12 @@
     ],
     "violation_shape": "A write to a generator-owned SDK API file without a companion source-spec or handwritten/test update in the same trace.",
     "compliant_shape": "Update the source spec or handwritten layer, and regenerate generated SDK output rather than patching generated output as the only fix."
-  }
+  },
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
+  ]
 }

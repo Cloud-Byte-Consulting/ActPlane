@@ -19,5 +19,12 @@
       "lines": "1056-1068",
       "quote": "ThreadSourceKind is defined in Rust with #[ts(rename_all = \"camelCase\", export_to = \"v2/\")]."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

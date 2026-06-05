@@ -81,6 +81,28 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
 DEFAULT_BASE_INSTRUCTIONS = Path(__file__).resolve().parent / "codex_base_instructions.md"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
+
+
+def manifest_trace_files(statement_dir: Path) -> list[Path]:
+    manifest_path = statement_dir / "statement.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing statement manifest: {manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid statement manifest: {manifest_path}: {exc}") from exc
+    trace_names = manifest.get("trace_files")
+    if not isinstance(trace_names, list) or not trace_names:
+        raise ValueError(f"statement manifest has no trace_files list: {manifest_path}")
+    traces: list[Path] = []
+    for name in trace_names:
+        if not isinstance(name, str) or "/" in name or name.startswith("."):
+            raise ValueError(f"invalid trace file name in {manifest_path}: {name!r}")
+        trace = statement_dir / name
+        if not trace.exists():
+            raise FileNotFoundError(f"manifest trace not found: {trace}")
+        traces.append(trace)
+    return traces
 TOOL_REGEX_POLICY = Path("baselines") / "tool-regex.yaml"
 SAFE_BIN_NAME = ".eval-safe-bin"
 FIXTURE_BIN_NAME = ".eval-fixtures/bin"
@@ -1321,13 +1343,13 @@ def discover_specs(args):
     elif args.statement_dir:
         sd = args.statement_dir
         rule = args.rule or sd / "rule.yaml"
-        for t in sorted(sd.glob("trace_*.jsonl")):
+        for t in manifest_trace_files(sd):
             specs.append((sd, rule, t))
     else:
         root = args.root
         for rule in sorted(root.rglob("rule.yaml")):
             sd = rule.parent
-            for t in sorted(sd.glob("trace_*.jsonl")):
+            for t in manifest_trace_files(sd):
                 specs.append((sd, rule, t))
     if args.limit:
         specs = specs[:args.limit]

@@ -43,6 +43,12 @@ Intermediate stdout/stderr is written to:
 docs/eval_runs/full/<timestamp>/run.log
 ```
 
+The active corpus scope is manifest-driven: each
+`docs/corpus-test/<repo>/<statement_id>/statement.json` must list the exact
+`trace_*.jsonl` files in `trace_files`. `run_eval.py`, the Docker runner, and
+the preflight validator use that list; stray trace files in a statement directory
+are not paper inputs.
+
 System outputs are written under:
 
 ```text

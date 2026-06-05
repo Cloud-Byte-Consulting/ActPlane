@@ -24,5 +24,12 @@
       "lines": "49-55",
       "text": "The README labels src/browser_harness/ as the protected core package and lists agent-workspace paths as the edited helper and skill locations."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

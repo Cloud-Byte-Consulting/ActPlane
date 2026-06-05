@@ -120,7 +120,7 @@ about BPF maps, verifier constraints, or binary layout.
 
 \sys{} represents policy state as labels on OS objects. Processes, files,
 and network endpoints each carry a 64-bit label mask, enabling
-cross-channel flow policies (e.g., ``data read from \texttt{.env} must
+cross-boundary flow policies (e.g., ``data read from \texttt{.env} must
 not reach a network endpoint''). A source declaration adds labels when an
 object matches the source pattern. Let $L(x)$ denote
 the label mask of object $x$. Labels propagate through observed

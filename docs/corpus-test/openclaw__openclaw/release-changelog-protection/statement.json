@@ -9,5 +9,12 @@
       "lines": "189-196",
       "quote": "`CHANGELOG.md`: release-owned. Do not edit for normal PRs, direct `main` fixes, or `ship it`; only explicit release/changelog generation may rewrite it."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

@@ -14,5 +14,12 @@
       "lines": "126-172",
       "summary": "Agent Builder uses a centralized loader for AgentConfig.json and raises errors when that schema file is missing."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

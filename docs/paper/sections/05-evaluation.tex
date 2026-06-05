@@ -2,7 +2,7 @@
 \label{sec:evaluation}
 
 We evaluate \sys{} along three axes. RQ1 measures end-to-end policy
-compliance on directive-derived policies from the empirical corpus;
+compliance on directive-derived rules from the empirical corpus;
 RQ2 quantifies per-event and end-to-end overhead; RQ3 tests
 repository-grounded coding tasks on an OctoBench subset with the official
 judge.
@@ -10,7 +10,7 @@ judge.
 \begin{description}
 \item[RQ1 (Policy compliance)] Compared with prompt-only, tool-layer,
   and feedback-ablation baselines, does \sys{} improve policy
-  compliance for directive-derived policies across direct and bypass
+  compliance for directive-derived rules across direct and bypass
   execution paths?
 \item[RQ2 (Overhead)] What is the per-event and end-to-end overhead of
   \sys{}'s label propagation and rule checking?
@@ -81,7 +81,7 @@ separation of concerns across four actors.
 \item \textbf{Replay + tested LLM decision} (Eval harness):
   replays trace under each system, collects system response (feedback /
   bare error / nothing), then issues one API call to a tested LLM
-  (weak model) for the next-action decision.
+  (a smaller model standing in for the agent) for the next-action decision.
 \item \textbf{Score} (Human or scorer script):
   compares the tested LLM's decision against ground truth; fills
   \texttt{correctness} and \texttt{outcome} (TP/TN/FP/FN) in the
@@ -281,8 +281,8 @@ to native execution for agent trace replay and Linux build workloads.}
 
 We measure \sys{}'s per-event latency for five syscall types
 (\texttt{fork}, \texttt{exec}, \texttt{open}, \texttt{write},
-\texttt{connect}) under five no-hit configurations: native, AP-1,
-AP-10, AP-32, and AP-100. Each configuration $\times$ syscall type runs
+\texttt{connect}) under five no-hit configurations: native, and \sys{} with 1, 10, 32,
+and 100 active rules (AP-$N$ denotes \sys{} with $N$ rules). Each configuration $\times$ syscall type runs
 10K--100K iterations pinned to a single CPU core. For each trial we
 compute p50 and p99 latencies; Table~\ref{tab:micro-latency} reports
 the median across seven trials.

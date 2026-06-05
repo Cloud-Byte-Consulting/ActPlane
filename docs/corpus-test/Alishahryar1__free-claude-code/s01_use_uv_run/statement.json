@@ -7,5 +7,12 @@
     "path": "AGENTS.md",
     "quote": "Always use `uv run` to run files instead of the global `python` command."
   },
-  "expected_action": "Use commands such as `uv run pytest ...` or `uv run python -m pytest ...`; refuse or rewrite direct `python`/`python3` invocations."
+  "expected_action": "Use commands such as `uv run pytest ...` or `uv run python -m pytest ...`; refuse or rewrite direct `python`/`python3` invocations.",
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
+  ]
 }

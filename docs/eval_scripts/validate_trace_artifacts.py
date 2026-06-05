@@ -42,8 +42,33 @@ def discover_traces(root: Path, statement_dir: Path | None, trace: Path | None) 
     if trace:
         return [trace]
     if statement_dir:
-        return sorted(statement_dir.glob("trace_*.jsonl"))
-    return sorted(root.glob("*/*/trace_*.jsonl"))
+        return manifest_trace_files(statement_dir)
+    traces: list[Path] = []
+    for rule in sorted(root.glob("*/*/rule.yaml")):
+        traces.extend(manifest_trace_files(rule.parent))
+    return traces
+
+
+def manifest_trace_files(statement_dir: Path) -> list[Path]:
+    manifest_path = statement_dir / "statement.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"missing statement manifest: {manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid statement manifest: {manifest_path}: {exc}") from exc
+    trace_names = manifest.get("trace_files")
+    if not isinstance(trace_names, list) or not trace_names:
+        raise ValueError(f"statement manifest has no trace_files list: {manifest_path}")
+    traces: list[Path] = []
+    for name in trace_names:
+        if not isinstance(name, str) or "/" in name or name.startswith("."):
+            raise ValueError(f"invalid trace file name in {manifest_path}: {name!r}")
+        trace_path = statement_dir / name
+        if not trace_path.exists():
+            raise FileNotFoundError(f"manifest trace not found: {trace_path}")
+        traces.append(trace_path)
+    return traces
 
 
 def statement_dir_for(trace: Path) -> Path:

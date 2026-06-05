@@ -19,5 +19,12 @@
       "lines": "354-365",
       "excerpt": "Pytest markers define slow, integration, e2e, serial, network, and mcp_only categories."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

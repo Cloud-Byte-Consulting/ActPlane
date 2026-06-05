@@ -17,5 +17,12 @@
     ],
     "violation_shape": "A write to kubernetes/apis/** without a later make manifests/generate command in the same trace.",
     "compliant_shape": "Run make manifests and make generate after the API type write, either together or as separate make invocations."
-  }
+  },
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
+  ]
 }

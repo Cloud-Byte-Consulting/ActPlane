@@ -14,5 +14,12 @@
       "lines": "13-23",
       "summary": "The hook configuration treats Write, Edit, and MultiEdit as pre-edit file modification events."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

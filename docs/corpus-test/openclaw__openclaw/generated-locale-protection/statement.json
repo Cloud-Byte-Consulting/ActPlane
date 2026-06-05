@@ -14,5 +14,12 @@
       "lines": "1842-1844",
       "quote": "`ui:i18n:sync` runs `node --import tsx scripts/control-ui-i18n.ts sync --write`."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

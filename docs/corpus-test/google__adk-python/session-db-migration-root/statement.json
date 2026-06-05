@@ -14,5 +14,12 @@
       "lines": "24-42",
       "summary": "The sample documents the migration use case, says the script generates and applies migrations, notes it creates alembic.ini and alembic/, and explains %(here)s refers to the current directory."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }

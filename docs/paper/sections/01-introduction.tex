@@ -36,7 +36,7 @@ require cross-event state tracking that tool-level interception cannot
 provide. OS-level
 mechanisms~\cite{ciliumtetragon,flume,pasquier2018camquery} observe all
 system effects but expect pre-defined static policy and return only
-system events without semantic context; yet 74\% of system-level rules
+system events without semantic context; yet 74\% of system-level directives
 require intent-level project or task context that only the agent
 possesses.
 
@@ -53,10 +53,10 @@ based on their intent context.
 
 % ¶5: System — \sys{}
 We realize this in \sys{}. Agents and developers declare behavioral
-policies in a compact DSL that agents themselves can generate from
-natural-language directives; \sys{} compiles them into labeled
-information-flow rules and loads them into an eBPF/BPF-LSM enforcement
-engine. Named labels propagate across processes, files, and network
+policies in a compact domain-specific language (DSL) that agents
+themselves can generate from natural-language directives; \sys{} compiles
+them into labeled information-flow rules and loads them into an
+eBPF/BPF-LSM (Linux Security Modules) enforcement engine. Named labels propagate across processes, files, and network
 endpoints at kernel hooks, encoding execution history as checkable state.
 When a labeled event matches a rule, \sys{} returns semantic
 feedback---which rule matched, why, and what compliant alternative
@@ -80,7 +80,7 @@ information-flow rules, enforces them across process, file, and network
 boundaries, and returns semantic feedback that reconnects rule matches to
 intent-level remediation (\S\ref{sec:design}--\ref{sec:implementation}).
 
-\item An \textbf{evaluation} across 607~directive-derived policies,
+\item An \textbf{evaluation} across 607~directive-derived rules,
 system workloads, and a 20-task OctoBench subset. \sys{} improves
 policy compliance over prompt-only and tool-regex baselines while adding
 less than 2\% end-to-end overhead on agent workloads

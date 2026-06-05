@@ -20,5 +20,12 @@
       "path": "plugin/scripts/post-commit.mjs",
       "evidence": "The post-commit hook shells out to git for commit metadata and posts it to /agentmemory/session/commit using the configured REST URL and bearer secret."
     }
+  ],
+  "trace_files": [
+    "trace_canonical_compliant.jsonl",
+    "trace_edge_compliant.jsonl",
+    "trace_opaque_fixture_violation.jsonl",
+    "trace_script_visible_violation.jsonl",
+    "trace_visible_violation.jsonl"
   ]
 }
