@@ -6,20 +6,23 @@ source trees, package managers, and external APIs~\cite{agentsight}. They
 autonomously write code, run tests, and manage infrastructure across
 extended sessions.
 
-% ¶2: Problem — agents need behavioral policies, LLMs can't self-enforce
+% ¶2: Agents need harnesses; instruction files are behavioral policy
 As agents gain autonomy, they require \emph{harnesses} that apply
 behavioral policies---rules that govern what the agent may do, in what
-order, and under what conditions. Projects encode such policies in
-instruction files (\texttt{CLAUDE.md},
+order, and under what conditions~\cite{langchain-harness,fowler-harness}.
+Projects encode such policies in instruction files (\texttt{CLAUDE.md},
 \texttt{AGENTS.md})~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}.
-Our empirical study of 64~projects (\S\ref{sec:empirical}) finds that
-64\% of instruction-file statements are behavioral directives, 83\% of
-which involve system-level behavior. Because LLM compliance is inherently
+
+% ¶3: Empirical — the problem is pervasive; LLMs can't self-enforce
+These policies are pervasive and demand deterministic enforcement. Our
+empirical study of 64~projects (\S\ref{sec:empirical}) finds that 64\%
+of instruction-file statements are behavioral directives, and 83\% of
+those involve system-level behavior---commands executed, files accessed,
+and network connections made. Because LLM compliance is inherently
 probabilistic~\cite{liu2024lost}, policy cannot reside inside the model
-alone~\cite{langchain-harness,fowler-harness}: even cooperative agents
-routinely violate declared constraints through long-horizon planning
-errors, shell-script side effects, and opaque tool
-behavior~\cite{jimenez2024swebench}.
+alone: even cooperative agents routinely violate declared constraints
+through planning errors, shell-script side effects, and opaque tool
+behavior.
 
 % ¶3: Gap — context gap + semantic gap
 Enforcing these policies faces two compounding gaps.

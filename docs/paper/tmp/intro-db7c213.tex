@@ -1,0 +1,100 @@
+\section{Introduction}
+
+
+% ¶1: Context — agents are powerful and widely deployed
+AI coding agents have become widely deployed tools for software
+development~\cite{agentsight}. They operate as long-running processes with
+access to shells, source trees, package managers, and external APIs,
+autonomously writing code, running tests, and managing infrastructure across
+extended sessions.
+
+% ¶2: Agents need deterministic harnesses to apply behavioral policies
+As agents gain autonomy, they require harnesses to apply behavioral
+policies. Projects encode such policies in instruction files such
+as \texttt{CLAUDE.md} and
+\texttt{AGENTS.md}~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}.
+Our empirical study of 64~projects extracts 2{,}116 statements and finds
+that 64\% are behavioral directives, 83\% of which involve system-level
+behavior, and 81\% of projects require cross-event state tracking
+(\S\ref{sec:empirical}).
+A directive is \emph{per-event} if it can be checked against a single
+operation (``do not run \texttt{git push --force}'') and
+\emph{cross-event} if it requires state across operations (``run tests
+before committing''---the commit is forbidden unless a test execution
+has been observed since the last source change).
+Because LLM compliance is inherently
+probabilistic~\cite{liu2024lost}, policy cannot reside inside the
+model~\cite{langchain-harness,fowler-harness}: even cooperative agents
+routinely violate declared constraints through long-horizon planning
+errors, shell-script side effects, and opaque tool
+behavior~\cite{jimenez2024swebench}.
+
+% ¶3: Gap — context gap + semantic gap
+Enforcing these policies faces two compounding gaps. First, a
+\emph{context gap}: 74\% of system-level directives are not
+self-contained---they reference project domains (``run the test suite'')
+or delegate judgment to the current task (``unless explicitly
+requested'') that cannot be resolved without the agent's own project
+and session context (\S\ref{sec:empirical}). A static policy authored
+by an external administrator cannot supply this context.
+
+Second, a \emph{semantic gap} between declared policy and system effects.
+Prompt constraints remain probabilistic, while tool-level
+guards~\cite{wang2025agentspec,shi2025progent} lose coverage when agents
+shell out or spawn subprocesses: the same \texttt{git~push} can be reached
+through a tool call, a \texttt{bash~-c} string, or a compiled binary.
+OS-level policy~\cite{ciliumtetragon,flume,pasquier2018camquery} sees
+these effects but requires policies to be statically pre-written and
+returns opaque errors with no connection to declared intent.
+The agent---the entity that holds both the project context and the
+task intent needed to instantiate 74\% of its own rules---has no
+programmatic interface to define or evolve the constraints governing
+its OS-level effects.
+
+% ¶4: Insight — programmable interface, agent as control plane
+Our insight is that the policy engine should be exposed as a
+programmable interface that lets agents become the control plane of
+their own OS-level effects. Because the agent is the only entity
+that holds the project structure and current task intent needed to
+concretize its rules, the agent must author its own enforcement
+policy---trusted to honestly declare intent, but not trusted to
+reliably follow it during execution.
+
+% ¶5: System — ActPlane
+ActPlane is such an interface. Agents and developers declare behavioral
+policies in a compact DSL that agents themselves can generate from
+natural-language directives; ActPlane compiles them into labeled
+information-flow rules and loads them into an eBPF/BPF-LSM backend. Named
+labels propagate across process, file, and network objects at kernel hooks,
+encoding execution history as checkable state: when a process reads a file
+labeled \texttt{SECRET}, the process acquires that label; when it forks, the
+child inherits it. When a labeled subject matches a rule, ActPlane returns
+semantic feedback---which rule was matched, why, and what alternative path
+satisfies it. Each rule independently selects notify (observe), block
+(pre-operation denial), or kill (post-operation termination).
+Policies are layered: higher-authority rules (e.g., platform-level
+``do not leak secrets'') cannot be weakened by the agent, while
+agent-authored rules can be revised as task intent evolves.
+
+This paper makes three contributions.
+
+\begin{enumerate}
+\item An \textbf{empirical study} of instruction files from 64~popular
+projects, showing that cross-event information-flow policies are pervasive
+(81\% of repositories) and that 74\% of system-level directives require
+project or task context that only the agent can supply.
+
+\item \textbf{ActPlane}, a programmable OS-level control plane for agent
+harnesses. ActPlane compiles behavioral policies into eBPF/BPF-LSM labeled
+information-flow rules, observes and enforces them across process, file,
+and network boundaries, returns semantic feedback that reconnects rule
+matches to intent-level remediation, and supports layered policies where
+higher-authority constraints cannot be weakened by the agent.
+
+\item An \textbf{evaluation} of ActPlane's policy coverage, runtime
+cost, and feedback effect. We measure coverage over 607~OS-enforceable
+directives from the empirical study, quantify per-event and end-to-end
+overhead, and evaluate repository-grounded policy compliance on a 20-task
+OctoBench subset selected for system-observable policy points against
+prompt-only and tool-regex baselines.
+\end{enumerate}

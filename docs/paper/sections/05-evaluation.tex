@@ -306,7 +306,10 @@ path hash (FNV-1a), a file-label map lookup, and a linear scan of up to
 \texttt{fork} and \texttt{exec} include scheduler and process-management
 overhead, so their tail latencies are noisier. Despite the high per-call
 multiplier on \texttt{open}, the macrobenchmark impact remains low
-(1.9\%--8.4\%) because agent workloads are dominated not individual syscall throughput..
+(1.9\%--8.4\%) because the absolute added cost (12.8\,\textmu s) is
+small relative to the computation, I/O, and scheduling time between
+successive opens, so the overhead does not accumulate into a
+significant fraction of end-to-end wall-clock time.
 
 \begin{table}[tb]\small
 \centering
@@ -370,7 +373,7 @@ reward, and compliance reward.}
 \label{fig:octobench-rq3}
 \end{figure}
 
-\paragraph{Result.}
+\paragraph{Results.}
 On the 20-task subset, official reward is 0.788 (baseline), 0.818
 (tool-regex), and 0.888 (\sys{}): a 10.0-point gain over baseline and
 7.0~points over tool-regex. The improvement extends beyond generic
