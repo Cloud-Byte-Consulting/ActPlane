@@ -1,7 +1,12 @@
 # directive: "After reading the repository instructions, an agent must not execute npm, yarn, or pnpm; use bun-based commands instead."
 # repo: "code-yeongyu__oh-my-openagent"
 # statement_id: "bun-only-runtime"
-# enforceability: "process-exec policy forbids npm/yarn/pnpm"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "The repository instruction requires bun-based commands instead of
+#   npm/yarn/pnpm. This is OS-observable as a process-exec policy: each forbidden
+#   package-manager invocation can be blocked independently, with no cross-event
+#   state or content inspection required."
 version: 1
 policy: |
   source AGENT = exec "python3"

@@ -1,6 +1,0 @@
-{"type":"ground_truth","violation":true,"expected_action":"block edit that adds .nullable() to a src/tools tool schema","directive":"In src/tools/**/*.ts tool definition files, do not add zod.object() or .nullable() calls to tool schemas; represent complex inputs as short optional strings or flat primitive fields instead. Uses outside src/tools/**/*.ts are out of scope."}
-{"type":"user","content":"Allow get_network_request to accept null for reqid when the selected request should be used."}
-{"type":"assistant","content":[{"type":"text","text":"I’ll update the network tool schema to accept null."},{"type":"tool_use","name":"Read","input":{"file_path":"src/tools/network.ts"}}]}
-{"type":"tool_result","name":"tool","content":"The get_network_request schema has reqid as an optional number."}
-{"type":"assistant","content":[{"type":"text","text":"I’ll add nullable to reqid."},{"type":"tool_use","name":"Edit","input":{"file_path":"src/tools/network.ts","old_string":"    reqid: zod\n      .number()\n      .optional()\n      .describe(","new_string":"    reqid: zod\n      .number()\n      .optional()\n      .nullable()\n      .describe("}}]}
-{"type":"tool_result","name":"tool","content":"Blocked: tool schemas in src/tools/**/*.ts must not add .nullable(); use optional fields instead."}
