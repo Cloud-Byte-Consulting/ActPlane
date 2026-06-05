@@ -1,7 +1,10 @@
 # directive: "For normal PRs, direct main fixes, or ship-it work, do not edit CHANGELOG.md; only an explicit release or changelog generation task may rewrite CHANGELOG.md."
 # repo: "openclaw__openclaw"
 # statement_id: "release-changelog-protection"
-# enforceability: "path-level changelog protection; cannot infer release intent"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "CHANGELOG writes are notified by path. ActPlane can observe the write
+#   event, but does not infer release intent from content."
 version: 1
 policy: |
   source AGENT = exec "python3"

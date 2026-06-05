@@ -1,7 +1,11 @@
 # directive: "Do not manually edit generated SDK output as the only fix; changes to generator-owned SDK API files must be accompanied by the source spec or handwritten layer update/regeneration path."
 # repo: "alibaba__OpenSandbox"
 # statement_id: "sdk_generated_output_not_only_fix"
-# enforceability: "generated-output path approximation; cannot prove accompanying source/spec update"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "Implemented as a path-level guard on generated SDK output writes. This
+#   catches the OS-observable generated-output edit, but cannot prove whether a
+#   matching source/spec update was also made."
 version: 1
 policy: |
   source AGENT = exec "python3"

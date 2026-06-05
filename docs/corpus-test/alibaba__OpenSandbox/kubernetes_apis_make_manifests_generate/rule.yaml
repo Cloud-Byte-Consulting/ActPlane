@@ -1,7 +1,10 @@
 # directive: "After writing Kubernetes API type definitions under kubernetes/apis/, run the Kubernetes generation command so CRD manifests and DeepCopy outputs stay in sync."
 # repo: "alibaba__OpenSandbox"
 # statement_id: "kubernetes_apis_make_manifests_generate"
-# enforceability: "temporal generation-before-commit approximation after Kubernetes API writes"
+# enforceability: "cross_event"
+# context_required: "project"
+# notes: "A commit after Kubernetes API changes requires a prior manifest
+#   generation step. This relies on write-before-commit temporal state."
 version: 1
 policy: |
   source AGENT = exec "python3"

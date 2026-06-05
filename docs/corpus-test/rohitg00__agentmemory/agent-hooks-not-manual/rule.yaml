@@ -1,7 +1,10 @@
 # directive: "Do not execute plugin/scripts/*.mjs lifecycle hook scripts directly from shell commands or ad hoc scripts; invoke them only through the configured hook manifests, or run non-executing checks and tests."
 # repo: "rohitg00__agentmemory"
 # statement_id: "agent-hooks-not-manual"
-# enforceability: "process-exec policy for lifecycle hook scripts"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "Manual lifecycle-hook script execution is blocked by exec patterns. Each
+#   invocation is independently observable."
 version: 1
 policy: |
   source AGENT = exec "python3"

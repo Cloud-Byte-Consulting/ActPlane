@@ -1,7 +1,10 @@
 # directive: "Always read an existing repo file before editing or overwriting it; direct Edit, Write, or Bash modifications to an existing file without a prior Read of that same path are disallowed."
 # repo: "ruvnet__ruflo"
 # statement_id: "read-before-edit"
-# enforceability: "tool-regex approximates same-path read-before-write as any prior read; ActPlane tracks read label broadly"
+# enforceability: "cross_event"
+# context_required: "project"
+# notes: "A write is compliant only after a prior read labels the process. This is
+#   OS-observable but requires cross-event read-before-write state."
 version: 1
 policy: |
   source AGENT = exec "python3"

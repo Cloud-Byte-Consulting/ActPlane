@@ -24,37 +24,32 @@ alone: even cooperative agents routinely violate declared constraints
 through planning errors, shell-script side effects, and opaque tool
 behavior.
 
-% ¶3: Gap — context gap + semantic gap
-Enforcing these policies faces two compounding gaps.
+% ¶4: Semantic gap — existing deterministic mechanisms also fail
+Yet existing harnesses fail to connect these intent-level declarations
+to deterministic system-level enforcement, leaving a \emph{semantic
+gap}. Tool-call
+guardrails~\cite{wang2025agentspec,shi2025progent} lose track of
+system-level actions when agents shell out or spawn subprocesses: the
+same \texttt{git~push} can be reached through a tool call, a
+\texttt{bash~-c} wrapper, or a compiled binary---and 81\% of projects
+require cross-event state tracking that tool-level interception cannot
+provide. OS-level
+mechanisms~\cite{ciliumtetragon,flume,pasquier2018camquery} observe all
+system effects but expect pre-defined static policy and return only
+system events without semantic context; yet 74\% of system-level rules
+require intent-level project or task context that only the agent
+possesses.
 
-The first is a \emph{context gap}. Our study shows that 74\% of
-system-level directives are not self-contained: they reference
-project-specific concepts (``run the test suite'') or delegate judgment to
-the current task (``unless explicitly requested''). A static policy
-authored by an external administrator cannot supply this context; only the
-agent holds the project structure and task intent needed to concretize its
-own rules.
-
-The second is a \emph{semantic gap}---a disconnect between the agent's
-declared behavioral intent and the system-level effects that implement
-it---between declared policy and system effects.
-Tool-level guards~\cite{wang2025agentspec,shi2025progent} lose
-coverage when agents shell out or spawn subprocesses: the same
-\texttt{git~push} can be reached through a tool call, a
-\texttt{bash~-c} wrapper, or a compiled binary. OS-level
-mechanisms~\cite{ciliumtetragon,flume,pasquier2018camquery} observe these
-effects but require statically pre-written policies and return opaque
-errors with no connection to the agent's declared intent.
-
-% ¶4: Insight — agent authors policy, OS enforces it
-These gaps arise because no existing layer lets the agent---the only
-entity with the context to instantiate its own rules---\emph{also}
-program the OS-level mechanism that enforces them. Our key observation is
-that the agent must author its own enforcement policy but must not enforce
-it. The agent is trusted to honestly declare intent, but not trusted to
-reliably follow it during execution. This separation calls for a
-programmable interface between the agent's intent-level context and the
-OS's deterministic enforcement.
+% ¶5: Insight — agent authors policy, OS enforces it
+This gap arises because no existing layer lets the agent---the only
+entity with the context to instantiate its own rules---also program the
+OS-level mechanism that enforces them. Since 
+only the agent itself knows the project and task context, it must author its own
+enforcement policy but must not enforce it: trusted to honestly declare
+intent, but not trusted to reliably follow it during execution. This
+separation calls for a programmable interface that lets agents
+dynamically define and adapt policy for their own system-level actions
+based on their intent context.
 
 % ¶5: System — \sys{}
 We realize this in \sys{}. Agents and developers declare behavioral

@@ -1,7 +1,10 @@
 # directive: "Credential values must stay in operator credential storage and must not be written into tracked repository files or the main config."
 # repo: "NousResearch__hermes-agent"
 # statement_id: "s02_keep_credentials_out_of_repo"
-# enforceability: "path-level secret-storage approximation; content values are not inspected"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "This is a path-level approximation for credential hygiene. ActPlane can
+#   notify on writes to env/config paths, but it does not inspect secret values."
 version: 1
 policy: |
   source AGENT = exec "python3"

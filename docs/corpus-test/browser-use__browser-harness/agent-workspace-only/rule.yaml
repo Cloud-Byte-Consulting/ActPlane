@@ -1,7 +1,10 @@
 # directive: "Task-specific browser helper or domain-skill changes must be written only under agent-workspace/; do not modify src/browser_harness/ for task-specific additions."
 # repo: "browser-use__browser-harness"
 # statement_id: "agent-workspace-only"
-# enforceability: "path policy for task-specific browser helper changes"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "Writes to the harness source tree are flagged by path at write time.
+#   The decision is per-event and does not require process history."
 version: 1
 policy: |
   source AGENT = exec "python3"

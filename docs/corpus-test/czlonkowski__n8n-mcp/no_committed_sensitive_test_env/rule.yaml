@@ -1,7 +1,11 @@
 # directive: "Sensitive test API keys, tokens, and similar values must be kept in .env.test.local and must not be written into committed test environment files or staged for commit."
 # repo: "czlonkowski__n8n-mcp"
 # statement_id: "no_committed_sensitive_test_env"
-# enforceability: "path and temporal approximation for committed env secrets"
+# enforceability: "cross_event"
+# context_required: "project"
+# notes: "The policy combines writes to sensitive test env paths with git commit
+#   activity. It is OS-observable, but the commit decision depends on prior file
+#   state rather than a single event alone."
 version: 1
 policy: |
   source AGENT = exec "python3"

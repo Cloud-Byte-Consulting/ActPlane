@@ -1,7 +1,10 @@
 # directive: "Do not execute deploy/*/entrypoint.sh from the repository or from ad hoc scripts; these entrypoints may be read, edited, or syntax-checked, but should only run as the container ENTRYPOINT."
 # repo: "rohitg00__agentmemory"
 # statement_id: "container-entrypoints-only"
-# enforceability: "process-exec policy forbids running deploy entrypoint scripts manually"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "Container entrypoint bypasses are blocked by exec name and argument
+#   patterns. No cross-event history is required."
 version: 1
 policy: |
   source AGENT = exec "python3"

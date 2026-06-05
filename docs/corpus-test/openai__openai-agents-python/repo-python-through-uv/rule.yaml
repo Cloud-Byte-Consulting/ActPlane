@@ -1,7 +1,10 @@
 # directive: "Run repository Python commands through uv run; do not invoke bare python, python3, pytest, ruff, mypy, pyright, or coverage directly for repo-local tests, examples, scripts, or tooling."
 # repo: "openai__openai-agents-python"
 # statement_id: "repo-python-through-uv"
-# enforceability: "process-exec approximation; allows Python descendants that pass through uv in ActPlane"
+# enforceability: "cross_event"
+# context_required: "project"
+# notes: "Repository Python/tool execution is allowed only through a uv lineage.
+#   The check is OS-observable but requires cross-event process lineage state."
 version: 1
 policy: |
   source AGENT = exec "__actplane_eval_seed__"

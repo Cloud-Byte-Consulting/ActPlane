@@ -1,7 +1,10 @@
 # directive: "Do not add or modify app-server API surface in `codex-rs/app-server-protocol/src/protocol/v1.rs`; active API development must target `codex-rs/app-server-protocol/src/protocol/v2/`."
 # repo: "openai__codex"
 # statement_id: "app-server-v2-only"
-# enforceability: "path-level API-surface approximation for v1 protocol file"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "Legacy v1 protocol API writes are notified by path. The decision is
+#   per-event and does not require history."
 version: 1
 policy: |
   source AGENT = exec "python3"

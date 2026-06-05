@@ -1,7 +1,10 @@
 # directive: "Do not execute scripts/db_migration.sh from the repository root; run it only after changing into the intended sample or target database directory so generated alembic.ini and alembic/ files are scoped there."
 # repo: "google__adk-python"
 # statement_id: "session-db-migration-root"
-# enforceability: "cwd-insensitive approximation for db_migration.sh execution"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "This is a cwd-insensitive exec approximation for the root-level migration
+#   script. Each direct script invocation is independently observable."
 version: 1
 policy: |
   source AGENT = exec "python3"

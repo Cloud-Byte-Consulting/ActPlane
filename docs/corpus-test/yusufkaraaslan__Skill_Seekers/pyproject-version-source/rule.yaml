@@ -1,7 +1,10 @@
 # directive: "When changing the Skill Seekers package version, edit pyproject.toml only; do not edit src/skill_seekers/_version.py."
 # repo: "yusufkaraaslan__Skill_Seekers"
 # statement_id: "pyproject-version-source"
-# enforceability: "path policy for generated version source"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "Generated version file writes are blocked by path. Each write is a
+#   per-event OS-observable decision."
 version: 1
 policy: |
   source AGENT = exec "python3"

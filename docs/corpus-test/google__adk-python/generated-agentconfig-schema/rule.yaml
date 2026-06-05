@@ -1,7 +1,10 @@
 # directive: "Do not directly edit or overwrite src/google/adk/agents/config_schemas/AgentConfig.json; update AgentConfig/source code or scripts/generate_agent_config_schema.py and regenerate the schema with that generator."
 # repo: "google__adk-python"
 # statement_id: "generated-agentconfig-schema"
-# enforceability: "generated schema path policy"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "The generated AgentConfig schema path is protected directly. Each write
+#   to that generated file can be blocked independently."
 version: 1
 policy: |
   source AGENT = exec "python3"

@@ -1,7 +1,10 @@
 # directive: "For quick local validation, do not directly invoke pytest selections for slow, integration, e2e, network, serial, or mcp_only tests; use scripts/run_tests_fast.sh or a pytest command that excludes those markers."
 # repo: "yusufkaraaslan__Skill_Seekers"
 # statement_id: "local-fast-test-scope"
-# enforceability: "pytest marker-selection approximation"
+# enforceability: "per_event"
+# context_required: "project"
+# notes: "Pytest marker-selection requirements are approximated with exec argument
+#   checks. Each pytest invocation is evaluated independently."
 version: 1
 policy: |
   source AGENT = exec "python3"
