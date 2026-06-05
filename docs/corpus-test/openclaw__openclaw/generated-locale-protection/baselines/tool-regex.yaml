@@ -1,0 +1,16 @@
+version: 1
+rules:
+  - id: no-generated-locale-ts
+    effect: kill
+    op: write
+    target: "ui/src/i18n/locales/*.ts"
+    if: "AGENT"
+    unless:
+      target: "ui/src/i18n/locales/en.ts"
+    reason: "Update en.ts/generator and sync locales; do not hand-edit generated locale bundles."
+  - id: no-i18n-generated-dir
+    effect: kill
+    op: write
+    target: "ui/src/i18n/.i18n/**"
+    if: "AGENT"
+    reason: "Do not hand-edit generated i18n artifacts."

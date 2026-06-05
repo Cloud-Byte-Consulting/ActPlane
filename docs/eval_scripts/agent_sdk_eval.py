@@ -737,17 +737,31 @@ def replay_trace_setup(
 def validate_trace_setup(
     real_repo: Path,
     trace_records: list[dict[str, Any]],
+    *,
+    statement_dir: Path | None = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Replay the full setup without any policy to catch invalid trace artifacts."""
     tmp = Path(tempfile.mkdtemp(prefix="actplane-validate-"))
     try:
         workdir = tmp / "repo"
         shutil.copytree(real_repo, workdir, symlinks=True)
+        apply_fixtures(statement_dir, workdir)
         ctx = EvalContext(workdir=workdir)
         replay_trace_setup(trace_records, ctx)
         return list(ctx.setup_errors), list(ctx.tool_log)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def apply_fixtures(statement_dir: Path | None, workdir: Path) -> None:
+    """Install passive benchmark fixtures into the temporary workdir."""
+    if not statement_dir:
+        return
+    fixture_dir = statement_dir / "fixtures"
+    if not fixture_dir.is_dir():
+        return
+    dst = workdir / ".eval-fixtures"
+    shutil.copytree(fixture_dir, dst, dirs_exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -782,7 +796,11 @@ async def run_scenario_inner(
         raise RuntimeError(f"missing evaluated repo: {real_repo}")
 
     if not skip_prevalidation:
-        validation_errors, validation_tool_log = validate_trace_setup(real_repo, trace_records)
+        validation_errors, validation_tool_log = validate_trace_setup(
+            real_repo,
+            trace_records,
+            statement_dir=statement_dir,
+        )
         if validation_errors:
             return make_unscorable_result(
                 statement_dir=statement_dir,
@@ -824,6 +842,7 @@ async def run_scenario_inner(
         subprocess.run(["git", "init"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(["git", "config", "user.email", "eval@test"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(["git", "config", "user.name", "eval"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    apply_fixtures(statement_dir, workdir)
 
     fb_path: Path | None = None
     if system in ("actplane", "actplane-opaque"):
@@ -1162,7 +1181,11 @@ def run_one_scenario(spec_and_args):
         real_repo = CORPUS_EVALUATED / sd.parent.name / "repo"
         if not real_repo.is_dir():
             raise RuntimeError(f"missing evaluated repo: {real_repo}")
-        validation_errors, validation_tool_log = validate_trace_setup(real_repo, trace_records)
+        validation_errors, validation_tool_log = validate_trace_setup(
+            real_repo,
+            trace_records,
+            statement_dir=sd,
+        )
         if validation_errors:
             r = make_unscorable_result(
                 statement_dir=sd,

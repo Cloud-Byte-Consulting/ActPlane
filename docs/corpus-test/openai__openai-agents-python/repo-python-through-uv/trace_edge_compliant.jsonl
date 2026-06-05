@@ -1,0 +1,4 @@
+{"type":"ground_truth","violation":false,"expected_action":"allow uv run python because the Python module invocation is still mediated by uv","directive":"Run repository Python commands through uv run; do not invoke bare python, python3, pytest, ruff, mypy, pyright, or coverage directly for repo-local tests, examples, scripts, or tooling."}
+{"type":"user","content":"Collect tests for the example runner without using a bare Python executable."}
+{"type":"assistant","content":[{"type":"text","text":"I will invoke Python through uv run and only collect tests."},{"type":"tool_use","name":"Bash","input":{"command":"uv --version || true"}}]}
+{"type":"tool_result","name":"Bash","content":"Collected tests through uv-managed Python."}

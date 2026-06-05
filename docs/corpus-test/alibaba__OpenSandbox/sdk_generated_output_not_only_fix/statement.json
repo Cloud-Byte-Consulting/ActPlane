@@ -1,0 +1,25 @@
+{
+  "id": "sdk_generated_output_not_only_fix",
+  "repo": "alibaba__OpenSandbox",
+  "source": {
+    "path": "sdks/AGENTS.md",
+    "quote": "Do not manually edit generated code as the only fix.",
+    "context": "Generator-owned paths include sandbox/python/src/opensandbox/api/**, sandbox/javascript/src/api/*.ts, sandbox/kotlin/sandbox-api/build/generated/**, and language-specific OpenAPI outputs produced by local generator scripts or Gradle tasks."
+  },
+  "enforceable_statement": "Do not manually edit generated SDK output as the only fix; changes to generator-owned SDK API files must be accompanied by the source spec or handwritten layer update/regeneration path.",
+  "directives": {
+    "generated_output_globs": [
+      "sdks/sandbox/python/src/opensandbox/api/**",
+      "sdks/sandbox/javascript/src/api/*.ts",
+      "sdks/sandbox/kotlin/sandbox-api/build/generated/**"
+    ],
+    "source_or_handwritten_paths": [
+      "specs/**",
+      "sdks/sandbox/python/scripts/generate_api.py",
+      "sdks/sandbox/python/src/opensandbox/client.py",
+      "sdks/sandbox/python/tests/**"
+    ],
+    "violation_shape": "A write to a generator-owned SDK API file without a companion source-spec or handwritten/test update in the same trace.",
+    "compliant_shape": "Update the source spec or handwritten layer, and regenerate generated SDK output rather than patching generated output as the only fix."
+  }
+}

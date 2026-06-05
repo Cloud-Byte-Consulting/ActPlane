@@ -1,0 +1,15 @@
+version: 1
+rules:
+  - id: no-hook-script-exec
+    effect: kill
+    op: exec
+    target: "**/plugin/scripts/*.mjs"
+    if: "AGENT"
+    reason: "Do not execute lifecycle hook scripts directly."
+  - id: no-node-hook-script
+    effect: kill
+    op: exec
+    target: "node"
+    arg: "plugin/scripts/*.mjs"
+    if: "AGENT"
+    reason: "Do not execute lifecycle hook scripts through node directly."

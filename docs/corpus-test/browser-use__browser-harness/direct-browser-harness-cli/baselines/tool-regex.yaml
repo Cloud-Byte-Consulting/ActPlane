@@ -1,0 +1,37 @@
+version: 1
+rules:
+  - id: no-uv-browser-harness
+    effect: kill
+    op: exec
+    target: "uv"
+    arg: "browser-harness"
+    if: "AGENT"
+    reason: "Use browser-harness executable directly, not uv run browser-harness."
+  - id: no-python-module-harness
+    effect: kill
+    op: exec
+    target: "python"
+    arg: "browser_harness.run"
+    if: "AGENT"
+    reason: "Use browser-harness executable directly, not python -m browser_harness.run."
+  - id: no-python3-module-harness
+    effect: kill
+    op: exec
+    target: "python3"
+    arg: "browser_harness.run"
+    if: "AGENT"
+    reason: "Use browser-harness executable directly, not python3 -m browser_harness.run."
+  - id: no-python-script-harness
+    effect: kill
+    op: exec
+    target: "python"
+    arg: "src/browser_harness/run.py"
+    if: "AGENT"
+    reason: "Use browser-harness executable directly, not python src/browser_harness/run.py."
+  - id: no-python3-script-harness
+    effect: kill
+    op: exec
+    target: "python3"
+    arg: "src/browser_harness/run.py"
+    if: "AGENT"
+    reason: "Use browser-harness executable directly, not python3 src/browser_harness/run.py."

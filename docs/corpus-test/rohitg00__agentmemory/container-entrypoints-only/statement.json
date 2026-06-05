@@ -1,0 +1,20 @@
+{
+  "statement_id": "container-entrypoints-only",
+  "repo": "rohitg00__agentmemory",
+  "directive": "Do not execute deploy/*/entrypoint.sh from the repository or from ad hoc scripts; these entrypoints may be read, edited, or syntax-checked, but should only run as the container ENTRYPOINT.",
+  "rationale": "The deployment entrypoints perform first-boot container setup: they create and chown the /data volume, overwrite the packaged iii config, generate and persist the HMAC secret, print AGENTMEMORY_SECRET once, and then exec the agentmemory CLI under gosu. Running them from a developer shell or wrapper script risks mutating local/system paths, leaking a generated secret in logs, or failing halfway outside the container assumptions.",
+  "source_evidence": [
+    {
+      "path": "deploy/fly/Dockerfile",
+      "evidence": "The Dockerfile copies entrypoint.sh to /usr/local/bin/agentmemory-entrypoint.sh and wires it through ENTRYPOINT under tini, indicating the script is intended for container startup."
+    },
+    {
+      "path": "deploy/fly/entrypoint.sh",
+      "evidence": "The entrypoint comment says it runs as root, overwrites the bundled iii-config.yaml, chowns /data, generates /data/.hmac, exports AGENTMEMORY_SECRET, and execs agentmemory as node."
+    },
+    {
+      "path": "deploy/fly/README.md",
+      "evidence": "The deploy guide says the HMAC secret is generated on first boot inside the container, persisted to /data/.hmac, and captured from deploy logs exactly once."
+    }
+  ]
+}

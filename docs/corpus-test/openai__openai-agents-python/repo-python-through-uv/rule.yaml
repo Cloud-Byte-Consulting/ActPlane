@@ -1,0 +1,18 @@
+# directive: "Run repository Python commands through uv run; do not invoke bare python, python3, pytest, ruff, mypy, pyright, or coverage directly for repo-local tests, examples, scripts, or tooling."
+# repo: "openai__openai-agents-python"
+# statement_id: "repo-python-through-uv"
+# enforceability: "process-exec approximation; allows Python descendants that pass through uv in ActPlane"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule repo-python-through-uv:
+    kill exec "python" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    kill exec "python3" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    kill exec "pytest" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    kill exec "ruff" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    kill exec "mypy" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    kill exec "pyright" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    kill exec "coverage" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    because "Run repository Python commands through uv run; do not invoke bare python, python3, pytest, ruff, mypy, pyright, or coverage directly for repo-local tests, examples, scripts, or tooling."

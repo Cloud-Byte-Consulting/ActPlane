@@ -1,0 +1,20 @@
+{
+  "statement_id": "tool-schema-flat-zod",
+  "repo": "ChromeDevTools__chrome-devtools-mcp",
+  "directive": "In src/tools/**/*.ts tool definition files, do not add zod.object() or .nullable() calls to tool schemas; represent complex inputs as short optional strings or flat primitive fields instead. Uses outside src/tools/**/*.ts are out of scope.",
+  "rationale": "The repository keeps tool schemas simple for MCP consumers and has a local ESLint rule that rejects nullable fields and nested Zod objects in tool definition files.",
+  "source_evidence": [
+    {
+      "path": "eslint.config.mjs",
+      "excerpt": "The Tools definitions block applies @local/enforce-zod-schema as an error for src/tools/**/*.ts."
+    },
+    {
+      "path": "scripts/eslint_rules/enforce-zod-schema-rule.js",
+      "excerpt": "The rule disallows .nullable() and zod.object() in tool schemas, recommending .optional() and short formatted strings for complex objects."
+    },
+    {
+      "path": "src/tools/input.ts",
+      "excerpt": "An existing nested object schema is explicitly marked with eslint-disable-next-line @local/enforce-zod-schema, showing that nested object schemas are exceptional rather than the default pattern."
+    }
+  ]
+}

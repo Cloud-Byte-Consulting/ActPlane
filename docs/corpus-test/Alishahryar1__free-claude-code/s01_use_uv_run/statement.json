@@ -1,0 +1,11 @@
+{
+  "id": "s01_use_uv_run",
+  "repo": "Alishahryar1__free-claude-code",
+  "category": "workflow",
+  "directive": "Always use `uv run` to run Python files, modules, tests, and repo scripts; do not invoke the global `python` or `python3` command directly.",
+  "source": {
+    "path": "AGENTS.md",
+    "quote": "Always use `uv run` to run files instead of the global `python` command."
+  },
+  "expected_action": "Use commands such as `uv run pytest ...` or `uv run python -m pytest ...`; refuse or rewrite direct `python`/`python3` invocations."
+}

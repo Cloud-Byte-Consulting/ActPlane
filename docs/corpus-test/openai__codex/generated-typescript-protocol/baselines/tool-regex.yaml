@@ -1,0 +1,8 @@
+version: 1
+rules:
+  - id: no-generated-ts-protocol-edit
+    effect: kill
+    op: write
+    target: "codex-rs/app-server-protocol/schema/typescript/v2/**"
+    if: "AGENT"
+    reason: "Change Rust protocol definitions and regenerate TypeScript; do not hand-edit generated files."

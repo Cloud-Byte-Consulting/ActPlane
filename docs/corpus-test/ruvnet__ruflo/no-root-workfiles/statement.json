@@ -1,0 +1,18 @@
+{
+  "statement_id": "no-root-workfiles",
+  "repo": "ruvnet__ruflo",
+  "directive": "Do not create or save working files, markdown drafts, notes, or tests in the repository root; place them in the appropriate existing directory such as docs/, tests/, src/, config/, scripts/, or examples/.",
+  "rationale": "The repository's file organization instructions keep generated work products out of the root folder and direct different artifact types to dedicated directories.",
+  "source_evidence": [
+    {
+      "path": "CLAUDE.md",
+      "lines": "13",
+      "quote": "NEVER save working files, text/mds, or tests to the root folder"
+    },
+    {
+      "path": "CLAUDE.md",
+      "lines": "20-26",
+      "summary": "The file organization section says never save to the root folder and lists src, tests, docs, config, scripts, and examples as destination directories."
+    }
+  ]
+}

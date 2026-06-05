@@ -1,0 +1,44 @@
+version: 1
+rules:
+  - id: no-root-md
+    effect: notify
+    op: write
+    target: "*.md"
+    if: "AGENT"
+    unless:
+      target:
+        - "docs/**"
+        - "tests/**"
+        - "src/**"
+        - "config/**"
+        - "scripts/**"
+        - "examples/**"
+    reason: "Place working notes and drafts in an appropriate directory, not repo root."
+  - id: no-root-txt
+    effect: notify
+    op: write
+    target: "*.txt"
+    if: "AGENT"
+    unless:
+      target:
+        - "docs/**"
+        - "tests/**"
+        - "src/**"
+        - "config/**"
+        - "scripts/**"
+        - "examples/**"
+    reason: "Place working files in an appropriate directory, not repo root."
+  - id: no-root-py
+    effect: notify
+    op: write
+    target: "*.py"
+    if: "AGENT"
+    unless:
+      target:
+        - "docs/**"
+        - "tests/**"
+        - "src/**"
+        - "config/**"
+        - "scripts/**"
+        - "examples/**"
+    reason: "Place tests/helpers in an appropriate directory, not repo root."

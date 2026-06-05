@@ -1,0 +1,28 @@
+{
+  "statement_id": "agent-workspace-only",
+  "repo": "browser-use__browser-harness",
+  "directive": "Task-specific browser helper or domain-skill changes must be written only under agent-workspace/; do not modify src/browser_harness/ for task-specific additions.",
+  "rationale": "The repo separates the protected core package from the agent-editable workspace. Task-specific helper additions belong in agent-workspace/ so the core harness stays small and stable.",
+  "source_evidence": [
+    {
+      "path": "AGENTS.md",
+      "lines": "19-21",
+      "text": "The repo says an agent operating the harness only edits inside agent-workspace/, specifically agent_helpers.py and domain-skills/."
+    },
+    {
+      "path": "SKILL.md",
+      "lines": "8-12",
+      "text": "The day-to-day usage skill directs task-specific edits to agent-workspace/agent_helpers.py and treats domain skills as agent-workspace content."
+    },
+    {
+      "path": "SKILL.md",
+      "lines": "95-102",
+      "text": "The design constraints keep core helpers short and place task-specific helper additions in agent-workspace/agent_helpers.py."
+    },
+    {
+      "path": "README.md",
+      "lines": "49-55",
+      "text": "The README labels src/browser_harness/ as the protected core package and lists agent-workspace paths as the edited helper and skill locations."
+    }
+  ]
+}

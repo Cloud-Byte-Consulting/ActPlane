@@ -1,0 +1,21 @@
+{
+  "id": "kubernetes_apis_make_manifests_generate",
+  "repo": "alibaba__OpenSandbox",
+  "source": {
+    "path": "kubernetes/AGENTS.md",
+    "quote": "If the task changes CRD schemas in `apis/`, also run `make manifests` and `make generate` to keep CRD YAML and DeepCopy methods in sync.",
+    "context": "The same guide also states: Run `make manifests generate` after changing `apis/` types."
+  },
+  "enforceable_statement": "After writing Kubernetes API type definitions under kubernetes/apis/, run the Kubernetes generation command so CRD manifests and DeepCopy outputs stay in sync.",
+  "directives": {
+    "api_type_globs": [
+      "kubernetes/apis/**"
+    ],
+    "required_followup_commands": [
+      "cd kubernetes && make manifests generate",
+      "cd kubernetes && make manifests && make generate"
+    ],
+    "violation_shape": "A write to kubernetes/apis/** without a later make manifests/generate command in the same trace.",
+    "compliant_shape": "Run make manifests and make generate after the API type write, either together or as separate make invocations."
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "statement_id": "pyproject-version-source",
+  "repo": "yusufkaraaslan__Skill_Seekers",
+  "directive": "When changing the Skill Seekers package version, edit pyproject.toml only; do not edit src/skill_seekers/_version.py.",
+  "rationale": "The project declares pyproject.toml as the package metadata source and _version.py dynamically reads that value to avoid mismatches across files. Directly patching _version.py can create version drift.",
+  "source_evidence": [
+    {
+      "path": "src/skill_seekers/_version.py",
+      "lines": "1-5",
+      "excerpt": "Single source of truth for skill-seekers version. This module dynamically reads the version from pyproject.toml to avoid version mismatches across multiple files."
+    },
+    {
+      "path": "src/skill_seekers/_version.py",
+      "lines": "34-45",
+      "excerpt": "The version reader locates pyproject.toml, loads it with tomllib, and returns pyproject_data[\"project\"][\"version\"]."
+    },
+    {
+      "path": "pyproject.toml",
+      "lines": "5-8",
+      "excerpt": "The project metadata contains name = \"skill-seekers\" and version = \"3.6.0\"."
+    }
+  ]
+}

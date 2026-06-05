@@ -1,0 +1,23 @@
+{
+  "statement_id": "direct-browser-harness-cli",
+  "repo": "browser-use__browser-harness",
+  "directive": "Run browser automation through the browser-harness executable on PATH; do not invoke the harness through package runners or Python module/script entrypoints such as uv run browser-harness, python -m browser_harness.run, or python src/browser_harness/run.py.",
+  "rationale": "The repo exposes browser-harness as the intended command and its usage guidance explicitly rejects cd and uv run wrappers. Direct CLI execution keeps the daemon bootstrap and pre-imported helper environment consistent.",
+  "source_evidence": [
+    {
+      "path": "SKILL.md",
+      "lines": "16-26",
+      "text": "The usage block invokes browser-harness directly and states to invoke it as browser-harness on PATH with no cd and no uv run."
+    },
+    {
+      "path": "SKILL.md",
+      "lines": "28-36",
+      "text": "The tool call shape shows browser-harness reading a heredoc and notes run.py calls ensure_daemon before executing code."
+    },
+    {
+      "path": "pyproject.toml",
+      "lines": "15-17",
+      "text": "The project registers the browser-harness console script as the supported entrypoint."
+    }
+  ]
+}

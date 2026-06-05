@@ -1,0 +1,15 @@
+version: 1
+rules:
+  - id: no-write-env-test-secret
+    effect: notify
+    op: write
+    target: ".env.test"
+    if: "AGENT"
+    reason: "Sensitive test values belong in .env.test.local, not committed env files."
+  - id: no-commit-env-test
+    effect: notify
+    op: exec
+    target: "git"
+    arg: "commit"
+    if: "AGENT"
+    reason: "Do not stage/commit sensitive test env files."

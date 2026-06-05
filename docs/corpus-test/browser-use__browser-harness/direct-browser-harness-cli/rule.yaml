@@ -1,0 +1,16 @@
+# directive: "Run browser automation through the browser-harness executable on PATH; do not invoke the harness through package runners or Python module/script entrypoints such as uv run browser-harness, python -m browser_harness.run, or python src/browser_harness/run.py."
+# repo: "browser-use__browser-harness"
+# statement_id: "direct-browser-harness-cli"
+# enforceability: "process-exec policy for forbidden package-runner/module entrypoints"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule direct-browser-harness-cli:
+    kill exec "uv" "browser-harness" if AGENT or AGENT_ALT
+    kill exec "python" "browser_harness.run" if AGENT or AGENT_ALT
+    kill exec "python3" "browser_harness.run" if AGENT or AGENT_ALT
+    kill exec "python" "src/browser_harness/run.py" if AGENT or AGENT_ALT
+    kill exec "python3" "src/browser_harness/run.py" if AGENT or AGENT_ALT
+    because "Run browser automation through the browser-harness executable on PATH; do not invoke the harness through package runners or Python module/script entrypoints such as uv run browser-harness, python -m browser_harness.run, "

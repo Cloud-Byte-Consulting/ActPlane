@@ -1,0 +1,22 @@
+version: 1
+rules:
+  - id: no-root-db-migration-script
+    effect: notify
+    op: exec
+    target: "scripts/db_migration.sh"
+    if: "AGENT"
+    reason: "Run db_migration.sh only from intended sample/target database directory."
+  - id: no-bash-root-db-migration
+    effect: notify
+    op: exec
+    target: "bash"
+    arg: "scripts/db_migration.sh"
+    if: "AGENT"
+    reason: "Run db_migration.sh only from intended sample/target database directory."
+  - id: no-sh-root-db-migration
+    effect: notify
+    op: exec
+    target: "sh"
+    arg: "scripts/db_migration.sh"
+    if: "AGENT"
+    reason: "Run db_migration.sh only from intended sample/target database directory."

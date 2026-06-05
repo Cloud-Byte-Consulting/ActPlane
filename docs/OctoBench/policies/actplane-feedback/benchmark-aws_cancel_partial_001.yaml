@@ -36,8 +36,10 @@ policy: |
     because "For this AWS MCP task, do not use Bash file/search/listing commands for repository exploration. Use Task(subagent_type=Explore), Glob, Grep, Read, and TodoWrite; keep todos updated while implementing history and aliases."
 
   rule history_alias_followthrough:
-    notify write file "*history*.py" if AGENT
-    notify write file "*alias*.py" if AGENT
     notify write file "*server.py" if AGENT
     notify write file "*test*.py" if AGENT
-    because "After changing command history or aliases, ensure only A and C are implemented, no shell completion is exposed, MCP tools are registered in server.py, focused unit tests are added, pytest and ruff check are run, lint issues are addressed, and the final response summarizes paths and test status."
+    because "After changing server.py or tests for this history/alias task, finish the checklist before stopping: implement only A history and C aliases, expose no shell completion, register get_command_history and list_command_aliases MCP tools, add focused tests, run python -m pytest and ruff check where practical, fix lint issues, and summarize paths and test status."
+
+  rule server_registration_followthrough:
+    notify open file "*server.py" if AGENT
+    because "When reading server.py for this task, continue directly to complete MCP integration: add command history recording, alias resolution, get_command_history and list_command_aliases tools, avoid shell completion, then add focused tests and run pytest/ruff where practical."

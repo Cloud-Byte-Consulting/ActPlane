@@ -82,7 +82,11 @@ def validate_one(runner: Any, trace: Path) -> dict[str, Any]:
 
     item["violation"] = bool(records[0].get("violation"))
     try:
-        errors, tool_log = runner.validate_trace_setup(repo_dir, records)
+        errors, tool_log = runner.validate_trace_setup(
+            repo_dir,
+            records,
+            statement_dir=statement_dir,
+        )
     except Exception as exc:
         item["errors"].append(f"validation exception: {type(exc).__name__}: {exc}")
         return item

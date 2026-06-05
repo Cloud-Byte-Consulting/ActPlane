@@ -1,0 +1,14 @@
+# directive: "Credential values must stay in operator credential storage and must not be written into tracked repository files or the main config."
+# repo: "NousResearch__hermes-agent"
+# statement_id: "s02_keep_credentials_out_of_repo"
+# enforceability: "path-level secret-storage approximation; content values are not inspected"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule s02_keep_credentials_out_of_repo:
+    notify write file "**/.env" if AGENT or AGENT_ALT
+    notify write file "**/*.env" if AGENT or AGENT_ALT unless target "**/*.local"
+    notify write file "**/config/**" if AGENT or AGENT_ALT
+    because "Credential values must stay in operator credential storage and must not be written into tracked repository files or the main config."

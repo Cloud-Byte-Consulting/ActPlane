@@ -1,0 +1,8 @@
+version: 1
+rules:
+  - id: agent-workspace-only
+    effect: notify
+    op: write
+    target: "src/browser_harness/**"
+    if: "AGENT"
+    reason: "Task-specific browser helper changes belong under agent-workspace/."

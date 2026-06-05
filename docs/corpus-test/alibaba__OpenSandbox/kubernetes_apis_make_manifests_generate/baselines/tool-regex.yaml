@@ -1,0 +1,13 @@
+version: 1
+rules:
+  - id: generate-after-k8s-api-write
+    effect: notify
+    op: exec
+    target: "git"
+    arg: "commit"
+    if: "AGENT"
+    unless:
+      after_exec: "make"
+      since_write:
+        - "kubernetes/apis/**"
+    reason: "Run Kubernetes manifests/generate after changing kubernetes/apis before committing."

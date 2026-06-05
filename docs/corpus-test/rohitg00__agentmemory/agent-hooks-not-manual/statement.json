@@ -1,0 +1,24 @@
+{
+  "statement_id": "agent-hooks-not-manual",
+  "repo": "rohitg00__agentmemory",
+  "directive": "Do not execute plugin/scripts/*.mjs lifecycle hook scripts directly from shell commands or ad hoc scripts; invoke them only through the configured hook manifests, or run non-executing checks and tests.",
+  "rationale": "The bundled hook scripts are event handlers for agent lifecycle and tool events. They read structured hook payloads from stdin, use AGENTMEMORY_URL and AGENTMEMORY_SECRET, and post session, prompt, tool, and commit events to the local AgentMemory service. Manual execution can create synthetic lifecycle events, trigger consolidation or bridge syncs, or replay commit metadata outside the configured hook dispatch path.",
+  "source_evidence": [
+    {
+      "path": "plugin/hooks/hooks.codex.json",
+      "evidence": "The Codex hook manifest maps lifecycle events such as SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, and Stop to node commands under ${CLAUDE_PLUGIN_ROOT}/scripts/."
+    },
+    {
+      "path": "src/cli/connect/codex-hooks.ts",
+      "evidence": "The connector resolves the bundled plugin/ directory, rewrites ${CLAUDE_PLUGIN_ROOT} to an absolute pluginRoot, and appends those commands to the user's hook manifest."
+    },
+    {
+      "path": "plugin/scripts/session-end.mjs",
+      "evidence": "The session-end hook parses stdin JSON and posts to /agentmemory/session/end; with opt-in env flags it also posts to crystals/auto, consolidate-pipeline, and claude-bridge/sync."
+    },
+    {
+      "path": "plugin/scripts/post-commit.mjs",
+      "evidence": "The post-commit hook shells out to git for commit metadata and posts it to /agentmemory/session/commit using the configured REST URL and bearer secret."
+    }
+  ]
+}

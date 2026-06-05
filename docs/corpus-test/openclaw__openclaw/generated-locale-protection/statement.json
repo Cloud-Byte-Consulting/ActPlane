@@ -1,0 +1,18 @@
+{
+  "statement_id": "generated-locale-protection",
+  "repo": "openclaw__openclaw",
+  "directive": "For ordinary UI copy and localization work, do not hand-edit generated non-English locale bundles under ui/src/i18n/locales/*.ts or ui/src/i18n/.i18n/*; update ui/src/i18n/locales/en.ts or generator/runtime wiring, then run pnpm ui:i18n:sync.",
+  "rationale": "The UI guide identifies foreign-language locale bundles as generated output and makes English strings plus the i18n generator/runtime wiring the source of truth. Manual edits to generated locales create drift from the maintained sync pipeline.",
+  "source_evidence": [
+    {
+      "path": "ui/AGENTS.md",
+      "lines": "5-15",
+      "quote": "Foreign-language locale bundles in `ui/src/i18n/locales/*.ts` are generated output. Do not hand-edit non-English locale bundles or `ui/src/i18n/.i18n/*` unless a targeted generated-output fix is explicitly requested."
+    },
+    {
+      "path": "package.json",
+      "lines": "1842-1844",
+      "quote": "`ui:i18n:sync` runs `node --import tsx scripts/control-ui-i18n.ts sync --write`."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "statement_id": "read-before-edit",
+  "repo": "ruvnet__ruflo",
+  "directive": "Always read an existing repo file before editing or overwriting it; direct Edit, Write, or Bash modifications to an existing file without a prior Read of that same path are disallowed.",
+  "rationale": "The repository's agent instructions require file contents to be inspected before modification so edits are anchored in the current snapshot instead of stale assumptions.",
+  "source_evidence": [
+    {
+      "path": "CLAUDE.md",
+      "lines": "15",
+      "quote": "ALWAYS read a file before editing it"
+    },
+    {
+      "path": "plugin/hooks/hooks.json",
+      "lines": "13-23",
+      "summary": "The hook configuration treats Write, Edit, and MultiEdit as pre-edit file modification events."
+    }
+  ]
+}

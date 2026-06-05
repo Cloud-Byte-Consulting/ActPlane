@@ -1,0 +1,12 @@
+# directive: "When changing the Skill Seekers package version, edit pyproject.toml only; do not edit src/skill_seekers/_version.py."
+# repo: "yusufkaraaslan__Skill_Seekers"
+# statement_id: "pyproject-version-source"
+# enforceability: "path policy for generated version source"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule pyproject-version-source:
+    kill write file "src/skill_seekers/_version.py" if AGENT or AGENT_ALT
+    because "When changing the Skill Seekers package version, edit pyproject.toml only; do not edit src/skill_seekers/_version.py."

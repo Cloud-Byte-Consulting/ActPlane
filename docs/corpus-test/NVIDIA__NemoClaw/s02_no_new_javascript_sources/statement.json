@@ -1,0 +1,23 @@
+{
+  "id": "s02_no_new_javascript_sources",
+  "repo": "NVIDIA__NemoClaw",
+  "directive": "All new source files must be TypeScript. Do not add new .js files to the project.",
+  "source_files": [
+    "CONTRIBUTING.md",
+    "AGENTS.md"
+  ],
+  "source_quotes": [
+    "All new source files must be TypeScript. Do not add new .js files to the project.",
+    "bin/ launcher and remaining scripts/*.js: CommonJS",
+    "When modifying an existing JavaScript file, prefer migrating it to TypeScript in the same PR."
+  ],
+  "enforcement": {
+    "deny": [
+      "creating new .js source files under project source, script, test, or plugin directories"
+    ],
+    "allow": [
+      "creating new .ts source files",
+      "editing existing legacy JavaScript launchers or helper scripts"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "s02_no_type_ignores",
+  "repo": "Alishahryar1__free-claude-code",
+  "category": "workflow",
+  "directive": "Do not add `# type: ignore` or `# ty: ignore` suppressions anywhere in the repo; fix the underlying type issue instead.",
+  "source": {
+    "path": "AGENTS.md",
+    "quote": "Do not add `# type: ignore` or `# ty: ignore`; fix the underlying type issue."
+  },
+  "expected_action": "When a type checker reports an issue, change code or annotations rather than adding type-suppression comments."
+}

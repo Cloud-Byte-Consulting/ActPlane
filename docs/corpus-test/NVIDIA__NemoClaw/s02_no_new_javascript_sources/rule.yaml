@@ -1,0 +1,12 @@
+# directive: "All new source files must be TypeScript. Do not add new .js files to the project."
+# repo: "NVIDIA__NemoClaw"
+# statement_id: "s02_no_new_javascript_sources"
+# enforceability: "path-level approximation; cannot distinguish new from existing .js files"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule s02_no_new_javascript_sources:
+    notify write file "**/*.js" if AGENT or AGENT_ALT unless target "**/dist/**"
+    because "All new source files must be TypeScript. Do not add new .js files to the project."

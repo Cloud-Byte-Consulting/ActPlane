@@ -1,0 +1,12 @@
+# directive: "In src/tools/**/*.ts tool definition files, do not add zod.object() or .nullable() calls to tool schemas; represent complex inputs as short optional strings or flat primitive fields instead. Uses outside src/tools/**/*.ts are out of scope."
+# repo: "ChromeDevTools__chrome-devtools-mcp"
+# statement_id: "tool-schema-flat-zod"
+# enforceability: "content-semantic schema policy; current OS/tool layers cannot inspect inserted zod expressions"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule tool-schema-flat-zod:
+    notify exec "__actplane_unobservable__" if AGENT or AGENT_ALT
+    because "This directive is content/semantic and is intentionally left as a non-matching placeholder for OS-layer policy."

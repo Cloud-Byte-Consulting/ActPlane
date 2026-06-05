@@ -1,0 +1,14 @@
+# directive: "Always run repository tests through scripts/run_tests.sh; do not call pytest directly."
+# repo: "NousResearch__hermes-agent"
+# statement_id: "s01_use_test_wrapper"
+# enforceability: "process-exec policy forbids direct pytest execution"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule s01_use_test_wrapper:
+    kill exec "pytest" if AGENT or AGENT_ALT
+    kill exec "python" "pytest" if AGENT or AGENT_ALT
+    kill exec "python3" "pytest" if AGENT or AGENT_ALT
+    because "Always run repository tests through scripts/run_tests.sh; do not call pytest directly."

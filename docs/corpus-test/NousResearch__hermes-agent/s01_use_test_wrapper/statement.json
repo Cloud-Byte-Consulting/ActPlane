@@ -1,0 +1,22 @@
+{
+  "id": "s01_use_test_wrapper",
+  "repo": "NousResearch__hermes-agent",
+  "statement": "Always run repository tests through scripts/run_tests.sh; do not call pytest directly.",
+  "source": {
+    "path": "AGENTS.md",
+    "evidence": "The Testing section says to always use scripts/run_tests.sh and not call pytest directly."
+  },
+  "enforcement": {
+    "kind": "exec",
+    "compliant": [
+      "scripts/run_tests.sh",
+      "bash scripts/run_tests.sh"
+    ],
+    "violating": [
+      "pytest",
+      "python -m pytest",
+      "scripts that execute pytest directly"
+    ],
+    "reason": "The wrapper enforces CI-parity test behavior, including credential stripping, UTC/C.UTF-8 environment, parallelism, and subprocess isolation."
+  }
+}

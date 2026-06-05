@@ -1,0 +1,12 @@
+# directive: "Do not create or save working files, markdown drafts, notes, or tests in the repository root; place them in the appropriate existing directory such as docs/, tests/, src/, config/, scripts/, or examples/."
+# repo: "ruvnet__ruflo"
+# statement_id: "no-root-workfiles"
+# enforceability: "root workfile path approximation with allow-listed project directories"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule no-root-workfiles:
+    notify write file "*" if AGENT or AGENT_ALT unless target "docs/**"
+    because "Do not create or save working files, markdown drafts, notes, or tests in the repository root; place them in the appropriate existing directory such as docs/, tests/, src/, config/, scripts/, or examples/."

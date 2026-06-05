@@ -82,11 +82,115 @@ Each case keeps separate policy artifacts:
 ```text
 rule.yaml                  # ActPlane DSL
 baselines/tool-regex.yaml  # tool-layer regex baseline policy
-trace_compliant.jsonl
-trace_violation.jsonl
+trace_canonical_compliant.jsonl
+trace_edge_compliant.jsonl
+trace_visible_violation.jsonl
+trace_script_visible_violation.jsonl
+trace_opaque_fixture_violation.jsonl
 ```
 
 The runner does not translate ActPlane DSL into a tool-regex policy at runtime.
+
+The current pilot corpus still uses `trace_compliant.jsonl` and
+`trace_violation.jsonl` for many cases. Expanded RQ1 cases should use the four
+trace roles above so the intent is explicit.
+
+## Corpus Expansion
+
+Target RQ1 scale:
+
+```text
+16 repos x 2 statements/repo x 5 traces/statement = 160 traces
+```
+
+Each statement should have exactly five trace-conditioned decision points:
+
+- `canonical_compliant`: direct, ordinary compliant behavior.
+- `edge_compliant`: compliant behavior with more realistic complexity, such as
+  subprocesses, multi-file edits, or cross-directory changes that should not be
+  overblocked.
+- `visible_violation`: a violation visible in the Agent SDK tool input, where
+  `tool-regex` should have a fair chance.
+- `script_visible_violation`: the agent writes or inlines a helper script during
+  the session and then runs it to violate the directive. The script content is
+  visible in tool input, so this tests the limit of shallow tool-layer matching,
+  not a fundamental observability boundary.
+- `opaque_fixture_violation`: the violation is triggered through an existing
+  repo script or benchmark-provided fixture installed before the agent session.
+  The trace exposes only the top-level invocation; the underlying write, unlink,
+  exec, connect, or provenance event is visible only at runtime.
+
+The current pilot covers 10 repos, one statement per repo, and two traces per
+statement. Expand it with six additional repos:
+
+| repo | why include it | statement themes to look for |
+|---|---|---|
+| `openclaw__openclaw` | explicit OpenClaw coverage; agent/tooling project with likely workflow and filesystem conventions | tool registration, generated artifacts, tests-before-commit, config/secrets |
+| `openai__openai-agents-python` | real agent SDK codebase; high relevance to agent tool semantics | tool/schema changes, examples plus tests, async/client contracts |
+| `google__adk-python` | agent framework with multi-component APIs | spec/API consistency, examples/tests, generated vs handwritten code |
+| `ChromeDevTools__chrome-devtools-mcp` | MCP server with browser/devtools integration | command validation, protocol/schema changes, logging/safety checks |
+| `browser-use__browser-harness` | browser automation harness; good source of subprocess and artifact cases | sandbox/output paths, test fixtures, credentials/session files |
+| `openai__codex` | coding-agent CLI/tooling repo; close to the evaluated agent setting | command execution policy, config handling, tests and release artifacts |
+
+These six are additions to the existing pilot set:
+
+```text
+Alishahryar1__free-claude-code
+NVIDIA__NemoClaw
+NousResearch__hermes-agent
+OpenPipe__ART
+alibaba__OpenSandbox
+code-yeongyu__oh-my-openagent
+czlonkowski__n8n-mcp
+rohitg00__agentmemory
+ruvnet__ruflo
+yusufkaraaslan__Skill_Seekers
+```
+
+## Trace Generation Methodology
+
+Generate traces from real checked-out repositories only:
+
+```text
+docs/corpus-evaluated/<repo>/repo
+```
+
+For each selected repo:
+
+1. Pick two enforceable statements. Prefer one workflow/temporal rule and one
+   provenance/path/schema rule.
+2. Write the natural-language directive, `rule.yaml`, and
+   `baselines/tool-regex.yaml` independently. Do not lower ActPlane DSL into the
+   baseline policy.
+3. Create the five trace roles listed above. Every `Read`, `Edit`, `Write`, and
+   `Bash` setup step must be executable on the real repo snapshot. `Edit.old_string`
+   must match real file content.
+4. Make `visible_violation` detectable from explicit tool input. Make
+   `script_visible_violation` expose the script source through `Write` or an
+   inline shell heredoc, so a stronger static tool-layer checker could in
+   principle inspect it. Make `opaque_fixture_violation` use a real runtime
+   blind spot, such as a pre-session fixture script that writes/deletes files, a
+   repo-provided command that performs `git`, or a cross-event provenance
+   condition that is not visible from a single tool call.
+5. Run `validate_trace_artifacts.py --fail-on-invalid`; all traces must pass
+   before any model run.
+6. Review labels manually. Invalid traces, ambiguous directives, and traces that
+   test task completion rather than directive compliance should be replaced.
+
+The final reported number must still come from `run_eval.py`, trajectory judge
+files, and `summarize_agent_sdk_results.py`; trace-generation diagnostics are
+not paper metrics.
+
+Fixture rules for `opaque_fixture_violation`:
+
+- Store benchmark-provided fixtures under
+  `docs/corpus-test/<repo>/<statement_id>/fixtures/`.
+- The runner copies fixtures to `.eval-fixtures/` in the temporary workdir before
+  replaying the trace.
+- Fixtures are passive setup artifacts; they must not perform the violation
+  until the trace invokes them.
+- The same fixtures are available to every system.
+- `validate_trace_artifacts.py` must apply fixtures before validation.
 
 ## Helper Scripts
 
@@ -134,6 +238,7 @@ back to the host UID/GID so judge files can be written beside runner results.
 
 ## Current Status
 
-As of 2026-06-04, the current `docs/corpus-test` traces validate against the real
-repositories under `docs/corpus-evaluated`. A full baseline DCR has not yet been
-produced by `run_eval.py --config baseline`.
+As of 2026-06-05, the current pilot `docs/corpus-test` traces validate against
+the real repositories under `docs/corpus-evaluated`, and `run_eval.py --config
+baseline` has produced a baseline-only pilot summary. This pilot is not the final
+RQ1 experiment because it covers only 10 repos and does not include ActPlane.

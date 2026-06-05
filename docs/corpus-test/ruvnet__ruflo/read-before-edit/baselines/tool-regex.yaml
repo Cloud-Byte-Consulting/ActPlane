@@ -1,0 +1,13 @@
+version: 1
+sources:
+  - label: READ_ANY
+    kind: file
+    pattern: "**/*"
+    op: read
+rules:
+  - id: read-before-write
+    effect: notify
+    op: write
+    target: "**/*"
+    if: "AGENT and not READ_ANY"
+    reason: "Read the existing file before editing or overwriting it."

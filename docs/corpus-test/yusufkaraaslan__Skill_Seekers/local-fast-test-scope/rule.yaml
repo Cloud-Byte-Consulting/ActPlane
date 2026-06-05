@@ -1,0 +1,17 @@
+# directive: "For quick local validation, do not directly invoke pytest selections for slow, integration, e2e, network, serial, or mcp_only tests; use scripts/run_tests_fast.sh or a pytest command that excludes those markers."
+# repo: "yusufkaraaslan__Skill_Seekers"
+# statement_id: "local-fast-test-scope"
+# enforceability: "pytest marker-selection approximation"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule local-fast-test-scope:
+    notify exec "pytest" "*slow*" if AGENT or AGENT_ALT
+    notify exec "pytest" "*integration*" if AGENT or AGENT_ALT
+    notify exec "pytest" "*e2e*" if AGENT or AGENT_ALT
+    notify exec "pytest" "*network*" if AGENT or AGENT_ALT
+    notify exec "pytest" "*serial*" if AGENT or AGENT_ALT
+    notify exec "pytest" "*mcp_only*" if AGENT or AGENT_ALT
+    because "For quick local validation, do not directly invoke pytest selections for slow, integration, e2e, network, serial, or mcp_only tests; use scripts/run_tests_fast.sh or a pytest command that excludes those markers."

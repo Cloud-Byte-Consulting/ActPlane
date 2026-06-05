@@ -1,0 +1,28 @@
+{
+  "statement_id": "repo-python-through-uv",
+  "repo": "openai__openai-agents-python",
+  "directive": "Run repository Python commands through uv run; do not invoke bare python, python3, pytest, ruff, mypy, pyright, or coverage directly for repo-local tests, examples, scripts, or tooling.",
+  "rationale": "The repository standardizes Python tooling through uv so commands run in the project environment with the expected dependency set.",
+  "source_evidence": [
+    {
+      "path": "AGENTS.md",
+      "line": 110,
+      "excerpt": "`uv` is installed for dependency management (`uv sync`) and `uv run` for Python commands."
+    },
+    {
+      "path": "AGENTS.md",
+      "line": 144,
+      "excerpt": "The focused-test example is `uv run pytest -s -k <pattern>`."
+    },
+    {
+      "path": "AGENTS.md",
+      "line": 212,
+      "excerpt": "Review `Makefile` for common commands and use `uv run` for Python invocations."
+    },
+    {
+      "path": "Makefile",
+      "lines": "7-24,48-58",
+      "excerpt": "Repository format, lint, typecheck, test, and coverage targets invoke Python tools through `uv run`."
+    }
+  ]
+}

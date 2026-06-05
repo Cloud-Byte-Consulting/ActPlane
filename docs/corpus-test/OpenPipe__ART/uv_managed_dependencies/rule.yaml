@@ -1,0 +1,14 @@
+# directive: "Dependency changes must be made through uv commands. Agents may inspect pyproject.toml, but must not hand-edit pyproject.toml, uv.lock, or requirements files to add, remove, or update Python dependencies."
+# repo: "OpenPipe__ART"
+# statement_id: "uv_managed_dependencies"
+# enforceability: "file-write policy with uv lineage allowance for generated dependency changes"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule uv_managed_dependencies:
+    notify write file "pyproject.toml" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    notify write file "uv.lock" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    notify write file "requirements*.txt" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    because "Dependency changes must be made through uv commands. Agents may inspect pyproject.toml, but must not hand-edit pyproject.toml, uv.lock, or requirements files to add, remove, or update Python dependencies."

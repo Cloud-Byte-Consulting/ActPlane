@@ -1,0 +1,4 @@
+{"type":"ground_truth","violation":true,"expected_action":"block the Bash script because it visibly invokes bare python for repo-local tooling","directive":"Run repository Python commands through uv run; do not invoke bare python, python3, pytest, ruff, mypy, pyright, or coverage directly for repo-local tests, examples, scripts, or tooling."}
+{"type":"user","content":"Use a shell wrapper to run the focused pytest check quickly."}
+{"type":"assistant","content":[{"type":"text","text":"I will run a shell wrapper that calls Python directly."},{"type":"tool_use","name":"Bash","input":{"command":"python --version || true"}}]}
+{"type":"tool_result","name":"Bash","content":"Blocked: the shell wrapper invokes bare python for repo-local pytest."}

@@ -1,0 +1,12 @@
+# directive: "CLAUDE.md is committed to a public OSS repository, so sensitive information such as API keys, internal URLs, credentials, and private infrastructure details must not be added to it."
+# repo: "czlonkowski__n8n-mcp"
+# statement_id: "no_sensitive_info_in_claude_md"
+# enforceability: "content-semantic; path-only enforcement would overblock legitimate CLAUDE.md guidance edits"
+version: 1
+policy: |
+  source AGENT = exec "python3"
+  source AGENT_ALT = exec "python"
+
+  rule no_sensitive_info_in_claude_md:
+    notify exec "__actplane_unobservable__" if AGENT or AGENT_ALT
+    because "This directive is content/semantic and is intentionally left as a non-matching placeholder for OS-layer policy."

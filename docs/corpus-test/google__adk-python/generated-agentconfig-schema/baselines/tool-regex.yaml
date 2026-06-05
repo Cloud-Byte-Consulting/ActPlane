@@ -1,0 +1,8 @@
+version: 1
+rules:
+  - id: no-agentconfig-schema-edit
+    effect: kill
+    op: write
+    target: "src/google/adk/agents/config_schemas/AgentConfig.json"
+    if: "AGENT"
+    reason: "Update source/generator and regenerate AgentConfig.json; do not edit it directly."
