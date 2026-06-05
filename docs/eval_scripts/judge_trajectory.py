@@ -472,6 +472,10 @@ def judge_one(
         "messages": make_messages(payload),
         "temperature": 0,
     }
+    if args.max_tokens is not None:
+        kwargs["max_tokens"] = args.max_tokens
+    if args.thinking != "default":
+        kwargs["extra_body"] = {"thinking": {"type": args.thinking}}
     response, retry_count, elapsed_ms = request_completion(
         client,
         kwargs=kwargs,
@@ -532,6 +536,10 @@ def judge_batch(
         "messages": make_batch_messages(cases),
         "temperature": 0,
     }
+    if args.max_tokens is not None:
+        kwargs["max_tokens"] = args.max_tokens
+    if args.thinking != "default":
+        kwargs["extra_body"] = {"thinking": {"type": args.thinking}}
     label = f"batch[{','.join(path.name for path in result_paths)}]"
     response, retry_count, elapsed_ms = request_completion(
         client,
@@ -654,6 +662,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--judge-dir-name", default="trajectory_judges")
     parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
     parser.add_argument("--model-name", default="local-judge")
+    parser.add_argument("--thinking", choices=["default", "enabled", "disabled"], default="default")
+    parser.add_argument("--max-tokens", type=int)
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--retries", type=int, default=3)

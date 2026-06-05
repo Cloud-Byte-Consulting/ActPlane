@@ -21,11 +21,17 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from llama_server import LlamaServer
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_ROOT = ROOT / "docs" / "corpus-test"
 DEFAULT_OUT_BASE = ROOT / "docs" / "eval_runs"
+LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_octobench"
+LLAMA_JUDGE_MAX_TOKENS = 16384
+LLAMA_JUDGE_TIMEOUT = 1800.0
+LLAMA_START_TIMEOUT = 360.0
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,7 @@ class EvalConfig:
     judge_base_url: str = "https://api.z.ai/api/paas/v4"
     model_name: str = "glm-4.7-flash"
     judge_model_name: str = "glm-4.7-flash"
+    judge_thinking: str = "disabled"
     request_timeout: float = 120.0
     judge_timeout: float = 180.0
     judge_retries: int = 8
@@ -132,6 +139,16 @@ def write_result_list(out_dir: Path, result_files: list[Path]) -> Path:
     return path
 
 
+def input_list_paths(paths: list[Path]) -> list[Path]:
+    normalized: list[Path] = []
+    for path in paths:
+        candidate = path if path.is_absolute() else ROOT / path
+        if not candidate.exists():
+            raise FileNotFoundError(f"input list not found: {path}")
+        normalized.append(candidate)
+    return normalized
+
+
 def trace_specs(root: Path, limit: int | None = None) -> list[tuple[str, str, str]]:
     return [key for _, _, key in trace_jobs(root, limit)]
 
@@ -161,6 +178,28 @@ def load_json_result(path: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def is_complete_runner_result(data: dict) -> bool:
+    if data.get("scorable") is False:
+        return False
+    output = str(data.get("agent_output") or "")
+    if output.startswith("(setup error:"):
+        return False
+    external_or_runner_errors = [
+        "RateLimitError",
+        "Error code: 429",
+        "APITimeoutError",
+        "APIConnectionError",
+        "InternalServerError",
+        "Tool Edit not found",
+        "Tool Bash not found",
+        "Tool Read not found",
+        "Tool Write not found",
+        "Tool update_plan not found",
+        "not found in agent",
+    ]
+    return not any(marker in output for marker in external_or_runner_errors)
+
+
 def runner_keys(path: Path, *, system: str, model_name: str) -> set[tuple[str, str, str]]:
     keys: set[tuple[str, str, str]] = set()
     if not path.exists():
@@ -170,6 +209,8 @@ def runner_keys(path: Path, *, system: str, model_name: str) -> set[tuple[str, s
         if not data:
             continue
         if data.get("system") != system or data.get("model") != model_name:
+            continue
+        if not is_complete_runner_result(data):
             continue
         repo = str(data.get("repo") or "")
         statement_id = str(data.get("statement_id") or "")
@@ -197,6 +238,8 @@ def selected_runner_files(
                 continue
             system = str(data.get("system") or "")
             if system not in system_set or data.get("model") != model_name:
+                continue
+            if not is_complete_runner_result(data):
                 continue
             trace_key = (
                 str(data.get("repo") or ""),
@@ -327,6 +370,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--api-key-env", default="GLM_API_KEY")
     parser.add_argument(
+        "--judge-backend",
+        choices=("remote", "llama"),
+        default="remote",
+        help="Judge backend. 'llama' starts local llama.cpp inside run_eval.py.",
+    )
+    parser.add_argument(
+        "--judge-input-list",
+        type=Path,
+        action="append",
+        default=[],
+        help="Judge and summarize existing runner results from this newline-delimited list.",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         help="Run only the first N trace-conditioned scenarios for sanity checks.",
@@ -345,8 +401,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--judge-workers",
         type=int,
-        default=1,
-        help="Run LLM judge requests in parallel. Default: 1.",
+        help="Run LLM judge requests in parallel. Default: 1 for remote, 3 for llama.cpp.",
+    )
+    parser.add_argument(
+        "--judge-max-tokens",
+        type=int,
+        help="Override judge max_tokens. Defaults to 16384 for llama.cpp and unset for remote.",
     )
     parser.add_argument(
         "--judge-sleep-between",
@@ -359,8 +419,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     config = CONFIGS[args.config]
+    judge_only = bool(args.judge_input_list)
+    judge_workers = args.judge_workers
+    if judge_workers is None:
+        judge_workers = 3 if args.judge_backend == "llama" else 1
 
-    if args.api_key_env not in os.environ:
+    if (not judge_only or args.judge_backend == "remote") and args.api_key_env not in os.environ:
         print(f"{args.api_key_env} is not set", file=sys.stderr)
         return 2
     if args.workers < 1:
@@ -369,8 +433,11 @@ def main() -> int:
     if args.max_steps is not None and args.max_steps < 0:
         print("--max-steps must be >= 0", file=sys.stderr)
         return 2
-    if args.judge_workers < 1:
+    if judge_workers < 1:
         print("--judge-workers must be >= 1", file=sys.stderr)
+        return 2
+    if args.judge_max_tokens is not None and args.judge_max_tokens < 1:
+        print("--judge-max-tokens must be >= 1", file=sys.stderr)
         return 2
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -381,106 +448,145 @@ def main() -> int:
 
     judge_model = config.judge_model_name
     judge_dir = judge_dir_name(judge_model)
+    judge_base_url = config.judge_base_url
+    judge_thinking = config.judge_thinking
+    judge_timeout = config.judge_timeout
+    judge_batch_size = config.judge_batch_size
+    judge_max_tokens = args.judge_max_tokens
     judge_sleep_between = (
         args.judge_sleep_between
         if args.judge_sleep_between is not None
-        else (0.0 if args.judge_workers > 1 else config.judge_sleep_between)
+        else (0.0 if judge_workers > 1 else config.judge_sleep_between)
     )
 
-    validate_cmd = module_cmd("validate_trace_artifacts", [
-        "--root",
-        str(config.root),
-        "--fail-on-invalid",
-    ])
-    if run_phase("validate traces", validate_cmd, env=env, log_path=log_path).returncode != 0:
-        return 1
-
-    if args.workers > 1 and not args.no_build:
-        build_cmd = [
-            "docker",
-            "build",
-            "-f",
-            str(SCRIPT_DIR / "Dockerfile.agent-sdk"),
-            "-t",
-            config.image,
-            str(SCRIPT_DIR),
-        ]
-        if run_phase("build docker image", build_cmd, env=env, log_path=log_path).returncode != 0:
+    if judge_only:
+        try:
+            result_lists = input_list_paths(args.judge_input_list)
+        except FileNotFoundError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write("\n\n## runner phase\n")
+            log.write("skip runner phase: --judge-input-list was provided\n")
+            for path in result_lists:
+                log.write(f"input-list: {rel(path)}\n")
+    else:
+        validate_cmd = module_cmd("validate_trace_artifacts", [
+            "--root",
+            str(config.root),
+            "--fail-on-invalid",
+        ])
+        if run_phase("validate traces", validate_cmd, env=env, log_path=log_path).returncode != 0:
             return 1
 
-    result_dirs: list[Path] = []
-    expected = set(trace_specs(config.root, args.limit))
-    expected_results = len(expected)
-    if expected_results == 0:
-        print("No trace scenarios found.", file=sys.stderr)
-        return 1
-    for idx, system in enumerate(config.systems):
-        system_out = out_dir / system
-        result_dirs.append(system_out)
-        complete = runner_keys(system_out, system=system, model_name=config.model_name)
-        complete_expected = len(complete & expected)
-        if complete_expected >= expected_results:
-            with log_path.open("a", encoding="utf-8") as log:
-                log.write(
-                    f"\n\n## run {system}\n"
-                    f"skip existing runner results: {complete_expected}/{expected_results}\n"
+        if args.workers > 1 and not args.no_build:
+            build_cmd = [
+                "docker",
+                "build",
+                "-f",
+                str(SCRIPT_DIR / "Dockerfile.agent-sdk"),
+                "-t",
+                config.image,
+                str(SCRIPT_DIR),
+            ]
+            if run_phase("build docker image", build_cmd, env=env, log_path=log_path).returncode != 0:
+                return 1
+
+        result_dirs: list[Path] = []
+        expected = set(trace_specs(config.root, args.limit))
+        expected_results = len(expected)
+        if expected_results == 0:
+            print("No trace scenarios found.", file=sys.stderr)
+            return 1
+        for idx, system in enumerate(config.systems):
+            system_out = out_dir / system
+            result_dirs.append(system_out)
+            complete = runner_keys(system_out, system=system, model_name=config.model_name)
+            complete_expected = len(complete & expected)
+            if complete_expected >= expected_results:
+                with log_path.open("a", encoding="utf-8") as log:
+                    log.write(
+                        f"\n\n## run {system}\n"
+                        f"skip existing runner results: {complete_expected}/{expected_results}\n"
+                    )
+                continue
+            if args.workers > 1:
+                rc = run_parallel_system(
+                    config=config,
+                    args=args,
+                    system=system,
+                    system_out=system_out,
+                    expected=expected,
+                    env=env,
+                    log_path=log_path,
                 )
-            continue
-        if args.workers > 1:
-            rc = run_parallel_system(
+                if rc != 0:
+                    return rc
+                continue
+            cmd = docker_eval_cmd(
                 config=config,
                 args=args,
                 system=system,
                 system_out=system_out,
-                expected=expected,
-                env=env,
-                log_path=log_path,
+                no_build=args.no_build or idx > 0,
             )
-            if rc != 0:
-                return rc
-            continue
-        cmd = docker_eval_cmd(
-            config=config,
-            args=args,
-            system=system,
-            system_out=system_out,
-            no_build=args.no_build or idx > 0,
+            if run_phase(f"run {system}", cmd, env=env, log_path=log_path).returncode != 0:
+                return 1
+
+        result_files = selected_runner_files(
+            result_dirs,
+            systems=config.systems,
+            expected=expected,
+            model_name=config.model_name,
         )
-        if run_phase(f"run {system}", cmd, env=env, log_path=log_path).returncode != 0:
+        expected_runner_files = expected_results * len(config.systems)
+        if len(result_files) < expected_runner_files:
+            print(
+                f"Only found {len(result_files)}/{expected_runner_files} runner files "
+                f"for selected traces.",
+                file=sys.stderr,
+            )
             return 1
 
-    result_files = selected_runner_files(
-        result_dirs,
-        systems=config.systems,
-        expected=expected,
-        model_name=config.model_name,
-    )
-    expected_runner_files = expected_results * len(config.systems)
-    if len(result_files) < expected_runner_files:
-        print(
-            f"Only found {len(result_files)}/{expected_runner_files} runner files "
-            f"for selected traces.",
-            file=sys.stderr,
-        )
-        return 1
+        result_lists = [write_result_list(out_dir, result_files)]
 
-    result_list = write_result_list(out_dir, result_files)
+    llama_server: LlamaServer | None = None
+    if args.judge_backend == "llama":
+        llama_server = LlamaServer(
+            judge_json=True,
+            restart_existing=True,
+            log_path=out_dir / "llama-judge-server.log",
+        )
+        judge_model = llama_server.model_name()
+        judge_dir = LLAMA_JUDGE_DIR
+        judge_base_url = f"{llama_server.base_url}/v1"
+        judge_thinking = "default"
+        judge_timeout = LLAMA_JUDGE_TIMEOUT
+        judge_batch_size = 1
+        if judge_max_tokens is None:
+            judge_max_tokens = LLAMA_JUDGE_MAX_TOKENS
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write("\n\n## managed llama.cpp judge\n")
+            log.write("+ " + " ".join(llama_server.command()) + "\n")
+            log.write(f"judge-workers: {judge_workers}\n")
+            log.write(f"judge-max-tokens: {judge_max_tokens}\n")
+            log.write(f"judge-dir-name: {judge_dir}\n")
 
     judge_cmd = module_cmd("judge_trajectory", [
-        "--input-list",
-        str(result_list),
         "--source-model",
         config.model_name,
         "--judge-dir-name",
         judge_dir,
         "--base-url",
-        config.judge_base_url,
+        judge_base_url,
         "--model-name",
         judge_model,
+        "--thinking",
+        judge_thinking,
         "--api-key-env",
         args.api_key_env,
         "--timeout",
-        str(config.judge_timeout),
+        str(judge_timeout),
         "--retries",
         str(config.judge_retries),
         "--retry-sleep",
@@ -492,21 +598,31 @@ def main() -> int:
         "--sleep-between",
         str(judge_sleep_between),
         "--workers",
-        str(args.judge_workers),
+        str(judge_workers),
         "--batch-size",
-        str(config.judge_batch_size),
+        str(judge_batch_size),
     ])
-    if run_phase("judge trajectories", judge_cmd, env=env, log_path=log_path).returncode != 0:
-        return 1
+    for result_list in result_lists:
+        judge_cmd.extend(["--input-list", str(result_list)])
+    if judge_max_tokens is not None:
+        judge_cmd.extend(["--max-tokens", str(judge_max_tokens)])
+    try:
+        if llama_server is not None:
+            llama_server.start(timeout=LLAMA_START_TIMEOUT)
+        if run_phase("judge trajectories", judge_cmd, env=env, log_path=log_path).returncode != 0:
+            return 1
+    finally:
+        if llama_server is not None:
+            llama_server.stop()
 
     summary_cmd = module_cmd("summarize_agent_sdk_results", [
-        "--input-list",
-        str(result_list),
         "--source-model",
         config.model_name,
         "--judge-dir-name",
         judge_dir,
     ])
+    for result_list in result_lists:
+        summary_cmd.extend(["--input-list", str(result_list)])
     summary = run_phase("summarize", summary_cmd, env=env, log_path=log_path)
     if summary.returncode != 0:
         return 1

@@ -130,6 +130,7 @@ class LlamaServer:
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+        time.sleep(1)
 
     def command(self) -> list[str]:
         cmd = [
@@ -155,6 +156,12 @@ class LlamaServer:
     def start(self, timeout: float = 120) -> None:
         if self.restart_existing:
             self.stop_existing()
+            if self.healthy():
+                raise RuntimeError(
+                    f"llama-server at {self.base_url} is still healthy after "
+                    "restart_existing stop. Refusing to reuse an externally "
+                    "managed server with unknown parameters."
+                )
 
         if self.healthy():
             print(f"llama-server already running at {self.base_url}")
@@ -209,6 +216,9 @@ class LlamaServer:
             os.killpg(self.proc.pid, signal.SIGTERM)
         except ProcessLookupError:
             self.proc = None
+            if self._log_file:
+                self._log_file.close()
+                self._log_file = None
             return
         try:
             self.proc.wait(timeout=10)

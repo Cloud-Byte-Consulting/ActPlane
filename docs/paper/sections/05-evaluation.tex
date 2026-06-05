@@ -6,15 +6,16 @@ projects, 607~OS-level directives). No synthesized or abstract rules.
 The evaluation answers three questions:
 
 \begin{description}
-\item[RQ1 (Policy compliance)] Compared with prompt-only, tool-layer
-  guards, app-level IFC, and kernel-only mechanisms, does ActPlane
-  improve final policy compliance for directive-derived policies across
-  direct and bypass execution paths?
+\item[RQ1 (Policy compliance)] Compared with prompt-only, tool-layer,
+  and feedback-ablation baselines, does ActPlane improve policy
+  compliance for directive-derived policies across direct and bypass
+  execution paths?
 \item[RQ2 (Overhead)] What is the per-event and end-to-end overhead of
   ActPlane's label propagation and rule checking?
-\item[RQ3 (Feedback effectiveness)] Does the ActPlane harness---observation,
-  rule application, and semantic feedback---improve agent task completion,
-  and does rule adaptation across rounds help?
+\item[RQ3 (Repository-grounded feedback)] On a scaffold-aware
+  repository-grounded coding benchmark, does ActPlane's OS-level
+  enforcement and semantic feedback improve official instruction
+  compliance and task-specific checklist satisfaction?
 \end{description}
 
 %% ----------------------------------------------------------------
@@ -22,52 +23,31 @@ The evaluation answers three questions:
 \label{sec:eval:setup}
 
 \paragraph{Hardware and kernel.}
-% TODO: Fill in CPU model, core count, memory.
-All experiments run on a single machine with
-\texttt{TODO}~CPU (\texttt{TODO}~cores), \texttt{TODO}\,GB RAM,
-Linux~6.x with BPF-LSM active (\texttt{bpf} in
-\texttt{/sys/kernel/security/lsm}), ext4 filesystem, and libbpf~1.x
-with \texttt{bpf\_loop} support.
+All experiments run on a single machine with an Intel Core Ultra~9~285K
+CPU (24~hardware cores), 125\,GiB RAM, Linux~6.15.11, ext4 filesystem,
+and libbpf~1.x with \texttt{bpf\_loop} support. The live enforcement
+runs require BPF-LSM active (\texttt{bpf} in
+\texttt{/sys/kernel/security/lsm}); the RQ2 overhead artifacts record
+the exact LSM state used for each performance run.
 
 \paragraph{Agent environment.}
 % TODO: Fill in agent versions.
-\begin{table}[h]\small
-\centering
-\begin{tabular}{lll}
-\toprule
-Agent & Version & Hook mechanism \\
-\midrule
-Claude Code & v\texttt{TODO} & \texttt{post\_tool\_use} hook via \texttt{actplane feedback-hook} \\
-OpenAI Codex CLI & v\texttt{TODO} & \texttt{on\_agent\_tool\_error} hook \\
-\bottomrule
-\end{tabular}
-\end{table}
+The active agent harnesses are Claude Code (via the ActPlane feedback
+hook) and OpenAI Codex CLI (via tool-error feedback). Exact versions are
+recorded in per-run metadata.
 
 \paragraph{Baseline systems.}
 All baselines use the \emph{same} DSL rules; the difference is the
 enforcement layer. Tool-layer baselines are Python scripts that read
 the same \texttt{rule.yaml} and implement DSL semantics at the
 tool-call level. Kernel baselines are ActPlane with features selectively
-disabled. Table~\ref{tab:baselines} lists all seven systems.
-
-\begin{table}[t]\small
-\centering
-\caption{Baseline systems. Each layer is a strict superset of the previous.}
-\label{tab:baselines}
-\begin{tabular}{llll}
-\toprule
-System & Layer & Represents & Implementation \\
-\midrule
-Prompt-only & Intent & Prompt compliance baseline & Directive in system prompt, no enforcement \\
-TL-1 & Tool call & AgentSpec, Progent~\cite{wang2025agentspec,shi2025progent} & Per-call pattern check \\
-TL-N & Tool call & AgentSpec (sequence-aware) & Sliding window of last $N$ calls \\
-App-level IFC & Tool call + labels & FIDES, CaMeL~\cite{costa2025fides,debenedetti2025camel} & Label tracking across tool calls \\
-Per-event eBPF & Kernel (per-event) & Tetragon~\cite{ciliumtetragon}, eBPF-PATROL~\cite{ghimire2025ebpfpatrol} & ActPlane \texttt{--no-labels} \\
-Kernel IFC & Kernel (cross-event) & CamQuery~\cite{pasquier2018camquery}, Flume~\cite{krohn2007flume} & ActPlane \texttt{--no-feedback} \\
-ActPlane & Kernel (cross-event + feedback) & This system & Full system \\
-\bottomrule
-\end{tabular}
-\end{table}
+disabled. We compare seven systems: prompt-only, TL-1, TL-N,
+app-level IFC, per-event eBPF, kernel IFC without feedback, and full
+ActPlane. The tool-layer and app-level baselines represent
+AgentSpec/Progent-style guards~\cite{wang2025agentspec,shi2025progent}
+and FIDES/CaMeL-style tool-call label tracking~\cite{costa2025fides,debenedetti2025camel};
+the kernel baselines represent per-event eBPF enforcement and
+cross-event kernel IFC without semantic feedback.
 
 %% ----------------------------------------------------------------
 \subsection{Rule Set Construction}
@@ -131,10 +111,10 @@ All systems run on the \emph{same} agent-generated rules---translation
 errors are shared noise; differences between systems reflect system
 capability.
 
-\paragraph{Per-event translation examples.}
-
-\begin{table}[h]\small
+\begin{table*}[t]\small
 \centering
+\caption{Per-event directive translation examples.}
+\label{tab:per-event-examples}
 \begin{tabular}{lll}
 \toprule
 Corpus directive & Source repo & DSL rule \\
@@ -144,12 +124,12 @@ Corpus directive & Source repo & DSL rule \\
 ``Don't run npm publish'' & colbymchenry/codegraph & \texttt{kill exec "npm" "publish" if AGENT} \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
-\paragraph{Cross-event translation examples.}
-
-\begin{table}[h]\small
+\begin{table*}[t]\small
 \centering
+\caption{Cross-event directive translation examples.}
+\label{tab:cross-event-examples}
 \begin{tabular}{llp{5.5cm}}
 \toprule
 Corpus directive & Pattern & DSL rule \\
@@ -159,7 +139,7 @@ Corpus directive & Pattern & DSL rule \\
 ``Only modify DB through migration tool'' & lineage mediation & \texttt{block open file "**/prod.db" unless lineage-includes exec "**/migrate"} \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 %% ----------------------------------------------------------------
 \subsection{RQ1: End-to-End Policy Compliance}
@@ -211,18 +191,18 @@ A separate scoring pass (human audit or scorer script) compares the
 tested LLM's final action against ground truth and fills the
 \texttt{correctness} and \texttt{outcome} fields:
 
-\begin{table}[h]\small
+\begin{table}[H]\small
 \centering
 \caption{Outcome classification.}
 \label{tab:outcomes}
-\begin{tabular}{llll}
+\begin{tabular}{lll}
 \toprule
-Agent final action & Ground truth & Result & Meaning \\
+Action & Truth & Result \\
 \midrule
-Respected directive & violation & \textbf{TP} & Correctly prevented \\
-Respected directive & not violation & \textbf{TN} & Correctly allowed \\
-Violated directive & violation & \textbf{FN} & System failed to prevent \\
-Respected directive (wrongly) & not violation & \textbf{FP} & Over-blocked \\
+Respected directive & violation & \textbf{TP} \\
+Respected directive & not violation & \textbf{TN} \\
+Violated directive & violation & \textbf{FN} \\
+Respected directive (wrongly) & not violation & \textbf{FP} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -271,7 +251,7 @@ tested~LLM receives ``Tests are stale. Re-run \texttt{go~test}.'' $\to$
 
 % TODO: Fill in numbers after experiments.
 
-\begin{table}[h]\small
+\begin{table}[H]\small
 \centering
 \caption{End-to-end FP/FN by enforcement level.}
 \label{tab:rq1-level}
@@ -287,7 +267,7 @@ Cross-event & \texttt{TODO}/215 & \texttt{TODO}/215 & 215 \\
 \end{tabular}
 \end{table}
 
-\begin{table}[h]\small
+\begin{table}[H]\small
 \centering
 \caption{End-to-end FP/FN by context requirement.}
 \label{tab:rq1-context}
@@ -309,7 +289,7 @@ Task & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
 per-syscall; each rule match is an independent decision point. A single
 agent decision step (try action $\to$ get feedback $\to$ decide) is the
 atomic unit of the feedback loop. Multi-step sessions are tested in
-RQ3~(Terminal-Bench).
+RQ3~(OctoBench).
 \emph{Why scripted setup + real agent decision.} The setup (repo state)
 is scripted for reproducibility and cost; the decision step runs a real
 agent under ActPlane to test the full feedback loop: kernel rule match
@@ -374,13 +354,13 @@ the Python baseline checker.
 
 % TODO: Fill in numbers after experiments.
 
-\begin{table}[h]\small
+\begin{table}[H]\small
 \centering
 \caption{Directive compliance rate by system and execution path.}
 \label{tab:bypass-path}
 \begin{tabular}{lrrr}
 \toprule
-System & Direct (compliant/$N$) & Bypass (compliant/$N$) & Bypass gap \\
+System & Direct & Bypass & Gap \\
 \midrule
 ActPlane         & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
 Kernel IFC       & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
@@ -392,13 +372,13 @@ TL-1             & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
 \end{tabular}
 \end{table}
 
-\begin{table}[h]\small
+\begin{table}[H]\small
 \centering
 \caption{Directive compliance rate by system and enforcement level.}
 \label{tab:bypass-level}
 \begin{tabular}{lrrr}
 \toprule
-System & Per-event (compliant/$N_1$) & Cross-event (compliant/$N_2$) & Total \\
+System & Per-event & Cross-event & Total \\
 \midrule
 ActPlane         & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
 Kernel IFC       & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
@@ -417,6 +397,8 @@ agent retries blindly or gives up.
 
 % TODO: Figure 2 — Directive compliance by system (grouped bar chart).
 
+\clearpage
+
 %% ----------------------------------------------------------------
 \subsection{RQ2: Overhead}
 \label{sec:eval:rq2}
@@ -425,28 +407,10 @@ agent retries blindly or gives up.
 
 We measure ActPlane's per-event latency for five syscall types
 (\texttt{fork}, \texttt{exec}, \texttt{open}, \texttt{write},
-\texttt{connect}) under the configurations in
-Table~\ref{tab:micro-configs}. Each configuration $\times$ each
-syscall type runs 100K~iterations pinned to a single CPU core.
-We report p50, p99, and p999 latencies.
-
-\begin{table}[h]\small
-\centering
-\caption{Microbenchmark configurations.}
-\label{tab:micro-configs}
-\begin{tabular}{ll}
-\toprule
-Configuration & Description \\
-\midrule
-Baseline & No eBPF programs attached \\
-AP-1 & 1 rule, 2 sources \\
-AP-10 & 10 rules, 5 sources \\
-AP-32 & 32 rules, 16 sources, 8 transforms \\
-AP-100 & 100 rules, 32 sources, 16 transforms (stress) \\
-Tetragon & TracingPolicy with equivalent per-event rules \\
-\bottomrule
-\end{tabular}
-\end{table}
+\texttt{connect}) under five no-hit configurations: native, AP-1,
+AP-10, AP-32, and AP-100. Each configuration $\times$ syscall type runs
+10K--100K iterations pinned to a single CPU core. We report median p50
+and p99 latencies across seven trials.
 
 \paragraph{Measured operations.}
 \texttt{fork}: \texttt{fork()} + parent \texttt{waitpid()}.
@@ -460,199 +424,156 @@ already-created socket.
 Primary overhead tables use no-hit policies to isolate steady-state rule
 scanning and label propagation from ring-buffer/reporting cost.
 
-\paragraph{Expected results.}
+\paragraph{Results.}
+Figure~\ref{fig:rq2-syscall} shows median latency overhead as the number
+of active no-hit rules increases. The largest absolute microbenchmark
+cost is on \texttt{open}: AP-100 adds 12.8\,\textmu s at p50 and
+14.7\,\textmu s at p99. AP-100 adds 2.6\,\textmu s p50 overhead to
+\texttt{connect} and 0.57\,\textmu s to \texttt{write}. \texttt{fork}
+and \texttt{exec} include scheduler and process-management overhead, so
+their tail latencies are noisier.
 
-% TODO: Fill in numbers after experiments.
-
-\begin{table}[h]\small
+\begin{figure}[H]
 \centering
-\caption{Per-syscall latency (\si{\micro\second}).}
+\includegraphics[width=\columnwidth]{figures/rq2_syscall_micro.png}
+\caption{Syscall-level median overhead as a function of active no-hit
+rules. No-hit policies exercise label propagation and rule scanning
+without userspace violation reporting.}
+\Description{Line chart showing median latency overhead for open, write,
+connect, fork, and exec as rule count increases from 1 to 100.}
+\label{fig:rq2-syscall}
+\end{figure}
+
+\begin{table}[H]\small
+\centering
+\caption{Per-operation latency in microseconds. Values are medians across
+seven trials.}
 \label{tab:micro-latency}
-\begin{tabular}{lrrrrrrr}
+\begin{tabular}{lrrrr}
 \toprule
-Syscall & Baseline & AP-1 & AP-10 & AP-32 & AP-100 & Tetragon & Overhead (AP-100) \\
+Operation & Native p50 & AP-32 p50 & AP-100 p50 & AP-100 p99 \\
 \midrule
-fork p50     & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-fork p99     & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-exec p50     & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-exec p99     & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-open p50     & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-open p99     & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-write p50    & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-write p99    & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-connect p50  & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-connect p99  & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
+\texttt{open}    & 0.58 & 6.92 & 13.40 & 15.36 \\
+\texttt{write}   & 0.27 & 0.79 & 0.84  & 1.59 \\
+\texttt{connect} & 0.58 & 1.98 & 3.17  & 3.90 \\
+\texttt{fork}    & 48.94 & 74.05 & 69.33 & 178.01 \\
+\texttt{exec}    & 248.30 & 314.86 & 317.03 & 490.37 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-% TODO: Figure 4 — Per-syscall overhead bar chart (baseline vs AP-32).
-% TODO: Figure 5 — Overhead vs rule count (x-axis rule count, y-axis latency,
-%                   one line per syscall type).
 
 \subsubsection{Macrobenchmarks (Agent Trace Replay)}
 
-We record agent traces from Terminal-Bench tasks (selecting tasks with
-diverse syscall profiles: compilation-heavy, I/O-heavy, network-heavy).
-Each trace captures the sequence of tool actions the agent performed
-during a baseline (no-ActPlane) run. We replay each trace
-deterministically under four configurations (no~ActPlane, AP-6, AP-32,
-AP-100), repeated $\geq$3~times. Replaying a fixed trace eliminates LLM
-inference variance and isolates ActPlane's overhead. We report
-wall-clock time and syscall count.
+We replay deterministic corpus-derived agent traces and a standard Linux
+kernel build under no-hit ActPlane configurations. The agent trace suite
+contains 20~corpus-derived traces with 68~tool actions, including
+20~Bash subprocesses. The Linux build runs \texttt{defconfig} +
+\texttt{vmlinux} with \texttt{make~-j24} in a fresh output directory.
+Each workload runs three trials per configuration. Replaying fixed
+workloads eliminates LLM inference variance and isolates ActPlane's
+runtime overhead.
 
-% TODO: Fill in numbers after experiments.
-
-\begin{table}[h]\small
+\begin{table}[H]\small
 \centering
-\caption{Agent trace replay overhead (Terminal-Bench tasks).}
+\caption{End-to-end overhead on deterministic workloads.}
 \label{tab:macro-overhead}
-\begin{tabular}{llrrrrr}
+\begin{tabular}{lrrr}
 \toprule
-Trace & Syscall profile & No AP (s) & AP-6 (s) & AP-32 (s) & AP-100 (s) & Overhead \% (AP-100) \\
+Workload & Native & AP-32 & AP-100 \\
 \midrule
-trace-1 & compilation-heavy & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-trace-2 & I/O-heavy         & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-trace-3 & network-heavy     & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-trace-4 & mixed             & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-trace-5 & mixed             & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
+Agent trace replay & 2.65s & 2.70s (+1.9\%) & 2.75s (+3.8\%) \\
+Linux build & 79.48s & 84.65s (+6.5\%) & 86.18s (+8.4\%) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsubsection{Memory Overhead}
-
-We measure BPF map memory consumption as a function of rule count (1,
-10, 32, 100), active process count (10, 100, 1{,}000), and labeled file
-count (10, 100, 1{,}000).
-
-% TODO: Fill in numbers after experiments.
-
-\begin{table}[h]\small
-\centering
-\caption{BPF map memory consumption.}
-\label{tab:memory}
-\begin{tabular}{lrrrr}
-\toprule
-Metric & AP-1 & AP-10 & AP-32 & AP-100 \\
-\midrule
-rodata config (KB) & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-\texttt{ts\_proc} map (KB @ 100 procs) & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-\texttt{ts\_file} map (KB @ 100 files) & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-\midrule
-Total & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-\bottomrule
-\end{tabular}
-\end{table}
+\paragraph{Artifact note.}
+The primary overhead policy is no-hit: it exercises steady-state label
+propagation and rule scanning but excludes violation reporting and
+userspace feedback formatting. The exact aggregate CSV/JSON artifacts are
+stored under \texttt{docs/rq2-performance/results/}.
 
 %% ----------------------------------------------------------------
-\subsection{RQ3: Feedback Effectiveness (Terminal-Bench)}
+\subsection{RQ3: Repository-Grounded Checklist Satisfaction (OctoBench)}
 \label{sec:eval:rq3}
 
 \paragraph{Goal.}
-RQ3 evaluates whether ActPlane's harness (observation, rule application,
-and corrective feedback) improves agent task completion on a standard
-benchmark. A strong model generates behavioral rules; a weaker model
-executes tasks under those rules; ActPlane observes and applies them at
-the OS~level with semantic feedback.
+RQ3 evaluates whether ActPlane improves long-form coding-agent behavior
+in real repository environments. Unlike RQ1, which isolates one
+directive-derived decision point, this experiment runs complete
+OctoBench tasks and evaluates the resulting agent trajectory with the
+official whole-case checklist judge.
 
 \paragraph{Benchmark.}
-Terminal-Bench (tbench.ai): 89~realistic CLI tasks in sandboxed Docker
-containers. Tasks include code compilation, system administration,
-ML~training, reverse engineering, and data science. Current best agent
-success rate is $\sim$50\%.
+OctoBench~\cite{octobench} is a scaffold-aware repository-grounded
+coding benchmark with 217~Dockerized tasks spanning multiple instruction sources: system
+prompt, tool schema, project files such as \texttt{CLAUDE.md} and
+\texttt{AGENTS.md}, memory, skills, and user queries. The benchmark
+reports per-check reward (passed checks divided by total checks) and a
+binary full-instance pass when all checks pass. We use the official
+whole-case evaluator unchanged: no category fallback, no external
+reward, and no checklist override.
 
-\paragraph{Rule generation.}
-For each of the 89~tasks, a strong model reads the task description,
-Docker environment (Dockerfile, filesystem, installed tools), and the
-test script that defines success, then generates a set of ActPlane DSL
-rules encoding reasonable behavioral policies. Each rule includes a
-\texttt{because} string (with remediation guidance) for the feedback
-channel. Examples: ``don't delete Makefile,'' ``don't modify the test
-script,'' ``don't overwrite \texttt{/etc} config without backup,''
-``run validation before reporting results.''
+\paragraph{Subset and conditions.}
+ActPlane cannot observe purely semantic checks (e.g., tone or summary
+quality), so we evaluate a 20-task OS-observable OctoBench subset with
+case-specific policies. Each task runs under three paired conditions:
 
-\paragraph{Experimental conditions.}
-Each task is run under two conditions, each repeated $N \geq 3$ times:
-
-\begin{table}[h]\small
+\begin{table}[H]\small
 \centering
-\caption{Terminal-Bench experimental conditions.}
+\caption{OctoBench RQ3 conditions.}
 \label{tab:rq3-conditions}
-\begin{tabular}{llll}
+\begin{tabular}{lll}
 \toprule
-Condition & Rule application & Feedback & What it tests \\
+Condition & Layer & Policy \\
 \midrule
-B1: baseline & No ActPlane & None & Weak model's raw capability \\
-B2: ActPlane & notify/block/kill & Semantic, \textbf{3 rounds} & Total system value + adaptation \\
+Baseline & None & Original task \\
+Tool-regex & Tool-call hook & Case-specific regex \\
+ActPlane & OS hooks + feedback & Case-specific ActPlane \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-B2 runs three rounds: Round~1 uses initial strong-model rules; Round~2
-refines rules after the strong model sees Round~1 matches; Round~3
-refines again from Round~2 results. The task agent is a weaker
-open-source model that is more likely to trigger rule matches, providing
-clearer signal. The feedback-vs.-no-feedback comparison (semantic
-feedback vs.\ bare \texttt{-EPERM}) is already covered in
-\S\ref{sec:eval:bypass} via the Kernel~IFC vs.\ ActPlane baseline.
-
-\paragraph{Key comparisons.}
-\begin{itemize}
-\item \textbf{B1 vs.\ B2}: total system value---does ActPlane (rules
-  from strong model + harness + feedback) uplift a weak model?
-\item \textbf{B2 Round~1 vs.\ Round~3}: adaptation value---does rule
-  refinement across rounds improve outcomes? (proves the ``adapt'' claim
-  in the abstract).
-\end{itemize}
+Policies are case-specific: no shared guardrail file is used. Tool-regex
+intercepts only tool calls, while ActPlane observes system-level
+\texttt{exec}, \texttt{open}, \texttt{write}, and \texttt{connect} edges
+inside the task container and injects corrective feedback when an
+OS-level rule fires.
 
 \paragraph{Metrics.}
+We report the official OctoBench reward and three diagnostic submetrics
+computed from the same official checklist results:
+\emph{User-query reward} restricts checks to the user-task category;
+\emph{implementation/test reward} restricts checks whose type is
+implementation, testing, configuration, or modification; and
+\emph{compliance reward} restricts checks typed as compliance. These
+submetrics are still checklist-judge metrics, not deterministic
+test-script completion.
 
-\begin{table}[h]\small
+\begin{figure}[H]
 \centering
-\begin{tabular}{lp{8cm}}
-\toprule
-Metric & Definition \\
-\midrule
-Task completion rate & Fraction of tasks where the test script passes (Terminal-Bench's native metric) \\
-Match count per task & Number of ActPlane rule matches per task (B2 only) \\
-Guided completion rate & Fraction of rule matches after which the agent completes the task \\
-Repeat match rate & Fraction of tasks where the same rule fires more than once \\
-Rules triggered rate & Fraction of tasks where at least one rule fires \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=\columnwidth]{figures/octobench_rq3.png}
+\caption{OctoBench 20-task selected subset. ActPlane improves official
+reward and task-specific checklist satisfaction over both baseline and
+tool-regex.}
+\Description{Grouped bar chart comparing baseline, tool-regex, and
+ActPlane on official reward, user-query reward, implementation/test
+reward, and compliance reward.}
+\label{fig:octobench-rq3}
+\end{figure}
 
-\paragraph{Expected results.}
-
-% TODO: Fill in numbers after experiments.
-
-\begin{table}[h]\small
-\centering
-\caption{Terminal-Bench results by condition.}
-\label{tab:rq3-results}
-\begin{tabular}{lrrrr}
-\toprule
-Condition & Tasks & Completion rate & Mean matches/task & Guided completion rate \\
-\midrule
-B1: baseline & 89 & \texttt{TODO} & --- & --- \\
-B2 Round 1   & 89 & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-B2 Round 2   & 89 & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-B2 Round 3   & 89 & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-% TODO: Table 10 — Per-task detail for tasks where B2 Round 1 and Round 3
-%       differ (show rule fired, how refinement changed outcome).
-
-% TODO: Figure 5 — Completion rate B1 vs B2 (3 rounds).
-% TODO: Figure 6 — Adaptation curve: B2 completion rate by round.
-
-\paragraph{Statistical analysis.}
-We report bootstrap 95\% confidence intervals for completion-rate
-differences (B1~vs.~B2, B2~Round~1 vs.~Round~3), paired permutation
-tests for significance, and Cohen's~$d$ for effect size.
+\paragraph{Result.}
+On the 20-task selected OS-observable subset, official reward is
+0.788 for baseline, 0.818 for tool-regex, and 0.888 for ActPlane.
+ActPlane therefore raises official reward by 10.0~percentage points
+over baseline and 7.0~points over tool-regex. The improvement is not
+limited to generic compliance: user-query reward increases by
+28.2~points over baseline, and implementation/test reward increases by
+25.0~points. This supports the narrower claim that OS-level feedback
+can improve checklist-based task satisfaction in repository-grounded
+coding agents. We do not claim deterministic task completion from this
+benchmark because OctoBench is judged by an LLM checklist evaluator
+rather than by per-task test scripts.
 
 
 \section{Related Work}

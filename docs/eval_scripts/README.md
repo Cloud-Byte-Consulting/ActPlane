@@ -128,12 +128,39 @@ parallelism can hit API rate limits on large trajectory payloads.
 limits, but writes one `.judge.json` per runner result and the final metric is
 still computed per trajectory.
 
+Local llama.cpp judge, managed by the same entrypoint:
+
+```bash
+python3 docs/eval_scripts/run_eval.py \
+  --config baseline \
+  --judge-backend llama \
+  --judge-input-list docs/eval_runs/llama-subset/20260605T_llama20/selected_runner_results.txt \
+  --out-dir docs/eval_runs/llama-subset/20260605T_llama20
+```
+
+`--judge-backend llama` starts and stops `llama-server` inside `run_eval.py`.
+The command is intentionally aligned with the OctoBench local judge path:
+`docs/eval_scripts/llama_server.py` defaults to GPU `CUDA0`, `n_ctx=192000`,
+`-ngl all`, no explicit llama.cpp `--parallel`, no explicit `--fit`, and
+`judge_json=True` adds `--reasoning off --reasoning-format none --json-schema
+{}`. The judge phase uses three parallel OpenAI-compatible requests,
+`batch_size=1`, `max_tokens=16384`, and writes judge files under
+`trajectory_judges_llama_cpp_octobench`.
+
+For reproducibility, `run_eval.py` refuses to silently reuse an externally
+managed `llama-server` when `--judge-backend llama` requests a restart. If the
+port remains occupied after the restart attempt, the run fails instead of
+mixing in a server with unknown parameters.
+
 Endpoint defaults follow Z.AI's documented split:
 
 - Agent runner: `https://api.z.ai/api/coding/paas/v4` for GLM Coding Plan /
   coding-tool scenarios.
 - Trajectory judge: `https://api.z.ai/api/paas/v4` for ordinary
   OpenAI-compatible chat completions.
+
+The trajectory judge runs GLM with `thinking.disabled` so strict JSON judge
+responses are not displaced by reasoning tokens.
 
 For trace-conditioned compliance, prefer `--max-steps 1`: the experiment asks
 whether the system steers the next decision point after the fixed trace, not
