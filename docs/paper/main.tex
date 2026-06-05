@@ -22,8 +22,7 @@
 AI coding agents require harnesses to apply behavioral policies
 for effective and safe operation: e.g. do not leak secrets, run tests before committing.
 Our empirical study of 64 projects shows that while project harness
-instructions are declared in natural language, 64\%
-consist of behavioral policies.
+instructions are declared in natural language, 64\% are behavioral directives.
 
 Yet existing agent harnesses fail to connect intent-level declarations
 to deterministic system-level policies, leaving a \emph{semantic gap} and
@@ -47,10 +46,9 @@ behavior as labeled information-flow control (IFC) policies under
 a layered policy model,
 observing and enforcing the agents' actions across process, file, and
 network boundaries with semantic feedback.
-We implement ActPlane with eBPF and evaluate on 607 policies from the
-empirical study, showing that ActPlane improves policy compliance by
-XX\% over existing enforcement mechanisms, with low
-end-to-end overhead.
+We implement ActPlane with eBPF and evaluate it across empirical
+policies, system workloads, and coding tasks, showing improved policy
+compliance with low end-to-end overhead.
 \end{abstract}
 
 \begin{CCSXML}

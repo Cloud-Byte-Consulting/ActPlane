@@ -21,9 +21,9 @@ obfuscation.
 The trusted computing base consists of the eBPF programs, BPF maps, DSL
 compiler, runner, feedback formatter, and higher-authority policies. The
 agent's process tree, including tools, shells, subprocesses, and
-sub-agents, is treated as the monitored domain. Higher-authority rules
-cannot be weakened by agent-authored rules; the agent may only add or
-revise policies within those bounds.
+sub-agents, is treated as the monitored domain. Policy authority and
+conflict resolution are handled by the layered composition model described
+below.
 
 Out of scope are kernel compromise, root or \texttt{CAP\_BPF}
 compromise, deliberate side channels, and semantic content checks that
@@ -33,21 +33,41 @@ deterministic runtime guardrails for their own system-level behavior.
 
 \subsection{Design Goals}
 
-The empirical study in \S\ref{sec:empirical} leads to five design goals.
+The empirical study in \S\ref{sec:empirical} gives four requirements:
+agent-provided context, OS-boundary enforcement, cross-event state, and
+semantic feedback. ActPlane adopts these as system goals and adds one
+authority goal: agent-authored rules may specialize the session policy,
+but they must not weaken operator or platform constraints.
 
-\begin{itemize}
-\item \textbf{Agent-authored policy.} The harness must accept policies
-derived from project and task context that only the agent has.
-\item \textbf{OS-boundary enforcement.} Policy checks must apply below
-the tool API so that shells, scripts, subprocesses, and helper binaries
-remain covered.
-\item \textbf{Cross-event state.} The mechanism must encode histories
-such as ``after tests'' and flows such as ``after reading a secret.''
-\item \textbf{Semantic feedback.} Rule matches should explain which
-declared constraint fired and how the agent can recover.
-\item \textbf{Layered authority.} Agent-authored rules must not weaken
-operator or platform constraints.
-\end{itemize}
+\subsection{Policy Lifecycle}
+
+ActPlane separates \emph{who supplies context} from \emph{who enforces the
+resulting rule}. Higher-authority policies, such as platform or operator
+constraints, are supplied before the agent starts and define the
+non-negotiable boundary of the session. Project policies come from
+instruction files and repository configuration. Session policies are
+agent-authored: before a protected task begins, the agent reads the
+project instructions, resolves project context such as test commands or
+protected paths, incorporates task context such as user approval or task
+scope, and writes the resulting DSL policy.
+
+This lifecycle is the mechanism behind the ``agent as control plane''
+claim. A directive such as ``run the full test suite before committing''
+does not name a concrete command. A static OS policy cannot know whether
+the project uses \texttt{go test ./...}, \texttt{pytest}, or
+\texttt{pnpm test}. The agent can inspect the repository, bind the
+directive to the current project, and install a rule such as
+\texttt{block exec "git" "commit" unless after exec "go" since write
+"**/*.go"}. Task-scoped directives are handled similarly: a rule involving
+``unless explicitly requested'' is generated from the current user request
+or approval state, not from the repository alone.
+
+Policy adaptation is explicit. When the task changes or the agent resolves
+new project context, it produces a new policy document and asks the harness
+to compile and load it at the next session or command boundary. The
+currently loaded policy remains the authority until the replacement has
+compiled successfully. This avoids an unsafe interval in which a failed
+policy update silently removes enforcement.
 
 \begin{figure}[t]
 \begin{verbatim}
@@ -74,6 +94,32 @@ maps rule identifiers back to human-readable feedback.}
 command execution, and feedback output.}
 \label{fig:architecture}
 \end{figure}
+
+\subsection{Layered Policy Composition}
+
+ActPlane composes policies monotonically across authority layers:
+platform/operator rules, project-maintainer rules, and agent/session
+rules. Lower-authority layers may add constraints or more specific
+feedback, but they cannot delete, rewrite, declassify, or weaken rules
+introduced by a higher-authority layer. Exceptions to a higher-authority
+rule must be encoded in that same layer; an agent-authored policy cannot
+turn a platform \texttt{block} into a \texttt{notify}, nor can it
+declassify labels created by the platform policy.
+
+At compile time, the policy compiler merges all active layers into one
+rule set and preserves each rule's authority level in metadata. The kernel
+evaluates the merged rule set against each event. If multiple clauses match
+the same event, effects are joined by severity:
+\[
+\texttt{kill} > \texttt{block} > \texttt{notify} > \texttt{allow}.
+\]
+Thus lower-authority policy can only make the final decision stricter. If
+a project rule says \texttt{notify} on \texttt{git push} but a platform
+rule says \texttt{block} on the same event, the operation is blocked. If
+two matched rules have the same effect, ActPlane reports the
+higher-authority rule first, then uses deterministic rule order as a
+tiebreaker. The feedback file may include additional matched reasons, but
+the enforcement decision is always the strongest joined effect.
 
 \subsection{Policy Model}
 
@@ -170,8 +216,8 @@ running kernel; it is not silently downgraded.
 a BPF-LSM hook, kill also returns \texttt{-EPERM}; from a tracepoint, kill
 is post-operation termination.
 
-When multiple rules match the same event, the strongest effect applies in
-the order kill $>$ block $>$ notify.
+The composition of multiple matching rule effects is defined by the
+layered policy model above.
 
 \subsubsection{Policy Language Scope}
 
@@ -261,13 +307,33 @@ task was killed. The Rust runner maps the rule identifier to the
 corresponding rule name and reason string, then appends a
 structured payload to \texttt{.actplane/last-violation.txt}.
 
+\begin{figure}[t]
+\small
+\begin{verbatim}
+[ActPlane] policy rule matched
+rule: tests-before-commit
+effect: block
+event: exec git commit
+reason: Run `go test ./...` before committing.
+recovery: run `go test ./...`, then retry commit.
+\end{verbatim}
+\caption{Example corrective-feedback payload appended after a kernel
+rule match. The hook relays this payload into the next agent turn.}
+\Description{Text example of an ActPlane feedback payload with rule,
+effect, event, reason, and recovery fields.}
+\label{fig:feedback-payload}
+\end{figure}
+
 Agent integration uses a post-tool hook. The \texttt{actplane feedback-hook}
 subcommand reads new bytes from the feedback file and returns them as
 \texttt{additionalContext} to compatible agent
 runtimes~\cite{agentsight}. The hook is a read-only relay: it does not
 re-evaluate policy in userspace. The kernel is the sole authority for rule
 matches; userspace formats the result so the agent can select an alternative
-execution path.
+execution path. A bare \texttt{-EPERM} tells the agent only that an
+operation failed. The feedback payload instead identifies the declared rule
+that fired and the compliant recovery path, which lets a cooperative agent
+repair the plan rather than retrying the same operation.
 
 
 \section{Implementation}

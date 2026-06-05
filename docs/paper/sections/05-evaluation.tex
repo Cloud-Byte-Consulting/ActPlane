@@ -1,8 +1,9 @@
 \section{Evaluation}
 \label{sec:evaluation}
 
-All evaluation rules are drawn from the empirical study corpus (64~real
-projects, 607~OS-level directives). No synthesized or abstract rules.
+The evaluation uses two sources. RQ1 and RQ2 use directive-derived
+policies from the empirical corpus; RQ3 uses a repository-grounded
+OctoBench subset with case-specific policies and the official judge.
 The evaluation answers three questions:
 
 \begin{description}
@@ -14,8 +15,7 @@ The evaluation answers three questions:
   ActPlane's label propagation and rule checking?
 \item[RQ3 (Repository-grounded feedback)] On a scaffold-aware
   repository-grounded coding benchmark, does ActPlane's OS-level
-  enforcement and semantic feedback improve official instruction
-  compliance and task-specific checklist satisfaction?
+  enforcement and semantic feedback improve official policy compliance?
 \end{description}
 
 %% ----------------------------------------------------------------
@@ -53,30 +53,13 @@ cross-event kernel IFC without semantic feedback.
 \subsection{Rule Set Construction}
 \label{sec:eval:ruleset}
 
-The empirical study corpus contains 1{,}361~directives distributed
-across four enforcement levels:
-
-\begin{table}[h]\small
-\centering
-\caption{Directive enforcement levels in the empirical study corpus.}
-\label{tab:directive-levels}
-\begin{tabular}{lrrl}
-\toprule
-Level & Count & \% & ActPlane role \\
-\midrule
-semantic\_only & 234 & 17.2 & Not enforceable (model compliance layer) \\
-content & 520 & 38.2 & Out of scope (linter layer) \\
-per\_event & 392 & 28.8 & ActPlane basic rules \\
-cross\_event & 215 & 15.8 & ActPlane IFC engine \\
-\midrule
-\textbf{OS-level total} & \textbf{607} & \textbf{44.6} & \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-ActPlane targets the OS-level enforcement layers:
-per\_event~(392) + cross\_event~(215) = \textbf{607~OS-level directives}.
-The evaluation pipeline has four actors and strict separation of concerns.
+E-RQ3 identifies 607~OS-enforceable directives in the empirical corpus:
+392~per-event directives and 215~cross-event directives. RQ1 uses this
+subset because these directives can be represented at process, file, or
+network hooks. Semantic-only directives have no system-observable
+counterpart, while content directives require file-content inspection or
+linting rather than OS-level IFC. The evaluation pipeline has four actors
+and strict separation of concerns.
 
 \paragraph{Pipeline overview.}
 \begin{enumerate}
@@ -109,37 +92,8 @@ tested LLM never sees ground truth (it acts like a real agent); bypass
 traces are programmatically generated (no circular evaluation risk).
 All systems run on the \emph{same} agent-generated rules---translation
 errors are shared noise; differences between systems reflect system
-capability.
-
-\begin{table*}[t]\small
-\centering
-\caption{Per-event directive translation examples.}
-\label{tab:per-event-examples}
-\begin{tabular}{lll}
-\toprule
-Corpus directive & Source repo & DSL rule \\
-\midrule
-``Do not commit to main directly'' & CoplayDev/unity-mcp & \texttt{kill exec "git" "push" "main" if AGENT} \\
-``Never modify vendor/ files'' & (multiple) & \texttt{kill write file "**/vendor/**" if AGENT} \\
-``Don't run npm publish'' & colbymchenry/codegraph & \texttt{kill exec "npm" "publish" if AGENT} \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-\begin{table*}[t]\small
-\centering
-\caption{Cross-event directive translation examples.}
-\label{tab:cross-event-examples}
-\begin{tabular}{llp{5.5cm}}
-\toprule
-Corpus directive & Pattern & DSL rule \\
-\midrule
-``Run tests before committing'' & temporal gate & \texttt{kill exec "git" "commit" if AGENT unless after exec "**/pytest" since write "src/**"} \\
-``Never commit secrets'' & data flow & \texttt{source SECRET = file "**/.env"} + \texttt{kill exec "git" "commit" if SECRET} \\
-``Only modify DB through migration tool'' & lineage mediation & \texttt{block open file "**/prod.db" unless lineage-includes exec "**/migrate"} \\
-\bottomrule
-\end{tabular}
-\end{table*}
+capability. Figure~\ref{fig:policy-example} shows representative
+per-event and cross-event rules.
 
 %% ----------------------------------------------------------------
 \subsection{RQ1: End-to-End Policy Compliance}
@@ -155,7 +109,7 @@ rule translation and trace generation as explicit artifact-generation
 steps.
 
 \paragraph{Method.}
-For each of the 607~OS-level directives we generate exactly
+For each of the 607~OS-enforceable directives we generate exactly
 \textbf{two trace scenarios}: a violation trace (tool calls that should
 trigger the rule) and a compliant trace (correct-path tool calls that
 should not). Each trace is a JSONL file mirroring a real agent session:
@@ -305,7 +259,7 @@ differences between systems reflect system capability.
 ActPlane maintains policy compliance when directive-relevant behavior
 moves below the agent tool API or depends on cross-event state. Existing
 approaches fail in three common ways: tool-layer guards lose track of
-system-level actions (bypass), OS-level mechanisms lack cross-event state
+OS-level effects (bypass), OS-level mechanisms lack cross-event state
 (no IFC), and kernel mechanisms return only system events without
 semantic context (no feedback). This sub-experiment tests all three by
 comparing 7~systems on the same directives.
@@ -478,15 +432,15 @@ userspace feedback formatting. The exact aggregate CSV/JSON artifacts are
 stored under \texttt{docs/rq2-performance/results/}.
 
 %% ----------------------------------------------------------------
-\subsection{RQ3: Repository-Grounded Checklist Satisfaction (OctoBench)}
+\subsection{RQ3: Repository-Grounded Policy Compliance (OctoBench)}
 \label{sec:eval:rq3}
 
 \paragraph{Goal.}
-RQ3 evaluates whether ActPlane improves long-form coding-agent behavior
-in real repository environments. Unlike RQ1, which isolates one
-directive-derived decision point, this experiment runs complete
-OctoBench tasks and evaluates the resulting agent trajectory with the
-official whole-case checklist judge.
+RQ3 evaluates whether ActPlane improves policy compliance in long-form
+coding-agent tasks in real repository environments. Unlike RQ1, which
+isolates one directive-derived decision point, this experiment runs
+complete OctoBench tasks and evaluates the resulting agent trajectory with
+the official whole-case checklist judge.
 
 \paragraph{Benchmark.}
 OctoBench~\cite{octobench} is a scaffold-aware repository-grounded
@@ -500,32 +454,34 @@ reward, and no checklist override.
 
 \paragraph{Subset and conditions.}
 ActPlane cannot observe purely semantic checks (e.g., tone or summary
-quality), so we evaluate a 20-task OS-observable OctoBench subset with
-case-specific policies. Each task runs under three paired conditions:
+quality), so we evaluate a 20-task OctoBench subset selected for
+system-observable policy points, with case-specific policies. Each task
+runs under three paired conditions:
 baseline (the original task with no enforcement), tool-regex (a
 case-specific tool-call hook), and ActPlane (case-specific OS hooks plus
 feedback). No shared guardrail file is used. Tool-regex intercepts only
-tool calls, while ActPlane observes system-level \texttt{exec},
+tool calls, while ActPlane observes OS-level \texttt{exec},
 \texttt{open}, \texttt{write}, and \texttt{connect} edges inside the
 task container and injects corrective feedback when an OS-level rule
 fires.
 
 \paragraph{Metrics.}
-We report the official OctoBench reward and three diagnostic submetrics
-computed from the same official checklist results:
+We treat the official OctoBench reward as the benchmark's policy-compliance
+metric: it measures the fraction of checklist policies judged satisfied
+for a whole task. We also report three diagnostic submetrics computed from
+the same official checklist results:
 \emph{User-query reward} restricts checks to the user-task category;
 \emph{implementation/test reward} restricts checks whose type is
 implementation, testing, configuration, or modification; and
 \emph{compliance reward} restricts checks typed as compliance. These
-submetrics are still checklist-judge metrics, not deterministic
-test-script completion.
+submetrics are still policy-compliance metrics backed by the official
+checklist judge, not deterministic test-script completion.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{figures/octobench_rq3.png}
 \caption{OctoBench 20-task selected subset. ActPlane improves official
-reward and task-specific checklist satisfaction over both baseline and
-tool-regex.}
+policy compliance over both baseline and tool-regex.}
 \Description{Grouped bar chart comparing baseline, tool-regex, and
 ActPlane on official reward, user-query reward, implementation/test
 reward, and compliance reward.}
@@ -533,17 +489,17 @@ reward, and compliance reward.}
 \end{figure}
 
 \paragraph{Result.}
-On the 20-task selected OS-observable subset, official reward is
+On the selected 20-task subset, official reward is
 0.788 for baseline, 0.818 for tool-regex, and 0.888 for ActPlane.
 ActPlane therefore raises official reward by 10.0~percentage points
 over baseline and 7.0~points over tool-regex. The improvement is not
 limited to generic compliance: user-query reward increases by
 28.2~points over baseline, and implementation/test reward increases by
 25.0~points. This supports the narrower claim that OS-level feedback
-can improve checklist-based task satisfaction in repository-grounded
-coding agents. We do not claim deterministic task completion from this
-benchmark because OctoBench is judged by an LLM checklist evaluator
-rather than by per-task test scripts.
+can improve policy compliance in repository-grounded coding agents. We do
+not claim deterministic task completion from this benchmark because
+OctoBench is judged by an LLM checklist evaluator rather than by per-task
+test scripts.
 
 \section{Related Work}
 \label{sec:related}
@@ -620,9 +576,9 @@ enforced at the OS level.
 
 Our empirical study of 64~projects reveals that agent instruction files
 are behavioral policies (64\% directives), that most directives require
-system-level enforcement (83\% OS-observable), and that 74\% of
-system-level rules cannot be instantiated without project or task context
-that only the agent possesses. These findings motivate a design in which
+system observation (83\% system-observable), and that 74\% of
+system-observable directives cannot be instantiated without project or
+task context that only the agent possesses. These findings motivate a design in which
 the agent authors its own enforcement policy.
 
 ActPlane provides a programmable OS-level control plane for agent harnesses.

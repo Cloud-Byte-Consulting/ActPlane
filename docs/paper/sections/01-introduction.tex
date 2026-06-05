@@ -49,12 +49,12 @@ returns opaque errors with no connection to declared intent.
 The agent---the entity that holds both the project context and the
 task intent needed to instantiate 74\% of its own rules---has no
 programmatic interface to define or evolve the constraints governing
-its system-level actions.
+its OS-level effects.
 
 % ¶4: Insight — programmable interface, agent as control plane
 Our insight is that the policy engine should be exposed as a
 programmable interface that lets agents become the control plane of
-their own system-level actions. Because the agent is the only entity
+their own OS-level effects. Because the agent is the only entity
 that holds the project structure and current task intent needed to
 concretize its rules, the agent must author its own enforcement
 policy---trusted to honestly declare intent, but not trusted to
@@ -92,9 +92,9 @@ matches to intent-level remediation, and supports layered policies where
 higher-authority constraints cannot be weakened by the agent.
 
 \item An \textbf{evaluation} of ActPlane's policy coverage, runtime
-cost, and feedback effect. We measure coverage over 607~OS-level
+cost, and feedback effect. We measure coverage over 607~OS-enforceable
 directives from the empirical study, quantify per-event and end-to-end
-overhead, and evaluate repository-grounded checklist satisfaction on a
-20-task OS-observable OctoBench subset against prompt-only and tool-regex
-baselines.
+overhead, and evaluate repository-grounded policy compliance on a 20-task
+OctoBench subset selected for system-observable policy points against
+prompt-only and tool-regex baselines.
 \end{enumerate}
