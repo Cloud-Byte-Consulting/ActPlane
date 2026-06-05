@@ -8,7 +8,7 @@ extended sessions.
 
 % ¶2: Agents need harnesses; instruction files are behavioral policy
 As agents gain autonomy, they require \emph{harnesses} that apply
-behavioral policies---constraints on what the agent may do, in what
+behavioral policies: constraints on what the agent may do, in what
 order, and under what conditions~\cite{langchain-harness,fowler-harness}.
 Projects encode such policies in instruction files (\texttt{CLAUDE.md},
 \texttt{AGENTS.md})~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}.
@@ -17,7 +17,7 @@ Projects encode such policies in instruction files (\texttt{CLAUDE.md},
 These policies are pervasive and demand deterministic enforcement. Our
 empirical study of 64~projects (\S\ref{sec:empirical}) finds that 64\%
 of instruction-file statements are behavioral directives, and 83\% of
-those involve system-level behavior---commands executed, files accessed,
+those involve system-level behavior: commands executed, files accessed,
 and network connections made. Because LLM compliance is inherently
 probabilistic~\cite{liu2024lost}, policy cannot reside inside the model
 alone: even cooperative agents routinely violate declared constraints
@@ -31,7 +31,7 @@ gap}. Tool-call
 guardrails~\cite{wang2025agentspec,shi2025progent} lose track of
 system-level actions when agents shell out or spawn subprocesses: the
 same \texttt{git~push} can be reached through a tool call, a
-\texttt{bash~-c} wrapper, or a compiled binary---and 81\% of projects
+\texttt{bash~-c} wrapper, or a compiled binary; and 81\% of projects
 require cross-event state tracking that tool-level interception cannot
 provide. OS-level
 mechanisms~\cite{ciliumtetragon,flume,pasquier2018camquery} observe all
@@ -41,8 +41,8 @@ require intent-level project or task context that only the agent
 possesses.
 
 % ¶5: Insight — agent authors policy, OS enforces it
-This gap arises because no existing layer lets the agent---the only
-entity with the context to instantiate its own rules---also program the
+This gap arises because no existing layer lets the agent, the only
+entity with the context to instantiate its own rules, also program the
 OS-level mechanism that enforces them. Since 
 only the agent itself knows the project and task context, it must author its own
 enforcement policy but must not enforce it: trusted to honestly declare
@@ -59,7 +59,7 @@ them into labeled information-flow rules and loads them into an
 eBPF/BPF-LSM (Linux Security Modules) enforcement engine. Named labels propagate across processes, files, and network
 endpoints at kernel hooks, encoding execution history as checkable state.
 When a labeled event matches a rule, \sys{} returns semantic
-feedback---which rule matched, why, and what compliant alternative
+feedback: which rule matched, why, and what compliant alternative
 satisfies it. Each rule independently selects one of three effects:
 notify (observe), block (pre-operation denial), or kill (post-operation
 termination). A layered authority model ensures that higher-authority

@@ -2,10 +2,10 @@
 \label{sec:background}
 
 \textbf{Coding agents.}
-AI coding agents---including Claude
+AI coding agents such as Claude
 Code~\cite{anthropic2025claudecode}, Codex
 CLI~\cite{openai2025codex}, Cursor~\cite{cursor2025}, and
-Devin~\cite{devin2025}---operate on repositories through an
+Devin~\cite{devin2025} operate on repositories through an
 \emph{execution harness} that mediates tool calls, shell commands, file
 access, network access, and model
 feedback~\cite{langchain-harness,fowler-harness}. A single tool
@@ -14,7 +14,7 @@ files and endpoints before control returns to the model. Projects encode
 behavioral expectations in instruction files
 (\texttt{CLAUDE.md},
 \texttt{AGENTS.md})~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd},
-but the harness must decide how---and at what layer---to enforce them.
+but the harness must decide how, and at what layer, to enforce them.
 
 \textbf{Information-flow control.}
 Information-flow control (IFC) tracks how data or authority moves from
@@ -31,7 +31,7 @@ whole-system provenance frameworks such as
 CamFlow~\cite{pasquier2017camflow} and
 CamQuery~\cite{pasquier2018camquery} record and query cross-event label
 histories. IFC thus captures constraints whose correctness depends on
-execution history---exactly the pattern that agent workflow directives (``run
+execution history; this is exactly the pattern that agent workflow directives (``run
 tests before committing'') exhibit.
 
 \textbf{Agent harness enforcement.}
@@ -43,7 +43,7 @@ intercept tool-call names and arguments deterministically, while
 application-level IFC systems such as FIDES~\cite{costa2025fides} and
 CaMeL~\cite{debenedetti2025camel} track data flow within the agent loop.
 These mechanisms observe only the harness request, not the system-level
-effects that follow once a tool starts executing---a subprocess, a
+effects that follow once a tool starts executing: a subprocess, a
 shell-out, or a compiled binary can bypass the tool boundary entirely.
 OS-level mechanisms
 (seccomp~\cite{seccomp-bpf}, AppArmor~\cite{apparmor},
@@ -223,7 +223,7 @@ explicitly requested,'' ``without approval'').
 \noindent\textbf{Finding.} Most system-observable directives are not
 self-contained. Of the 1{,}127~system-observable directives, only 26.4\%
 specify all commands, paths, and patterns needed to produce a concrete
-rule directly. Another 64.2\% require \emph{project context}---the
+rule directly. Another 64.2\% require \emph{project context}: the
 directive mentions ``the test suite,'' ``the linter,'' or ``upstream
 source,'' whose concrete command or path must be resolved from the
 repository. The remaining 9.4\% require \emph{task context}: the rule
@@ -231,9 +231,9 @@ depends on the current user request or a per-session grant
 (Figure~\ref{fig:empirical-rq4}). This quantifies the gap between a
 natural-language instruction and a deployable enforcement rule: statically
 authored rules can cover only the self-contained fraction, while the
-majority require an entity---the agent or a harness component---that can
-read the project, interpret the current task, and produce a concrete
-policy before enforcement begins
+majority require an entity with project and task context, such as the
+agent itself, to read the repository, interpret the current task, and
+produce a concrete policy before enforcement begins
 (Table~\ref{tab:examples}: S4 is self-contained; S5--S7 require
 project context; S8 requires task context).
 

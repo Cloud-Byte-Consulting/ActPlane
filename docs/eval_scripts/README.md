@@ -198,7 +198,8 @@ Setup-level intervention counts are not the final metric.
 
 RQ1 experiments must not create externally visible side effects. Trace replay,
 Agent SDK Bash tools, and validation all run in a temporary repo copy or Docker
-overlay, and the runner installs a local `.eval-safe-bin` before executing Bash:
+COW overlay, and the runner installs a local `.eval-safe-bin` before executing
+Bash:
 
 - `gh issue create` and `gh pr create` return `example.invalid` URLs instead of
   contacting GitHub.
@@ -385,7 +386,7 @@ These scripts are implementation helpers used by `run_eval.py`:
 - `summarize_agent_sdk_results.py` — computes the final DCR table from judge
   files.
 - `tool_regex_baseline.py` — implementation of the explicit tool-layer baseline.
-- `Dockerfile.agent-sdk` and `docker_eval_entrypoint.py` — Docker image and
+- `Dockerfile.agent-sdk` and `docker_eval_entrypoint.sh` — Docker image and
   entrypoint.
 
 These helpers are import-only for reported experiments. Their outputs are not
@@ -394,18 +395,26 @@ final summary.
 
 ## Docker Notes
 
-The Docker wrapper uses the same runner, but isolates writes:
+The Docker wrapper uses the same runner, but isolates writes with a full-host
+copy-on-write view:
 
 ```text
-host ActPlane checkout (read-only bind mount)
-  -> container overlay lowerdir
-  -> writable merged workspace at /workspace/ActPlane
+host / (read-only bind mount at /host-root)
+  -> tmpfs overlay upperdir inside the container
+  -> chroot into the merged root
   -> exported results under docs/eval_runs/...
 ```
 
+The image does not install benchmark dependencies such as `openai-agents`,
+PyYAML, `uv`, Node, or repo toolchains. After chroot, commands see the host
+filesystem at normal absolute paths, so host tools such as
+`/home/.../.local/bin/uv` work through the COW view while writes land in the
+tmpfs upperdir.
+
 The wrapper uses `docker run --privileged --pid host` because ActPlane's eBPF
-maps are keyed by host PIDs. For baseline-only runs this is harmless; for
-ActPlane configs it avoids PID namespace mismatch. Exported files are chowned
+maps are keyed by host PIDs. For ActPlane configs, the loader runs in this
+PID-host harness and execs the runner directly, so process lineage is stable
+while enforcement still happens in the host kernel. Exported files are chowned
 back to the host UID/GID so judge files can be written beside runner results.
 
 ## GLM Notes

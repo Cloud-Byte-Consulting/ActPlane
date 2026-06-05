@@ -181,14 +181,22 @@ def append_policy_feedback(ec: EvalContext, feedback: str) -> None:
 # ActPlane feedback reading
 # ---------------------------------------------------------------------------
 
+FEEDBACK_SEPARATOR = "\n----\n"
+
+
 def read_feedback(fb_path: Path | None) -> str:
-    """Read and clear the ActPlane feedback file."""
+    """Consume one ActPlane feedback entry from the feedback file."""
     if not fb_path or not fb_path.exists():
         return ""
-    text = fb_path.read_text(encoding="utf-8", errors="replace").strip()
-    if text:
-        fb_path.write_text("", encoding="utf-8")
-    return text
+    raw = fb_path.read_text(encoding="utf-8", errors="replace")
+    if not raw.strip():
+        return ""
+    if FEEDBACK_SEPARATOR in raw:
+        text, rest = raw.split(FEEDBACK_SEPARATOR, 1)
+    else:
+        text, rest = raw, ""
+    fb_path.write_text(rest, encoding="utf-8")
+    return text.strip()
 
 
 def wait_feedback(fb_path: Path | None, timeout_s: float = 0.5) -> str:

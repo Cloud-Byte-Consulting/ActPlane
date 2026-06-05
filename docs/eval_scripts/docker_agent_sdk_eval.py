@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Run the RQ1 Agent SDK eval inside Docker with an overlay workspace."""
+"""Run the RQ1 Agent SDK eval inside Docker with a full host-root COW view."""
 
 from __future__ import annotations
 
 import argparse
 import os
+import site
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,8 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_IMAGE = "actplane-rq1-agent-sdk:latest"
-CONTAINER_WORKSPACE = Path("/workspace/ActPlane")
-CONTAINER_HOST_WORKSPACE = Path("/host/ActPlane")
+CONTAINER_HOST_ROOT = Path("/host-root")
+CONTAINER_MERGED_ROOT = Path("/workspace/host-root")
 
 
 def under_root(path: Path) -> Path:
@@ -26,14 +27,29 @@ def under_root(path: Path) -> Path:
 
 
 def container_path(path: Path) -> str:
-    resolved = under_root(path)
-    rel = resolved.relative_to(ROOT.resolve())
-    return str(CONTAINER_WORKSPACE / rel)
+    return str(under_root(path))
 
 
 def run(cmd: list[str]) -> int:
     print("+ " + " ".join(cmd))
     return subprocess.run(cmd).returncode
+
+
+def host_pythonpath() -> str:
+    entries: list[str] = []
+    user_site = site.getusersitepackages()
+    if isinstance(user_site, str) and user_site:
+        entries.append(user_site)
+    existing = os.environ.get("PYTHONPATH")
+    if existing:
+        entries.extend(p for p in existing.split(os.pathsep) if p)
+    seen: set[str] = set()
+    unique: list[str] = []
+    for entry in entries:
+        if entry not in seen:
+            seen.add(entry)
+            unique.append(entry)
+    return os.pathsep.join(unique)
 
 
 def build_image(image: str) -> int:
@@ -49,7 +65,7 @@ def build_image(image: str) -> int:
 
 
 def container_module_cmd(module: str) -> list[str]:
-    script_dir = CONTAINER_WORKSPACE / "docs" / "eval_scripts"
+    script_dir = ROOT / "docs" / "eval_scripts"
     code = (
         "import sys; "
         f"sys.path.insert(0, {str(script_dir)!r}); "
@@ -105,9 +121,13 @@ def docker_run(args: argparse.Namespace) -> int:
         "--network",
         "host",
         "-e",
-        f"HOST_WORKSPACE={CONTAINER_HOST_WORKSPACE}",
+        f"HOST_ROOT={CONTAINER_HOST_ROOT}",
         "-e",
-        f"MERGED_WORKSPACE={CONTAINER_WORKSPACE}",
+        f"MERGED_ROOT={CONTAINER_MERGED_ROOT}",
+        "-e",
+        f"HOST_WORKSPACE={ROOT.resolve()}",
+        "-e",
+        f"MERGED_WORKSPACE={ROOT.resolve()}",
         "-e",
         "EXPORT_DIR=/out",
         "-e",
@@ -116,13 +136,18 @@ def docker_run(args: argparse.Namespace) -> int:
         f"HOST_GID={os.getgid()}",
         "-e",
         f"{args.api_key_env}",
+        "-e",
+        f"PATH={os.environ.get('PATH', '')}",
+        "-e",
+        f"HOST_HOME={Path.home()}",
+        "-e",
+        f"HOST_PYTHONPATH={host_pythonpath()}",
         "-v",
-        f"{ROOT.resolve()}:{CONTAINER_HOST_WORKSPACE}:ro",
+        f"/:{CONTAINER_HOST_ROOT}:ro,rslave",
         "-v",
         f"{out_dir.resolve()}:/out:rw",
-        args.image,
-        *make_agent_args(args),
     ]
+    docker_args.extend([args.image, *make_agent_args(args)])
     rc = run(docker_args)
     print(f"docker eval output: {out_dir}")
     return rc

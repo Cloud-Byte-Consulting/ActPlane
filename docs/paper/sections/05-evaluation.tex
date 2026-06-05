@@ -64,38 +64,29 @@ rather than OS-level IFC. The evaluation pipeline enforces strict
 separation of concerns across four actors.
 
 \paragraph{Pipeline overview.}
-\begin{enumerate}
-\item \textbf{Translate} (Translation LLM):
-  reads sampled directive text, project \texttt{CLAUDE.md}, cloned repo,
-  and DSL reference; produces \texttt{rule.yaml}. Cannot see traces or
-  ground truth.
-\item \textbf{Generate direct traces} (Trace generator---LLM or human):
-  reads directive and project structure; produces
-  \texttt{trace\_violation.jsonl} and \texttt{trace\_compliant.jsonl},
-  each with a ground-truth header. Cannot see \texttt{rule.yaml}
-  (prevents circular bias).
-\item \textbf{Generate bypass traces} (Script):
-  programmatically wraps the triggering command from the direct trace
-  in \texttt{bash~-c}, \texttt{python3~subprocess}, and compiled-binary
-  variants. No LLM involvement.
-\item \textbf{Replay + tested LLM decision} (Eval harness):
-  replays trace under each system, collects system response (feedback /
-  bare error / nothing), then issues one API call to a tested LLM
-  (a smaller model standing in for the agent) for the next-action decision.
-\item \textbf{Score} (Human or scorer script):
-  compares the tested LLM's decision against ground truth; fills
-  \texttt{correctness} and \texttt{outcome} (TP/TN/FP/FN) in the
-  persisted result record.
-\end{enumerate}
-
-Key separations: the translation LLM and the trace generator are
-different actors (translation blind spots do not hide in traces); the
-tested LLM never sees ground truth (it acts like a real agent); bypass
-traces are programmatically generated (no circular evaluation risk).
-All systems run on the \emph{same} agent-generated rules---translation
-errors are shared noise; differences between systems reflect system
-capability. Figure~\ref{fig:policy-example} shows representative
-per-event and cross-event rules.
+The pipeline has five stages with strict actor separation.
+A translation LLM reads the sampled directive text, the project's
+\texttt{CLAUDE.md}, the cloned repository, and the DSL reference to
+produce a rule file; it cannot see traces or ground truth.
+A separate trace generator reads the directive and project
+structure to produce violation and compliant trace files, each with a
+ground-truth header; it cannot see the rule file, preventing circular
+bias.
+A deterministic script then wraps the triggering command from each
+direct trace in \texttt{bash~-c}, subprocess, and compiled-binary
+variants, with no LLM involvement.
+The eval harness replays each trace under each system, collects
+the system response, and issues one API call to a tested LLM, a smaller
+model standing in for the agent, for the next-action decision.
+Finally, a scorer compares the tested LLM's decision against
+ground truth and classifies the outcome as TP, TN, FP, or FN.
+Because the translation LLM and the trace generator are different actors,
+translation blind spots do not hide in traces; because the tested LLM
+never sees ground truth, it acts like a real agent.
+All systems run on the \emph{same} agent-generated rules, so translation
+errors are shared noise and differences between systems reflect
+architectural capability. Figure~\ref{fig:policy-example} shows
+representative per-event and cross-event rules.
 
 %% ----------------------------------------------------------------
 \subsection{RQ1: End-to-End Policy Compliance}
@@ -107,15 +98,15 @@ scenarios: a violation trace (tool calls that should trigger the rule) and
 a compliant trace (correct-path calls that should not), for a total of
 1{,}214 scenarios. Each trace is a JSONL file mirroring an agent session:
 a user prompt followed by tool calls that establish repo state. The final
-action is omitted---a tested LLM (temperature~0) decides it at runtime,
+action is omitted; a tested LLM (temperature~0) decides it at runtime,
 seeing only the accumulated context (prompt, tool history, and any \sys{}
 feedback) but never the ground truth or the directive text.
 
 A separate scoring pass compares the tested LLM's action against ground
 truth and classifies each outcome as TP (violation caught, agent
 recovers), TN (compliant, no trigger), FP (over-blocking), or FN
-(violation missed). End-to-end FP/FN captures all error sources---rule
-translation, agent response, and IFC precision---in a single measurement.
+(violation missed). End-to-end FP/FN captures all error sources in a single
+measurement: rule translation, agent response, and IFC precision.
 
 \paragraph{Results.}
 
@@ -171,7 +162,7 @@ context. We compare all seven systems on the same directives.
 \paragraph{Method.}
 We select all rules from the \textbf{TP~set} of RQ1 (rules where
 \sys{} produced the correct outcome on direct traces). This isolates
-translation noise---any difference between systems is purely
+translation noise, so any difference between systems is purely
 architectural. For each TP~rule, we take the RQ1 violation trace and
 programmatically generate \textbf{3~bypass variants} by replacing the
 triggering tool call with an indirect execution path:
@@ -201,10 +192,10 @@ the Python baseline checker.
   enforcement level (per-event vs.\ cross-event) and execution path
   (direct vs.\ bypass).
 \item \textbf{Bypass gap}: the difference between direct and bypass
-  compliance per system---shows which systems lose coverage on indirect
+  compliance per system; this shows which systems lose coverage on indirect
   paths.
 \item \textbf{Feedback recovery gap}: Kernel~IFC (bare \texttt{-EPERM})
-  vs.\ \sys{} (semantic feedback)---shows the value of feedback for
+  vs.\ \sys{} (semantic feedback); this shows the value of feedback for
   agent recovery.
 \end{itemize}
 
@@ -388,9 +379,9 @@ scripts, so we do not claim deterministic task completion.
 \label{sec:related}
 
 \textbf{In-kernel provenance and information flow.}
-Whole-system provenance systems---PASS~\cite{muniswamy2006pass},
-Hi-Fi~\cite{pohly2012hifi}, LPM~\cite{bates2015lpm},
-CamFlow~\cite{pasquier2017camflow}---record audit-grade provenance
+Whole-system provenance systems such as PASS~\cite{muniswamy2006pass},
+Hi-Fi~\cite{pohly2012hifi}, LPM~\cite{bates2015lpm}, and
+CamFlow~\cite{pasquier2017camflow} record audit-grade provenance
 graphs via LSM hooks but do not compile agent-oriented policy or return
 semantic feedback. CamQuery~\cite{pasquier2018camquery} is the closest
 prior system: it evaluates provenance queries inline in the kernel,
@@ -407,8 +398,8 @@ whole-session coverage.
 \textbf{eBPF enforcement and agent guardrails.}
 BPF-LSM~\cite{singh2019krsi,linuxbpflsm} lets eBPF programs attach to
 security hooks and return allow/deny verdicts; \sys{} uses it as its
-pre-operation enforcement backend. Contemporary eBPF tools---Tetragon,
-Tracee, eBPF-PATROL~\cite{ciliumtetragon,aquasecuritytracee,ghimire2025ebpfpatrol}---provide
+pre-operation enforcement backend. Contemporary eBPF tools such as Tetragon,
+Tracee, and eBPF-PATROL~\cite{ciliumtetragon,aquasecuritytracee,ghimire2025ebpfpatrol} provide
 per-event predicates or single-channel lineage flags; \sys{} propagates
 multi-label information flow across channels and checks cross-event
 conditions. At the agent layer, AgentSpec and

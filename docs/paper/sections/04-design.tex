@@ -14,14 +14,14 @@ generate correctly, yet compile to efficient kernel-level matching.
 
 \textbf{C2: Cross-event state at syscall speed} (\S\ref{sec:ifc}).
 81\% of repositories require policies that span multiple
-operations---``run tests before committing'' depends on whether a test
+operations: ``run tests before committing'' depends on whether a test
 execution occurred after the last source change. Maintaining this
 execution history across processes, files, and network endpoints at the
 kernel level must not impose prohibitive per-syscall overhead.
 
 \textbf{C3: Dynamic policy under authority constraints}
 (\S\ref{sec:authority}).
-Agents must be able to adapt policy at runtime---a sub-agent may need a
+Agents must be able to adapt policy at runtime: a sub-agent may need a
 narrower scope, or the current task may require an exception to a
 standing rule. Policy evolution must be monotonically tightening: agents
 and sub-agents may add rules, specialize targets, or narrow scope, but
@@ -30,7 +30,7 @@ must never weaken platform or project constraints.
 \subsection{Threat Model and Assumptions}
 
 \sys{} targets a \emph{cooperative but unreliable} agent. The agent's
-original intent is honest---it aims to follow project constraints---but
+original intent is honest: it aims to follow project constraints. But
 execution may diverge due to planning errors, shell-script side effects,
 opaque tool behavior, or prompt injection~\cite{perez2022prompt} that
 causes the agent to act against its declared policy. Higher-authority policies (platform, project)
@@ -42,8 +42,8 @@ adversarial obfuscation.
 
 The trusted computing base (TCB) consists of the compiler, the eBPF
 enforcement engine, the runner, and higher-authority policies. The agent's
-entire process tree---tools, shells, subprocesses, and
-sub-agents---constitutes the monitored domain. Kernel compromise, root or
+entire process tree, including tools, shells, subprocesses, and
+sub-agents, constitutes the monitored domain. Kernel compromise, root or
 \texttt{CAP\_BPF} compromise, deliberate side channels, and semantic
 content checks not observable at syscall boundaries are out of scope.
 
@@ -55,7 +55,7 @@ tables; a labeled information-flow model (C2) that propagates cross-event
 state across OS objects at object granularity; and a layered authority
 model (C3) that allows runtime policy adaptation while ensuring monotonic
 tightening. When a rule match occurs, \sys{} returns semantic
-feedback---rule name, reason, and remediation---to the agent.
+feedback to the agent: the rule name, reason, and remediation.
 
 \subsection{Policy DSL}
 \label{sec:dsl}
@@ -105,7 +105,7 @@ first is per-event: if the agent process pushes to \texttt{main}, the
 event matches immediately. The second is cross-event: committing is
 compliant only if the required test command ran after the most recent
 source write. This distinction motivates the DSL's two predicate
-classes---per-event matches and cross-event gates.
+classes: per-event matches and cross-event gates.
 
 The DSL is intentionally narrower than a general mandatory access-control
 language. It targets the policy shapes that recur in agent instruction
@@ -144,23 +144,23 @@ labels, or satisfies a temporal gate.
 The model operates at object granularity rather than byte granularity,
 trading precision for low-overhead whole-session coverage. This is a
 deliberate fit for agent harnesses: repository instructions refer to
-commands, files, directories, endpoints, and workflow steps---not
+commands, files, directories, endpoints, and workflow steps, not
 individual bytes. Object-level labels capture cross-event compliance
 patterns that tool-call filters miss, without incurring the complexity of
 byte-level taint tracking~\cite{kemerlis2012libdft}.
 
 Labels are monotonic by default: propagation adds labels but does not
 remove them. When a policy requires controlled release, the DSL names an
-explicit gate---a redaction command or review tool---that clears specified
+explicit gate, such as a redaction command or review tool, that clears specified
 labels for subsequent events. Declassification is thus a declared policy
 action, not an implicit side effect of the agent's execution.
 
 \subsection{Layered Policy Authority}
 \label{sec:authority}
 
-Agents must adapt policy at runtime---a sub-agent spawned for a narrow
+Agents must adapt policy at runtime: a sub-agent spawned for a narrow
 sub-task should operate under tighter constraints, and the current task
-may require an exception to a standing rule---but adaptation must never
+may require an exception to a standing rule; but adaptation must never
 weaken platform or project constraints.
 
 \sys{} organizes policy as a layered authority stack:
@@ -177,9 +177,8 @@ as cross-event rules: the rule names an explicit action the agent must
 perform to satisfy the condition. For example, a project rule ``do not
 force-push unless necessary'' can require the agent to write a
 declaration file (e.g., \texttt{.actplane/force-push-necessary}) before
-the push is allowed. The agent satisfies the gate through an observable
-action---creating the file---which the IFC engine tracks like any other
-label-propagating event. Higher-authority policy can further constrain
+the push is allowed. The agent satisfies the gate by creating the file, which the IFC
+engine tracks like any other label-propagating event. Higher-authority policy can further constrain
 which processes may write the declaration file, keeping exception paths
 under platform or project authority.
 
@@ -187,7 +186,7 @@ The prototype resolves the initial authority stack at compile or load
 time. Runtime policy additions (sub-agent restrictions, task-specific
 rules) are loaded as additive overlays; the kernel merges them with the
 existing rule tables. The kernel does not parse configuration or resolve
-project context on the event path---agents supply context and policy
+project context on the event path; agents supply context and policy
 structure, while the OS engine enforces the compiled result uniformly
 across tools and subprocesses.
 
