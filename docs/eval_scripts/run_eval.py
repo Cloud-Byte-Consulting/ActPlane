@@ -3,7 +3,7 @@
 
 User-facing entrypoint. For example:
 
-    GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config baseline
+    GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config full
 
 The final terminal output is the paper-facing summary. Intermediate command
 output is written to run.log under the run directory.
@@ -12,6 +12,8 @@ output is written to run.log under the run directory.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import json
 import os
 import subprocess
 import sys
@@ -47,6 +49,14 @@ CONFIGS: dict[str, EvalConfig] = {
     "baseline": EvalConfig(
         systems=("prompt-only", "tool-regex"),
         out_name="baseline",
+    ),
+    "actplane": EvalConfig(
+        systems=("actplane", "actplane-opaque"),
+        out_name="actplane",
+    ),
+    "full": EvalConfig(
+        systems=("prompt-only", "tool-regex", "actplane", "actplane-opaque"),
+        out_name="full",
     ),
 }
 
@@ -99,12 +109,160 @@ def judge_dir_name(model_name: str) -> str:
     return f"trajectory_judges_{safe}"
 
 
-def expected_trace_count(root: Path) -> int:
-    return len(list(root.glob("*/*/trace_*.jsonl")))
+def trace_specs(root: Path, limit: int | None = None) -> list[tuple[str, str, str]]:
+    return [key for _, _, key in trace_jobs(root, limit)]
 
 
-def runner_result_count(path: Path) -> int:
-    return len(list(path.glob("**/results/*.json"))) if path.exists() else 0
+def trace_jobs(
+    root: Path,
+    limit: int | None = None,
+) -> list[tuple[Path, Path, tuple[str, str, str]]]:
+    jobs: list[tuple[Path, Path, tuple[str, str, str]]] = []
+    for rule in sorted(root.glob("*/*/rule.yaml")):
+        statement_dir = rule.parent
+        repo = statement_dir.parent.name.replace("__", "/")
+        statement_id = statement_dir.name
+        for trace in sorted(statement_dir.glob("trace_*.jsonl")):
+            key = (repo, statement_id, trace.name)
+            jobs.append((statement_dir, trace, key))
+    if limit is not None:
+        jobs = jobs[:limit]
+    return jobs
+
+
+def load_json_result(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def runner_keys(path: Path, *, system: str, model_name: str) -> set[tuple[str, str, str]]:
+    keys: set[tuple[str, str, str]] = set()
+    if not path.exists():
+        return keys
+    for result in path.glob("**/results/*.json"):
+        data = load_json_result(result)
+        if not data:
+            continue
+        if data.get("system") != system or data.get("model") != model_name:
+            continue
+        repo = str(data.get("repo") or "")
+        statement_id = str(data.get("statement_id") or "")
+        trace_file = str(data.get("trace_file") or data.get("trace") or "")
+        if repo and statement_id and trace_file:
+            keys.add((repo, statement_id, trace_file))
+    return keys
+
+
+def docker_eval_cmd(
+    *,
+    config: EvalConfig,
+    args: argparse.Namespace,
+    system: str,
+    system_out: Path,
+    no_build: bool,
+    statement_dir: Path | None = None,
+    trace: Path | None = None,
+) -> list[str]:
+    cmd = [
+        sys.executable,
+        str(SCRIPT_DIR / "docker_agent_sdk_eval.py"),
+        "--image",
+        config.image,
+        "--out-dir",
+        str(system_out),
+        "--system",
+        system,
+        "--base-url",
+        config.base_url,
+        "--model-name",
+        config.model_name,
+        "--api-key-env",
+        args.api_key_env,
+        "--request-timeout",
+        str(config.request_timeout),
+        "--max-steps",
+        str(args.max_steps if args.max_steps is not None else config.max_steps),
+    ]
+    if statement_dir is not None and trace is not None:
+        cmd.extend(["--statement-dir", str(statement_dir), "--trace", str(trace)])
+    else:
+        cmd.extend(["--root", str(config.root)])
+        if args.limit is not None:
+            cmd.extend(["--limit", str(args.limit)])
+    if no_build:
+        cmd.append("--no-build")
+    return cmd
+
+
+def run_parallel_system(
+    *,
+    config: EvalConfig,
+    args: argparse.Namespace,
+    system: str,
+    system_out: Path,
+    expected: set[tuple[str, str, str]],
+    env: dict[str, str],
+    log_path: Path,
+) -> int:
+    complete = runner_keys(system_out, system=system, model_name=config.model_name)
+    pending = [
+        (statement_dir, trace, key)
+        for statement_dir, trace, key in trace_jobs(config.root, args.limit)
+        if key in expected and key not in complete
+    ]
+    if not pending:
+        with log_path.open("a", encoding="utf-8") as log:
+            log.write(
+                f"\n\n## run {system}\n"
+                f"skip existing runner results: {len(complete & expected)}/{len(expected)}\n"
+            )
+        return 0
+
+    def run_one(job: tuple[Path, Path, tuple[str, str, str]]) -> tuple[tuple[str, str, str], int, str]:
+        statement_dir, trace, key = job
+        cmd = docker_eval_cmd(
+            config=config,
+            args=args,
+            system=system,
+            system_out=system_out,
+            no_build=True,
+            statement_dir=statement_dir,
+            trace=trace,
+        )
+        proc = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        return key, proc.returncode, proc.stdout
+
+    failures = 0
+    with log_path.open("a", encoding="utf-8") as log:
+        log.write(
+            f"\n\n## run {system}\n"
+            f"parallel workers: {args.workers}; pending traces: {len(pending)}/{len(expected)}\n"
+        )
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = [pool.submit(run_one, job) for job in pending]
+        for future in concurrent.futures.as_completed(futures):
+            key, returncode, stdout = future.result()
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write(f"\n### {system} {key[0]}/{key[1]} {key[2]}\n")
+                log.write(stdout)
+            if returncode != 0:
+                failures += 1
+                print(
+                    f"run {system} failed for {key[0]}/{key[1]} {key[2]} "
+                    f"with rc={returncode}. See {rel(log_path)}.",
+                    file=sys.stderr,
+                )
+    return 1 if failures else 0
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,6 +271,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--no-build", action="store_true")
     parser.add_argument("--api-key-env", default="GLM_API_KEY")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Run only the first N trace-conditioned scenarios for sanity checks.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Run trace-level Docker jobs in parallel. Default: 1.",
+    )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        help="Override the per-scenario agent tool-step budget.",
+    )
     return parser.parse_args()
 
 
@@ -122,6 +296,12 @@ def main() -> int:
 
     if args.api_key_env not in os.environ:
         print(f"{args.api_key_env} is not set", file=sys.stderr)
+        return 2
+    if args.workers < 1:
+        print("--workers must be >= 1", file=sys.stderr)
+        return 2
+    if args.max_steps is not None and args.max_steps < 0:
+        print("--max-steps must be >= 0", file=sys.stderr)
         return 2
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -143,42 +323,57 @@ def main() -> int:
     if run_phase("validate traces", validate_cmd, env=env, log_path=log_path).returncode != 0:
         return 1
 
+    if args.workers > 1 and not args.no_build:
+        build_cmd = [
+            "docker",
+            "build",
+            "-f",
+            str(SCRIPT_DIR / "Dockerfile.agent-sdk"),
+            "-t",
+            config.image,
+            str(SCRIPT_DIR),
+        ]
+        if run_phase("build docker image", build_cmd, env=env, log_path=log_path).returncode != 0:
+            return 1
+
     result_dirs: list[Path] = []
-    expected_results = expected_trace_count(config.root)
+    expected = set(trace_specs(config.root, args.limit))
+    expected_results = len(expected)
+    if expected_results == 0:
+        print("No trace scenarios found.", file=sys.stderr)
+        return 1
     for idx, system in enumerate(config.systems):
         system_out = out_dir / system
         result_dirs.append(system_out)
-        if runner_result_count(system_out) >= expected_results:
+        complete = runner_keys(system_out, system=system, model_name=config.model_name)
+        complete_expected = len(complete & expected)
+        if complete_expected >= expected_results:
             with log_path.open("a", encoding="utf-8") as log:
                 log.write(
                     f"\n\n## run {system}\n"
-                    f"skip existing runner results: {runner_result_count(system_out)}/{expected_results}\n"
+                    f"skip existing runner results: {complete_expected}/{expected_results}\n"
                 )
             continue
-        cmd = [
-            sys.executable,
-            str(SCRIPT_DIR / "docker_agent_sdk_eval.py"),
-            "--image",
-            config.image,
-            "--out-dir",
-            str(system_out),
-            "--root",
-            str(config.root),
-            "--system",
-            system,
-            "--base-url",
-            config.base_url,
-            "--model-name",
-            config.model_name,
-            "--api-key-env",
-            args.api_key_env,
-            "--request-timeout",
-            str(config.request_timeout),
-            "--max-steps",
-            str(config.max_steps),
-        ]
-        if args.no_build or idx > 0:
-            cmd.append("--no-build")
+        if args.workers > 1:
+            rc = run_parallel_system(
+                config=config,
+                args=args,
+                system=system,
+                system_out=system_out,
+                expected=expected,
+                env=env,
+                log_path=log_path,
+            )
+            if rc != 0:
+                return rc
+            continue
+        cmd = docker_eval_cmd(
+            config=config,
+            args=args,
+            system=system,
+            system_out=system_out,
+            no_build=args.no_build or idx > 0,
+        )
         if run_phase(f"run {system}", cmd, env=env, log_path=log_path).returncode != 0:
             return 1
 

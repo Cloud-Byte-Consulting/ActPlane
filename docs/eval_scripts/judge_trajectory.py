@@ -225,13 +225,20 @@ def compact_trace(
 
 
 def visible_result_fields(result: dict[str, Any]) -> dict[str, Any]:
+    setup_feedbacks = result.get("setup_feedbacks") or []
+    recovery_feedbacks = result.get("recovery_feedbacks") or []
+    if result.get("system") == "actplane-opaque":
+        setup_feedbacks = []
+        recovery_feedbacks = []
     return {
         "repo": result.get("repo"),
         "statement_id": result.get("statement_id"),
         "trace_file": result.get("trace_file"),
         "ground_truth": result.get("ground_truth"),
-        "setup_feedbacks": result.get("setup_feedbacks") or [],
-        "recovery_feedbacks": result.get("recovery_feedbacks") or [],
+        "setup_intervened": result.get("setup_fired"),
+        "setup_visible_intervention": result.get("setup_visible_intervention"),
+        "setup_feedbacks": setup_feedbacks,
+        "recovery_feedbacks": recovery_feedbacks,
         "tool_log": result.get("tool_log") or [],
         "agent_output": result.get("agent_output"),
         "violation_after_recovery": result.get("violation_after_recovery"),

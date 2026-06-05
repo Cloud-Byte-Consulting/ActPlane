@@ -24,6 +24,8 @@ The submodule is not modified by the local runner.
   OS-effect candidates that do not overlap `selected_cases_20.jsonl`.
 - `data/selected_cases_30.jsonl`: concatenation of the 20-case subset and the
   additional ten candidates.
+- `data/README.md`: tuned policy records and the current 12-case selected
+  success-set aggregate.
 - `data/policy_manifest.jsonl`: selected case to policy-file mapping.
 - `data/policy_manifest_extra10_draft.jsonl`: policy availability notes for the
   additional ten candidates; missing entries still need case-specific policies
@@ -45,6 +47,20 @@ The submodule is not modified by the local runner.
 - `core-results/`: compact paper-facing summaries generated from complete runs.
 
 Generated artifacts belong under ignored `results/`.
+
+## Current Reportable Result
+
+The current paper-facing tuned success set is documented in
+`data/README.md`. It contains 12 reportable rows: nine retained from the clean
+20-case run and three retained from the additional ten-case trial.
+
+| rows | baseline avg | tool-regex avg | actplane-feedback avg | actplane minus baseline | actplane minus tool-regex |
+|---:|---:|---:|---:|---:|---:|
+| 12 | 0.709 | 0.735 | 0.870 | +0.161 | +0.135 |
+
+This is a selected/tuned success-set result. Mechanism-backed rows with observed
+ActPlane OS events and proxy feedback should be reported separately from
+score-only rows.
 
 ## OctoBench OS-Effect Census
 

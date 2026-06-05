@@ -4,20 +4,20 @@ This directory contains the RQ1 trace-conditioned compliance evaluation path.
 The paper-facing entrypoint is:
 
 ```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config baseline
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config full
 ```
 
-`baseline` is a configuration inside `run_eval.py`. It runs `prompt-only` and
-`tool-regex`, then judges trajectories and prints the final Directive Compliance
-Rate. Do not report intermediate validation or runtime diagnostics as paper
-results.
+`full` is a configuration inside `run_eval.py`. It runs `prompt-only`,
+`tool-regex`, `actplane`, and `actplane-opaque`, then judges trajectories and
+prints the final Directive Compliance Rate. Do not report intermediate
+validation or runtime diagnostics as paper results.
 
 ## Entry Point
 
-Baseline run:
+Full run:
 
 ```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config baseline
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config full
 ```
 
 The command runs, in order:
@@ -26,6 +26,8 @@ The command runs, in order:
 validate trace artifacts
 run prompt-only in Docker
 run tool-regex in Docker
+run actplane in Docker
+run actplane-opaque in Docker
 judge trajectories
 summarize final Directive Compliance Rate
 ```
@@ -34,15 +36,64 @@ Terminal output is the final summary from `summarize_agent_sdk_results.py`.
 Intermediate stdout/stderr is written to:
 
 ```text
-docs/eval_runs/baseline/<timestamp>/run.log
+docs/eval_runs/full/<timestamp>/run.log
 ```
 
 System outputs are written under:
 
 ```text
-docs/eval_runs/baseline/<timestamp>/prompt-only/
-docs/eval_runs/baseline/<timestamp>/tool-regex/
+docs/eval_runs/full/<timestamp>/prompt-only/
+docs/eval_runs/full/<timestamp>/tool-regex/
+docs/eval_runs/full/<timestamp>/actplane/
+docs/eval_runs/full/<timestamp>/actplane-opaque/
 ```
+
+Baseline-only run:
+
+```bash
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config baseline
+```
+
+ActPlane-only extension run:
+
+```bash
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
+  --config full \
+  --out-dir docs/eval_runs/baseline/<timestamp>
+```
+
+This skips any existing complete `prompt-only` and `tool-regex` outputs in that
+directory, runs the missing ActPlane systems, then re-judges/summarizes all four
+systems. Completion is checked by `(repo, statement, trace)` keys, not by a raw
+JSON file count.
+
+Small sanity run:
+
+```bash
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
+  --config actplane \
+  --limit 8 \
+  --max-steps 1
+```
+
+Optional trace-level parallelism:
+
+```bash
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
+  --config actplane \
+  --limit 8 \
+  --max-steps 1 \
+  --workers 2
+```
+
+`--workers > 1` runs one Docker invocation per trace and skips already completed
+`(repo, statement, trace)` keys in the target output directory. Keep ActPlane
+parallelism small until the run has been sanity-checked, because each worker
+loads an eBPF enforcement instance.
+
+For trace-conditioned compliance, prefer `--max-steps 1`: the experiment asks
+whether the system steers the next decision point after the fixed trace, not
+whether the agent can complete an open-ended task.
 
 ## Final Metric
 
@@ -64,16 +115,21 @@ Setup-level intervention counts are not the final metric.
 - `actplane-opaque`: same ActPlane enforcement, but without structured feedback
   to the agent.
 
-The current `baseline` config includes only:
+For `actplane-opaque`, runner JSON files still retain internal ActPlane feedback
+for auditability, but the trajectory judge masks that structured feedback from
+the observed trajectory payload.
+
+The available configs are:
 
 ```text
-prompt-only
-tool-regex
+baseline: prompt-only, tool-regex
+actplane: actplane, actplane-opaque
+full: prompt-only, tool-regex, actplane, actplane-opaque
 ```
 
 It uses the GLM Coding Plan endpoint, `glm-4.7-flash` for both the tested agent
-and trajectory judge, `max_steps=10`, and the standard `docs/corpus-test`
-corpus.
+and trajectory judge, and the standard `docs/corpus-test` corpus. Reported
+trace-conditioned runs should state the `--max-steps` budget used.
 
 ## Artifacts
 
@@ -91,8 +147,8 @@ trace_opaque_fixture_violation.jsonl
 
 The runner does not translate ActPlane DSL into a tool-regex policy at runtime.
 
-The current pilot corpus still uses `trace_compliant.jsonl` and
-`trace_violation.jsonl` for many cases. Expanded RQ1 cases should use the four
+The original pilot corpus still uses `trace_compliant.jsonl` and
+`trace_violation.jsonl` for many cases. Expanded RQ1 cases should use the five
 trace roles above so the intent is explicit.
 
 ## Corpus Expansion
@@ -238,7 +294,7 @@ back to the host UID/GID so judge files can be written beside runner results.
 
 ## Current Status
 
-As of 2026-06-05, the current pilot `docs/corpus-test` traces validate against
-the real repositories under `docs/corpus-evaluated`, and `run_eval.py --config
-baseline` has produced a baseline-only pilot summary. This pilot is not the final
-RQ1 experiment because it covers only 10 repos and does not include ActPlane.
+As of 2026-06-05, `docs/corpus-test` contains the original pilot traces plus the
+expanded RQ1 traces. Use `run_eval.py --config full` for paper-facing runs, or
+use `--config full --out-dir <existing baseline run>` to extend a completed
+baseline run with ActPlane systems.

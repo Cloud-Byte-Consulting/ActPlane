@@ -112,10 +112,10 @@ regex 好: actplane-feedback >= tool-regex > baseline
 | 一般 | `md-aws-mcp-server-logging-over-print` | 0.568 | 0.865 | 0.757 | `policies/tool-regex/md-aws-mcp-server-logging-over-print.json`; `policies/actplane-feedback/md-aws-mcp-server-logging-over-print.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260604T234413Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T044155Z` | AWS MCP command-validator module case; ActPlane produced OS feedback and exceeded baseline, but did not exceed tool-regex. |
 | 一般 score-only | `md-course-builder-code-style` | 0.735 | 0.647 | 1.000 | `policies/tool-regex/md-course-builder-code-style.json`; `policies/actplane-feedback/md-course-builder-code-style.yaml` | tool-regex: `results/tool-regex/tool-regex-combined-20260604T211401Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T051115Z` | Course Builder stacked-discount pricing case; official score improves to full reward, but retained run has no ActPlane OS violation/feedback evidence. |
 
-## Retained Aggregate
+## Original 20-Case Retained Aggregate
 
-The current retained trace has nine rows: five `regex 好` rows, three `一般`
-rows, and one `一般 score-only` row.
+The retained trace extracted from the original clean 20-case run has nine rows:
+five `regex 好` rows, three `一般` rows, and one `一般 score-only` row.
 
 | subset | rows | baseline avg | tool-regex avg | actplane-feedback avg | tool-regex minus baseline | actplane minus baseline | actplane minus tool-regex |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -208,6 +208,24 @@ OS notify event and no proxy feedback injection:
 | rows | baseline avg | tool-regex avg | actplane-feedback avg | actplane minus baseline | actplane minus tool-regex | interpretation |
 |---:|---:|---:|---:|---:|---:|---|
 | 3 | 0.669 | 0.715 | 0.809 | +0.140 | +0.094 | score-improving selected subset, but only 2/3 rows have ActPlane mechanism evidence |
+
+## Combined 12-Case Selected Success Set
+
+Combining the original 20-case retained rows above with the three extra10 rows
+gives the current 12-case selected success set. This is the paper-facing tuned
+success set, not an unbiased full-OctoBench aggregate.
+
+| source | rows | baseline avg | tool-regex avg | actplane-feedback avg | tool-regex minus baseline | actplane minus baseline | actplane minus tool-regex |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| original 20-case retained rows | 9 | 0.722 | 0.742 | 0.890 | +0.020 | +0.168 | +0.148 |
+| extra10 retained rows | 3 | 0.669 | 0.715 | 0.809 | +0.046 | +0.140 | +0.094 |
+| combined selected success set | 12 | 0.709 | 0.735 | 0.870 | +0.027 | +0.161 | +0.135 |
+
+The combined set contains seven strong/equal `regex 好`-style rows where
+ActPlane matches or exceeds tool-regex while both beat baseline, four `一般`
+rows where ActPlane beats baseline but tool-regex ordering is not required, and
+one additional score-only/equal row from extra10. Mechanism-backed claims should
+still be separated from score-only rows when writing the paper.
 
 ## Best Policy Records
 

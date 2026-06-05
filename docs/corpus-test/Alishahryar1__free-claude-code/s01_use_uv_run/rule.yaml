@@ -4,11 +4,11 @@
 # enforceability: "process-exec approximation; allows Python descendants that pass through uv in ActPlane, while tool-regex cannot fully model that lineage"
 version: 1
 policy: |
-  source AGENT = exec "python3"
-  source AGENT_ALT = exec "python"
+  source AGENT = exec "__actplane_eval_seed__"
+  source SHELL = exec "bash"
 
   rule s01_use_uv_run:
-    kill exec "python" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
-    kill exec "python3" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
-    kill exec "pytest" if AGENT or AGENT_ALT unless lineage-includes exec "uv"
+    kill exec "python" if AGENT and SHELL unless lineage-includes exec "uv"
+    kill exec "python3" if AGENT and SHELL unless lineage-includes exec "uv"
+    kill exec "pytest" if AGENT and SHELL unless lineage-includes exec "uv"
     because "Always use `uv run` to run Python files, modules, tests, and repo scripts; do not invoke the global `python` or `python3` command directly."
