@@ -24,7 +24,7 @@ produce observable effects at the system-call boundary.
 
 Agent policies are written as natural-language instructions plus current
 task intent, but an agent harness usually observes tool calls rather than
-the OS effects those tool calls produce. This creates two mismatches. A
+the system effects those tool calls produce. This creates two mismatches. A
 single tool call such as \texttt{run\_command("make")} can trigger
 hundreds of system calls. Conversely, the same forbidden effect, such as
 \texttt{git push}, can be reached through a direct tool call, a
@@ -43,7 +43,7 @@ see those effects, but typically require static administrator-written
 policies and return opaque \texttt{-EPERM} failures with no connection to
 the agent's declared rules. Existing mechanisms therefore cover different
 parts of the stack, but none connects instruction-level policy, tool
-execution, OS-level effects, and semantic feedback.
+execution, system-level effects, and semantic feedback.
 
 A cooperative agent does not intentionally bypass tool-layer guards, but
 the opacity of the tool-to-effect mapping causes unintentional bypass in
@@ -66,8 +66,9 @@ observes the nested \texttt{execve("git",~["push",~"--force"])}.
 \label{sec:empirical}
 
 This section characterizes behavioral directives in real agent instruction
-files and identifies which directives require system observation,
-OS-level enforcement, cross-event state, and project or task context.
+files and identifies which directives describe system-level behavior,
+require OS-level enforcement, require cross-event state, or need project
+or task context.
 
 \subsection{Methodology}
 
@@ -175,7 +176,7 @@ network connection; and \emph{cross-event} for predicates requiring
 history, ordering, lineage, or information flow. We use
 \emph{system-observable} for content, per-event, and cross-event
 directives; we use \emph{OS-enforceable} for the per-event and
-cross-event subset that ActPlane can enforce at process, file, and
+cross-event subset that \sys{} can enforce at process, file, and
 network hooks.
 
 \noindent\textbf{Finding.} Most directives have system-observable counterparts. Of the 1{,}361
@@ -184,7 +185,7 @@ file contents. They require different enforcement layers:
 234 directives (17.2\%) are semantic-only, 520 (38.2\%) require content
 inspection, 392 (28.8\%) can be matched from a single OS event, and
 215 (15.8\%) require cross-event state. The 607~per-event and
-cross-event directives form the OS-enforceable subset used by ActPlane. The
+cross-event directives form the OS-enforceable subset used by \sys{}. The
 cumulative view shows why an OS-level IFC layer is needed: content
 inspection covers 38.2\% of directives; adding per-event matching reaches
 84.2\%; the remaining 15.8\% require cross-event state tracking
@@ -228,7 +229,7 @@ system-observable directives (content + per-event + cross-event), only 26.4\%
 contain all commands, paths, and patterns needed to instantiate a
 concrete rule directly from the text. Another 64.2\% require
 \emph{project context}: the directive references a project-specific
-domain such as ``the test suite,'' ``the linter,'' ``upstream source,'' or
+concept such as ``the test suite,'' ``the linter,'' ``upstream source,'' or
 ``the migration tool,'' whose concrete command or path must be resolved
 from the repository. The remaining 9.4\% require \emph{task context}:
 the directive depends on the current user request or a per-session grant,
@@ -271,7 +272,7 @@ operation failed, but not which declared rule it matched or what
 compliant alternative would satisfy the rule.
 \end{itemize}
 
-ActPlane addresses these requirements with an agent-facing policy DSL,
+\sys{} addresses these requirements with an agent-facing policy DSL,
 an OS-level labeled information-flow engine, and a feedback loop that
 connects kernel-detected rule matches back to the agent's declared
 intent.

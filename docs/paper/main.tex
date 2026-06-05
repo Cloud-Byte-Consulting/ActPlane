@@ -4,13 +4,14 @@
 \renewcommand\footnotetextcopyrightpermission[1]{}
 \settopmatter{printfolios=true}
 \pagestyle{plain}
+\newcommand{\sys}{ActPlane}
 
 \acmConference[ATC '26]{2026 ACM SIGOPS Annual Technical Conference}{November 15--18, 2026}{Hyatt Hotel, Shatin, Hong Kong}
 \acmYear{2026}
 \acmISBN{}
 \acmDOI{}
 
-\title[ActPlane]{ActPlane: Letting Agents Harness Their Own System-Level Behavior with eBPF}
+\title[\sys{}]{\sys{}: Letting Agents Harness Their Own System-Level Behavior with eBPF}
 
 \author{Paper \#XXX}
 \affiliation{%
@@ -41,12 +42,12 @@ programmable interface, allowing agents
 to dynamically define and adapt their policy
 for their own system-level actions
 based on their intent context.
-We realize this in ActPlane, which allows agents to declare cross-event
+We realize this in \sys{}, which allows agents to declare cross-event
 behavior as labeled information-flow control (IFC) policies under 
 a layered policy model,
 observing and enforcing the agents' actions across process, file, and
 network boundaries with semantic feedback.
-We implement ActPlane with eBPF and evaluate it across empirical
+We implement \sys{} with eBPF and evaluate it across empirical
 policies, system workloads, and coding tasks, showing improved policy
 compliance with low end-to-end overhead.
 \end{abstract}

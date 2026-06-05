@@ -8,13 +8,13 @@ The evaluation answers three questions:
 
 \begin{description}
 \item[RQ1 (Policy compliance)] Compared with prompt-only, tool-layer,
-  and feedback-ablation baselines, does ActPlane improve policy
+  and feedback-ablation baselines, does \sys{} improve policy
   compliance for directive-derived policies across direct and bypass
   execution paths?
 \item[RQ2 (Overhead)] What is the per-event and end-to-end overhead of
-  ActPlane's label propagation and rule checking?
+  \sys{}'s label propagation and rule checking?
 \item[RQ3 (Repository-grounded feedback)] On a scaffold-aware
-  repository-grounded coding benchmark, does ActPlane's OS-level
+  repository-grounded coding benchmark, does \sys{}'s OS-level
   enforcement and semantic feedback improve official policy compliance?
 \end{description}
 
@@ -32,7 +32,7 @@ the exact LSM state used for each performance run.
 
 \paragraph{Agent environment.}
 % TODO: Fill in agent versions.
-The active agent harnesses are Claude Code (via the ActPlane feedback
+The active agent harnesses are Claude Code (via the \sys{} feedback
 hook) and OpenAI Codex CLI (via tool-error feedback). Exact versions are
 recorded in per-run metadata.
 
@@ -40,10 +40,10 @@ recorded in per-run metadata.
 All baselines use the \emph{same} DSL rules; the difference is the
 enforcement layer. Tool-layer baselines are Python scripts that read
 the same \texttt{rule.yaml} and implement DSL semantics at the
-tool-call level. Kernel baselines are ActPlane with features selectively
+tool-call level. Kernel baselines are \sys{} with features selectively
 disabled. We compare seven systems: prompt-only, TL-1, TL-N,
 app-level IFC, per-event eBPF, kernel IFC without feedback, and full
-ActPlane. The tool-layer and app-level baselines represent
+\sys{}. The tool-layer and app-level baselines represent
 AgentSpec/Progent-style guards~\cite{wang2025agentspec,shi2025progent}
 and FIDES/CaMeL-style tool-call label tracking~\cite{costa2025fides,debenedetti2025camel};
 the kernel baselines represent per-event eBPF enforcement and
@@ -101,9 +101,9 @@ per-event and cross-event rules.
 
 \paragraph{Goal.}
 Given a natural-language directive and a scenario (prompt + system
-actions), does ActPlane's runtime enforcement and semantic feedback lead
+actions), does \sys{}'s runtime enforcement and semantic feedback lead
 the agent to a policy-compliant final action? ``Policy'' means the
-directive-derived ActPlane rule for that scenario. This measures the
+directive-derived \sys{} rule for that scenario. This measures the
 runtime value of the ``agent as control plane'' design while keeping
 rule translation and trace generation as explicit artifact-generation
 steps.
@@ -124,14 +124,14 @@ We implement a minimal eval harness ($\sim$100~lines Python) with three
 phases:
 
 \begin{enumerate}
-\item \textbf{Deterministic trace replay under ActPlane.}
-  All execution runs under ActPlane; labels propagate from the first tool
+\item \textbf{Deterministic trace replay under \sys{}.}
+  All execution runs under \sys{}; labels propagate from the first tool
   call. For each message in the trace, tool-use blocks are executed; text
-  blocks are preserved in context. If ActPlane fires (kill/notify), the
+  blocks are preserved in context. If \sys{} fires (kill/notify), the
   feedback is appended to context and replay stops.
 \item \textbf{Tested LLM decision step.}
   One API call (temperature${}=0$) to a weak model that reads the
-  accumulated context (prompt + tool history + any ActPlane feedback) and
+  accumulated context (prompt + tool history + any \sys{} feedback) and
   writes the next normal agent response. The model never sees ground
   truth, the directive, or evaluator labels.
 \item \textbf{Result record creation.}
@@ -193,11 +193,11 @@ commit.'' Trace: edit $\to$ \texttt{go~test}~(PASS) $\to$ git~commit
 $\to$ no trigger. Tested~LLM: ``Commit successful. Done.'' Scorer:
 CORRECT.
 
-\emph{Example~5---Kernel~IFC vs.\ ActPlane (same rule, no feedback
+\emph{Example~5---Kernel~IFC vs.\ \sys{} (same rule, no feedback
 vs.\ feedback):}
 Directive: ``Run tests before committing.'' Trace: edit $\to$ git~commit
 $\to$ KILLED. Under Kernel~IFC: tested~LLM receives ``Permission
-denied'' $\to$ retries blindly $\to$ INCORRECT. Under ActPlane:
+denied'' $\to$ retries blindly $\to$ INCORRECT. Under \sys{}:
 tested~LLM receives ``Tests are stale. Re-run \texttt{go~test}.'' $\to$
 ``I'll run \texttt{go~test} then commit.'' $\to$ CORRECT.
 
@@ -246,7 +246,7 @@ atomic unit of the feedback loop. Multi-step sessions are tested in
 RQ3~(OctoBench).
 \emph{Why scripted setup + real agent decision.} The setup (repo state)
 is scripted for reproducibility and cost; the decision step runs a real
-agent under ActPlane to test the full feedback loop: kernel rule match
+agent under \sys{} to test the full feedback loop: kernel rule match
 $\to$ feedback $\to$ agent interprets feedback + prompt $\to$ action.
 \emph{Why no gold rules for system comparison.} All systems run on the
 \emph{same} agent-generated rules. Translation errors are shared noise;
@@ -256,17 +256,17 @@ differences between systems reflect system capability.
 \subsection{System Comparison Across Execution Paths}
 \label{sec:eval:bypass}
 
-ActPlane maintains policy compliance when directive-relevant behavior
+\sys{} maintains policy compliance when directive-relevant behavior
 moves below the agent tool API or depends on cross-event state. Existing
 approaches fail in three common ways: tool-layer guards lose track of
-OS-level effects (bypass), OS-level mechanisms lack cross-event state
+system-level effects (bypass), OS-level mechanisms lack cross-event state
 (no IFC), and kernel mechanisms return only system events without
 semantic context (no feedback). This sub-experiment tests all three by
 comparing 7~systems on the same directives.
 
 \paragraph{Method.}
 We select all rules from the \textbf{TP~set} of RQ1 (rules where
-ActPlane produced the correct outcome on direct traces). This isolates
+\sys{} produced the correct outcome on direct traces). This isolates
 translation noise---any difference between systems is purely
 architectural. For each TP~rule, we take the RQ1 violation trace and
 programmatically generate \textbf{3~bypass variants} by replacing the
@@ -286,7 +286,7 @@ Each trace uses the same JSONL format as RQ1 and the same minimal
 agent harness: deterministic replay $\to$ system responds $\to$ LLM
 handles the response (1--2 API calls per trace).
 
-For kernel systems (ActPlane, Kernel~IFC, Per-event~eBPF) the trace
+For kernel systems (\sys{}, Kernel~IFC, Per-event~eBPF) the trace
 runs under \texttt{sudo actplane run [--flags]}. For tool-layer and
 app-level baselines the replay executor intercepts tool calls through
 the Python baseline checker.
@@ -300,7 +300,7 @@ the Python baseline checker.
   compliance per system---shows which systems lose coverage on indirect
   paths.
 \item \textbf{Feedback recovery gap}: Kernel~IFC (bare \texttt{-EPERM})
-  vs.\ ActPlane (semantic feedback)---shows the value of feedback for
+  vs.\ \sys{} (semantic feedback)---shows the value of feedback for
   agent recovery.
 \end{itemize}
 
@@ -316,7 +316,7 @@ the Python baseline checker.
 \toprule
 System & Direct & Bypass & Gap \\
 \midrule
-ActPlane         & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
+\sys{}         & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
 Kernel IFC       & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
 Per-event eBPF   & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
 App-level IFC    & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
@@ -334,7 +334,7 @@ TL-1             & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
 \toprule
 System & Per-event & Cross-event & Total \\
 \midrule
-ActPlane         & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
+\sys{}         & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
 Kernel IFC       & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
 Per-event eBPF   & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
 App-level IFC    & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
@@ -344,8 +344,8 @@ TL-1             & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
 \end{tabular}
 \end{table}
 
-Key observation: Kernel~IFC and ActPlane have identical detection, but
-ActPlane achieves higher compliance because semantic feedback enables
+Key observation: Kernel~IFC and \sys{} have identical detection, but
+\sys{} achieves higher compliance because semantic feedback enables
 agent recovery. Kernel~IFC blocks but returns bare \texttt{-EPERM}; the
 agent retries blindly or gives up.
 
@@ -360,19 +360,19 @@ agent retries blindly or gives up.
 \subsubsection{Macrobenchmarks (End-to-End Workloads)}
 
 We replay deterministic corpus-derived agent traces and a standard Linux
-kernel build under no-hit ActPlane configurations. The agent trace suite
+kernel build under no-hit \sys{} configurations. The agent trace suite
 contains 20~corpus-derived traces with 68~tool actions, including
 20~Bash subprocesses. The Linux build runs \texttt{defconfig} +
 \texttt{vmlinux} with \texttt{make~-j24} in a fresh output directory.
 Each workload runs three trials per configuration. Replaying fixed
-workloads eliminates LLM inference variance and isolates ActPlane's
+workloads eliminates LLM inference variance and isolates \sys{}'s
 runtime overhead.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{figures/rq2_macro_overhead.png}
 \caption{End-to-end overhead on deterministic workloads, normalized to
-native execution. At 32 active no-hit rules, ActPlane adds 1.9\% on
+native execution. At 32 active no-hit rules, \sys{} adds 1.9\% on
 agent-trace replay and 6.5\% on a Linux build; at 100 rules, overhead
 remains below 8.4\%.}
 \Description{Grouped bar chart showing AP-32 and AP-100 overhead relative
@@ -382,7 +382,7 @@ to native execution for agent trace replay and Linux build workloads.}
 
 \subsubsection{Microbenchmarks (Per-Syscall Latency)}
 
-We measure ActPlane's per-event latency for five syscall types
+We measure \sys{}'s per-event latency for five syscall types
 (\texttt{fork}, \texttt{exec}, \texttt{open}, \texttt{write},
 \texttt{connect}) under five no-hit configurations: native, AP-1,
 AP-10, AP-32, and AP-100. Each configuration $\times$ syscall type runs
@@ -436,7 +436,7 @@ stored under \texttt{docs/rq2-performance/results/}.
 \label{sec:eval:rq3}
 
 \paragraph{Goal.}
-RQ3 evaluates whether ActPlane improves policy compliance in long-form
+RQ3 evaluates whether \sys{} improves policy compliance in long-form
 coding-agent tasks in real repository environments. Unlike RQ1, which
 isolates one directive-derived decision point, this experiment runs
 complete OctoBench tasks and evaluates the resulting agent trajectory with
@@ -453,14 +453,14 @@ whole-case evaluator unchanged: no category fallback, no external
 reward, and no checklist override.
 
 \paragraph{Subset and conditions.}
-ActPlane cannot observe purely semantic checks (e.g., tone or summary
+\sys{} cannot observe purely semantic checks (e.g., tone or summary
 quality), so we evaluate a 20-task OctoBench subset selected for
 system-observable policy points, with case-specific policies. Each task
 runs under three paired conditions:
 baseline (the original task with no enforcement), tool-regex (a
-case-specific tool-call hook), and ActPlane (case-specific OS hooks plus
+case-specific tool-call hook), and \sys{} (case-specific OS hooks plus
 feedback). No shared guardrail file is used. Tool-regex intercepts only
-tool calls, while ActPlane observes OS-level \texttt{exec},
+tool calls, while \sys{} observes OS-level \texttt{exec},
 \texttt{open}, \texttt{write}, and \texttt{connect} edges inside the
 task container and injects corrective feedback when an OS-level rule
 fires.
@@ -480,18 +480,18 @@ checklist judge, not deterministic test-script completion.
 \begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{figures/octobench_rq3.png}
-\caption{OctoBench 20-task selected subset. ActPlane improves official
+\caption{OctoBench 20-task selected subset. \sys{} improves official
 policy compliance over both baseline and tool-regex.}
 \Description{Grouped bar chart comparing baseline, tool-regex, and
-ActPlane on official reward, user-query reward, implementation/test
+\sys{} on official reward, user-query reward, implementation/test
 reward, and compliance reward.}
 \label{fig:octobench-rq3}
 \end{figure}
 
 \paragraph{Result.}
 On the selected 20-task subset, official reward is
-0.788 for baseline, 0.818 for tool-regex, and 0.888 for ActPlane.
-ActPlane therefore raises official reward by 10.0~percentage points
+0.788 for baseline, 0.818 for tool-regex, and 0.888 for \sys{}.
+\sys{} therefore raises official reward by 10.0~percentage points
 over baseline and 7.0~points over tool-regex. The improvement is not
 limited to generic compliance: user-query reward increases by
 28.2~points over baseline, and implementation/test reward increases by
@@ -515,25 +515,25 @@ files, and sockets~\cite{pasquier2017camflow}.
 CamQuery is the closest prior
 system~\cite{pasquier2018camquery}. It executes provenance queries inline
 in the kernel, propagates labels across process, file, and network edges,
-and can deny operations that match a policy rule. ActPlane shares this
+and can deny operations that match a policy rule. \sys{} shares this
 label-propagation model but differs in three respects: it targets
 cooperative AI agents rather than adversarial intrusions, compiles an
 agent-oriented source/sink DSL rather than general provenance queries, and
 returns semantic feedback to the matching actor. The implementation
-differs as well: ActPlane uses the eBPF/BPF-LSM substrate rather than a
+differs as well: \sys{} uses the eBPF/BPF-LSM substrate rather than a
 loadable kernel module.
 
 TaintDroid, Dytan, libdft, and Panorama established dynamic taint tracking
 at runtime, binary-instrumentation, and emulation
 layers~\cite{enck2010taintdroid,clause2007dytan,kemerlis2012libdft,yin2007panorama}.
-ActPlane operates at object granularity rather than byte granularity,
+\sys{} operates at object granularity rather than byte granularity,
 trading precision for low-overhead whole-system coverage.
 
 \subsection{eBPF and LSM Enforcement}
 
 BPF-LSM, originally proposed as KRSI, allows eBPF programs to attach to
 Linux security hooks and return allow/deny
-verdicts~\cite{singh2019krsi,linuxbpflsm}. ActPlane uses BPF-LSM as its
+verdicts~\cite{singh2019krsi,linuxbpflsm}. \sys{} uses BPF-LSM as its
 pre-operation enforcement backend. Contemporary eBPF enforcement tools
 such as Tetragon, Tracee, and eBPF-PATROL provide per-event predicate
 matching and, in Tetragon's case, a boolean lineage flag
@@ -547,12 +547,12 @@ flow~\cite{ciliumtetragon,aquasecuritytracee,ghimire2025ebpfpatrol}.
 AgentSpec and Progent provide deterministic runtime enforcement over
 tool-call names, arguments, and framework
 actions~\cite{wang2025agentspec,shi2025progent}. These systems enforce at
-the tool-call boundary; ActPlane complements them by enforcing below the
+the tool-call boundary; \sys{} complements them by enforcing below the
 tool API, where effects that bypass the framework are still visible.
 
 FIDES and CaMeL apply typed information-flow control and capability
 separation within the agent loop or
-scaffolding~\cite{costa2025fides,debenedetti2025camel}. ActPlane applies
+scaffolding~\cite{costa2025fides,debenedetti2025camel}. \sys{} applies
 the same style of information-flow reasoning at the OS boundary, where
 observation and enforcement persist across context windows and cannot be
 circumvented by subprocess indirection.
@@ -564,7 +564,7 @@ Recent empirical studies characterize \texttt{CLAUDE.md},
 of content taxonomy, maintenance practices, and effect on task
 efficiency~\cite{chatlatanagulchai2025manifests,chatlatanagulchai2025agentreadmes,
 santos2025claudeconfig,lulla2026agentsmd}. These studies classify at file
-or section-heading granularity. ActPlane's empirical study
+or section-heading granularity. \sys{}'s empirical study
 (\S\ref{sec:empirical}) classifies at statement level along four axes
 (content type, topic, enforcement level, context requirement), asking
 which instructions constitute cross-event information-flow policies,
@@ -575,22 +575,22 @@ enforced at the OS level.
 \label{sec:conclusion}
 
 Our empirical study of 64~projects reveals that agent instruction files
-are behavioral policies (64\% directives), that most directives require
-system observation (83\% system-observable), and that 74\% of
+are behavioral policies (64\% directives), that most directives describe
+system-level behavior (83\% system-observable), and that 74\% of
 system-observable directives cannot be instantiated without project or
 task context that only the agent possesses. These findings motivate a design in which
 the agent authors its own enforcement policy.
 
-ActPlane provides a programmable OS-level control plane for agent harnesses.
+\sys{} provides a programmable OS-level control plane for agent harnesses.
 It compiles agent-declared behavioral policies into eBPF/BPF-LSM labeled
 information-flow rules, propagates labels across process, file, and endpoint
 objects at kernel hooks, and returns kernel-detected rule matches as semantic
 feedback to the agent. A layered policy model ensures that higher-authority
 constraints cannot be weakened by the agent, while agent-authored rules can
 evolve with task intent. By supporting notify, pre-operation denial, and
-harness-level termination with structured remediation, ActPlane enables
+harness-level termination with structured remediation, \sys{} enables
 agents to recover after policy rule matches rather than fail opaquely.
-ActPlane bridges the context gap and the semantic gap that single-level
+\sys{} bridges the context gap and the semantic gap that single-level
 harnesses leave open, unifying labeled information-flow observation and
 enforcement with an agent-oriented policy language and a feedback loop on
 the eBPF/BPF-LSM substrate.

@@ -1,7 +1,7 @@
 \section{Design}
 \label{sec:design}
 
-ActPlane is a programmable OS-level control plane for agent harnesses. It
+\sys{} is a programmable OS-level control plane for agent harnesses. It
 compiles behavioral policies into labeled information-flow rules at OS
 kernel hooks, observing and enforcing agent behavior and returning semantic
 feedback when a rule is matched. Figure~\ref{fig:architecture} summarizes
@@ -9,11 +9,11 @@ the pipeline.
 
 \subsection{Threat Model and Assumptions}
 
-ActPlane targets a \emph{cooperative but unreliable} agent: the agent is
+\sys{} targets a \emph{cooperative but unreliable} agent: the agent is
 trusted to declare its task intent and policy constraints honestly, but
 not trusted to follow them reliably during execution. The agent may make
 mistakes because of long-horizon planning errors, prompt injection,
-shell-script side effects, or opaque tool behavior. ActPlane does not
+shell-script side effects, or opaque tool behavior. \sys{} does not
 target a malicious agent that deliberately attacks the kernel, exploits
 the loader, or attempts to evade policy through adversarial
 obfuscation.
@@ -35,13 +35,13 @@ deterministic runtime guardrails for their own system-level behavior.
 
 The empirical study in \S\ref{sec:empirical} gives four requirements:
 agent-provided context, OS-boundary enforcement, cross-event state, and
-semantic feedback. ActPlane adopts these as system goals and adds one
+semantic feedback. \sys{} adopts these as system goals and adds one
 authority goal: agent-authored rules may specialize the session policy,
 but they must not weaken operator or platform constraints.
 
 \subsection{Policy Lifecycle}
 
-ActPlane separates \emph{who supplies context} from \emph{who enforces the
+\sys{} separates \emph{who supplies context} from \emph{who enforces the
 resulting rule}. Higher-authority policies, such as platform or operator
 constraints, are supplied before the agent starts and define the
 non-negotiable boundary of the session. Project policies come from
@@ -86,7 +86,7 @@ Rust compiler ------> struct taint_config
         v
 .actplane/last-violation.txt
 \end{verbatim}
-\caption{ActPlane pipeline. The Rust compiler lowers the policy DSL into a
+\caption{\sys{} pipeline. The Rust compiler lowers the policy DSL into a
 fixed-size binary configuration. The eBPF loader writes it into read-only
 data, attaches to kernel hooks, and reports rule matches as NDJSON. The runner
 maps rule identifiers back to human-readable feedback.}
@@ -97,14 +97,33 @@ command execution, and feedback output.}
 
 \subsection{Layered Policy Composition}
 
-ActPlane composes policies monotonically across authority layers:
+\sys{} separates a pure IFC rule from the runtime binding that makes it
+active. A rule is a condition, an effect, and a human-readable reason; by
+itself, it does not define inheritance or authority. A \emph{domain} is
+the runtime policy boundary for a process tree: each process maps to one
+domain, and each event is checked against that domain's effective policy.
+Files, endpoints, and stdio are IFC objects that carry labels, not policy
+domains.
+
+A binding attaches a rule to a domain as either \emph{locked} or
+\emph{default}. Locked bindings are security invariants inherited by child
+domains and cannot be disabled below the binding point. Default bindings
+are templates: a child domain may keep them, disable them for itself, or
+replace them with stricter local policy. Thus a child domain may add
+constraints, labels, gates, or narrower scope, but it cannot disable
+inherited locked bindings, clear inherited labels or gates, widen scope,
+or mutate the definition of an inherited locked rule.
+
+\sys{} composes policies monotonically across authority layers:
 platform/operator rules, project-maintainer rules, and agent/session
 rules. Lower-authority layers may add constraints or more specific
 feedback, but they cannot delete, rewrite, declassify, or weaken rules
 introduced by a higher-authority layer. Exceptions to a higher-authority
 rule must be encoded in that same layer; an agent-authored policy cannot
 turn a platform \texttt{block} into a \texttt{notify}, nor can it
-declassify labels created by the platform policy.
+declassify labels created by the platform policy. The prototype resolves
+domain bindings at compile/load boundaries; the kernel receives compact
+compiled rule tables and does not parse YAML or DSL on the event path.
 
 At compile time, the policy compiler merges all active layers into one
 rule set and preserves each rule's authority level in metadata. The kernel
@@ -116,14 +135,14 @@ the same event, effects are joined by severity:
 Thus lower-authority policy can only make the final decision stricter. If
 a project rule says \texttt{notify} on \texttt{git push} but a platform
 rule says \texttt{block} on the same event, the operation is blocked. If
-two matched rules have the same effect, ActPlane reports the
+two matched rules have the same effect, \sys{} reports the
 higher-authority rule first, then uses deterministic rule order as a
 tiebreaker. The feedback file may include additional matched reasons, but
 the enforcement decision is always the strongest joined effect.
 
 \subsection{Policy Model}
 
-ActPlane policies are object-level information-flow rules over three node
+\sys{} policies are object-level information-flow rules over three node
 types: processes (identified by pid and command name), files (keyed by
 path hash), and endpoints (keyed by IPv4 address and mask). The model
 operates at object granularity rather than byte
@@ -164,7 +183,7 @@ has reached $p$ through observed OS-level flow edges.
 
 Unlike traditional taint analysis and IFC systems that prioritize
 completeness (minimizing false negatives, tolerating high false
-positives)~\cite{enck2010taintdroid,clause2007dytan}, ActPlane targets
+positives)~\cite{enck2010taintdroid,clause2007dytan}, \sys{} targets
 \emph{precision}: false positives that block legitimate operations
 disrupt the agent's development workflow and erode trust in the harness.
 The design therefore favors object-granularity labels with explicit
@@ -195,10 +214,10 @@ rule tests-before-commit:
     if AGENT unless after exec "go" since write "**/*.go"
   because "Run `go test ./...` before committing."
 \end{verbatim}
-\caption{Two ActPlane rules drawn from real projects. The first is a
+\caption{Two \sys{} rules drawn from real projects. The first is a
 per-event rule (single \texttt{execve} match); the second is a
 cross-event rule requiring temporal state (\texttt{after\ldots since}).}
-\Description{Code listing of two ActPlane rules from real projects.}
+\Description{Code listing of two \sys{} rules from real projects.}
 \label{fig:policy-example}
 \end{figure}
 
@@ -319,7 +338,7 @@ recovery: run `go test ./...`, then retry commit.
 \end{verbatim}
 \caption{Example corrective-feedback payload appended after a kernel
 rule match. The hook relays this payload into the next agent turn.}
-\Description{Text example of an ActPlane feedback payload with rule,
+\Description{Text example of an \sys{} feedback payload with rule,
 effect, event, reason, and recovery fields.}
 \label{fig:feedback-payload}
 \end{figure}
@@ -339,7 +358,7 @@ repair the plan rather than retrying the same operation.
 \section{Implementation}
 \label{sec:implementation}
 
-ActPlane is implemented as a Rust driver and an eBPF program pair. The
+\sys{} is implemented as a Rust driver and an eBPF program pair. The
 system builds a single \texttt{actplane} binary that embeds the compiled
 eBPF loader, extracts it at runtime, compiles the project's policy DSL,
 and runs a target command under the observation and enforcement harness.
