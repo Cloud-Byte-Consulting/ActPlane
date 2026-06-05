@@ -70,6 +70,7 @@ from agents import (
 )
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from openai import AsyncOpenAI
+from pydantic import BaseModel, ConfigDict
 from tool_regex_baseline import (
     ToolPolicyEvent,
     ToolRegexPolicy,
@@ -113,6 +114,13 @@ class EvalContext:
     in_recovery: bool = False
     max_steps: int = 10
     step_count: int = 0
+
+
+class PlanItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: str
+    status: str
 
 
 def check_tool_policy_before(
@@ -659,6 +667,16 @@ def edit_file(
     return "ok"
 
 
+@function_tool(name_override="update_plan")
+def update_plan_tool(
+    ctx: RunContextWrapper[EvalContext],
+    plan: list[PlanItem],
+    explanation: str | None = None,
+) -> str:
+    """Record a short task plan without changing repository state."""
+    return "plan updated"
+
+
 # ---------------------------------------------------------------------------
 # Hooks: step limit
 # ---------------------------------------------------------------------------
@@ -1079,7 +1097,7 @@ async def run_scenario_inner(
     agent = Agent(
         name="eval-agent",
         instructions=instructions,
-        tools=[bash_tool, read_file, write_file, edit_file],
+        tools=[bash_tool, read_file, write_file, edit_file, update_plan_tool],
         model=model,
         model_settings=make_model_settings(thinking),
     )

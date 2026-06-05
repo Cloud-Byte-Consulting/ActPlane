@@ -12,15 +12,18 @@ deterministic OS-level enforcement yet expressive enough to encode the
 project and task context that the agent supplies. It must also maintain
 cross-event state and prevent lower-authority policy from weakening
 higher-authority constraints.
-
 \subsection{Threat Model and Assumptions}
 
-\sys{} targets a \emph{cooperative but unreliable} agent: one that
-declares task intent and project constraints honestly but may fail to
-follow them due to planning errors, prompt injection, shell-script side
-effects, or opaque tool behavior. The system does not target a malicious
-process that attacks the kernel, exploits the loader, or deliberately
-evades policy through adversarial obfuscation.
+\sys{} targets a \emph{cooperative but unreliable} agent. The agent's
+original intent is honest---it aims to follow project constraints---but
+execution may diverge due to planning errors, shell-script side effects,
+opaque tool behavior, or prompt injection~\cite{perez2022prompt} that
+causes the agent to act against its declared policy. Higher-authority policies (platform, project)
+are authored by trusted principals and cannot be weakened by the agent;
+they guard against both unreliable execution and hijacked agent-level
+declarations. The system does not target a malicious process that attacks
+the kernel, exploits the loader, or deliberately evades policy through
+adversarial obfuscation.
 
 The trusted computing base (TCB) consists of the compiler, the eBPF
 enforcement engine, the runner, and higher-authority policies. The agent's
@@ -31,31 +34,24 @@ content checks not observable at syscall boundaries are out of scope.
 
 \subsection{System Overview}
 
-The empirical study (\S\ref{sec:empirical}) establishes three design
-requirements. First, policy must be \emph{agent-facing}: many directives
-refer to project- or task-specific concepts that only the agent can
-resolve. Second, enforcement must be \emph{system-level}: directives
-constrain commands, files, subprocesses, and network connections, not just
-model text. Third, enforcement must be \emph{stateful}: directives
-frequently depend on prior actions---whether tests ran after a source
-change, or whether data from one source later reached a forbidden sink.
-
-\sys{} addresses these requirements with three abstractions: a compact DSL
-that lets agents and maintainers bind natural-language directives to
-source, sink, and condition patterns; a labeled information-flow model
-that maintains cross-event state across OS objects; and a layered authority
-model that lets lower-authority policy add or narrow constraints without
+\sys{} addresses the requirements identified in \S\ref{sec:empirical}
+through three abstractions: a policy DSL (\S\ref{sec:dsl}) that lets
+agents bind natural-language directives to source, sink, and condition
+patterns; a labeled information-flow model (\S\ref{sec:ifc}) that
+propagates cross-event state across OS objects; and a layered authority
+model (\S\ref{sec:authority}) that prevents lower-authority policy from
 weakening platform or project invariants.
 
 \subsection{Policy DSL}
+\label{sec:dsl}
 
 The DSL mediates between intent-level instructions and system-level
 enforcement. A policy contains \emph{sources} that introduce labels,
 \emph{rules} that match labeled events at sinks, and optional
 \emph{gates} that express ordering or controlled declassification. The
-agent-facing surface is deliberately small: translating a natural-language
-instruction typically requires one declarative rule rather than manual
-construction of the kernel-level representation.
+DSL restricts expressiveness to source/sink/gate patterns that compile
+to fixed-size rodata, enabling bounded verification cost and
+agent-authorability.
 
 Sources bind labels to system objects: an \texttt{exec} source labels
 processes that execute a matching binary; a \texttt{file} source labels
@@ -105,10 +101,13 @@ patterns into fixed-size kernel tables; policy authors need not reason
 about BPF maps, verifier constraints, or binary layout.
 
 \subsection{Labeled Information-Flow Model}
+\label{sec:ifc}
 
 \sys{} represents policy state as labels on OS objects. Processes, files,
-and network endpoints each carry a 64-bit label mask. A source declaration
-adds labels when an object matches the source pattern. Let $L(x)$ denote
+and network endpoints each carry a 64-bit label mask, enabling
+cross-channel flow policies (e.g., ``data read from \texttt{.env} must
+not reach a network endpoint''). A source declaration adds labels when an
+object matches the source pattern. Let $L(x)$ denote
 the label mask of object $x$. Labels propagate through observed
 system-level edges:
 
@@ -142,6 +141,7 @@ labels for subsequent events. Declassification is thus a declared policy
 action, not an implicit side effect of the agent's plan.
 
 \subsection{Layered Policy Authority}
+\label{sec:authority}
 
 Agent-authored policy is useful only if it cannot weaken stronger
 constraints. \sys{} organizes policy as a layered authority stack:

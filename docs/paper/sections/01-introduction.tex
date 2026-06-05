@@ -2,9 +2,9 @@
 
 % ¶1: Context — agents are powerful and widely deployed
 AI coding agents operate as long-running processes with access to shells,
-source trees, package managers, and external APIs, autonomously writing
-code, running tests, and managing infrastructure across extended
-sessions~\cite{agentsight}.
+source trees, package managers, and external APIs~\cite{agentsight}. They
+autonomously write code, run tests, and manage infrastructure across
+extended sessions.
 
 % ¶2: Problem — agents need behavioral policies, LLMs can't self-enforce
 As agents gain autonomy, they require \emph{harnesses} that apply
@@ -32,8 +32,10 @@ authored by an external administrator cannot supply this context; only the
 agent holds the project structure and task intent needed to concretize its
 own rules.
 
-The second is a \emph{semantic gap} between declared policy and system
-effects. Tool-level guards~\cite{wang2025agentspec,shi2025progent} lose
+The second is a \emph{semantic gap}---a disconnect between the agent's
+declared behavioral intent and the system-level effects that implement
+it---between declared policy and system effects.
+Tool-level guards~\cite{wang2025agentspec,shi2025progent} lose
 coverage when agents shell out or spawn subprocesses: the same
 \texttt{git~push} can be reached through a tool call, a
 \texttt{bash~-c} wrapper, or a compiled binary. OS-level
@@ -46,7 +48,7 @@ These gaps arise because no existing layer lets the agent---the only
 entity with the context to instantiate its own rules---\emph{also}
 program the OS-level mechanism that enforces them. Our key observation is
 that the agent must author its own enforcement policy but must not enforce
-it: the agent is trusted to honestly declare intent, but not trusted to
+it. The agent is trusted to honestly declare intent, but not trusted to
 reliably follow it during execution. This separation calls for a
 programmable interface between the agent's intent-level context and the
 OS's deterministic enforcement.

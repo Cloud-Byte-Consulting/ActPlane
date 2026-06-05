@@ -22,7 +22,7 @@ workflow rules (``run tests before committing'') exhibit.
 Existing harnesses enforce policy at one of three levels. Prompt
 instructions and tool-call filters are close to intent but observe only the
 harness request, not the system-level effects that follow once a tool
-starts executing. OS-level mechanisms (seccomp, AppArmor, BPF-LSM) observe
+starts executing. OS-level mechanisms (seccomp~\cite{seccomp-bpf}, AppArmor~\cite{apparmor}, BPF-LSM~\cite{linuxbpflsm}) observe
 those effects but require statically pre-written policies and return
 opaque errors with no connection to the agent's declared rules. No current
 layer bridges both: connecting the agent's project context to
@@ -40,43 +40,22 @@ context they need to become concrete rules.
 
 \subsection{Methodology}
 
-The study addresses four questions: what fraction of instruction-file
-content is directive rather than descriptive, which topics carry those
-directives, which directives have system-observable counterparts, and
-which require project or task context to become concrete rules.
-
-\textbf{Corpus construction.}
-We collected public GitHub repositories containing \texttt{CLAUDE.md}
-or \texttt{AGENTS.md} in a standard location, prioritizing projects in the
-AI-agent ecosystem over filename-only matches. We excluded non-code
-repositories, inactive projects, likely fake-star or SEO repositories, and
-trivial instruction-file stubs, but retained repositories whose instruction
-files were purely descriptive. The snapshot (2026-05-23 UTC) contains
+We collected public GitHub repositories containing \texttt{CLAUDE.md} or
+\texttt{AGENTS.md}, prioritizing the AI-agent ecosystem over
+filename-only matches and excluding non-code, inactive, fake-star, and
+stub repositories. The snapshot (2026-05-23 UTC) contains
 64~repositories, 84~deduplicated instruction files, and
-2{,}116~extracted statements.
-
-\textbf{Statement extraction.}
-A statement is a coherent unit expressing one factual claim, directive,
-or constraint; it need not align with a Markdown paragraph or list item.
-A two-pass LLM-assisted pipeline extracted statements with source
-line ranges and four labels: content type, topic, enforcement level, and
-context requirement. A validation script verified that annotated line
-ranges cover every source line exactly once and that each extracted span
-matches the original file verbatim.
-
-\textbf{Coding and validation.}
-Each of the four labels maps to one empirical question below; each
-E-RQ defines the labels it uses. The second LLM pass served as
-cross-validation rather than bulk keyword labeling. A stratified sample of
-100~statements was independently reviewed by human annotators using the
-same taxonomy, with disagreements resolved by discussion. Enforceability
-labels were additionally reviewed by independent Claude and Codex agents;
-the resulting disagreement reports corrected systematic errors such
-as treating tool-call directives as semantic-only or under-classifying
-workflow ordering constraints.
-
-The following subsections report the resulting distributions. E-RQ3 also
-identifies the OS-enforceable subset used in the evaluation (\S\ref{sec:evaluation}).
+2{,}116~extracted statements. A \emph{statement} is a coherent unit
+expressing one claim, directive, or constraint. A two-pass LLM-assisted
+pipeline extracted statements with source line ranges and four labels
+(content type, topic, enforcement level, context requirement); a
+validation script verified full source coverage and verbatim span
+matching. A stratified sample of 100~statements was independently
+reviewed by human annotators, with enforceability labels additionally
+cross-checked by independent Claude and Codex agents. The following
+subsections report results along the four labeling axes; E-RQ3
+identifies the OS-enforceable subset used in the evaluation
+(\S\ref{sec:evaluation}).
 
 \subsection{E-RQ1: Are Instruction Files Behavioral Policies?}
 

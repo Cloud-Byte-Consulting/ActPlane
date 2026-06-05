@@ -208,8 +208,6 @@ the Python baseline checker.
   agent recovery.
 \end{itemize}
 
-\paragraph{Expected results.}
-
 % TODO: Fill in numbers after experiments.
 
 \begin{table}[tb]\small
@@ -248,9 +246,8 @@ TL-1             & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
 \end{tabular}
 \end{table}
 
-The key expected observation: Kernel~IFC and \sys{} share identical
-detection, but \sys{} should achieve higher compliance because semantic
-feedback enables targeted agent recovery rather than blind retries.
+Kernel~IFC and \sys{} share identical detection; the compliance
+difference isolates the value of semantic feedback for agent recovery.
 
 % TODO: Figure — Directive compliance by system (grouped bar chart).
 
@@ -301,11 +298,15 @@ parent \texttt{waitpid()}.
 already-created socket.
 
 \paragraph{Results.}
-The largest absolute microbenchmark cost is on \texttt{open}: AP-100
-adds 12.8\,\textmu s at p50 and 14.7\,\textmu s at p99. AP-100 adds
-2.6\,\textmu s p50 overhead to \texttt{connect} and 0.57\,\textmu s to
-\texttt{write}. \texttt{fork} and \texttt{exec} include scheduler and
-process-management overhead, so their tail latencies are noisier.
+The largest per-call cost is on \texttt{open}: AP-100 adds
+12.8\,\textmu s at p50 (23$\times$ native), because each open triggers a
+path hash (FNV-1a), a file-label map lookup, and a linear scan of up to
+100~rules. \texttt{connect} adds 2.6\,\textmu s and \texttt{write}
+0.57\,\textmu s at p50; both involve shorter matching paths.
+\texttt{fork} and \texttt{exec} include scheduler and process-management
+overhead, so their tail latencies are noisier. Despite the high per-call
+multiplier on \texttt{open}, the macrobenchmark impact remains low
+(1.9\%--8.4\%) because agent workloads are dominated not individual syscall throughput..
 
 \begin{table}[tb]\small
 \centering
@@ -412,9 +413,13 @@ Progent~\cite{wang2025agentspec,shi2025progent} enforce deterministic
 guards at the tool-call boundary; \sys{} complements them below the tool
 API, where shell-outs and subprocesses remain visible. FIDES and
 CaMeL~\cite{costa2025fides,debenedetti2025camel} apply typed IFC within
-the agent loop; \sys{} applies the same reasoning at the OS boundary,
-where observation persists across context windows and cannot be
-circumvented by subprocess indirection.
+the agent loop but do not expose a layered authority stack that separates
+platform, project, and agent policy; Flume~\cite{flume} provides
+decentralized labels with explicit capabilities but requires
+per-application integration rather than a compile-time authority
+hierarchy. \sys{} applies information-flow reasoning at the OS boundary
+with a layered authority model, where observation persists across context
+windows and cannot be circumvented by subprocess indirection.
 
 \textbf{Agent instruction files.}
 Recent studies characterize \texttt{CLAUDE.md} and \texttt{AGENTS.md}
