@@ -26,31 +26,15 @@ policy: |
     notify exec "pnpm" "install" if AGENT
     notify exec "yarn" "add" if AGENT
     notify exec "bun" "add" if AGENT
-    because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
-
-  rule destructive:
-    notify exec "rm" if AGENT
-    because "Avoid destructive file or command operations unless the task explicitly requires them and the target is confirmed."
-
-  rule external_cli:
-    notify exec "curl" if AGENT
-    notify exec "wget" if AGENT
-    notify exec "gh" if AGENT
-    notify exec "stripe" if AGENT
-    because "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."
-
-  rule tool_workflow:
-    notify exec "find" if AGENT
-    notify exec "ls" if AGENT
-    notify exec "grep" if AGENT
-    notify exec "head" if AGENT
-    notify exec "tail" if AGENT
-    notify exec "sed" if AGENT
-    notify exec "awk" if AGENT
-    because "For this task's OctoBench instructions, do not use Bash file/search/listing commands for codebase exploration. Use Task(subagent_type=Explore), Glob, Grep, Read, and TodoWrite to plan and track the implementation before continuing."
+    because "For this AWS command-validator task, avoid adding dependencies; implement validation rules, detailed errors, security audit logging, and tests with existing project code."
 
   rule validator_followthrough:
+    notify open file "*cli_executor.py" if AGENT
+    notify open file "*tools.py" if AGENT
+    notify open file "*config.py" if AGENT
+    notify open file "*test_cli_executor.py" if AGENT
     notify write file "*command_validator.py" if AGENT
     notify write file "*cli_executor.py" if AGENT
     notify write file "*server.py" if AGENT
-    because "After changing command validation code for this task, continue until the module is integrated into the command execution flow, focused unit tests are added, relevant pytest/ruff checks are run, and the final response summarizes implementation and test status."
+    notify write file "*test*.py" if AGENT
+    because "For this AWS command-validator task, continue until the command_validator module covers starts-with-aws, injection metacharacters, safe pipe allowlist, dangerous rm/delete confirmation, detailed rejection reasons, security logging, integration into command execution, focused unit tests, and a final summary with test status."

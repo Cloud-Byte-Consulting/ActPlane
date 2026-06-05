@@ -6,12 +6,6 @@ feedback:
 policy: |
   source AGENT = exec "claude"
 
-  rule docs:
-    notify write file "**/*.md" if AGENT
-    notify write file "**/README*" if AGENT
-    notify write file "**/docs/**" if AGENT
-    because "Do not create documentation or Markdown files unless the task explicitly asks for documentation."
-
   rule package:
     notify exec "pip" "install" if AGENT
     notify exec "pip3" "install" if AGENT
@@ -23,21 +17,13 @@ policy: |
     notify exec "pnpm" "install" if AGENT
     notify exec "yarn" "add" if AGENT
     notify exec "bun" "add" if AGENT
-    because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
-
-  rule tool_workflow:
-    notify exec "find" if AGENT
-    notify exec "ls" if AGENT
-    notify exec "grep" if AGENT
-    notify exec "head" if AGENT
-    notify exec "tail" if AGENT
-    notify exec "sed" if AGENT
-    notify exec "awk" if AGENT
-    because "For this Astropy validators task, do not use Bash file/search/listing commands for repository exploration. Use Task(subagent_type=Explore), Glob, Grep, Read, and TodoWrite; keep todos updated before editing."
+    because "For this Astropy validators task, do not add dependencies; implement validate_shape, validate_dtype, and validate_range with existing Astropy/Numpy/Pytest tooling."
 
   rule validators_followthrough:
+    notify open file "*/astropy/utils/**" if AGENT
+    notify open file "*/astropy/utils/tests/**" if AGENT
     notify write file "*validation*.py" if AGENT
     notify write file "*validators*.py" if AGENT
     notify write file "*/astropy/utils/__init__.py" if AGENT
     notify write file "*/astropy/utils/tests/*" if AGENT
-    because "After changing Astropy utils validators, ensure validate_shape, validate_dtype, and validate_range are real non-placeholder implementations, exported from astropy.utils, covered by pytest tests under astropy/utils/tests, and summarized with test status."
+    because "For this Astropy validators task, continue until validate_shape, validate_dtype, and validate_range are real non-placeholder implementations under astropy/utils, exported from astropy.utils, covered by pytest tests under astropy/utils/tests, checked with a relevant pytest invocation when practical, and summarized with test status."

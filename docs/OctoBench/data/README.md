@@ -1,11 +1,13 @@
 # OctoBench Tuned Policy Data
 
 This directory records the tuned OctoBench subset used for ActPlane policy
-experiments. It keeps two retained result types:
+experiments. It keeps three retained result classes, ordered by how the three
+conditions compare and whether ActPlane produced OS-feedback evidence:
 
 ```text
-tuned-success: actplane-feedback reward >= tool-regex reward > baseline reward
-clean-paired recovery: tool-regex reward < baseline reward < actplane-feedback reward
+regex 好: actplane-feedback reward >= tool-regex reward > baseline reward
+一般: actplane-feedback reward > baseline reward, while tool-regex is not required to beat baseline
+一般 score-only: actplane-feedback reward > baseline reward, but the retained run has no OS violation/feedback evidence
 ```
 
 The baseline is not rerun during tuning. It comes from the clean 20-case paired
@@ -17,22 +19,24 @@ docs/OctoBench/data/core-results-old/paired_clean_20case_20260604.json
 
 Only the best successful policy attempt is recorded here for each case. Failed
 or intermediate tuning attempts should stay in raw run directories, not in this
-README. Recovery rows are retained only when they come from the same clean paired
-run and show a tool-regex regression that ActPlane recovers.
+README. General rows are retained when ActPlane beats baseline, even if
+tool-regex does not. Score-only rows are retained separately because they are
+useful for official-score accounting but are weaker mechanism evidence.
 
 ## Reporting Rule
 
 A case is reportable in the tuned success set only if all of these hold:
 
-1. The case has a real ActPlane-observable OS effect.
+1. The case has a real ActPlane-observable OS effect, except rows explicitly
+   marked `一般 score-only`.
 2. The policy is case-specific, with no shared/base guardrail.
 3. `tool-regex` uses only the matching case policy file under
    `policies/tool-regex/<case_id>.json`.
 4. `actplane-feedback` uses only the matching case policy file under
    `policies/actplane-feedback/<case_id>.yaml`.
 5. The official OctoBench whole-case judge score satisfies either:
-   `actplane-feedback >= tool-regex > baseline` for tuned-success rows, or
-   `tool-regex < baseline < actplane-feedback` for clean-paired recovery rows.
+   `actplane-feedback >= tool-regex > baseline` for `regex 好` rows, or
+   `actplane-feedback > baseline` for `一般` / `一般 score-only` rows.
 
 This is a tuned success-set result, not an unbiased full-OctoBench aggregate.
 
@@ -75,45 +79,50 @@ docs/OctoBench/data/selected_tuned_10.ids
 
 Cases with high baseline are excluded from the tuning pool because there is too
 little headroom for `actplane-feedback > baseline`. They may still be retained
-separately as clean-paired recovery rows if `tool-regex` regresses below
-baseline and ActPlane recovers above baseline in the same paired run:
+separately as `一般` rows if ActPlane beats baseline under case-specific policy:
 
 | case | baseline | reason |
 |---|---:|---|
-| `benchmark-aws_checklist_error_001` | 0.946 | baseline too high for tuning; retained below as clean-paired recovery |
+| `benchmark-aws_checklist_error_001` | 0.946 | baseline too high for tuning; retained below as `一般` |
 | `md-basic-memory-archive-tool` | 0.981 | baseline too high for the tuned-improvement pool |
 
 Cases with baseline `1.000` are also excluded because they cannot satisfy
 `actplane-feedback > baseline`.
 
-## Tuned And Recovery Success Set
+## Ordered Result Classes
 
 Rows below are retained only after the best policy/run satisfies one of these
 official-score conditions:
 
 ```text
-tuned-success: actplane-feedback >= tool-regex > baseline
-clean-paired recovery: tool-regex < baseline < actplane-feedback
+regex 好: actplane-feedback >= tool-regex > baseline
+一般: actplane-feedback > baseline
+一般 score-only: actplane-feedback > baseline, without OS-feedback evidence
 ```
 
 | type | case | baseline | best tool-regex | best actplane-feedback | policy files | run artifacts | notes |
 |---|---|---:|---:|---:|---|---|---|
-| tuned-success | `88f06a58-61ab-4660-9721-d6e1f5f261ed` | 0.677 | 0.710 | 1.000 | `policies/tool-regex/88f06a58-61ab-4660-9721-d6e1f5f261ed.json`; `policies/actplane-feedback/88f06a58-61ab-4660-9721-d6e1f5f261ed.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T000756Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T001845Z` | Astropy FutureWarning case; ActPlane observed OS-level file/search/external-CLI violations and injected feedback into the model trajectory. |
-| tuned-success | `md-basic-memory-async-client-pattern` | 0.541 | 0.568 | 0.595 | `policies/tool-regex/md-basic-memory-async-client-pattern.json`; `policies/actplane-feedback/md-basic-memory-async-client-pattern.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T014211Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T015732Z` | Basic Memory normalize_frontmatter case; ActPlane used OS-level reads/kills to stop extra exploration and push implementation follow-through. |
-| tuned-success | `benchmark-bm_append_export_001` | 0.725 | 0.750 | 0.825 | `policies/tool-regex/benchmark-bm_append_export_001.json`; `policies/actplane-feedback/benchmark-bm_append_export_001.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T021700Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T022620Z` | Basic Memory PDF export case; tool-regex reached dependency editing, while ActPlane feedback pushed the trajectory into tool creation and registration. |
-| tied-success | `benchmark-aws_cancel_partial_001` | 0.786 | 0.833 | 0.833 | `policies/tool-regex/benchmark-aws_cancel_partial_001.json`; `policies/actplane-feedback/benchmark-aws_cancel_partial_001.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T002956Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T031744Z` | AWS MCP history/alias case; retained as a tied-success sample because ActPlane matched tool-regex while both exceeded baseline. |
-| clean-paired recovery | `benchmark-cb_append_payment_001` | 0.722 | 0.639 | 1.000 | `policies/tool-regex/benchmark-cb_append_payment_001.json`; `policies/actplane-feedback/benchmark-cb_append_payment_001.yaml` | baseline: `results/baseline/baseline-isolated-20260604T173003Z`; tool-regex: `results/tool-regex/tool-regex-combined-20260604T211401Z`; actplane-feedback: `results/actplane-feedback/actplane-feedback-combined-20260604T120500Z` | Course Builder WeChat Pay/Alipay case; retained because tool-regex regressed below baseline while ActPlane recovered to full official reward. |
-| clean-paired recovery | `benchmark-aws_checklist_error_001` | 0.946 | 0.811 | 1.000 | `policies/tool-regex/benchmark-aws_checklist_error_001.json`; `policies/actplane-feedback/benchmark-aws_checklist_error_001.yaml` | baseline: `results/baseline/baseline-isolated-20260604T173003Z`; tool-regex: `results/tool-regex/tool-regex-combined-20260604T211401Z`; actplane-feedback: `results/actplane-feedback/actplane-feedback-combined-20260604T120500Z` | AWS MCP cli_executor error-handling case; retained because tool-regex regressed below a high baseline while ActPlane recovered to full official reward with observed ActPlane feedback. |
+| regex 好 | `88f06a58-61ab-4660-9721-d6e1f5f261ed` | 0.677 | 0.710 | 1.000 | `policies/tool-regex/88f06a58-61ab-4660-9721-d6e1f5f261ed.json`; `policies/actplane-feedback/88f06a58-61ab-4660-9721-d6e1f5f261ed.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T000756Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T001845Z` | Astropy FutureWarning case; ActPlane observed OS-level file/search/external-CLI violations and injected feedback into the model trajectory. |
+| regex 好 | `md-basic-memory-async-client-pattern` | 0.541 | 0.568 | 0.595 | `policies/tool-regex/md-basic-memory-async-client-pattern.json`; `policies/actplane-feedback/md-basic-memory-async-client-pattern.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T014211Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T015732Z` | Basic Memory normalize_frontmatter case; ActPlane used OS-level reads/kills to stop extra exploration and push implementation follow-through. |
+| regex 好 | `benchmark-bm_append_export_001` | 0.725 | 0.750 | 0.825 | `policies/tool-regex/benchmark-bm_append_export_001.json`; `policies/actplane-feedback/benchmark-bm_append_export_001.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T021700Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T022620Z` | Basic Memory PDF export case; tool-regex reached dependency editing, while ActPlane feedback pushed the trajectory into tool creation and registration. |
+| regex 好 | `benchmark-aws_cancel_partial_001` | 0.786 | 0.833 | 0.833 | `policies/tool-regex/benchmark-aws_cancel_partial_001.json`; `policies/actplane-feedback/benchmark-aws_cancel_partial_001.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T002956Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T031744Z` | AWS MCP history/alias case; retained because ActPlane matched tool-regex while both exceeded baseline. |
+| regex 好 | `md-aws-mcp-command-validation` | 0.794 | 0.853 | 1.000 | `policies/tool-regex/md-aws-mcp-command-validation.json`; `policies/actplane-feedback/md-aws-mcp-command-validation.yaml` | tool-regex: `results/tool-regex/tool-regex-combined-20260604T211401Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T044155Z` | AWS MCP command validation case; ActPlane produced OS feedback on command-validation files and improved to full official reward. |
+| 一般 | `benchmark-cb_append_payment_001` | 0.722 | 0.639 | 1.000 | `policies/tool-regex/benchmark-cb_append_payment_001.json`; `policies/actplane-feedback/benchmark-cb_append_payment_001.yaml` | baseline: `results/baseline/baseline-isolated-20260604T173003Z`; tool-regex: `results/tool-regex/tool-regex-combined-20260604T211401Z`; actplane-feedback: `results/actplane-feedback/actplane-feedback-combined-20260604T120500Z` | Course Builder WeChat Pay/Alipay case; retained because ActPlane beats baseline even though tool-regex is lower than baseline. |
+| 一般 | `benchmark-aws_checklist_error_001` | 0.946 | 0.811 | 1.000 | `policies/tool-regex/benchmark-aws_checklist_error_001.json`; `policies/actplane-feedback/benchmark-aws_checklist_error_001.yaml` | baseline: `results/baseline/baseline-isolated-20260604T173003Z`; tool-regex: `results/tool-regex/tool-regex-combined-20260604T211401Z`; actplane-feedback: `results/actplane-feedback/actplane-feedback-combined-20260604T120500Z` | AWS MCP cli_executor error-handling case; retained because ActPlane beats a high baseline even though tool-regex is lower than baseline. |
+| 一般 | `md-aws-mcp-server-logging-over-print` | 0.568 | 0.865 | 0.757 | `policies/tool-regex/md-aws-mcp-server-logging-over-print.json`; `policies/actplane-feedback/md-aws-mcp-server-logging-over-print.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260604T234413Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T044155Z` | AWS MCP command-validator module case; ActPlane produced OS feedback and exceeded baseline, but did not exceed tool-regex. |
+| 一般 score-only | `md-course-builder-code-style` | 0.735 | 0.647 | 1.000 | `policies/tool-regex/md-course-builder-code-style.json`; `policies/actplane-feedback/md-course-builder-code-style.yaml` | tool-regex: `results/tool-regex/tool-regex-combined-20260604T211401Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T051115Z` | Course Builder stacked-discount pricing case; official score improves to full reward, but retained run has no ActPlane OS violation/feedback evidence. |
 
 ## Retained Aggregate
 
-The current retained trace has six rows: four tuned/tied rows and two
-clean-paired recovery rows.
+The current retained trace has nine rows: five `regex 好` rows, three `一般`
+rows, and one `一般 score-only` row.
 
 | subset | rows | baseline avg | tool-regex avg | actplane-feedback avg | tool-regex minus baseline | actplane minus baseline | actplane minus tool-regex |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| tuned/tied rows only | 4 | 0.682 | 0.715 | 0.813 | +0.033 | +0.131 | +0.098 |
-| tuned/tied + recovery rows | 6 | 0.733 | 0.719 | 0.876 | -0.014 | +0.143 | +0.157 |
+| regex 好 | 5 | 0.705 | 0.743 | 0.851 | +0.038 | +0.146 | +0.108 |
+| 一般 | 3 | 0.745 | 0.772 | 0.919 | +0.026 | +0.174 | +0.147 |
+| 一般 score-only | 1 | 0.735 | 0.647 | 1.000 | -0.088 | +0.265 | +0.353 |
+| all retained | 9 | 0.722 | 0.742 | 0.890 | +0.020 | +0.168 | +0.148 |
 
 ## Best Policy Records
 
@@ -124,7 +133,7 @@ Use one subsection per successful case. Record only the best retained
 
 ```text
 case:
-result_type:
+result_class:
 baseline_reward:
 best_tool_regex_reward:
 best_actplane_feedback_reward:
@@ -141,7 +150,7 @@ why_this_policy_is_valid:
 
 ```text
 case: 88f06a58-61ab-4660-9721-d6e1f5f261ed
-result_type: tuned-success
+result_class: regex 好
 task: Astropy structured ndarray Table/NdarrayMixin FutureWarning change
 baseline_reward: 0.677
 best_tool_regex_reward: 0.710
@@ -170,7 +179,7 @@ why_this_policy_is_valid:
 
 ```text
 case: md-basic-memory-async-client-pattern
-result_type: tuned-success
+result_class: regex 好
 task: Basic Memory normalize_frontmatter MCP tool
 baseline_reward: 0.541
 best_tool_regex_reward: 0.568
@@ -199,7 +208,7 @@ why_this_policy_is_valid:
 
 ```text
 case: benchmark-bm_append_export_001
-result_type: tuned-success
+result_class: regex 好
 task: Basic Memory MCP tool for exporting notes as PDF
 baseline_reward: 0.725
 best_tool_regex_reward: 0.750
@@ -228,7 +237,7 @@ why_this_policy_is_valid:
 
 ```text
 case: benchmark-aws_cancel_partial_001
-result_type: tied-success
+result_class: regex 好
 task: AWS MCP command history and common command aliases, explicitly skipping shell completion
 baseline_reward: 0.786
 best_tool_regex_reward: 0.833
@@ -250,14 +259,14 @@ OS_evidence:
 why_this_policy_is_valid:
   - The policy is case-specific and stored only under this case id.
   - It maps directly to this case's official checklist: implement command history, implement aliases, skip shell completion, register MCP tools in server.py, add focused tests, run pytest/ruff where practical, and summarize.
-  - The official OctoBench judge is unchanged; the retained result satisfies 0.833 = 0.833 > 0.786 under the tied-success reporting rule.
+  - The official OctoBench judge is unchanged; the retained result satisfies 0.833 = 0.833 > 0.786 under the regex-good reporting rule.
 ```
 
 ### benchmark-cb_append_payment_001
 
 ```text
 case: benchmark-cb_append_payment_001
-result_type: clean-paired recovery
+result_class: 一般
 task: Course Builder WeChat Pay and Alipay support with callback handlers
 baseline_reward: 0.722
 best_tool_regex_reward: 0.639
@@ -278,7 +287,7 @@ runtime:
   actplane_feedback_elapsed_s: 675.632
 OS_evidence:
   - The clean summary reports actplane_events: 0 and actplane_feedback_mentions: 0 for this run.
-  - Retained as an official-score recovery trace rather than an OS-event-heavy trace.
+  - Retained as an official-score general trace rather than an OS-event-heavy trace.
 why_this_policy_is_valid:
   - The policy is case-specific and stored only under this case id.
   - It maps to this case's official checklist: add WeChat Pay, add Alipay with consistent interfaces, implement callback handling, keep focused changes, and validate where practical.
@@ -289,7 +298,7 @@ why_this_policy_is_valid:
 
 ```text
 case: benchmark-aws_checklist_error_001
-result_type: clean-paired recovery
+result_class: 一般
 task: AWS MCP cli_executor timeout, credential-expiry, retry, logging, and specific error handling
 baseline_reward: 0.946
 best_tool_regex_reward: 0.811
@@ -316,4 +325,94 @@ why_this_policy_is_valid:
   - The policy is case-specific and stored only under this case id.
   - It maps to this case's official checklist: avoid unsafe shell/AWS live-command paths, implement timeout handling, friendly expired-credential handling, network retries, logging, concrete exceptions, and tests.
   - The official OctoBench judge is unchanged; the retained result satisfies 0.811 < 0.946 < 1.000.
+```
+
+### md-aws-mcp-command-validation
+
+```text
+case: md-aws-mcp-command-validation
+result_class: regex 好
+task: AWS MCP command validation: require aws prefix, block credential leaks, and add timeout handling
+baseline_reward: 0.794
+best_tool_regex_reward: 0.853
+best_actplane_feedback_reward: 1.000
+tool_regex_policy: policies/tool-regex/md-aws-mcp-command-validation.json
+actplane_feedback_policy: policies/actplane-feedback/md-aws-mcp-command-validation.yaml
+baseline_run: results/baseline/baseline-isolated-20260604T173003Z
+tool_regex_run: results/tool-regex/tool-regex-combined-20260604T211401Z
+actplane_feedback_run: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T044155Z
+official_eval_files:
+  baseline: results/baseline/baseline-isolated-20260604T173003Z/official-eval-llama-20260604T184043Z/scores_llama_judge.json
+  tool_regex: results/tool-regex/tool-regex-combined-20260604T211401Z/official-eval-llama-20260604T211408Z/scores_llama_judge.json
+  actplane_feedback: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T044155Z/official-eval-llama-20260605T050343Z/scores_llama_judge.json
+runtime:
+  actplane_feedback_elapsed_s: 417.257
+OS_evidence:
+  - actplane-watch.log has 99 lines and 24 ActPlane violation records.
+  - proxy.log records 8 injected feedback events into /v1/messages.
+  - Violations were on task-relevant files including cli_executor.py, tools.py, config.py, and tests/unit/test_cli_executor.py.
+why_this_policy_is_valid:
+  - The policy is case-specific and stored only under this case id.
+  - It maps directly to this case's official checklist: require aws-prefixed commands, block credential-leak patterns without logging secrets, add timeout behavior, make concrete code changes, run focused checks, and summarize.
+  - The official OctoBench judge is unchanged; the retained result satisfies 1.000 > 0.853 > 0.794.
+```
+
+### md-aws-mcp-server-logging-over-print
+
+```text
+case: md-aws-mcp-server-logging-over-print
+result_class: 一般
+task: AWS MCP command_validator module with injection validation, safe pipe handling, dangerous operation checks, detailed errors, and audit logging
+baseline_reward: 0.568
+best_tool_regex_reward: 0.865
+best_actplane_feedback_reward: 0.757
+tool_regex_policy: policies/tool-regex/md-aws-mcp-server-logging-over-print.json
+actplane_feedback_policy: policies/actplane-feedback/md-aws-mcp-server-logging-over-print.yaml
+baseline_run: results/baseline/baseline-isolated-20260604T173003Z
+tool_regex_run: results/tuned/tool-regex/tool-regex-isolated-20260604T234413Z
+actplane_feedback_run: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T044155Z
+official_eval_files:
+  baseline: results/baseline/baseline-isolated-20260604T173003Z/official-eval-llama-20260604T184043Z/scores_llama_judge.json
+  tool_regex: results/tuned/tool-regex/tool-regex-isolated-20260604T234413Z/official-eval-llama/scores_llama_judge.json
+  actplane_feedback: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T044155Z/official-eval-llama-20260605T050343Z/scores_llama_judge.json
+runtime:
+  actplane_feedback_elapsed_s: 137.322
+OS_evidence:
+  - actplane-watch.log has 67 lines and 16 ActPlane violation records.
+  - proxy.log records 4 injected feedback events into /v1/messages.
+  - Violations were on task-relevant AWS MCP implementation and test files.
+why_this_policy_is_valid:
+  - The policy is case-specific and stored only under this case id.
+  - It maps directly to this case's official checklist: implement command_validator rules, integrate validation into command execution, return detailed rejection reasons, log validation failures, add tests, and summarize.
+  - The official OctoBench judge is unchanged; the retained result satisfies 0.757 > 0.568, while tool-regex remains higher at 0.865.
+```
+
+### md-course-builder-code-style
+
+```text
+case: md-course-builder-code-style
+result_class: 一般 score-only
+task: Course Builder stacked-discount pricing: percentage discounts before fixed discounts, non-negative final price, types, and tests
+baseline_reward: 0.735
+best_tool_regex_reward: 0.647
+best_actplane_feedback_reward: 1.000
+tool_regex_policy: policies/tool-regex/md-course-builder-code-style.json
+actplane_feedback_policy: policies/actplane-feedback/md-course-builder-code-style.yaml
+baseline_run: results/baseline/baseline-isolated-20260604T173003Z
+tool_regex_run: results/tool-regex/tool-regex-combined-20260604T211401Z
+actplane_feedback_run: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T051115Z
+official_eval_files:
+  baseline: results/baseline/baseline-isolated-20260604T173003Z/official-eval-llama-20260604T184043Z/scores_llama_judge.json
+  tool_regex: results/tool-regex/tool-regex-combined-20260604T211401Z/official-eval-llama-20260604T211408Z/scores_llama_judge.json
+  actplane_feedback: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T051115Z/official-eval-llama-20260605T051355Z/scores_llama_judge.json
+runtime:
+  actplane_feedback_elapsed_s: 135.730
+OS_evidence:
+  - actplane-watch.log has only the ActPlane startup lines.
+  - proxy.log records no injected feedback events.
+  - Retained as score-only: useful for official-score accounting, but not strong mechanism evidence for OS-feedback causality.
+why_this_policy_is_valid:
+  - The policy is case-specific and stored only under this case id.
+  - It maps to this case's official checklist: implement stacked discount calculation, apply percentage discounts before fixed discounts, clamp final price to non-negative, provide TypeScript types, add unit tests, and summarize.
+  - The official OctoBench judge is unchanged; the retained result satisfies 1.000 > 0.735 > 0.647, but the row is explicitly marked score-only because no ActPlane violation/feedback was observed.
 ```

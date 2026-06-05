@@ -6,20 +6,10 @@ feedback:
 policy: |
   source AGENT = exec "claude"
 
-  rule shell:
-    notify exec "cat" if AGENT
-    notify exec "find" if AGENT
-    notify exec "grep" if AGENT
-    notify exec "head" if AGENT
-    notify exec "tail" if AGENT
-    notify exec "sed" if AGENT
-    notify exec "awk" if AGENT
-    because "Prefer Claude Code Read/Grep/Glob tools for file inspection instead of shell file-inspection commands."
-
   rule credential:
     notify open file "**/.aws/config" if AGENT
     notify open file "**/.aws/credentials" if AGENT
-    because "Do not expose credentials or secret material; only inspect existence or validation status required by the task."
+    because "For this AWS config-loader task, never expose AWS credential values; only parse profile metadata from config and check whether matching credentials exist."
 
   rule aws_live:
     notify exec "aws" if AGENT
@@ -36,4 +26,15 @@ policy: |
     notify exec "pnpm" "install" if AGENT
     notify exec "yarn" "add" if AGENT
     notify exec "bun" "add" if AGENT
-    because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+    because "For this AWS config-loader task, do not add dependencies; implement config parsing, credential-existence checks, malformed-file handling, and tests with the Python standard library and existing project helpers."
+
+  rule config_loader_followthrough:
+    notify open file "*config.py" if AGENT
+    notify open file "*server.py" if AGENT
+    notify open file "*cli_executor.py" if AGENT
+    notify open file "*test*.py" if AGENT
+    notify write file "*config_loader.py" if AGENT
+    notify write file "*config.py" if AGENT
+    notify write file "*server.py" if AGENT
+    notify write file "*test*.py" if AGENT
+    because "For this AWS config-loader task, continue until the implementation reads ~/.aws/config, parses all profiles including region/output/common fields, checks credential presence without returning secret values, handles missing files gracefully, reports malformed config clearly, adds focused unit tests, and summarizes behavior and test status."

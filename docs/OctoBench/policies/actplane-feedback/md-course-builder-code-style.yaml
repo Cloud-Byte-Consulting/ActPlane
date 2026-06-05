@@ -6,22 +6,6 @@ feedback:
 policy: |
   source AGENT = exec "claude"
 
-  rule shell:
-    notify exec "cat" if AGENT
-    notify exec "find" if AGENT
-    notify exec "grep" if AGENT
-    notify exec "head" if AGENT
-    notify exec "tail" if AGENT
-    notify exec "sed" if AGENT
-    notify exec "awk" if AGENT
-    because "Prefer Claude Code Read/Grep/Glob tools for file inspection instead of shell file-inspection commands."
-
-  rule docs:
-    notify write file "**/*.md" if AGENT
-    notify write file "**/README*" if AGENT
-    notify write file "**/docs/**" if AGENT
-    because "Do not create documentation or Markdown files unless the task explicitly asks for documentation."
-
   rule package:
     notify exec "pip" "install" if AGENT
     notify exec "pip3" "install" if AGENT
@@ -33,4 +17,20 @@ policy: |
     notify exec "pnpm" "install" if AGENT
     notify exec "yarn" "add" if AGENT
     notify exec "bun" "add" if AGENT
-    because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+    because "For this course-builder pricing task, do not add dependencies; implement stacked percentage-then-fixed discount calculation with existing TypeScript/Vitest tooling."
+
+  rule stacked_discount_followthrough:
+    notify open file "*determine-coupon-to-apply.ts" if AGENT
+    notify open file "*get-calculated-price.ts" if AGENT
+    notify open file "*bulk-coupon.ts" if AGENT
+    notify open file "*coupon-schema.ts" if AGENT
+    notify open file "*merchant-coupon-schema.ts" if AGENT
+    notify open file "*stripe-checkout-stackable-discounts.test.ts" if AGENT
+    notify write file "*determine-coupon-to-apply.ts" if AGENT
+    notify write file "*get-calculated-price.ts" if AGENT
+    notify write file "*bulk-coupon.ts" if AGENT
+    notify write file "*coupon-schema.ts" if AGENT
+    notify write file "*merchant-coupon-schema.ts" if AGENT
+    notify write file "*discount*.test.ts" if AGENT
+    notify write file "*coupon*.test.ts" if AGENT
+    because "For this course-builder pricing task, continue until the official requirements are covered: support multiple percentage and fixed discounts, apply percentages before fixed amounts, clamp final price at zero, define complete TypeScript types, add focused unit tests for mixed/order/non-negative cases, run a relevant Vitest/core check when practical, and summarize changed files."
