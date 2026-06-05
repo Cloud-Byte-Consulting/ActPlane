@@ -1,7 +1,7 @@
 # directive: "Read `.env.example` for environment variables."
 # repo: "Alishahryar1__free-claude-code"
 # statement_id: 6
-# enforceability: "per_event"
+# enforceability: "cross_event"
 # context_required: "project"
 # notes: "The directive instructs the agent to read .env.example for environment
 #   variables. We model this as a data-flow rule: the agent should have read

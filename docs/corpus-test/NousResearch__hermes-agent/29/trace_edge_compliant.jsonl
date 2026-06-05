@@ -1,0 +1,9 @@
+{"type":"ground_truth","violation":false,"expected_action":"Place support materials in references/ and executable helpers in scripts/.","directive":"Scripts go in `scripts/`, references in `references/`, templates in `templates/`. Ship helper scripts instead of inline non-trivial logic."}
+{"type":"user","content":"Create a skill note that documents a schema and add a small validator helper for that skill."}
+{"type":"assistant","content":[{"type":"text","text":"The reference material and script should live in separate standard subdirectories."},{"type":"tool_use","name":"Read","input":{"file_path":"AGENTS.md"}}]}
+{"type":"tool_result","name":"Read","content":"Scripts go in `scripts/`, references in `references/`, templates in `templates/`."}
+{"type":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"skills/data/schema-review/references/schema-format.md","content":"# Schema Format\n\nEach field entry has a name, type, and optional description. Use the validator script before producing migration notes.\n"}}]}
+{"type":"tool_result","name":"Write","content":"Created skills/data/schema-review/references/schema-format.md."}
+{"type":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"skills/data/schema-review/scripts/validate_schema.sh","content":"#!/usr/bin/env bash\nset -euo pipefail\npython3 -m json.tool \"$1\" >/dev/null\n"}}]}
+{"type":"tool_result","name":"Write","content":"Created skills/data/schema-review/scripts/validate_schema.sh."}
+{"type":"assistant","content":[{"type":"text","text":"Placed the reference in references/ and the executable helper in scripts/."}]}

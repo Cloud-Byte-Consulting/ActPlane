@@ -31,7 +31,7 @@ whole-system provenance frameworks such as
 CamFlow~\cite{pasquier2017camflow} and
 CamQuery~\cite{pasquier2018camquery} record and query cross-event label
 histories. IFC thus captures constraints whose correctness depends on
-execution history---exactly the pattern that agent workflow rules (``run
+execution history---exactly the pattern that agent workflow directives (``run
 tests before committing'') exhibit.
 
 \textbf{Agent harness enforcement.}
@@ -49,7 +49,7 @@ OS-level mechanisms
 (seccomp~\cite{seccomp-bpf}, AppArmor~\cite{apparmor},
 BPF-LSM~\cite{linuxbpflsm}, Tetragon~\cite{ciliumtetragon}) observe
 those effects but require statically pre-written policies and return
-opaque errors with no connection to the agent's declared rules. No current
+opaque errors with no connection to the agent's declared directives. No current
 layer bridges both: connecting the agent's project context to
 deterministic OS-level observation and enforcement. The empirical study
 below asks whether real project instructions demand this bridge.
@@ -124,7 +124,7 @@ Of the 2{,}116~statements, 1{,}361 (64.3\%) are directives and
 at a 71.0\% directive fraction. This statement-level view diverges from
 line-count analysis: directives tend to be terse, while descriptions
 include long directory listings and architecture notes. A file that looks
-balanced by lines can still contain many independent rules the agent must
+balanced by lines can still contain many independent directives the agent must
 follow.
 
 \begin{figure}[t]

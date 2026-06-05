@@ -49,6 +49,17 @@ The active corpus scope is manifest-driven: each
 the preflight validator use that list; stray trace files in a statement directory
 are not paper inputs.
 
+Current RQ1 corpus scope:
+
+```text
+38 statements x 5 trace-conditioned scenarios = 190 scenarios
+```
+
+Each statement has the same five trace families:
+`trace_canonical_compliant.jsonl`, `trace_edge_compliant.jsonl`,
+`trace_visible_violation.jsonl`, `trace_script_visible_violation.jsonl`, and
+`trace_opaque_fixture_violation.jsonl`.
+
 System outputs are written under:
 
 ```text

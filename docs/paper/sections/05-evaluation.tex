@@ -308,12 +308,12 @@ overhead, so their tail latencies are noisier. Despite the high per-call
 multiplier on \texttt{open}, the macrobenchmark impact remains low
 (1.9\%--8.4\%) because the absolute added cost (12.8\,\textmu s) is
 small relative to the computation, I/O, and scheduling time between
-successive opens, so the overhead does not accumulate into a
-significant fraction of end-to-end wall-clock time.
+successive opens. The per-call overhead therefore does not accumulate
+into a significant fraction of end-to-end wall-clock time.
 
 \begin{table}[tb]\small
 \centering
-\caption{Per-operation latency in microseconds for no-hit policies.
+\caption{Per-operation latency in microseconds for no-hit configurations.
 Values are medians across seven trials.}
 \label{tab:micro-latency}
 \begin{tabular}{lrrrr}
@@ -329,7 +329,7 @@ Operation & Native p50 & AP-32 p50 & AP-100 p50 & AP-100 p99 \\
 \end{tabular}
 \end{table}
 
-All overhead measurements use no-hit policies, which exercise steady-state
+All overhead measurements use no-hit configurations, which exercise steady-state
 label propagation and rule scanning without violation reporting or
 userspace feedback formatting.
 

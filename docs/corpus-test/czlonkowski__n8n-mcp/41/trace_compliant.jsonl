@@ -1,6 +1,0 @@
-{"type": "ground_truth", "violation": false, "expected_action": "should edit an existing utility file rather than creating a new overlapping helper file", "directive": "ALWAYS prefer editing an existing file to creating a new one."}
-{"type": "user", "content": "Add a string sanitization helper function that strips HTML tags from input."}
-{"type": "assistant", "content": [{"type": "text", "text": "I will inspect the existing expression utility file."}, {"type": "tool_use", "name": "Read", "input": {"file_path": "src/utils/expression-utils.ts"}}]}
-{"type": "tool_result", "name": "Read", "content": "utility read"}
-{"type": "assistant", "content": [{"type": "text", "text": "I can add the helper to the existing utility file."}, {"type": "tool_use", "name": "Edit", "input": {"file_path": "src/utils/expression-utils.ts", "old_string": "export function shouldSkipLiteralValidation(value: unknown): boolean {\n  return isExpression(value) || containsExpression(value);\n}\n", "new_string": "export function shouldSkipLiteralValidation(value: unknown): boolean {\n  return isExpression(value) || containsExpression(value);\n}\n\n\nexport function stripHtmlTags(value: string): string {\n  return value.replace(/<[^>]*>/g, '');\n}\n"}}]}
-{"type": "tool_result", "name": "Edit", "content": "ok"}

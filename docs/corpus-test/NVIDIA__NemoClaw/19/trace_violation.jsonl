@@ -1,6 +1,0 @@
-{"type": "ground_truth", "violation": true, "expected_action": "should add tests in test/ when committing a new CLI command implementation", "directive": "Adding a CLI command: Entry point: bin/nemoclaw.js launches dist/. Main CLI implementation lives in src/lib/ and compiles to dist/lib/. Add tests in test/."}
-{"type": "user", "content": "Add a new 'status' CLI command that shows the current NemoClaw agent status."}
-{"type": "assistant", "content": [{"type": "text", "text": "I will add the CLI implementation under src/lib/."}, {"type": "tool_use", "name": "Write", "input": {"file_path": "src/lib/eval-status-command.ts", "content": "export function statusCommand(): void {\n  const status = process.env.NEMOCLAW_STATUS ?? 'idle';\n  console.log(`NemoClaw agent status: ${status}`);\n}\n"}}]}
-{"type": "tool_result", "name": "Write", "content": "ok"}
-{"type": "assistant", "content": [{"type": "text", "text": "I will commit the source change now."}, {"type": "tool_use", "name": "Bash", "input": {"command": "git add src/lib/eval-status-command.ts && git commit -m 'add eval status command'"}}]}
-{"type": "tool_result", "name": "Bash", "content": "committed"}
