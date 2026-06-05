@@ -1,24 +1,31 @@
 \section{Design}
 \label{sec:design}
 
-The empirical study implies four design requirements.
-\textbf{(R1)~OS-level observation:} most directives constrain commands,
-files, or network effects, so enforcement must observe behavior below
-the tool API.
-\textbf{(R2)~Cross-event state:} policies such as ``test before commit''
-span multiple operations; the harness must propagate state across OS
-objects.
-\textbf{(R3)~Agent-provided context:} 74\% of system-observable
-directives require project or task context that only the agent possesses,
-so the agent must be able to author its own enforcement policy.
-\textbf{(R4)~Semantic feedback:} a bare \texttt{EPERM} tells the agent
-that an operation failed, but not which rule matched or what compliant
-alternative exists; the harness must return actionable diagnostics.
+The empirical study establishes one overarching requirement: connect
+the agent's intent-level context to deterministic OS-level enforcement.
+Achieving this raises three design challenges.
 
-The central design challenge is connecting intent-level context to
-OS-level enforcement without collapsing one into the other. A policy must
-be concrete enough for deterministic kernel-level matching yet expressive
-enough to encode the project and task context that the agent supplies.
+\textbf{C1: Agent-authorable OS-level policy} (\S\ref{sec:dsl}).
+74\% of system-observable directives require project or task context that
+only the agent possesses, so the agent must author its own enforcement
+rules. Yet OS-level enforcement demands concrete, deterministic
+predicates. The policy language must be simple enough for an LLM to
+generate correctly, yet compile to efficient kernel-level matching.
+
+\textbf{C2: Cross-event state at syscall speed} (\S\ref{sec:ifc}).
+81\% of repositories require policies that span multiple
+operations---``run tests before committing'' depends on whether a test
+execution occurred after the last source change. Maintaining this
+execution history across processes, files, and network endpoints at the
+kernel level must not impose prohibitive per-syscall overhead.
+
+\textbf{C3: Dynamic policy under authority constraints}
+(\S\ref{sec:authority}).
+Agents must be able to adapt policy at runtime---a sub-agent may need a
+narrower scope, or the current task may require an exception to a
+standing rule. Policy evolution must be monotonically tightening: agents
+and sub-agents may add rules, specialize targets, or narrow scope, but
+must never weaken platform or project constraints.
 
 \subsection{Threat Model and Assumptions}
 
@@ -42,14 +49,13 @@ content checks not observable at syscall boundaries are out of scope.
 
 \subsection{System Overview}
 
-\sys{} addresses R1--R4 through three abstractions: a policy DSL
-(\S\ref{sec:dsl}) that lets agents bind directives to source, sink, and
-condition patterns (R1, R3); a labeled information-flow model
-(\S\ref{sec:ifc}) that propagates cross-event state across OS objects
-(R2); and a layered authority model (\S\ref{sec:authority}) that prevents
-lower-authority policy from weakening platform or project invariants.
-Semantic feedback (R4) is produced when a rule match occurs, returning
-the rule name, reason, and remediation to the agent.
+\sys{} addresses each challenge with one abstraction: a policy DSL
+(C1) that compiles agent-authored directives into kernel-level IFC
+tables; a labeled information-flow model (C2) that propagates cross-event
+state across OS objects at object granularity; and a layered authority
+model (C3) that allows runtime policy adaptation while ensuring monotonic
+tightening. When a rule match occurs, \sys{} returns semantic
+feedback---rule name, reason, and remediation---to the agent.
 
 \subsection{Policy DSL}
 \label{sec:dsl}
@@ -152,33 +158,38 @@ action, not an implicit side effect of the agent's plan.
 \subsection{Layered Policy Authority}
 \label{sec:authority}
 
-Agent-authored policy is useful only if it cannot weaken stronger
-constraints. \sys{} organizes policy as a layered authority stack:
-platform/operator, project-maintainer, and agent/session. Each layer may
-add rules, specialize targets, introduce labels, or narrow scope. No layer
-may delete, rewrite, declassify, or weaken rules from a higher-authority
-layer.
+Agents must adapt policy at runtime---a sub-agent spawned for a narrow
+sub-task should operate under tighter constraints, and the current task
+may require an exception to a standing rule---but adaptation must never
+weaken platform or project constraints.
+
+\sys{} organizes policy as a layered authority stack:
+platform/operator, project-maintainer, and agent/session. Policy
+evolution is \emph{monotonically tightening}: each layer may add rules,
+specialize targets, introduce labels, or narrow scope, but no layer may
+delete, rewrite, declassify, or weaken rules from a higher-authority
+layer. When an agent forks a sub-agent, the child inherits the parent's
+label set and effective rules; the sub-agent may add further restrictions
+but cannot shed inherited constraints.
 
 Higher-authority rules that admit exceptions use the same gate mechanism
 as cross-event rules: the rule names an explicit action the agent must
 perform to satisfy the condition. For example, a project rule ``do not
 force-push unless necessary'' can require the agent to write a
 declaration file (e.g., \texttt{.actplane/force-push-necessary}) before
-the push is allowed. The agent satisfies the gate through an
-\emph{observable action}---creating the file---which the IFC engine
-tracks like any other label-propagating event. The gate makes the
-exception auditable and revocable: the declaration file is visible in the
-repository, and higher-authority policy can constrain which processes may
-write it. This gives the agent room to adapt policy to a task while
-keeping exception paths observable and under platform or project
-authority.
+the push is allowed. The agent satisfies the gate through an observable
+action---creating the file---which the IFC engine tracks like any other
+label-propagating event. Higher-authority policy can further constrain
+which processes may write the declaration file, keeping exception paths
+under platform or project authority.
 
-The prototype resolves the authority stack at compile or load time. The
-kernel receives flattened rule tables and evaluates events against them;
-it does not parse configuration, resolve project context, or interpret
-authority metadata on the event path. Agents and maintainers supply
-context and policy structure; the OS engine enforces the compiled result
-uniformly across tools and subprocesses.
+The prototype resolves the initial authority stack at compile or load
+time. Runtime policy additions (sub-agent restrictions, task-specific
+rules) are loaded as additive overlays; the kernel merges them with the
+existing rule tables. The kernel does not parse configuration or resolve
+project context on the event path---agents supply context and policy
+structure, while the OS engine enforces the compiled result uniformly
+across tools and subprocesses.
 
 \section{Implementation}
 \label{sec:implementation}

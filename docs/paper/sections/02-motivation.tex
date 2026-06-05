@@ -81,6 +81,35 @@ cross-checked by independent Claude and Codex agents. The following
 subsections report results along the four labeling axes; E-RQ3
 identifies the OS-enforceable subset used in the evaluation
 (\S\ref{sec:evaluation}).
+Table~\ref{tab:examples} collects representative statements that
+illustrate all four axes; the labels \textbf{S1}--\textbf{S8} are
+referenced throughout.
+
+\begin{table*}[t]
+\caption{Representative corpus statements illustrating all four
+classification axes. Enforcement level and context requirement apply
+only to directives (---\,=\,not applicable).}
+\label{tab:examples}
+\centering
+\small
+\begin{tabular}{@{}clllll@{}}
+\toprule
+& \textbf{Statement (verbatim from corpus)} & \textbf{Type} & \textbf{Topic} & \textbf{Enforcement} & \textbf{Context} \\
+\midrule
+S1 & ``The backend uses Express with TypeScript.'' & Desc & Architecture & --- & --- \\
+S2 & ``Always explain your reasoning before changes.'' & Dir & AI Integr. & Semantic & --- \\
+S3 & ``Prefer \texttt{const} over \texttt{let}.'' & Dir & Impl.\ Det. & Content & None \\
+S4 & ``Never push to main directly.'' & Dir & Dev.\ Proc. & Per-event & None \\
+S5 & ``Never modify upstream source code.'' & Dir & Dev.\ Proc. & Per-event & Project \\
+S6 & ``Run the full test suite before committing.'' & Dir & Testing & Cross-event & Project \\
+S7 & ``Data read from \texttt{.env} must not reach the network.'' & Dir & Security & Cross-event & Project \\
+S8 & ``Do not update dependencies without approval.'' & Dir & Maint. & Per-event & Task \\
+\bottomrule
+\end{tabular}
+\Description{Table of eight representative statements from the corpus,
+each classified by type, topic, enforcement level, and context
+requirement.}
+\end{table*}
 
 \subsection{E-RQ1: Are Instruction Files Behavioral Policies?}
 
@@ -152,7 +181,8 @@ commands, files, network effects, or file contents. Breaking these down:
 234 (17.2\%) are semantic-only, 520 (38.2\%) require content
 inspection, 392 (28.8\%) match a single OS event, and
 215 (15.8\%) require cross-event state. The 607~per-event and
-cross-event directives form the OS-enforceable subset that \sys{} targets.
+cross-event directives form the OS-enforceable subset that \sys{} targets
+(Table~\ref{tab:examples}, S2--S7, illustrates all four levels).
 Figure~\ref{fig:cumulative} shows the cumulative view: content
 inspection alone covers 55.4\% of directives; adding per-event matching
 reaches 84.2\%; the remaining 15.8\% require cross-event IFC.
@@ -203,7 +233,9 @@ natural-language instruction and a deployable enforcement rule: statically
 authored rules can cover only the self-contained fraction, while the
 majority require an entity---the agent or a harness component---that can
 read the project, interpret the current task, and produce a concrete
-policy before enforcement begins.
+policy before enforcement begins
+(Table~\ref{tab:examples}: S4 is self-contained; S5--S7 require
+project context; S8 requires task context).
 
 \begin{figure}[t]
 \centering
