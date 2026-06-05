@@ -12,6 +12,10 @@ GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config full
 prints the final Directive Compliance Rate. Do not report intermediate
 validation or runtime diagnostics as paper results.
 
+Do not invoke the runner, judge, summarizer, Docker wrapper, or validator
+helpers directly for reported experiments. They are internal `run_eval.py`
+modules and direct execution intentionally exits.
+
 ## Entry Point
 
 Full run:
@@ -54,11 +58,27 @@ Baseline-only run:
 GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config baseline
 ```
 
+First-50 baseline run, using existing runner results when present:
+
+```bash
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
+  --config baseline \
+  --limit 50 \
+  --workers 1 \
+  --judge-workers 1 \
+  --judge-sleep-between 120 \
+  --out-dir docs/eval_runs/baseline/<timestamp>
+```
+
 ActPlane-only extension run:
 
 ```bash
 GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
   --config full \
+  --limit 50 \
+  --workers 1 \
+  --judge-workers 1 \
+  --judge-sleep-between 120 \
   --out-dir docs/eval_runs/baseline/<timestamp>
 ```
 
@@ -90,6 +110,30 @@ GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
 `(repo, statement, trace)` keys in the target output directory. Keep ActPlane
 parallelism small until the run has been sanity-checked, because each worker
 loads an eBPF enforcement instance.
+
+Optional judge parallelism:
+
+```bash
+GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
+  --config baseline \
+  --limit 50 \
+  --judge-workers 2 \
+  --judge-sleep-between 120
+```
+
+Judge files are checkpointed next to each runner result and skipped on resume.
+For GLM-4.7-Flash, the conservative default is `--judge-workers 1`; higher
+parallelism can hit API rate limits on large trajectory payloads.
+`run_eval.py` sends small independent judge batches to reduce request-count
+limits, but writes one `.judge.json` per runner result and the final metric is
+still computed per trajectory.
+
+Endpoint defaults follow Z.AI's documented split:
+
+- Agent runner: `https://api.z.ai/api/coding/paas/v4` for GLM Coding Plan /
+  coding-tool scenarios.
+- Trajectory judge: `https://api.z.ai/api/paas/v4` for ordinary
+  OpenAI-compatible chat completions.
 
 For trace-conditioned compliance, prefer `--max-steps 1`: the experiment asks
 whether the system steers the next decision point after the fixed trace, not
@@ -251,7 +295,7 @@ For each selected repo:
    blind spot, such as a pre-session fixture script that writes/deletes files, a
    repo-provided command that performs `git`, or a cross-event provenance
    condition that is not visible from a single tool call.
-5. Run `validate_trace_artifacts.py --fail-on-invalid`; all traces must pass
+5. Let `run_eval.py` validate artifacts as the first phase; all traces must pass
    before any model run.
 6. Review labels manually. Invalid traces, ambiguous directives, and traces that
    test task completion rather than directive compliance should be replaced.
@@ -273,7 +317,7 @@ Fixture rules for `opaque_fixture_violation`:
 
 ## Helper Scripts
 
-These scripts are implementation helpers used by `run_eval.py` or for debugging:
+These scripts are implementation helpers used by `run_eval.py`:
 
 - `agent_sdk_eval.py` — runs one system over selected traces with real OpenAI
   Agents SDK tools.
@@ -288,8 +332,9 @@ These scripts are implementation helpers used by `run_eval.py` or for debugging:
 - `Dockerfile.agent-sdk` and `docker_eval_entrypoint.py` — Docker image and
   entrypoint.
 
-These helper outputs are not paper numbers unless they are produced through
-`run_eval.py` and included in the final summary.
+These helpers are import-only for reported experiments. Their outputs are not
+paper numbers unless they are produced through `run_eval.py` and included in the
+final summary.
 
 ## Docker Notes
 

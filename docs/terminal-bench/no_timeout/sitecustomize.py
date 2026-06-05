@@ -27,6 +27,21 @@ if TmuxSession is not None:
     _python_timeout_kwarg = re.compile(
         r",\s*timeout\s*=\s*[-+]?(?:\d+(?:\.\d*)?|\.\d+)"
     )
+    _expect_timeout_stmt = re.compile(
+        r"(?m)^(\s*set\s+timeout\s+)([-+]?(?:\d+(?:\.\d*)?|\.\d+))(\s*)$"
+    )
+    _heredoc_marker = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_-]*)['\"]?")
+
+    def _finish_heredoc_line(key):
+        matches = list(_heredoc_marker.finditer(key))
+        if not matches or key.endswith(("\n", "\r")):
+            return key
+
+        marker = matches[-1].group(1)
+        lines = key.splitlines()
+        if lines and lines[-1].strip() == marker:
+            return key + "\n"
+        return key
 
     def _strip_shell_timeout_prefix(keys):
         if isinstance(keys, str):
@@ -40,6 +55,8 @@ if TmuxSession is not None:
         for key in key_list:
             if isinstance(key, str):
                 key = _python_timeout_kwarg.sub("", key)
+                key = _expect_timeout_stmt.sub(r"\1-1\3", key)
+                key = _finish_heredoc_line(key)
             if isinstance(key, str) and "\n" not in key and "\r" not in key:
                 key = _timeout_prefix.sub(r"\1", key)
             cleaned.append(key)

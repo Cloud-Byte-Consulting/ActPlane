@@ -118,18 +118,18 @@ def print_text(rows: list[dict[str, Any]]) -> None:
                 print(f"    - ... {len(row['errors']) - 5} more")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--statement-dir", type=Path)
     parser.add_argument("--trace", type=Path)
     parser.add_argument("--json-out", type=Path)
     parser.add_argument("--fail-on-invalid", action="store_true")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def cli_main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     runner = load_runner_module()
     traces = discover_traces(args.root, args.statement_dir, args.trace)
     rows = [validate_one(runner, trace) for trace in traces]
@@ -143,4 +143,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        "validate_trace_artifacts.py is an internal helper. "
+        "Use docs/eval_scripts/run_eval.py as the only eval entrypoint."
+    )

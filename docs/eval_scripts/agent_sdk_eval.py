@@ -1247,11 +1247,18 @@ def run_under_actplane(
     preserve = "PATH,PYTHONPATH,HOME"
     if preserve_env:
         preserve = f"{preserve},{preserve_env}"
+    script_dir = Path(__file__).resolve().parent
+    code = (
+        "import sys; "
+        f"sys.path.insert(0, {str(script_dir)!r}); "
+        "from agent_sdk_eval import cli_main; "
+        "raise SystemExit(cli_main(sys.argv[1:]))"
+    )
     cmd = [
         str(actplane_bin),
         "--policy", str(rule_path.resolve()),
         "run", "--run-as-root", "--",
-        sys.executable, str(Path(__file__).resolve()),
+        sys.executable, "-c", code,
         "--inner",
         *inner_args,
     ]
@@ -1444,12 +1451,12 @@ def main_outer(args):
     if total:
         print(
             f"\nDone: {total} runner results written. "
-            f"Run judge_trajectory.py and summarize_agent_sdk_results.py for directive compliance."
+            f"run_eval.py will judge and summarize directive compliance."
         )
     return 0
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
     p = argparse.ArgumentParser(description="ActPlane eval with OpenAI Agents SDK")
     p.add_argument("--inner", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--root", type=Path, default=ROOT / "docs" / "corpus-test")
@@ -1471,12 +1478,18 @@ def parse_args():
     p.add_argument("--request-timeout", type=float, default=90.0)
     p.add_argument("--max-steps", type=int, default=10)
     p.add_argument("--skip-prevalidation", action="store_true", help=argparse.SUPPRESS)
-    return p.parse_args()
+    return p.parse_args(argv)
+
+
+def cli_main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    if args.inner:
+        return asyncio.run(main_inner(args))
+    return main_outer(args)
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    if args.inner:
-        sys.exit(asyncio.run(main_inner(args)))
-    else:
-        sys.exit(main_outer(args))
+    raise SystemExit(
+        "agent_sdk_eval.py is an internal helper. "
+        "Use docs/eval_scripts/run_eval.py as the only eval entrypoint."
+    )

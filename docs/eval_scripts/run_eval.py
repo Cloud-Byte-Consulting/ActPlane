@@ -33,14 +33,18 @@ class EvalConfig:
     systems: tuple[str, ...]
     out_name: str
     root: Path = DEFAULT_ROOT
-    base_url: str = "https://api.z.ai/api/coding/paas/v4"
+    agent_base_url: str = "https://api.z.ai/api/coding/paas/v4"
+    judge_base_url: str = "https://api.z.ai/api/paas/v4"
     model_name: str = "glm-4.7-flash"
     judge_model_name: str = "glm-4.7-flash"
     request_timeout: float = 120.0
     judge_timeout: float = 180.0
     judge_retries: int = 8
     judge_retry_sleep: float = 30.0
-    judge_sleep_between: float = 8.0
+    judge_retry_sleep_max: float = 60.0
+    judge_rate_limit_cooldown: float = 300.0
+    judge_sleep_between: float = 120.0
+    judge_batch_size: int = 4
     max_steps: int = 10
     image: str = "actplane-rq1-agent-sdk:latest"
 
@@ -104,9 +108,28 @@ def run_phase(
     return result
 
 
+def module_cmd(module: str, args: list[str]) -> list[str]:
+    code = (
+        "import sys; "
+        f"sys.path.insert(0, {str(SCRIPT_DIR)!r}); "
+        f"from {module} import cli_main; "
+        "raise SystemExit(cli_main(sys.argv[1:]))"
+    )
+    return [sys.executable, "-c", code, *args]
+
+
 def judge_dir_name(model_name: str) -> str:
     safe = model_name.replace(".", "_").replace("-", "_").replace("/", "_")
     return f"trajectory_judges_{safe}"
+
+
+def write_result_list(out_dir: Path, result_files: list[Path]) -> Path:
+    path = out_dir / "selected_runner_results.txt"
+    path.write_text(
+        "".join(f"{rel(result)}\n" for result in result_files),
+        encoding="utf-8",
+    )
+    return path
 
 
 def trace_specs(root: Path, limit: int | None = None) -> list[tuple[str, str, str]]:
@@ -156,6 +179,40 @@ def runner_keys(path: Path, *, system: str, model_name: str) -> set[tuple[str, s
     return keys
 
 
+def selected_runner_files(
+    paths: list[Path],
+    *,
+    systems: tuple[str, ...],
+    expected: set[tuple[str, str, str]],
+    model_name: str,
+) -> list[Path]:
+    latest: dict[tuple[str, str, str, str], tuple[Path, float]] = {}
+    system_set = set(systems)
+    for root in paths:
+        if not root.exists():
+            continue
+        for result in root.glob("**/results/*.json"):
+            data = load_json_result(result)
+            if not data:
+                continue
+            system = str(data.get("system") or "")
+            if system not in system_set or data.get("model") != model_name:
+                continue
+            trace_key = (
+                str(data.get("repo") or ""),
+                str(data.get("statement_id") or ""),
+                str(data.get("trace_file") or data.get("trace") or ""),
+            )
+            if trace_key not in expected:
+                continue
+            key = (system, *trace_key)
+            mtime = result.stat().st_mtime
+            previous = latest.get(key)
+            if previous is None or mtime > previous[1]:
+                latest[key] = (result, mtime)
+    return [path for path, _ in sorted(latest.values(), key=lambda item: str(item[0]))]
+
+
 def docker_eval_cmd(
     *,
     config: EvalConfig,
@@ -166,9 +223,7 @@ def docker_eval_cmd(
     statement_dir: Path | None = None,
     trace: Path | None = None,
 ) -> list[str]:
-    cmd = [
-        sys.executable,
-        str(SCRIPT_DIR / "docker_agent_sdk_eval.py"),
+    cmd = module_cmd("docker_agent_sdk_eval", [
         "--image",
         config.image,
         "--out-dir",
@@ -176,7 +231,7 @@ def docker_eval_cmd(
         "--system",
         system,
         "--base-url",
-        config.base_url,
+        config.agent_base_url,
         "--model-name",
         config.model_name,
         "--api-key-env",
@@ -185,7 +240,7 @@ def docker_eval_cmd(
         str(config.request_timeout),
         "--max-steps",
         str(args.max_steps if args.max_steps is not None else config.max_steps),
-    ]
+    ])
     if statement_dir is not None and trace is not None:
         cmd.extend(["--statement-dir", str(statement_dir), "--trace", str(trace)])
     else:
@@ -287,6 +342,17 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="Override the per-scenario agent tool-step budget.",
     )
+    parser.add_argument(
+        "--judge-workers",
+        type=int,
+        default=1,
+        help="Run LLM judge requests in parallel. Default: 1.",
+    )
+    parser.add_argument(
+        "--judge-sleep-between",
+        type=float,
+        help="Override seconds to wait between judge request submissions.",
+    )
     return parser.parse_args()
 
 
@@ -303,6 +369,9 @@ def main() -> int:
     if args.max_steps is not None and args.max_steps < 0:
         print("--max-steps must be >= 0", file=sys.stderr)
         return 2
+    if args.judge_workers < 1:
+        print("--judge-workers must be >= 1", file=sys.stderr)
+        return 2
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = args.out_dir or (DEFAULT_OUT_BASE / config.out_name / stamp)
@@ -312,14 +381,17 @@ def main() -> int:
 
     judge_model = config.judge_model_name
     judge_dir = judge_dir_name(judge_model)
+    judge_sleep_between = (
+        args.judge_sleep_between
+        if args.judge_sleep_between is not None
+        else (0.0 if args.judge_workers > 1 else config.judge_sleep_between)
+    )
 
-    validate_cmd = [
-        sys.executable,
-        str(SCRIPT_DIR / "validate_trace_artifacts.py"),
+    validate_cmd = module_cmd("validate_trace_artifacts", [
         "--root",
         str(config.root),
         "--fail-on-invalid",
-    ]
+    ])
     if run_phase("validate traces", validate_cmd, env=env, log_path=log_path).returncode != 0:
         return 1
 
@@ -377,16 +449,32 @@ def main() -> int:
         if run_phase(f"run {system}", cmd, env=env, log_path=log_path).returncode != 0:
             return 1
 
-    judge_cmd = [
-        sys.executable,
-        str(SCRIPT_DIR / "judge_trajectory.py"),
-        *[str(path) for path in result_dirs],
+    result_files = selected_runner_files(
+        result_dirs,
+        systems=config.systems,
+        expected=expected,
+        model_name=config.model_name,
+    )
+    expected_runner_files = expected_results * len(config.systems)
+    if len(result_files) < expected_runner_files:
+        print(
+            f"Only found {len(result_files)}/{expected_runner_files} runner files "
+            f"for selected traces.",
+            file=sys.stderr,
+        )
+        return 1
+
+    result_list = write_result_list(out_dir, result_files)
+
+    judge_cmd = module_cmd("judge_trajectory", [
+        "--input-list",
+        str(result_list),
         "--source-model",
         config.model_name,
         "--judge-dir-name",
         judge_dir,
         "--base-url",
-        config.base_url,
+        config.judge_base_url,
         "--model-name",
         judge_model,
         "--api-key-env",
@@ -397,21 +485,28 @@ def main() -> int:
         str(config.judge_retries),
         "--retry-sleep",
         str(config.judge_retry_sleep),
+        "--retry-sleep-max",
+        str(config.judge_retry_sleep_max),
+        "--rate-limit-cooldown",
+        str(config.judge_rate_limit_cooldown),
         "--sleep-between",
-        str(config.judge_sleep_between),
-    ]
+        str(judge_sleep_between),
+        "--workers",
+        str(args.judge_workers),
+        "--batch-size",
+        str(config.judge_batch_size),
+    ])
     if run_phase("judge trajectories", judge_cmd, env=env, log_path=log_path).returncode != 0:
         return 1
 
-    summary_cmd = [
-        sys.executable,
-        str(SCRIPT_DIR / "summarize_agent_sdk_results.py"),
-        *[str(path) for path in result_dirs],
+    summary_cmd = module_cmd("summarize_agent_sdk_results", [
+        "--input-list",
+        str(result_list),
         "--source-model",
         config.model_name,
         "--judge-dir-name",
         judge_dir,
-    ]
+    ])
     summary = run_phase("summarize", summary_cmd, env=env, log_path=log_path)
     if summary.returncode != 0:
         return 1

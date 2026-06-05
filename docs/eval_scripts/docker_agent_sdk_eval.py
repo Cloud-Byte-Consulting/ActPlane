@@ -48,10 +48,20 @@ def build_image(image: str) -> int:
     ])
 
 
+def container_module_cmd(module: str) -> list[str]:
+    script_dir = CONTAINER_WORKSPACE / "docs" / "eval_scripts"
+    code = (
+        "import sys; "
+        f"sys.path.insert(0, {str(script_dir)!r}); "
+        f"from {module} import cli_main; "
+        "raise SystemExit(cli_main(sys.argv[1:]))"
+    )
+    return ["python3", "-c", code]
+
+
 def make_agent_args(args: argparse.Namespace) -> list[str]:
     agent_args = [
-        "python3",
-        str(CONTAINER_WORKSPACE / "docs" / "eval_scripts" / "agent_sdk_eval.py"),
+        *container_module_cmd("agent_sdk_eval"),
         "--system",
         args.system,
         "--base-url",
@@ -118,7 +128,7 @@ def docker_run(args: argparse.Namespace) -> int:
     return rc
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", default=DEFAULT_IMAGE)
     parser.add_argument("--no-build", action="store_true")
@@ -138,11 +148,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--thinking", choices=["default", "enabled", "disabled"], default="default")
     parser.add_argument("--request-timeout", type=float, default=120.0)
     parser.add_argument("--max-steps", type=int, default=10)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def cli_main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     if not args.no_build:
         rc = build_image(args.image)
         if rc != 0:
@@ -153,4 +163,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        "docker_agent_sdk_eval.py is an internal helper. "
+        "Use docs/eval_scripts/run_eval.py as the only eval entrypoint."
+    )

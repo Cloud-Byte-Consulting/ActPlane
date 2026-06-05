@@ -200,25 +200,44 @@ def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -
         )
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Summarize final RQ1 directive-compliance results")
     parser.add_argument(
         "paths",
         nargs="*",
         type=Path,
-        default=[DEFAULT_ROOT],
+        default=[],
         help="Result files, results directories, or corpus roots",
+    )
+    parser.add_argument(
+        "--input-list",
+        type=Path,
+        action="append",
+        default=[],
+        help="Newline-delimited file containing result files or result directories.",
     )
     parser.add_argument("--source-model", help="Only include runs from this tested model")
     parser.add_argument("--judge-dir-name", default="trajectory_judges")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def listed_paths(args: argparse.Namespace) -> list[Path]:
+    paths = list(args.paths)
+    for list_path in args.input_list:
+        for line in list_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                paths.append(Path(line))
+    if not paths:
+        paths.append(DEFAULT_ROOT)
+    return paths
+
+
+def cli_main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
 
     results: list[dict[str, Any]] = []
-    for path in iter_result_files(args.paths):
+    for path in iter_result_files(listed_paths(args)):
         item = load_json(path)
         if not item:
             continue
@@ -241,7 +260,7 @@ def main() -> int:
         judge_dir_name=args.judge_dir_name,
     )
     if missing:
-        print(f"Missing {len(missing)} judge files. Run judge_trajectory.py first.")
+        print(f"Missing {len(missing)} judge files. Use run_eval.py to produce judges.")
         for path in missing[:20]:
             print(path)
         if len(missing) > 20:
@@ -263,4 +282,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        "summarize_agent_sdk_results.py is an internal helper. "
+        "Use docs/eval_scripts/run_eval.py as the only eval entrypoint."
+    )
