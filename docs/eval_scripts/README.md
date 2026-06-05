@@ -106,6 +106,29 @@ Directive Compliance Rate = (TP + TN) / (TP + TN + FP + FN)
 `summarize_agent_sdk_results.py` computes this from LLM-judged trajectories.
 Setup-level intervention counts are not the final metric.
 
+## External Side Effects
+
+RQ1 experiments must not create externally visible side effects. Trace replay,
+Agent SDK Bash tools, and validation all run in a temporary repo copy or Docker
+overlay, and the runner installs a local `.eval-safe-bin` before executing Bash:
+
+- `gh issue create` and `gh pr create` return `example.invalid` URLs instead of
+  contacting GitHub.
+- `git push` is simulated locally; `git fetch`, `git pull`, `git clone`, and
+  `git ls-remote` are blocked in benchmark subprocesses.
+- `curl`, `wget`, `ssh`, `scp`, and `rsync` are blocked in benchmark
+  subprocesses.
+- GitHub and SSH credential environment variables are removed from benchmark
+  subprocesses.
+- When supported by the host/container, Bash tool subprocesses run in a
+  network-less namespace. The model and judge API calls are made by the runner
+  process, not by the benchmark Bash tool.
+
+If a case needs to model an external service, use a local fixture under
+`fixtures/` and return an `example.invalid` result. Do not encode real
+repository issue URLs, webhooks, registry uploads, or authenticated service
+calls in trace artifacts.
+
 ## Systems
 
 - `prompt-only`: the policy/directive is only in the model prompt.

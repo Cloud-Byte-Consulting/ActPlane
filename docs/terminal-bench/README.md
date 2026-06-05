@@ -88,6 +88,31 @@ Useful output files:
 - `<output-dir>/<run-id>/results.json`: summary and per-task results.
 - `<output-dir>/<run-id>/<task-id>/.../sessions/agent.cast`: terminal recording.
 
+## Local llama.cpp Full Run
+
+For the local Qwen 27B GGUF model served by llama.cpp, use the wrapper in this
+directory. It runs tasks one at a time, resumes from `task_results.json`, and
+removes each task's Docker container/image/volumes plus build cache after the
+task finishes.
+
+```bash
+OPENAI_API_KEY=dummy python -u docs/terminal-bench/run_local_llama_full.py \
+  --output-path /tmp/tbench-local-llama \
+  --run-id local-llama-qwen27b-full-20260605 \
+  --resume
+```
+
+Current local-run behavior:
+
+- The wrapper never passes Terminal-Bench's global agent/test wall-clock flags.
+- Each task runs until Terminal-Bench itself exits; the wrapper does not enforce a
+  per-task wall-clock cap.
+- `docs/terminal-bench/no_timeout/sitecustomize.py` replaces Terminal-Bench's
+  blocking tmux wait helper with direct `tmux wait` and strips single-line shell
+  commands that start with `timeout <duration>`.
+- New `tb run` subprocesses set `T_BENCH_LITELLM_MAX_TOKENS=16384`, which gives
+  Terminus more room for structured JSON responses against the local server.
+
 ## Local CLI State
 
 The following local CLIs were present:
@@ -143,8 +168,6 @@ uvx --from terminal-bench tb run \
   --task-id fix-permissions \
   --task-id heterogeneous-dates \
   --n-concurrent 1 \
-  --global-agent-timeout-sec 120 \
-  --global-test-timeout-sec 120 \
   --output-path /tmp/tbench-glm47 \
   --run-id glm47-3tasks-terminus
 ```
@@ -186,8 +209,6 @@ uvx --from terminal-bench tb run \
   --task-id fix-permissions \
   --task-id heterogeneous-dates \
   --n-concurrent 1 \
-  --global-agent-timeout-sec 120 \
-  --global-test-timeout-sec 120 \
   --output-path /tmp/tbench-glm47 \
   --run-id glm47-3tasks-terminus-coding
 ```

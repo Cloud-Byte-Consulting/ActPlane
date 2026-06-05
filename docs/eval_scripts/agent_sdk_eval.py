@@ -81,6 +81,18 @@ DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
 DEFAULT_BASE_INSTRUCTIONS = Path(__file__).resolve().parent / "codex_base_instructions.md"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
 TOOL_REGEX_POLICY = Path("baselines") / "tool-regex.yaml"
+SAFE_BIN_NAME = ".eval-safe-bin"
+FIXTURE_BIN_NAME = ".eval-fixtures/bin"
+AUTH_ENV_DENYLIST = {
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GITHUB_PAT",
+    "GITHUB_OAUTH_TOKEN",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+    "SSH_AUTH_SOCK",
+}
+_CAN_UNSHARE_NET: bool | None = None
 
 # ---------------------------------------------------------------------------
 # Shared mutable context
@@ -322,6 +334,148 @@ def safe_path(workdir: Path, rel: str) -> Path:
     return p
 
 
+def _write_executable(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8")
+    path.chmod(path.stat().st_mode | 0o755)
+
+
+def install_eval_safety_bin(workdir: Path) -> Path:
+    """Install local command shims that prevent externally visible side effects."""
+    bin_dir = workdir / SAFE_BIN_NAME
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_executable(
+        bin_dir / "gh",
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "issue" && "${2:-}" == "create" ]]; then
+  echo "https://example.invalid/local-eval/github/issues/fake-local-eval"
+  exit 0
+fi
+if [[ "${1:-}" == "pr" && "${2:-}" == "create" ]]; then
+  echo "https://example.invalid/local-eval/github/pull/fake-local-eval"
+  exit 0
+fi
+if [[ "${1:-}" == "auth" ]]; then
+  echo "eval safety: GitHub auth is unavailable in benchmark subprocesses" >&2
+  exit 1
+fi
+echo "eval safety: blocked external gh command: gh $*" >&2
+exit 126
+""",
+    )
+
+    _write_executable(
+        bin_dir / "git",
+        """#!/usr/bin/env bash
+set -euo pipefail
+real_git="/usr/bin/git"
+if [[ ! -x "$real_git" ]]; then
+  real_git="/bin/git"
+fi
+case "${1:-}" in
+  push)
+    echo "eval safety: simulated git push; no remote was contacted"
+    exit 0
+    ;;
+  fetch|pull|clone|ls-remote)
+    echo "eval safety: blocked external git network command: git $*" >&2
+    exit 126
+    ;;
+esac
+exec "$real_git" "$@"
+""",
+    )
+
+    for name in ("curl", "wget", "ssh", "scp", "rsync"):
+        _write_executable(
+            bin_dir / name,
+            f"""#!/usr/bin/env bash
+echo "eval safety: blocked external network command: {name} $*" >&2
+exit 126
+""",
+        )
+
+    for name in ("npm", "pnpm", "yarn"):
+        _write_executable(
+            bin_dir / name,
+            f"""#!/usr/bin/env bash
+set -euo pipefail
+real_cmd="/usr/bin/{name}"
+if [[ ! -x "$real_cmd" ]]; then
+  real_cmd="$(command -v {name} || true)"
+fi
+if [[ "${{1:-}}" == "publish" || " $* " == *" publish "* ]]; then
+  echo "eval safety: simulated {name} publish; no registry was contacted"
+  exit 0
+fi
+if [[ -n "$real_cmd" && "$real_cmd" != "$0" ]]; then
+  exec "$real_cmd" "$@"
+fi
+echo "eval safety: {name} is unavailable in this benchmark image" >&2
+exit 127
+""",
+        )
+
+    _write_executable(
+        bin_dir / "twine",
+        """#!/usr/bin/env bash
+if [[ "${1:-}" == "upload" || " $* " == *" upload "* ]]; then
+  echo "eval safety: simulated twine upload; no registry was contacted"
+  exit 0
+fi
+echo "eval safety: twine is unavailable in this benchmark image" >&2
+exit 127
+""",
+    )
+
+    return bin_dir
+
+
+def safe_subprocess_env(workdir: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    for key in AUTH_ENV_DENYLIST:
+        env.pop(key, None)
+    safe_bin = install_eval_safety_bin(workdir)
+    fixture_bin = workdir / FIXTURE_BIN_NAME
+    path_parts = [str(safe_bin)]
+    if fixture_bin.is_dir():
+        path_parts.append(str(fixture_bin))
+    path_parts.append(env.get("PATH", ""))
+    env["PATH"] = ":".join(part for part in path_parts if part)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def can_unshare_network() -> bool:
+    """Return whether Bash tool subprocesses can run in a network-less namespace."""
+    global _CAN_UNSHARE_NET
+    if os.environ.get("ACTPLANE_EVAL_DISABLE_TOOL_NET", "1") != "1":
+        return False
+    if _CAN_UNSHARE_NET is not None:
+        return _CAN_UNSHARE_NET
+    unshare = shutil.which("unshare")
+    if not unshare:
+        _CAN_UNSHARE_NET = False
+        return False
+    proc = subprocess.run(
+        [unshare, "--net", "--", "true"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        timeout=5,
+    )
+    _CAN_UNSHARE_NET = proc.returncode == 0
+    return _CAN_UNSHARE_NET
+
+
+def bash_argv(command: str) -> list[str]:
+    argv = ["/bin/bash", "-c", command]
+    if can_unshare_network():
+        return ["unshare", "--net", "--", *argv]
+    return argv
+
+
 # ---------------------------------------------------------------------------
 # Agent tools — subprocesses are monitored by ActPlane (parent is actplane run)
 # ---------------------------------------------------------------------------
@@ -341,8 +495,9 @@ def bash_tool(ctx: RunContextWrapper[EvalContext], command: str) -> str:
 
     try:
         proc = subprocess.run(
-            ["/bin/bash", "-c", command],
+            bash_argv(command),
             cwd=ec.workdir,
+            env=safe_subprocess_env(ec.workdir),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -663,8 +818,9 @@ def replay_trace_setup(
                     if cmd:
                         try:
                             proc = subprocess.run(
-                                ["/bin/bash", "-c", cmd],
+                                bash_argv(cmd),
                                 cwd=ctx.workdir,
+                                env=safe_subprocess_env(ctx.workdir),
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE,
                                 text=True,
@@ -746,6 +902,7 @@ def validate_trace_setup(
         workdir = tmp / "repo"
         shutil.copytree(real_repo, workdir, symlinks=True)
         apply_fixtures(statement_dir, workdir)
+        install_eval_safety_bin(workdir)
         ctx = EvalContext(workdir=workdir)
         replay_trace_setup(trace_records, ctx)
         return list(ctx.setup_errors), list(ctx.tool_log)
@@ -762,6 +919,9 @@ def apply_fixtures(statement_dir: Path | None, workdir: Path) -> None:
         return
     dst = workdir / ".eval-fixtures"
     shutil.copytree(fixture_dir, dst, dirs_exist_ok=True)
+    for path in dst.rglob("*"):
+        if path.is_file() and (path.parent.name == "bin" or path.suffix == ".sh"):
+            path.chmod(path.stat().st_mode | 0o755)
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +1003,7 @@ async def run_scenario_inner(
     subprocess.run(["git", "config", "user.email", "eval@test"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(["git", "config", "user.name", "eval"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     apply_fixtures(statement_dir, workdir)
+    install_eval_safety_bin(workdir)
 
     fb_path: Path | None = None
     if system in ("actplane", "actplane-opaque"):

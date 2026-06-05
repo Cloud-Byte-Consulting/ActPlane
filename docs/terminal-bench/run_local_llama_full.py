@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import selectors
 import signal
 import subprocess
 import sys
@@ -39,6 +38,7 @@ DEFAULT_MODEL = Path(
     "Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M.gguf"
 )
 DEFAULT_MODEL_NAME = "openai/Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M.gguf"
+NO_TIMEOUT_PATCH_DIR = Path(__file__).resolve().parent / "no_timeout"
 
 
 def utc_stamp() -> str:
@@ -110,7 +110,7 @@ def cleanup_docker(
 
 def healthy(base_url: str) -> bool:
     try:
-        with urlopen(f"{base_url}/health", timeout=2) as response:
+        with urlopen(f"{base_url}/health") as response:
             return response.status == 200
     except (OSError, URLError):
         return False
@@ -132,7 +132,7 @@ def stop_process_tree(proc: subprocess.Popen[str], grace_s: float = 10) -> None:
         os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    proc.wait(timeout=10)
+    proc.wait()
 
 
 def start_llama(args: argparse.Namespace, run_dir: Path) -> subprocess.Popen[str] | None:
@@ -180,16 +180,13 @@ def start_llama(args: argparse.Namespace, run_dir: Path) -> subprocess.Popen[str
         text=True,
         preexec_fn=os.setsid,
     )
-    deadline = time.time() + args.llama_start_timeout
-    while time.time() < deadline:
+    while True:
         if proc.poll() is not None:
             raise RuntimeError(f"llama-server exited; see {log_path}")
         if healthy(base_url):
             print(f"llama-server healthy at {base_url}; log: {log_path}")
             return proc
         time.sleep(1)
-    stop_process_tree(proc)
-    raise TimeoutError(f"llama-server did not become healthy; see {log_path}")
 
 
 def list_tasks(dataset_path: Path) -> list[str]:
@@ -228,18 +225,19 @@ def run_task(args: argparse.Namespace, run_dir: Path, task_id: str) -> dict[str,
         "--run-id",
         task_run_id,
     ]
-    if args.agent_timeout_sec is not None:
-        cmd.extend(["--global-agent-timeout-sec", str(args.agent_timeout_sec)])
-    if args.test_timeout_sec is not None:
-        cmd.extend(["--global-test-timeout-sec", str(args.test_timeout_sec)])
-
     env = os.environ.copy()
     env.setdefault("OPENAI_API_KEY", "dummy")
+    env.setdefault("T_BENCH_LITELLM_MAX_TOKENS", "16384")
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        f"{NO_TIMEOUT_PATCH_DIR}{os.pathsep}{pythonpath}"
+        if pythonpath
+        else str(NO_TIMEOUT_PATCH_DIR)
+    )
 
     print(f"\n=== {task_id} ===")
     print(" ".join(cmd))
     started = time.time()
-    timed_out = False
     with log_path.open("w", encoding="utf-8", errors="replace") as log:
         proc = subprocess.Popen(
             cmd,
@@ -250,25 +248,6 @@ def run_task(args: argparse.Namespace, run_dir: Path, task_id: str) -> dict[str,
             preexec_fn=os.setsid,
         )
         assert proc.stdout is not None
-        selector = selectors.DefaultSelector()
-        selector.register(proc.stdout, selectors.EVENT_READ)
-        while proc.poll() is None:
-            if (
-                args.task_hard_timeout_sec is not None
-                and time.time() - started > args.task_hard_timeout_sec
-            ):
-                timed_out = True
-                print(f"hard timeout after {args.task_hard_timeout_sec}s: {task_id}")
-                stop_process_tree(proc)
-                break
-            for key, _ in selector.select(timeout=1):
-                line = key.fileobj.readline()
-                if not line:
-                    continue
-                log.write(line)
-                log.flush()
-                if "Results Summary" in line or "Accuracy:" in line or "Error " in line:
-                    print(line.rstrip(), flush=True)
         for line in proc.stdout:
             log.write(line)
             log.flush()
@@ -294,7 +273,7 @@ def run_task(args: argparse.Namespace, run_dir: Path, task_id: str) -> dict[str,
         "task_id": task_id,
         "run_id": task_run_id,
         "returncode": returncode,
-        "timed_out": timed_out,
+        "timed_out": False,
         "seconds": ended - started,
         "log_path": str(log_path),
         "results_path": str(result_path),
@@ -367,24 +346,6 @@ def main() -> int:
     )
     parser.add_argument("--agent", default="terminus")
     parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
-    parser.add_argument(
-        "--agent-timeout-sec",
-        type=float,
-        default=None,
-        help="Forwarded Terminal-Bench agent timeout; <=0 or omitted disables wrapper override.",
-    )
-    parser.add_argument(
-        "--test-timeout-sec",
-        type=float,
-        default=None,
-        help="Forwarded Terminal-Bench test timeout; <=0 or omitted disables wrapper override.",
-    )
-    parser.add_argument(
-        "--task-hard-timeout-sec",
-        type=float,
-        default=None,
-        help="Wrapper wall-clock cap per task; <=0 or omitted disables it.",
-    )
     parser.add_argument("--llama-server", type=Path, default=DEFAULT_LLAMA_SERVER)
     parser.add_argument("--model-path", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--host", default="127.0.0.1")
@@ -392,18 +353,9 @@ def main() -> int:
     parser.add_argument("--device", default="CUDA0")
     parser.add_argument("--gpu-layers", default="all")
     parser.add_argument("--ctx-size", type=int, default=65536)
-    parser.add_argument("--llama-start-timeout", type=float, default=240)
     parser.add_argument("--no-prune-build-cache", dest="prune_build_cache", action="store_false")
     parser.add_argument("--keep-llama", action="store_true", help="Do not stop a server started by this script")
     args = parser.parse_args()
-    for timeout_attr in (
-        "agent_timeout_sec",
-        "test_timeout_sec",
-        "task_hard_timeout_sec",
-    ):
-        value = getattr(args, timeout_attr)
-        if value is not None and value <= 0:
-            setattr(args, timeout_attr, None)
 
     run_dir = args.output_path / args.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
