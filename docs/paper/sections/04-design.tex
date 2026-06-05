@@ -1,17 +1,25 @@
 \section{Design}
 \label{sec:design}
 
-\sys{} lets agents and project owners express policy in terms of task and
-repository intent while enforcing the resulting constraints below the tool
-layer. This cleanly separates the context needed to instantiate a policy
-from the mechanism that observes system-level behavior.
+The empirical study implies four design requirements.
+\textbf{(R1)~OS-level observation:} most directives constrain commands,
+files, or network effects, so enforcement must observe behavior below
+the tool API.
+\textbf{(R2)~Cross-event state:} policies such as ``test before commit''
+span multiple operations; the harness must propagate state across OS
+objects.
+\textbf{(R3)~Agent-provided context:} 74\% of system-observable
+directives require project or task context that only the agent possesses,
+so the agent must be able to author its own enforcement policy.
+\textbf{(R4)~Semantic feedback:} a bare \texttt{EPERM} tells the agent
+that an operation failed, but not which rule matched or what compliant
+alternative exists; the harness must return actionable diagnostics.
 
-The central design challenge is connecting these two sides without
-collapsing one into the other. A policy must be concrete enough for
-deterministic OS-level enforcement yet expressive enough to encode the
-project and task context that the agent supplies. It must also maintain
-cross-event state and prevent lower-authority policy from weakening
-higher-authority constraints.
+The central design challenge is connecting intent-level context to
+OS-level enforcement without collapsing one into the other. A policy must
+be concrete enough for deterministic kernel-level matching yet expressive
+enough to encode the project and task context that the agent supplies.
+
 \subsection{Threat Model and Assumptions}
 
 \sys{} targets a \emph{cooperative but unreliable} agent. The agent's
@@ -34,13 +42,14 @@ content checks not observable at syscall boundaries are out of scope.
 
 \subsection{System Overview}
 
-\sys{} addresses the requirements identified in \S\ref{sec:empirical}
-through three abstractions: a policy DSL (\S\ref{sec:dsl}) that lets
-agents bind natural-language directives to source, sink, and condition
-patterns; a labeled information-flow model (\S\ref{sec:ifc}) that
-propagates cross-event state across OS objects; and a layered authority
-model (\S\ref{sec:authority}) that prevents lower-authority policy from
-weakening platform or project invariants.
+\sys{} addresses R1--R4 through three abstractions: a policy DSL
+(\S\ref{sec:dsl}) that lets agents bind directives to source, sink, and
+condition patterns (R1, R3); a labeled information-flow model
+(\S\ref{sec:ifc}) that propagates cross-event state across OS objects
+(R2); and a layered authority model (\S\ref{sec:authority}) that prevents
+lower-authority policy from weakening platform or project invariants.
+Semantic feedback (R4) is produced when a rule match occurs, returning
+the rule name, reason, and remediation to the agent.
 
 \subsection{Policy DSL}
 \label{sec:dsl}
@@ -150,17 +159,19 @@ add rules, specialize targets, introduce labels, or narrow scope. No layer
 may delete, rewrite, declassify, or weaken rules from a higher-authority
 layer.
 
-\sys{} separates a pure IFC rule (condition, effect, reason) from the
-\emph{binding} that activates it in a domain. A domain is the policy
-boundary for a process tree; each process belongs to one domain, and
-each event is checked against that domain's effective policy. Files and
-endpoints carry labels but are not policy domains.
-
-Bindings are either \emph{locked} or \emph{default}. Locked bindings are
-inherited invariants that child domains cannot disable. Default bindings
-are templates that a child domain may keep, disable, or replace with
-stricter local policy. This gives the agent room to adapt policy to a
-task while preserving platform and project authority.
+Higher-authority rules that admit exceptions use the same gate mechanism
+as cross-event rules: the rule names an explicit action the agent must
+perform to satisfy the condition. For example, a project rule ``do not
+force-push unless necessary'' can require the agent to write a
+declaration file (e.g., \texttt{.actplane/force-push-necessary}) before
+the push is allowed. The agent satisfies the gate through an
+\emph{observable action}---creating the file---which the IFC engine
+tracks like any other label-propagating event. The gate makes the
+exception auditable and revocable: the declaration file is visible in the
+repository, and higher-authority policy can constrain which processes may
+write it. This gives the agent room to adapt policy to a task while
+keeping exception paths observable and under platform or project
+authority.
 
 The prototype resolves the authority stack at compile or load time. The
 kernel receives flattened rule tables and evaluates events against them;
