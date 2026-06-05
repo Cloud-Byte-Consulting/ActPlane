@@ -1,44 +1,44 @@
 version: 1
 rules:
-  - id: no-bare-python
-    effect: kill
-    op: exec
-    target: "python"
-    if: "AGENT"
-    reason: "Run repo Python commands through uv run."
-  - id: no-bare-python3
-    effect: kill
-    op: exec
-    target: "python3"
-    if: "AGENT"
-    reason: "Run repo Python commands through uv run."
-  - id: no-bare-pytest
-    effect: kill
-    op: exec
-    target: "pytest"
-    if: "AGENT"
-    reason: "Run repo tests through uv run."
-  - id: no-bare-ruff
-    effect: kill
-    op: exec
-    target: "ruff"
-    if: "AGENT"
-    reason: "Run repo tooling through uv run."
-  - id: no-bare-mypy
-    effect: kill
-    op: exec
-    target: "mypy"
-    if: "AGENT"
-    reason: "Run repo tooling through uv run."
-  - id: no-bare-pyright
-    effect: kill
-    op: exec
-    target: "pyright"
-    if: "AGENT"
-    reason: "Run repo tooling through uv run."
-  - id: no-bare-coverage
-    effect: kill
-    op: exec
-    target: "coverage"
-    if: "AGENT"
-    reason: "Run repo tooling through uv run."
+- id: no-bare-python
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run repo Python commands through uv run.
+- id: no-bare-python3
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python3(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run repo Python commands through uv run.
+- id: no-bare-pytest
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run repo tests through uv run.
+- id: no-bare-ruff
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?ruff(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run repo tooling through uv run.
+- id: no-bare-mypy
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?mypy(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run repo tooling through uv run.
+- id: no-bare-pyright
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pyright(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run repo tooling through uv run.
+- id: no-bare-coverage
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?coverage(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run repo tooling through uv run.

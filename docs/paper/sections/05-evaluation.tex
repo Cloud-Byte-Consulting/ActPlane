@@ -545,7 +545,6 @@ coding agents. We do not claim deterministic task completion from this
 benchmark because OctoBench is judged by an LLM checklist evaluator
 rather than by per-task test scripts.
 
-
 \section{Related Work}
 \label{sec:related}
 
@@ -616,7 +615,6 @@ which instructions constitute cross-event information-flow policies,
 which require project or task context to instantiate, and which can be
 enforced at the OS level.
 
-
 \section{Conclusion}
 \label{sec:conclusion}
 
@@ -635,7 +633,7 @@ feedback to the agent. A layered policy model ensures that higher-authority
 constraints cannot be weakened by the agent, while agent-authored rules can
 evolve with task intent. By supporting notify, pre-operation denial, and
 harness-level termination with structured remediation, ActPlane enables
-agents to complete tasks after policy rule matches rather than fail opaquely.
+agents to recover after policy rule matches rather than fail opaquely.
 ActPlane bridges the context gap and the semantic gap that single-level
 harnesses leave open, unifying labeled information-flow observation and
 enforcement with an agent-oriented policy language and a feedback loop on

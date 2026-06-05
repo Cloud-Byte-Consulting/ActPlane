@@ -1,15 +1,15 @@
 version: 1
 rules:
-  - id: no-hook-script-exec
-    effect: kill
-    op: exec
-    target: "**/plugin/scripts/*.mjs"
-    if: "AGENT"
-    reason: "Do not execute lifecycle hook scripts directly."
-  - id: no-node-hook-script
-    effect: kill
-    op: exec
-    target: "node"
-    arg: "plugin/scripts/*.mjs"
-    if: "AGENT"
-    reason: "Do not execute lifecycle hook scripts through node directly."
+- id: no-hook-script-exec
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?>.*?/plugin/scripts/).*\.mjs(?=$|[;&|()\s])
+  if: AGENT
+  reason: Do not execute lifecycle hook scripts directly.
+- id: no-node-hook-script
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?node(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])plugin/scripts/.*\.mjs(?=$|[;&|()\s])
+  if: AGENT
+  reason: Do not execute lifecycle hook scripts through node directly.

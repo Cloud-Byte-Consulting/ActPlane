@@ -1,21 +1,20 @@
-"""Tool-layer regex baseline for RQ1.
+"""Tool-layer raw-regex baseline for RQ1.
 
 The baseline consumes explicit per-case policy files:
 
     docs/corpus-test/<repo>/<statement_id>/baselines/tool-regex.yaml
 
 It does not read or lower ActPlane's `rule.yaml`. This keeps the baseline
-policy artifact visible and auditable.
+policy artifact visible and auditable. Patterns are Python regular expressions
+matched directly against the Agent SDK tool input string; there is no shell
+tokenization or command parsing.
 """
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import re
-import shlex
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 
@@ -94,7 +93,7 @@ class ToolRegexPolicy:
             if not eval_label_expr(rule.label_expr, self.labels):
                 continue
             if file_path and any(
-                match_file_pattern(pattern, file_path)
+                regex_matches(pattern, normalized_tool_path(file_path))
                 for pattern in rule.unless_targets
             ):
                 continue
@@ -128,11 +127,14 @@ class ToolRegexPolicy:
                     continue
                 if source.op and source.op != op:
                     continue
-                if match_file_pattern(source.pattern, file_path):
+                if regex_matches(source.pattern, normalized_tool_path(file_path)):
                     self.labels.add(source.label)
             if op == "write":
                 for rule in self.rules:
-                    if any(match_file_pattern(pattern, file_path) for pattern in rule.since_writes):
+                    if any(
+                        regex_matches(pattern, normalized_tool_path(file_path))
+                        for pattern in rule.since_writes
+                    ):
                         rule.since_seen = True
                         rule.after_satisfied = False
         elif op == "exec" and command:
@@ -141,10 +143,10 @@ class ToolRegexPolicy:
                     continue
                 if source.op and source.op != op:
                     continue
-                if command_matches_exec(command, source.pattern, None):
+                if regex_matches(source.pattern, command):
                     self.labels.add(source.label)
             for rule in self.rules:
-                if rule.after_exec and command_matches_exec(command, rule.after_exec, None):
+                if rule.after_exec and regex_matches(rule.after_exec, command):
                     rule.after_satisfied = True
 
     def _target_matches(
@@ -155,9 +157,11 @@ class ToolRegexPolicy:
         file_path: str | None,
     ) -> bool:
         if rule.op == "exec":
-            return bool(command and command_matches_exec(command, rule.pattern, rule.arg_pattern))
+            if not command or not regex_matches(rule.pattern, command):
+                return False
+            return not rule.arg_pattern or regex_matches(rule.arg_pattern, command)
         if rule.op in {"read", "write", "unlink"}:
-            return bool(file_path and match_file_pattern(rule.pattern, file_path))
+            return bool(file_path and regex_matches(rule.pattern, normalized_tool_path(file_path)))
         return False
 
 
@@ -176,11 +180,11 @@ def load_policy_yaml(path: Path) -> dict[str, Any]:
 
 def parse_policy_rule(item: dict[str, Any]) -> ToolRule:
     unless = item.get("unless") if isinstance(item.get("unless"), dict) else {}
-    unless_target = unless.get("target")
-    if isinstance(unless_target, list):
-        unless_targets = [str(v) for v in unless_target]
-    elif unless_target is not None:
-        unless_targets = [str(unless_target)]
+    unless_pattern = unless.get("pattern", unless.get("target"))
+    if isinstance(unless_pattern, list):
+        unless_targets = [str(v) for v in unless_pattern]
+    elif unless_pattern is not None:
+        unless_targets = [str(unless_pattern)]
     else:
         unless_targets = []
 
@@ -196,9 +200,13 @@ def parse_policy_rule(item: dict[str, Any]) -> ToolRule:
         rule_id=str(item["id"]),
         effect=str(item.get("effect", "notify")),
         op=str(item["op"]),
-        pattern=str(item["target"]),
+        pattern=str(item.get("pattern", item.get("target"))),
         tool=str(item["tool"]) if item.get("tool") is not None else None,
-        arg_pattern=str(item["arg"]) if item.get("arg") is not None else None,
+        arg_pattern=(
+            str(item.get("arg_pattern", item.get("arg")))
+            if item.get("arg_pattern", item.get("arg")) is not None
+            else None
+        ),
         label_expr=str(item.get("if", "AGENT")),
         unless_targets=unless_targets,
         after_exec=str(unless["after_exec"]) if unless.get("after_exec") is not None else None,
@@ -226,60 +234,11 @@ def normalize_tool_path(value: str) -> str:
     return value
 
 
-def match_glob(pattern: str, value: str) -> bool:
-    value = normalize_tool_path(value)
-    candidates = {value}
-    if value.startswith("/"):
-        candidates.add(value[1:])
-    else:
-        candidates.add(f"/{value}")
-    if "/" in value:
-        candidates.add(Path(value).name)
-
-    patterns = {pattern}
-    if pattern.startswith("**/"):
-        patterns.add(pattern[3:])
-    if pattern.startswith("/"):
-        patterns.add(pattern[1:])
-
-    for pat in patterns:
-        for candidate in candidates:
-            if fnmatch.fnmatchcase(candidate, pat):
-                return True
-    return False
-
-
-def match_file_pattern(pattern: str, file_path: str) -> bool:
-    return match_glob(pattern, file_path)
-
-
-def shell_tokens(command: str) -> list[str]:
+def regex_matches(pattern: str, value: str) -> bool:
     try:
-        return shlex.split(command, posix=True)
-    except ValueError:
-        return command.split()
-
-
-def is_shell_separator(token: str) -> bool:
-    return token in {"&&", "||", ";", "|", "(", ")"}
-
-
-def command_matches_exec(command: str, prog_pattern: str, arg_pattern: str | None) -> bool:
-    tokens = shell_tokens(command)
-    for idx, token in enumerate(tokens):
-        if is_shell_separator(token):
-            continue
-        basename = Path(token).name
-        if not (match_glob(prog_pattern, token) or match_glob(prog_pattern, basename)):
-            continue
-        if not arg_pattern:
-            return True
-        for later in tokens[idx + 1:]:
-            if is_shell_separator(later):
-                break
-            if match_glob(arg_pattern, later) or match_glob(arg_pattern, Path(later).name):
-                return True
-    return False
+        return re.search(pattern, value, flags=re.IGNORECASE | re.MULTILINE) is not None
+    except re.error as exc:
+        raise ValueError(f"invalid tool-regex pattern {pattern!r}: {exc}") from exc
 
 
 def eval_label_expr(expr: str, labels: set[str]) -> bool:

@@ -1,16 +1,16 @@
 version: 1
 rules:
-  - id: no-save-to-root
-    effect: notify
-    op: write
-    tool: Write
-    target: "**"
-    if: AGENT
-    unless:
-      target:
-        - "src/**"
-        - "tests/**"
-        - "docs/**"
-        - "config/**"
-        - "scripts/**"
-    reason: "Never save files to the root folder; use /src, /tests, /docs, /config, or /scripts instead"
+- id: no-save-to-root
+  effect: notify
+  op: write
+  tool: Write
+  pattern: .*
+  if: AGENT
+  unless:
+    pattern:
+    - (?s:src/.*)\Z
+    - (?s:tests/.*)\Z
+    - (?s:docs/.*)\Z
+    - (?s:config/.*)\Z
+    - (?s:scripts/.*)\Z
+  reason: Never save files to the root folder; use /src, /tests, /docs, /config, or /scripts instead

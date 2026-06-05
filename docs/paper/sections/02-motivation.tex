@@ -1,5 +1,5 @@
-\section{Background and Motivation}
-\label{sec:motivation}
+\section{Background}
+\label{sec:background}
 
 \subsection{Agent Harnesses and Behavioral Policies}
 
@@ -75,54 +75,12 @@ that tracks information flow from file read to network connect.
 tool-call guard sees \texttt{run\_command("python~script.py")}; the kernel
 observes the nested \texttt{execve("git",~["push",~"--force"])}.
 
-\subsection{Threat Model}
-
-ActPlane targets a \emph{cooperative but probabilistic} agent: trusted to
-honestly declare its intent, but not trusted to reliably follow that intent
-during execution. The agent is not adversarial---it does not attempt to
-defeat the enforcement mechanism through obfuscation or exploitation.
-However, because LLM inference is inherently stochastic, the agent may
-trigger any given policy rule with non-zero probability at each step,
-regardless of context length or prompt design. Over a long session with
-many steps, the cumulative probability of at least one rule match approaches
-certainty. This matches real coding-agent failures: agents intend to obey
-instructions but deviate through long-horizon planning errors, prompt
-injection, shell-script side effects, or opaque tool behavior.
-
-\textbf{Trust boundary.} The eBPF programs and BPF maps that propagate
-labels and check rules run in kernel space and cannot be modified by the
-agent. The policy DSL compiler and feedback formatter run in a trusted
-userspace process (\texttt{actplane run}) that is not part of the agent's
-process tree. The monitored domain is the agent's entire process tree,
-including all descendants spawned through tools, shells, or subprocesses.
-
-\textbf{Multi-layer policy.} Policies are layered by authority. A
-platform or operator defines root-level constraints (e.g., ``do not leak
-secrets,'' ``do not \texttt{rm -rf /}'') that lower layers cannot weaken
-or bypass. The agent may author and revise its own rules within these
-bounds as task intent evolves; runtime policy revisions are explicit
-transactions that cannot retroactively legalize past violations. Untrusted
-or third-party sub-agents execute as subprocesses in a lower layer, subject
-to both their parent's rules and any additional constraints---reducing to a
-conventional sandbox for fully untrusted code.
-
-\textbf{Out of scope.} ActPlane does not defend against an agent that
-deliberately exploits kernel vulnerabilities or manipulates the eBPF
-loader. Such attacks require \texttt{CAP\_BPF} or root privileges that the
-agent does not hold. Side-channel inference (deducing policy rules from
-\texttt{-EPERM} patterns), deliberate label pollution (triggering
-over-tainting to cause denial of service), and feedback-oracle attacks
-(using remediation strings to restructure an approach toward a forbidden
-goal through compliant steps) all require adversarial intent and are
-outside this threat model.
-
-
 \section{Empirical Study}
 \label{sec:empirical}
 
 This section characterizes behavioral policies in real agent instruction
-files and identifies the subset that requires cross-event information-flow
-observation and enforcement.
+files and identifies which policies require OS-level observation,
+cross-event state, and project or task context.
 
 \subsection{Methodology}
 
@@ -186,22 +144,30 @@ project's linter'') whose concrete realization must be resolved from
 the repository. 9\% require \emph{task context}---the directive
 delegates a judgment to the current session (``unless explicitly
 requested,'' ``keep changes focused''). This quantifies the gap between
-a natural-language policy and a deployable enforcement rule, and
-motivates a policy architecture in which the agent---the entity that
-holds both project structure and task intent---authors its own rules.
+a natural-language policy and a deployable enforcement rule.
 
-\subsection{Implications}
+\subsection{Design Requirements}
 
-Per-event policies can be enforced by matching a single system call.
-Cross-event policies cannot: they require tracking state across multiple
-operations. Enforcing them requires a mechanism that (1)~propagates
-provenance across process, file, and network boundaries, (2)~encodes it
-as checkable state, and (3)~connects rule matches back to declared intent
-for semantic feedback. Labeled information-flow control satisfies all
-three requirements.
+The study implies four requirements for an agent harness that enforces
+behavioral policies at runtime.
 
-The context-requirement finding adds a fourth constraint: (4)~the
-mechanism must accept policies authored by the agent itself, because
-74\% of system-level rules cannot be instantiated without project or
-task context that only the agent possesses. A static, administrator-authored
-policy cannot close this gap.
+\begin{itemize}
+\item \textbf{OS-level observation.} Most directives involve commands,
+files, or network effects, so enforcement must observe behavior below
+the tool API.
+\item \textbf{Cross-event state.} A single system call is insufficient
+for policies such as ``test before commit'' or ``do not leak data read
+from secrets.'' The harness must propagate provenance across process,
+file, and network objects.
+\item \textbf{Agent-provided context.} Many directives cannot be
+instantiated without project structure or current task intent. The
+agent must be able to supply this context as a policy control plane.
+\item \textbf{Semantic feedback.} A bare denial tells the agent that an
+operation failed, but not which declared rule it matched or what
+compliant alternative would satisfy the rule.
+\end{itemize}
+
+ActPlane addresses these requirements with an agent-facing policy DSL,
+an OS-level labeled information-flow engine, and a feedback loop that
+connects kernel-detected rule matches back to the agent's declared
+intent.

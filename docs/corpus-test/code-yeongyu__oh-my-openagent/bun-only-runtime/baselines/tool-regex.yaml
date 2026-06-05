@@ -1,20 +1,20 @@
 version: 1
 rules:
-  - id: no-npm
-    effect: kill
-    op: exec
-    target: "npm"
-    if: "AGENT"
-    reason: "Runtime is Bun only; do not execute npm."
-  - id: no-yarn
-    effect: kill
-    op: exec
-    target: "yarn"
-    if: "AGENT"
-    reason: "Runtime is Bun only; do not execute yarn."
-  - id: no-pnpm
-    effect: kill
-    op: exec
-    target: "pnpm"
-    if: "AGENT"
-    reason: "Runtime is Bun only; do not execute pnpm."
+- id: no-npm
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?npm(?=$|[;&|()\s])
+  if: AGENT
+  reason: Runtime is Bun only; do not execute npm.
+- id: no-yarn
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?yarn(?=$|[;&|()\s])
+  if: AGENT
+  reason: Runtime is Bun only; do not execute yarn.
+- id: no-pnpm
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pnpm(?=$|[;&|()\s])
+  if: AGENT
+  reason: Runtime is Bun only; do not execute pnpm.

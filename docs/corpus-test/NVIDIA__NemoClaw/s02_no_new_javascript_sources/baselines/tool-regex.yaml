@@ -1,10 +1,10 @@
 version: 1
 rules:
-  - id: no-new-js
-    effect: notify
-    op: write
-    target: "**/*.js"
-    if: "AGENT"
-    unless:
-      target: "**/dist/**"
-    reason: "All new source files should be TypeScript, not JavaScript."
+- id: no-new-js
+  effect: notify
+  op: write
+  pattern: (?s:(?>.*?/).*\.js)\Z
+  if: AGENT
+  unless:
+    pattern: (?s:(?>.*?/dist/).*)\Z
+  reason: All new source files should be TypeScript, not JavaScript.

@@ -1,20 +1,20 @@
 version: 1
 rules:
-  - id: no-ja-generated-docs
-    effect: kill
-    op: write
-    target: "docs/ja/**"
-    if: "AGENT"
-    reason: "Do not edit generated translated docs; update source docs."
-  - id: no-ko-generated-docs
-    effect: kill
-    op: write
-    target: "docs/ko/**"
-    if: "AGENT"
-    reason: "Do not edit generated translated docs; update source docs."
-  - id: no-zh-generated-docs
-    effect: kill
-    op: write
-    target: "docs/zh/**"
-    if: "AGENT"
-    reason: "Do not edit generated translated docs; update source docs."
+- id: no-ja-generated-docs
+  effect: kill
+  op: write
+  pattern: (?s:docs/ja/.*)\Z
+  if: AGENT
+  reason: Do not edit generated translated docs; update source docs.
+- id: no-ko-generated-docs
+  effect: kill
+  op: write
+  pattern: (?s:docs/ko/.*)\Z
+  if: AGENT
+  reason: Do not edit generated translated docs; update source docs.
+- id: no-zh-generated-docs
+  effect: kill
+  op: write
+  pattern: (?s:docs/zh/.*)\Z
+  if: AGENT
+  reason: Do not edit generated translated docs; update source docs.

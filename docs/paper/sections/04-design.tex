@@ -7,6 +7,48 @@ kernel hooks, observing and enforcing agent behavior and returning semantic
 feedback when a rule is matched. Figure~\ref{fig:architecture} summarizes
 the pipeline.
 
+\subsection{Threat Model and Assumptions}
+
+ActPlane targets a \emph{cooperative but unreliable} agent: the agent is
+trusted to declare its task intent and policy constraints honestly, but
+not trusted to follow them reliably during execution. The agent may make
+mistakes because of long-horizon planning errors, prompt injection,
+shell-script side effects, or opaque tool behavior. ActPlane does not
+target a malicious agent that deliberately attacks the kernel, exploits
+the loader, or attempts to evade policy through adversarial
+obfuscation.
+
+The trusted computing base consists of the eBPF programs, BPF maps, DSL
+compiler, runner, feedback formatter, and higher-authority policies. The
+agent's process tree, including tools, shells, subprocesses, and
+sub-agents, is treated as the monitored domain. Higher-authority rules
+cannot be weakened by agent-authored rules; the agent may only add or
+revise policies within those bounds.
+
+Out of scope are kernel compromise, root or \texttt{CAP\_BPF}
+compromise, deliberate side channels, and semantic content checks that
+are not observable at process, file, or network edges. These assumptions
+match the harness setting we target: cooperative coding agents that need
+deterministic runtime guardrails for their own system-level behavior.
+
+\subsection{Design Goals}
+
+The empirical study in \S\ref{sec:empirical} leads to five design goals.
+
+\begin{itemize}
+\item \textbf{Agent-authored policy.} The harness must accept policies
+derived from project and task context that only the agent has.
+\item \textbf{OS-boundary enforcement.} Policy checks must apply below
+the tool API so that shells, scripts, subprocesses, and helper binaries
+remain covered.
+\item \textbf{Cross-event state.} The mechanism must encode histories
+such as ``after tests'' and flows such as ``after reading a secret.''
+\item \textbf{Semantic feedback.} Rule matches should explain which
+declared constraint fired and how the agent can recover.
+\item \textbf{Layered authority.} Agent-authored rules must not weaken
+operator or platform constraints.
+\end{itemize}
+
 \begin{figure}[t]
 \begin{verbatim}
 actplane.yaml

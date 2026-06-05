@@ -1,22 +1,22 @@
 version: 1
 rules:
-  - id: no-direct-pytest
-    effect: kill
-    op: exec
-    target: "pytest"
-    if: "AGENT"
-    reason: "Run tests through scripts/run_tests.sh, not pytest directly."
-  - id: no-python-pytest
-    effect: kill
-    op: exec
-    target: "python"
-    arg: "pytest"
-    if: "AGENT"
-    reason: "Run tests through scripts/run_tests.sh, not python -m pytest."
-  - id: no-python3-pytest
-    effect: kill
-    op: exec
-    target: "python3"
-    arg: "pytest"
-    if: "AGENT"
-    reason: "Run tests through scripts/run_tests.sh, not python3 -m pytest."
+- id: no-direct-pytest
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?pytest(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run tests through scripts/run_tests.sh, not pytest directly.
+- id: no-python-pytest
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])pytest(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run tests through scripts/run_tests.sh, not python -m pytest.
+- id: no-python3-pytest
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?python3(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])pytest(?=$|[;&|()\s])
+  if: AGENT
+  reason: Run tests through scripts/run_tests.sh, not python3 -m pytest.

@@ -1,20 +1,20 @@
 version: 1
 rules:
-  - id: no-direct-pyproject-deps
-    effect: notify
-    op: write
-    target: "pyproject.toml"
-    if: "AGENT"
-    reason: "Use uv commands for dependency changes instead of hand-editing dependency files."
-  - id: no-direct-uv-lock
-    effect: notify
-    op: write
-    target: "uv.lock"
-    if: "AGENT"
-    reason: "Use uv commands for dependency changes instead of hand-editing uv.lock."
-  - id: no-direct-requirements
-    effect: notify
-    op: write
-    target: "requirements*.txt"
-    if: "AGENT"
-    reason: "Use uv commands for dependency changes instead of hand-editing requirements files."
+- id: no-direct-pyproject-deps
+  effect: notify
+  op: write
+  pattern: (?s:pyproject\.toml)\Z
+  if: AGENT
+  reason: Use uv commands for dependency changes instead of hand-editing dependency files.
+- id: no-direct-uv-lock
+  effect: notify
+  op: write
+  pattern: (?s:uv\.lock)\Z
+  if: AGENT
+  reason: Use uv commands for dependency changes instead of hand-editing uv.lock.
+- id: no-direct-requirements
+  effect: notify
+  op: write
+  pattern: (?s:requirements.*\.txt)\Z
+  if: AGENT
+  reason: Use uv commands for dependency changes instead of hand-editing requirements files.

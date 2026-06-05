@@ -1,14 +1,14 @@
 version: 1
 rules:
-  - id: test-before-commit
-    effect: kill
-    op: exec
-    target: "git"
-    arg: "commit"
-    if: "AGENT"
-    unless:
-      after_exec: "**/prek"
-      since_write:
-        - "**/*.py"
-        - "**/*.ts"
-    reason: "Run uv run prek run --all-files after source edits and before committing."
+- id: test-before-commit
+  effect: kill
+  op: exec
+  pattern: (^|[;&|()\s])(?:[^\s;&|()]+/)?git(?=$|[;&|()\s])
+  arg: (^|[;&|()\s])commit(?=$|[;&|()\s])
+  if: AGENT
+  unless:
+    after_exec: (^|[;&|()\s]).*/prek(?=$|[;&|()\s])
+    since_write:
+    - (?s:(?>.*?/).*\.py)\Z
+    - (?s:(?>.*?/).*\.ts)\Z
+  reason: Run uv run prek run --all-files after source edits and before committing.
