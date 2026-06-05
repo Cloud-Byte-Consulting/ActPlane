@@ -1,202 +1,73 @@
 \section{Design}
 \label{sec:design}
 
-\sys{} is a programmable OS-level control plane for agent harnesses. It
-compiles behavioral policies into labeled information-flow rules at OS
-kernel hooks, observing and enforcing agent behavior and returning semantic
-feedback when a rule is matched. Figure~\ref{fig:architecture} summarizes
-the pipeline.
+\sys{} is an OS-level harness for agent policy compliance. Its central
+design choice is to let agents and project owners express policy in terms
+of task and repository intent, while enforcing the resulting constraints
+below the tool layer. This separates the context needed to instantiate a
+policy from the mechanism that observes system-level behavior.
+
+The design challenge is to keep these two sides connected without
+collapsing one into the other: a policy must be concrete enough for
+deterministic OS-level enforcement, but expressive enough to encode
+project and task intent supplied by the agent. It must also preserve
+cross-event state and prevent lower-authority policy from weakening
+higher-authority constraints.
 
 \subsection{Threat Model and Assumptions}
 
-\sys{} targets a \emph{cooperative but unreliable} agent: the agent is
-trusted to declare its task intent and policy constraints honestly, but
-not trusted to follow them reliably during execution. The agent may make
-mistakes because of long-horizon planning errors, prompt injection,
-shell-script side effects, or opaque tool behavior. \sys{} does not
-target a malicious agent that deliberately attacks the kernel, exploits
-the loader, or attempts to evade policy through adversarial
-obfuscation.
+\sys{} targets a cooperative but unreliable agent. The agent is expected
+to declare task intent and project constraints honestly, but may fail to
+follow them because of planning errors, prompt injection, shell-script
+side effects, or opaque tool behavior. The system does not target a
+malicious process that attacks the kernel, exploits the loader, or
+deliberately evades policy through adversarial obfuscation.
 
-The trusted computing base consists of the eBPF programs, BPF maps, DSL
-compiler, runner, feedback formatter, and higher-authority policies. The
-agent's process tree, including tools, shells, subprocesses, and
-sub-agents, is treated as the monitored domain. Policy authority and
-conflict resolution are handled by the layered composition model described
-below.
-
-Out of scope are kernel compromise, root or \texttt{CAP\_BPF}
-compromise, deliberate side channels, and semantic content checks that
-are not observable at process, file, or network edges. These assumptions
-match the harness setting we target: cooperative coding agents that need
-deterministic runtime guardrails for their own system-level behavior.
-
-\subsection{Design Goals}
-
-The empirical study in \S\ref{sec:empirical} gives four requirements:
-agent-provided context, OS-boundary enforcement, cross-event state, and
-semantic feedback. \sys{} adopts these as system goals and adds one
-authority goal: agent-authored rules may specialize the session policy,
-but they must not weaken operator or platform constraints.
-
-\subsection{Policy Lifecycle}
-
-\sys{} separates \emph{who supplies context} from \emph{who enforces the
-resulting rule}. Higher-authority policies, such as platform or operator
-constraints, are supplied before the agent starts and define the
-non-negotiable boundary of the session. Project policies come from
-instruction files and repository configuration. Session policies are
-agent-authored: before a protected task begins, the agent reads the
-project instructions, resolves project context such as test commands or
-protected paths, incorporates task context such as user approval or task
-scope, and writes the resulting DSL policy.
-
-This lifecycle is the mechanism behind the ``agent as control plane''
-claim. A directive such as ``run the full test suite before committing''
-does not name a concrete command. A static OS policy cannot know whether
-the project uses \texttt{go test ./...}, \texttt{pytest}, or
-\texttt{pnpm test}. The agent can inspect the repository, bind the
-directive to the current project, and install a rule such as
-\texttt{block exec "git" "commit" unless after exec "go" since write
-"**/*.go"}. Task-scoped directives are handled similarly: a rule involving
-``unless explicitly requested'' is generated from the current user request
-or approval state, not from the repository alone.
-
-Policy adaptation is explicit. When the task changes or the agent resolves
-new project context, it produces a new policy document and asks the harness
-to compile and load it at the next session or command boundary. The
-currently loaded policy remains the authority until the replacement has
-compiled successfully. This avoids an unsafe interval in which a failed
-policy update silently removes enforcement.
-
-\begin{figure}[t]
-\begin{verbatim}
-actplane.yaml
-  policy: |
-        |
-        v
-Rust compiler ------> struct taint_config
-        |                    |
-        v                    v
- actplane run -----> eBPF loader + BPF maps
-        |                    |
-        v                    v
-  target command <--- kernel hooks
-        |
-        v
-.actplane/last-violation.txt
-\end{verbatim}
-\caption{\sys{} pipeline. The Rust compiler lowers the policy DSL into a
-fixed-size binary configuration. The eBPF loader writes it into read-only
-data, attaches to kernel hooks, and reports rule matches as NDJSON. The runner
-maps rule identifiers back to human-readable feedback.}
-\Description{ASCII diagram of policy compilation, eBPF loading, target
-command execution, and feedback output.}
-\label{fig:architecture}
-\end{figure}
-
-\subsection{Layered Policy Composition}
-
-\sys{} separates a pure IFC rule from the runtime binding that makes it
-active. A rule is a condition, an effect, and a human-readable reason; by
-itself, it does not define inheritance or authority. A \emph{domain} is
-the runtime policy boundary for a process tree: each process maps to one
-domain, and each event is checked against that domain's effective policy.
-Files, endpoints, and stdio are IFC objects that carry labels, not policy
-domains.
-
-A binding attaches a rule to a domain as either \emph{locked} or
-\emph{default}. Locked bindings are security invariants inherited by child
-domains and cannot be disabled below the binding point. Default bindings
-are templates: a child domain may keep them, disable them for itself, or
-replace them with stricter local policy. Thus a child domain may add
-constraints, labels, gates, or narrower scope, but it cannot disable
-inherited locked bindings, clear inherited labels or gates, widen scope,
-or mutate the definition of an inherited locked rule.
-
-\sys{} composes policies monotonically across authority layers:
-platform/operator rules, project-maintainer rules, and agent/session
-rules. Lower-authority layers may add constraints or more specific
-feedback, but they cannot delete, rewrite, declassify, or weaken rules
-introduced by a higher-authority layer. Exceptions to a higher-authority
-rule must be encoded in that same layer; an agent-authored policy cannot
-turn a platform \texttt{block} into a \texttt{notify}, nor can it
-declassify labels created by the platform policy. The prototype resolves
-domain bindings at compile/load boundaries; the kernel receives compact
-compiled rule tables and does not parse YAML or DSL on the event path.
-
-At compile time, the policy compiler merges all active layers into one
-rule set and preserves each rule's authority level in metadata. The kernel
-evaluates the merged rule set against each event. If multiple clauses match
-the same event, effects are joined by severity:
-\[
-\texttt{kill} > \texttt{block} > \texttt{notify} > \texttt{allow}.
-\]
-Thus lower-authority policy can only make the final decision stricter. If
-a project rule says \texttt{notify} on \texttt{git push} but a platform
-rule says \texttt{block} on the same event, the operation is blocked. If
-two matched rules have the same effect, \sys{} reports the
-higher-authority rule first, then uses deterministic rule order as a
-tiebreaker. The feedback file may include additional matched reasons, but
-the enforcement decision is always the strongest joined effect.
-
-\subsection{Policy Model}
-
-\sys{} policies are object-level information-flow rules over three node
-types: processes (identified by pid and command name), files (keyed by
-path hash), and endpoints (keyed by IPv4 address and mask). The model
-operates at object granularity rather than byte
-granularity~\cite{kemerlis2012libdft}, trading precision for low-overhead
-whole-system coverage.
-
-\subsubsection{Labels and Propagation}
-
-Each node carries a 64-bit label bitmask. A \emph{source} declaration
-introduces labels: an exec source labels processes that execute a matching
-binary, a file source labels files matching a path pattern, and an endpoint
-source labels network endpoints matching an address range.
-Let $L(x)$ denote the label bitmask of node $x$. Labels propagate through
-fixed transfer functions:
-
-\begin{itemize}
-\item \textbf{fork}$(p \to c)$: $L(c) := L(c) \cup L(p)$.
-\item \textbf{exec}$(p, f)$: $L(p) := L(p) \cup L(f) \cup S(f)$, where
-$S(f)$ is the set of source labels matching $f$.
-\item \textbf{read}$(p, f)$: $L(p) := L(p) \cup L(f)$.
-\item \textbf{write}$(p, f)$: $L(f) := L(f) \cup L(p)$.
-\item \textbf{connect}$(p, e)$: $L(e) := L(e) \cup L(p)$.
-\end{itemize}
-
-All transfer functions are monotonic: labels accumulate and are never
-removed by propagation. The only mechanism that removes a label is an
-explicit \emph{declassify} directive in the DSL, which clears specified
-labels when the agent executes a designated gate binary (e.g., a redaction
-tool). This monotonicity bounds over-tainting: a node's label set grows
-at most to the union of all source labels reachable through observed flow
+The trusted computing base consists of the compiler, the eBPF enforcement
+engine, the runner, and higher-authority policies. The agent's process
+tree, including tools, shells, subprocesses, and sub-agents, is treated as
+the monitored domain. Out of scope are kernel compromise, root or
+\texttt{CAP\_BPF} compromise, deliberate side channels, and semantic
+content checks that are not observable at process, file, or network
 edges.
 
-These transfer functions maintain a provenance invariant: if a process $p$
-carries label $\ell$, then information from some source tagged with $\ell$
-has reached $p$ through observed OS-level flow edges.
+\subsection{System Overview}
 
-\subsubsection{Rules and Effects}
+The empirical study in \S\ref{sec:empirical} gives three design
+requirements. First, policy must be \emph{agent-facing}: many directives
+refer to project- or task-specific concepts that only the agent can
+resolve in context. Second, enforcement must be \emph{system-level}:
+directives often constrain commands, files, subprocesses, and network
+connections rather than final model text. Third, enforcement must be
+\emph{stateful}: many directives depend on previous actions, such as
+whether tests ran after a source change or whether data from one source
+later reached another sink.
 
-Unlike traditional taint analysis and IFC systems that prioritize
-completeness (minimizing false negatives, tolerating high false
-positives)~\cite{enck2010taintdroid,clause2007dytan}, \sys{} targets
-\emph{precision}: false positives that block legitimate operations
-disrupt the agent's development workflow and erode trust in the harness.
-The design therefore favors object-granularity labels with explicit
-declassification gates over byte-level tracking, accepting bounded
-under-tainting in exchange for near-zero false positives on compliant
-executions.
+\sys{} implements these requirements with three abstractions. A compact
+DSL lets agents and maintainers bind natural-language directives to
+source, sink, and condition patterns. A labeled information-flow model
+maintains cross-event state across processes, files, and network
+endpoints. A layered authority model lets lower-authority policy add or
+narrow constraints without weakening platform or project invariants.
 
-A rule contains one or more clauses. Each clause starts with an action verb
-(\texttt{notify}, \texttt{block}, or \texttt{kill}) followed by an
-operation (\texttt{exec}, \texttt{read}, \texttt{write}, \texttt{unlink},
-\texttt{connect}, or \texttt{open}), a target pattern, optional positional
-arguments, a Boolean expression over required and forbidden labels, and an
-optional condition (target allow-list, lineage gate, or temporal after-gate).
+\subsection{Policy DSL}
+
+The DSL is the boundary between intent-level instructions and
+system-level enforcement. A policy contains sources that introduce labels,
+rules that match labeled events at sinks, and optional gates that express
+ordering or controlled declassification. This keeps the agent-facing
+surface small: translating an instruction usually requires producing one
+declarative rule rather than constructing the backend representation used
+by the kernel.
+
+Sources bind labels to system objects. An \texttt{exec} source labels
+processes that execute a matching binary, a \texttt{file} source labels
+matching paths, and a network source labels matching endpoints. Rules bind
+an effect such as \texttt{notify}, \texttt{block}, or \texttt{kill} to an
+operation such as \texttt{exec}, \texttt{read}, \texttt{write},
+\texttt{unlink}, or \texttt{connect}. Conditions express common agent
+workflow constraints: a target allow-list, a lineage gate, or a temporal
+\texttt{after ... since ...} gate.
 
 \begin{figure}[t]
 \begin{verbatim}
@@ -215,196 +86,121 @@ rule tests-before-commit:
   because "Run `go test ./...` before committing."
 \end{verbatim}
 \caption{Two \sys{} rules drawn from real projects. The first is a
-per-event rule (single \texttt{execve} match); the second is a
-cross-event rule requiring temporal state (\texttt{after\ldots since}).}
+per-event rule; the second is a cross-event rule that requires temporal
+state.}
 \Description{Code listing of two \sys{} rules from real projects.}
 \label{fig:policy-example}
 \end{figure}
 
-Each clause declares its own effect that determines how the kernel
-responds to a match.
+Figure~\ref{fig:policy-example} shows the two main rule shapes. The first
+case is local to one event: if the agent process tries to push to
+\texttt{main}, the event matches immediately. The second case depends on
+history: committing is compliant only if the required test command ran
+after the relevant source write. This distinction is why the DSL exposes
+both per-event predicates and cross-event gates.
 
-\textbf{Notify}: the kernel emits a match event and allows the operation
-to proceed.
+The DSL is intentionally narrower than a general mandatory access-control
+language. It focuses on policy shapes that recur in agent instruction
+files: do not use a command, do not write outside a scope, do not connect
+to a sink after reading a source, run a validation command before a
+release action, and route sensitive data through an approved tool. The
+compiler lowers these rules into fixed-size kernel tables; policy authors
+do not need to reason about BPF maps, verifier constraints, or binary
+layout.
 
-\textbf{Block}: a BPF-LSM hook returns \texttt{-EPERM} before the operation
-commits. Block is available only when the \texttt{bpf} LSM is active in the
-running kernel; it is not silently downgraded.
+\subsection{Labeled Information-Flow Model}
 
-\textbf{Kill}: the kernel sends \texttt{SIGKILL} to the matching task. From
-a BPF-LSM hook, kill also returns \texttt{-EPERM}; from a tracepoint, kill
-is post-operation termination.
-
-The composition of multiple matching rule effects is defined by the
-layered policy model above.
-
-\subsubsection{Policy Language Scope}
-
-The DSL is not a general-purpose mandatory access control policy. Its
-primitives map to recurring agent workflow patterns: ``after tests,''
-``through a review tool,'' ``data derived from untrusted input,'' and
-``read-only sub-agent.'' The grammar is small so that policy authors can
-translate natural-language instructions into source/sink/gate shapes without
-security-policy expertise.
-
-The intermediate DSL is a deliberate design choice. The IFC engine's
-backend configuration (\texttt{struct taint\_config}) consists of hundreds
-of fixed-size rule entries, bitmask allocations, and match-kind encodings
-across several thousand lines of kernel code. Directly generating this
-backend representation from natural language (NL$\to$backend) would require
-the translating agent to understand the full engine ABI---an unrealistic
-expectation. The DSL compresses each rule into a single declarative
-statement that the compiler lowers into the correct binary layout,
-reducing the translation task to NL$\to$DSL (one line per rule).
-
-\subsection{System Architecture}
-
-\subsubsection{Compiler and Kernel ABI}
-
-The Rust compiler parses the DSL and lowers it into a C-compatible
-\texttt{struct taint\_config}. Lowering allocates label bits, expands Boolean
-expressions into required and forbidden bitmasks, lowers glob patterns into
-exact, prefix, suffix, or wildcard match kinds, and compiles IPv4 patterns
-into network/mask pairs. Human-readable rule names and reason strings
-(including remediation guidance) remain in Rust metadata; the kernel receives
-only fixed-size rule tables and emits integer rule identifiers.
-
-This split keeps the eBPF program verifier-friendly. The kernel program
-iterates over fixed-size arrays in read-only data using bounded loops, copies
-each rule entry into a stack-local variable before matching, and uses explicit
-index bounds checks for argument scanning and pattern comparison.
-
-\subsubsection{Kernel State}
-
-The eBPF backend maintains five BPF hash maps:
+\sys{} represents policy state as labels on OS objects. Processes, files,
+and network endpoints each carry a 64-bit label mask. A source declaration
+adds labels when an object matches the source pattern. Let $L(x)$ denote
+the label mask of object $x$. Labels propagate through observed
+system-level edges:
 
 \begin{itemize}
-\item \texttt{ts\_proc}: pid $\to$ label bitmask and lineage-gate state.
-\item \texttt{ts\_root}, \texttt{ts\_sess}: root-process and session-level
-temporal (after) gate state.
-\item \texttt{ts\_file}: path hash $\to$ label bitmask.
-\item \texttt{ts\_endp}: IPv4 address $\to$ label bitmask.
+\item \textbf{fork}$(p \to c)$: $L(c) := L(c) \cup L(p)$.
+\item \textbf{exec}$(p, f)$: $L(p) := L(p) \cup L(f) \cup S(f)$, where
+$S(f)$ is the set of source labels matching $f$.
+\item \textbf{read}$(p, f)$: $L(p) := L(p) \cup L(f)$.
+\item \textbf{write}$(p, f)$: $L(f) := L(f) \cup L(p)$.
+\item \textbf{connect}$(p, e)$: $L(e) := L(e) \cup L(p)$.
 \end{itemize}
 
-BPF map entries are keyed by tid (one entry per Linux thread) for
-\texttt{ts\_proc} and by path hash or IPv4 address for object maps.
-Updates use atomic BPF helper operations; concurrent reads from different
-CPUs observe a consistent label bitmask per entry.
+These transfer functions maintain the key invariant: if an object carries
+label $\ell$, then information from a source tagged with $\ell$ has
+reached that object through observed process, file, or network edges.
+Rules then check whether an event's subject or target contains required
+labels, contains forbidden labels, or satisfies a temporal gate.
 
-Tracepoint programs handle process lifecycle events (fork, exec, exit) and
-post-operation file and connect events. BPF-LSM programs attach to
-\texttt{bprm\_check\_security}, \texttt{file\_open}, and
-\texttt{socket\_connect} for pre-operation enforcement. When BPF-LSM is not
-active, the loader uses tracepoint mode and disables block-effect rules.
-In tracepoint mode, hooks fire after the operation commits; a
-\texttt{connect} tracepoint observes an already-established connection.
-This is why \texttt{block} requires BPF-LSM: only LSM hooks
-provide a pre-operation verdict. Tracepoint mode supports \texttt{notify}
-(post-operation observation) and \texttt{kill} (post-operation task
-termination).
+The model operates at object granularity rather than byte granularity,
+trading precision for low-overhead whole-session coverage. This is a
+deliberate fit for agent harnesses. Repository instructions usually refer
+to objects such as commands, files, directories, repositories, endpoints,
+and workflow steps, not individual bytes. Object-level labels can express
+cross-event compliance patterns that tool-call filters miss, while
+avoiding the complexity of dynamic byte-level taint
+tracking~\cite{kemerlis2012libdft}.
 
-The current implementation supports up to 32 sources, 32 rules, 16
-transforms, and 16 gates per policy. Rule evaluation uses
-\texttt{bpf\_loop} for bounded iteration, which the eBPF verifier accepts
-for policies exceeding 100 rules.
+Labels are monotonic by default: propagation adds labels and does not
+remove them. When a project requires controlled release, the DSL can name
+an explicit gate, such as a redaction command or review tool, that clears
+specified labels for subsequent events. This makes declassification a
+declared policy action rather than an implicit side effect of the agent's
+plan.
 
-\subsubsection{Unified Event Handling}
+\subsection{Layered Policy Authority}
 
-Each hook normalizes kernel arguments into a common event structure:
-subject pid, object kind, access kind, backend mode, target string,
-optional argument vector, and optional IPv4 address. A shared handler
-resolves the subject's label bitmask, applies source labels for
-read/connect events, evaluates all supported rules, emits at most one
-\texttt{TAINT\_VIOLATION} event for the highest-priority matching rule, and
-then applies propagation updates.
+Agent-authored policy is useful only if it cannot weaken stronger
+constraints. \sys{} therefore treats policy as a layered authority stack:
+platform/operator policy, project-maintainer policy, and agent/session
+policy. Lower layers may add rules, specialize targets, add labels, or
+narrow scope. They may not delete, rewrite, declassify, or weaken rules
+introduced by a higher-authority layer.
 
-\subsection{Corrective Feedback}
+\sys{} separates a pure IFC rule from the runtime binding that activates
+it. A rule defines a condition, an effect, and a reason. A domain is the
+policy boundary for a process tree; each process belongs to one domain,
+and each event is checked against that domain's effective policy. Files
+and endpoints are IFC objects that carry labels, not policy domains.
 
-The kernel match event contains the rule identifier, effect, target
-string, pid, and flags indicating whether the operation was blocked or the
-task was killed. The Rust runner maps the rule identifier to the
-corresponding rule name and reason string, then appends a
-structured payload to \texttt{.actplane/last-violation.txt}.
+Bindings attach rules to domains as either \emph{locked} or
+\emph{default}. Locked bindings are inherited security invariants and
+cannot be disabled by child domains. Default bindings are templates that a
+child domain may keep, disable for itself, or replace with stricter local
+policy. This gives the agent room to adapt policy to a task while
+preserving the authority of platform and project constraints.
 
-\begin{figure}[t]
-\small
-\begin{verbatim}
-[ActPlane] policy rule matched
-rule: tests-before-commit
-effect: block
-event: exec git commit
-reason: Run `go test ./...` before committing.
-recovery: run `go test ./...`, then retry commit.
-\end{verbatim}
-\caption{Example corrective-feedback payload appended after a kernel
-rule match. The hook relays this payload into the next agent turn.}
-\Description{Text example of an \sys{} feedback payload with rule,
-effect, event, reason, and recovery fields.}
-\label{fig:feedback-payload}
-\end{figure}
-
-Agent integration uses a post-tool hook. The \texttt{actplane feedback-hook}
-subcommand reads new bytes from the feedback file and returns them as
-\texttt{additionalContext} to compatible agent
-runtimes~\cite{agentsight}. The hook is a read-only relay: it does not
-re-evaluate policy in userspace. The kernel is the sole authority for rule
-matches; userspace formats the result so the agent can select an alternative
-execution path. A bare \texttt{-EPERM} tells the agent only that an
-operation failed. The feedback payload instead identifies the declared rule
-that fired and the compliant recovery path, which lets a cooperative agent
-repair the plan rather than retrying the same operation.
-
+The prototype resolves the active authority stack when policy is compiled
+or loaded. The kernel receives the resulting rule tables and evaluates
+events against them; it does not parse YAML, resolve project context, or
+interpret authority metadata on the event path. This preserves the design
+separation: agents and maintainers supply context and policy structure,
+while the OS-level engine enforces the compiled result consistently across
+tools and subprocesses.
 
 \section{Implementation}
 \label{sec:implementation}
 
-\sys{} is implemented as a Rust driver and an eBPF program pair. The
-system builds a single \texttt{actplane} binary that embeds the compiled
-eBPF loader, extracts it at runtime, compiles the project's policy DSL,
-and runs a target command under the observation and enforcement harness.
+\sys{} is implemented as a Rust compiler/runner and an eBPF enforcement
+engine. The compiler parses the DSL, allocates label bits, lowers Boolean
+label expressions and path/network patterns, and emits a fixed-size
+C-compatible configuration consumed by the eBPF loader. Human-readable
+rule names and reasons remain in userspace metadata; the kernel receives
+compact rule tables and emits rule identifiers when events match.
 
-\subsection{Runner and Policy Discovery}
+The eBPF engine attaches to process, file, and network hooks. It maintains
+label state for processes, files, and endpoints in BPF maps, applies the
+transfer functions above, and checks the compiled rules on each observed
+event. BPF-LSM hooks provide pre-operation enforcement for blocking
+actions; tracepoints provide observation and post-operation termination
+where LSM support is unavailable. Userspace does not re-detect policy
+violations: it loads policy, starts the target process, and formats
+kernel-reported matches.
 
-The command \texttt{actplane run -- <cmd>} discovers
-\texttt{actplane.yaml} by searching upward from the working directory.
-The policy YAML contains a \texttt{policy:~|} DSL block. Before the
-target process begins executing, the loader seeds the stopped target's pid
-with the \texttt{AGENT} label so that all descendants inherit the agent
-identity. The runner prepares the feedback file
-(\texttt{.actplane/last-violation.txt}) and a hook state file, exports
-their paths to the child environment, waits for the loader to report
-readiness, then resumes the target. This sequencing ensures that the
-first target operation is observed.
-
-\subsection{BPF Backends}
-
-The eBPF program attaches to process lifecycle tracepoints (fork, exec,
-exit), syscall tracepoints for file and connect events, and BPF-LSM hooks
-for pre-operation enforcement. At load time, the loader checks whether the
-running kernel has the \texttt{bpf} LSM active in
-\texttt{/sys/kernel/security/lsm}. If not, it falls back to tracepoint
-mode, in which the supported effects are \texttt{notify} and \texttt{kill};
-\texttt{block} rules are disabled because there is no pre-operation verdict
-path.
-
-\subsection{Limitations}
-
-\textbf{Path identity.} File labels are keyed by FNV-1a path hash rather
-than inode/device pairs. Hard links and mount binds can cause the same
-file to carry different labels under different paths.
-
-\textbf{Endpoint identity.} Connect matching uses numeric IPv4 addresses.
-Hostname, DNS, SNI, and HTTP-layer matching require userspace resolution or
-additional instrumentation.
-
-\textbf{Argument predicates.} Positional argument predicates inspect
-arguments after exec via the tracepoint argument buffer. Pre-operation
-blocking of argument predicates requires an argument cache before
-\texttt{bprm\_check\_security}, which is not yet implemented.
-
-\textbf{Label precision.} Labels propagate at object granularity. A process
-that reads one byte from a labeled file acquires the full label set. This
-can produce over-tainting relative to byte-level
-systems~\cite{kemerlis2012libdft}. Section~\ref{sec:evaluation} measures the
-false-positive rate and validates that declassification and gate paths
-prevent unnecessary harness intervention.
+The runner exposes this mechanism to agents through
+\texttt{actplane run -- <cmd>}. It discovers the project policy file,
+compiles and loads the policy before the target starts, seeds the target
+process tree with the agent label, and records kernel matches in a
+feedback file that compatible agent hooks can relay into the next turn.
+This plumbing is intentionally thin: the policy decision remains in the
+kernel, while the runner only connects project policy, target execution,
+and agent-facing diagnostics.
