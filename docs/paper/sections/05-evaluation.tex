@@ -403,66 +403,7 @@ agent retries blindly or gives up.
 \subsection{RQ2: Overhead}
 \label{sec:eval:rq2}
 
-\subsubsection{Microbenchmarks (Per-Syscall Latency)}
-
-We measure ActPlane's per-event latency for five syscall types
-(\texttt{fork}, \texttt{exec}, \texttt{open}, \texttt{write},
-\texttt{connect}) under five no-hit configurations: native, AP-1,
-AP-10, AP-32, and AP-100. Each configuration $\times$ syscall type runs
-10K--100K iterations pinned to a single CPU core. We report median p50
-and p99 latencies across seven trials.
-
-\paragraph{Measured operations.}
-\texttt{fork}: \texttt{fork()} + parent \texttt{waitpid()}.
-\texttt{exec}: \texttt{fork()} + child \texttt{execve("/bin/true")} +
-parent \texttt{waitpid()}.
-\texttt{open}: \texttt{open(path, O\_RDONLY|O\_CLOEXEC)} with
-\texttt{close()} outside the timed region.
-\texttt{write}: \texttt{write(fd, 4096)} to an already-open temp file.
-\texttt{connect}: UDP \texttt{connect(127.0.0.1:9)} on an
-already-created socket.
-Primary overhead tables use no-hit policies to isolate steady-state rule
-scanning and label propagation from ring-buffer/reporting cost.
-
-\paragraph{Results.}
-Figure~\ref{fig:rq2-syscall} shows median latency overhead as the number
-of active no-hit rules increases. The largest absolute microbenchmark
-cost is on \texttt{open}: AP-100 adds 12.8\,\textmu s at p50 and
-14.7\,\textmu s at p99. AP-100 adds 2.6\,\textmu s p50 overhead to
-\texttt{connect} and 0.57\,\textmu s to \texttt{write}. \texttt{fork}
-and \texttt{exec} include scheduler and process-management overhead, so
-their tail latencies are noisier.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=\columnwidth]{figures/rq2_syscall_micro.png}
-\caption{Syscall-level median overhead as a function of active no-hit
-rules. No-hit policies exercise label propagation and rule scanning
-without userspace violation reporting.}
-\Description{Line chart showing median latency overhead for open, write,
-connect, fork, and exec as rule count increases from 1 to 100.}
-\label{fig:rq2-syscall}
-\end{figure}
-
-\begin{table}[H]\small
-\centering
-\caption{Per-operation latency in microseconds. Values are medians across
-seven trials.}
-\label{tab:micro-latency}
-\begin{tabular}{lrrrr}
-\toprule
-Operation & Native p50 & AP-32 p50 & AP-100 p50 & AP-100 p99 \\
-\midrule
-\texttt{open}    & 0.58 & 6.92 & 13.40 & 15.36 \\
-\texttt{write}   & 0.27 & 0.79 & 0.84  & 1.59 \\
-\texttt{connect} & 0.58 & 1.98 & 3.17  & 3.90 \\
-\texttt{fork}    & 48.94 & 74.05 & 69.33 & 178.01 \\
-\texttt{exec}    & 248.30 & 314.86 & 317.03 & 490.37 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{Macrobenchmarks (Agent Trace Replay)}
+\subsubsection{Macrobenchmarks (End-to-End Workloads)}
 
 We replay deterministic corpus-derived agent traces and a standard Linux
 kernel build under no-hit ActPlane configurations. The agent trace suite
@@ -473,16 +414,59 @@ Each workload runs three trials per configuration. Replaying fixed
 workloads eliminates LLM inference variance and isolates ActPlane's
 runtime overhead.
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=\columnwidth]{figures/rq2_macro_overhead.png}
+\caption{End-to-end overhead on deterministic workloads, normalized to
+native execution. At 32 active no-hit rules, ActPlane adds 1.9\% on
+agent-trace replay and 6.5\% on a Linux build; at 100 rules, overhead
+remains below 8.4\%.}
+\Description{Grouped bar chart showing AP-32 and AP-100 overhead relative
+to native execution for agent trace replay and Linux build workloads.}
+\label{fig:rq2-macro}
+\end{figure}
+
+\subsubsection{Microbenchmarks (Per-Syscall Latency)}
+
+We measure ActPlane's per-event latency for five syscall types
+(\texttt{fork}, \texttt{exec}, \texttt{open}, \texttt{write},
+\texttt{connect}) under five no-hit configurations: native, AP-1,
+AP-10, AP-32, and AP-100. Each configuration $\times$ syscall type runs
+10K--100K iterations pinned to a single CPU core. For each trial we
+compute p50 and p99 latencies; Table~\ref{tab:micro-latency} reports
+the median across seven trials.
+
+\paragraph{Measured operations.}
+\texttt{fork}: \texttt{fork()} + parent \texttt{waitpid()}.
+\texttt{exec}: \texttt{fork()} + child \texttt{execve("/bin/true")} +
+parent \texttt{waitpid()}.
+\texttt{open}: \texttt{open(path, O\_RDONLY|O\_CLOEXEC)} with
+\texttt{close()} outside the timed region.
+\texttt{write}: \texttt{write(fd, 4096)} to an already-open temp file.
+\texttt{connect}: UDP \texttt{connect(127.0.0.1:9)} on an
+already-created socket.
+
+\paragraph{Results.}
+The largest absolute microbenchmark cost is on \texttt{open}: AP-100
+adds 12.8\,\textmu s at p50 and 14.7\,\textmu s at p99. AP-100 adds
+2.6\,\textmu s p50 overhead to \texttt{connect} and 0.57\,\textmu s to
+\texttt{write}. \texttt{fork} and \texttt{exec} include scheduler and
+process-management overhead, so their tail latencies are noisier.
+
 \begin{table}[H]\small
 \centering
-\caption{End-to-end overhead on deterministic workloads.}
-\label{tab:macro-overhead}
-\begin{tabular}{lrrr}
+\caption{Per-operation latency in microseconds for no-hit policies.
+Values are medians across seven trials.}
+\label{tab:micro-latency}
+\begin{tabular}{lrrrr}
 \toprule
-Workload & Native & AP-32 & AP-100 \\
+Operation & Native p50 & AP-32 p50 & AP-100 p50 & AP-100 p99 \\
 \midrule
-Agent trace replay & 2.65s & 2.70s (+1.9\%) & 2.75s (+3.8\%) \\
-Linux build & 79.48s & 84.65s (+6.5\%) & 86.18s (+8.4\%) \\
+\texttt{open}    & 0.58 & 6.92 & 13.40 & 15.36 \\
+\texttt{write}   & 0.27 & 0.79 & 0.84  & 1.59 \\
+\texttt{connect} & 0.58 & 1.98 & 3.17  & 3.90 \\
+\texttt{fork}    & 48.94 & 74.05 & 69.33 & 178.01 \\
+\texttt{exec}    & 248.30 & 314.86 & 317.03 & 490.37 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -518,27 +502,13 @@ reward, and no checklist override.
 ActPlane cannot observe purely semantic checks (e.g., tone or summary
 quality), so we evaluate a 20-task OS-observable OctoBench subset with
 case-specific policies. Each task runs under three paired conditions:
-
-\begin{table}[H]\small
-\centering
-\caption{OctoBench RQ3 conditions.}
-\label{tab:rq3-conditions}
-\begin{tabular}{lll}
-\toprule
-Condition & Layer & Policy \\
-\midrule
-Baseline & None & Original task \\
-Tool-regex & Tool-call hook & Case-specific regex \\
-ActPlane & OS hooks + feedback & Case-specific ActPlane \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Policies are case-specific: no shared guardrail file is used. Tool-regex
-intercepts only tool calls, while ActPlane observes system-level
-\texttt{exec}, \texttt{open}, \texttt{write}, and \texttt{connect} edges
-inside the task container and injects corrective feedback when an
-OS-level rule fires.
+baseline (the original task with no enforcement), tool-regex (a
+case-specific tool-call hook), and ActPlane (case-specific OS hooks plus
+feedback). No shared guardrail file is used. Tool-regex intercepts only
+tool calls, while ActPlane observes system-level \texttt{exec},
+\texttt{open}, \texttt{write}, and \texttt{connect} edges inside the
+task container and injects corrective feedback when an OS-level rule
+fires.
 
 \paragraph{Metrics.}
 We report the official OctoBench reward and three diagnostic submetrics
