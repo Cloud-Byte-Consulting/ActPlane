@@ -178,10 +178,13 @@ class LlamaServer:
             self._log_file = self.log_path.open("w", encoding="utf-8")
             stdout = self._log_file
             stderr = subprocess.STDOUT
+        env = os.environ.copy()
+        env.setdefault("CUDA_VISIBLE_DEVICES", "0")
         self.proc = subprocess.Popen(
             cmd,
             stdout=stdout,
             stderr=stderr,
+            env=env,
             text=True,
             preexec_fn=os.setsid,
         )

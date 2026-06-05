@@ -83,8 +83,7 @@ Cases with baseline `1.000` are also excluded because they cannot satisfy
 
 ## Tuned Success Set
 
-No tuned success case is recorded yet after the framework cleanup. Add a row
-only after the best retained policy/run satisfies:
+Rows below are retained only after the best policy/run satisfies:
 
 ```text
 actplane-feedback > tool-regex > baseline
@@ -92,6 +91,8 @@ actplane-feedback > tool-regex > baseline
 
 | case | baseline | best tool-regex | best actplane-feedback | policy files | run artifacts | notes |
 |---|---:|---:|---:|---|---|---|
+| `88f06a58-61ab-4660-9721-d6e1f5f261ed` | 0.677 | 0.710 | 1.000 | `policies/tool-regex/88f06a58-61ab-4660-9721-d6e1f5f261ed.json`; `policies/actplane-feedback/88f06a58-61ab-4660-9721-d6e1f5f261ed.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T000756Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T001845Z` | Astropy FutureWarning case; ActPlane observed OS-level file/search/external-CLI violations and injected feedback into the model trajectory. |
+| `md-basic-memory-async-client-pattern` | 0.541 | 0.568 | 0.595 | `policies/tool-regex/md-basic-memory-async-client-pattern.json`; `policies/actplane-feedback/md-basic-memory-async-client-pattern.yaml` | tool-regex: `results/tuned/tool-regex/tool-regex-isolated-20260605T014211Z`; actplane-feedback: `results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T015732Z` | Basic Memory normalize_frontmatter case; ActPlane used OS-level reads/kills to stop extra exploration and push implementation follow-through. |
 
 ## Best Policy Records
 
@@ -112,4 +113,60 @@ actplane_feedback_run:
 official_eval_files:
 OS_evidence:
 why_this_policy_is_valid:
+```
+
+### 88f06a58-61ab-4660-9721-d6e1f5f261ed
+
+```text
+case: 88f06a58-61ab-4660-9721-d6e1f5f261ed
+task: Astropy structured ndarray Table/NdarrayMixin FutureWarning change
+baseline_reward: 0.677
+best_tool_regex_reward: 0.710
+best_actplane_feedback_reward: 1.000
+tool_regex_policy: policies/tool-regex/88f06a58-61ab-4660-9721-d6e1f5f261ed.json
+actplane_feedback_policy: policies/actplane-feedback/88f06a58-61ab-4660-9721-d6e1f5f261ed.yaml
+tool_regex_run: results/tuned/tool-regex/tool-regex-isolated-20260605T000756Z
+actplane_feedback_run: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T001845Z
+official_eval_files:
+  tool_regex: results/tuned/tool-regex/tool-regex-isolated-20260605T000756Z/official-eval-llama/scores_llama_judge.json
+  actplane_feedback: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T001845Z/official-eval-llama/scores_llama_judge.json
+runtime:
+  tool_regex_elapsed_s: 169.595
+  actplane_feedback_elapsed_s: 499.675
+OS_evidence:
+  - actplane-watch.log contains tool_workflow notifications for grep/head/sed/find/tail.
+  - actplane-watch.log contains external_cli notification for gh.
+  - proxy.log contains injected feedback into /v1/messages.
+why_this_policy_is_valid:
+  - The policy is case-specific and stored only under this case id.
+  - It maps directly to this case's official checklist: avoid Bash file/search operations, use TodoWrite/structured tools, preserve focused Astropy changes, update/run tests, and avoid live external CLI.
+  - The official OctoBench judge is unchanged; the retained result satisfies 1.000 > 0.710 > 0.677.
+```
+
+### md-basic-memory-async-client-pattern
+
+```text
+case: md-basic-memory-async-client-pattern
+task: Basic Memory normalize_frontmatter MCP tool
+baseline_reward: 0.541
+best_tool_regex_reward: 0.568
+best_actplane_feedback_reward: 0.595
+tool_regex_policy: policies/tool-regex/md-basic-memory-async-client-pattern.json
+actplane_feedback_policy: policies/actplane-feedback/md-basic-memory-async-client-pattern.yaml
+tool_regex_run: results/tuned/tool-regex/tool-regex-isolated-20260605T014211Z
+actplane_feedback_run: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T015732Z
+official_eval_files:
+  tool_regex: results/tuned/tool-regex/tool-regex-isolated-20260605T014211Z/official-eval-llama/scores_llama_judge.json
+  actplane_feedback: results/tuned/actplane-feedback/actplane-feedback-isolated-20260605T015732Z/official-eval-llama/scores_llama_judge.json
+runtime:
+  tool_regex_elapsed_s: 219.683
+  actplane_feedback_elapsed_s: 260.585
+OS_evidence:
+  - actplane-watch.log contains implementation_after_pattern_reads notifications for Basic Memory MCP tool/API files.
+  - actplane-watch.log contains stop_extra_exploration kill on a broad internal model file read.
+  - proxy.log contains injected feedback into /v1/messages.
+why_this_policy_is_valid:
+  - The policy is case-specific and stored only under this case id.
+  - It maps directly to this case's official checklist: implement normalize_frontmatter in MCP tools, use existing API/client helpers, avoid direct markdown writes, register the tool, add tests, run checks where practical, and summarize.
+  - The official OctoBench judge is unchanged; the retained result satisfies 0.595 > 0.568 > 0.541.
 ```

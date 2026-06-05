@@ -24,3 +24,20 @@ policy: |
     notify exec "yarn" "add" if AGENT
     notify exec "bun" "add" if AGENT
     because "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+
+  rule tool_workflow:
+    notify exec "find" if AGENT
+    notify exec "ls" if AGENT
+    notify exec "grep" if AGENT
+    notify exec "head" if AGENT
+    notify exec "tail" if AGENT
+    notify exec "sed" if AGENT
+    notify exec "awk" if AGENT
+    because "For this Astropy validators task, do not use Bash file/search/listing commands for repository exploration. Use Task(subagent_type=Explore), Glob, Grep, Read, and TodoWrite; keep todos updated before editing."
+
+  rule validators_followthrough:
+    notify write file "*validation*.py" if AGENT
+    notify write file "*validators*.py" if AGENT
+    notify write file "*/astropy/utils/__init__.py" if AGENT
+    notify write file "*/astropy/utils/tests/*" if AGENT
+    because "After changing Astropy utils validators, ensure validate_shape, validate_dtype, and validate_range are real non-placeholder implementations, exported from astropy.utils, covered by pytest tests under astropy/utils/tests, and summarized with test status."

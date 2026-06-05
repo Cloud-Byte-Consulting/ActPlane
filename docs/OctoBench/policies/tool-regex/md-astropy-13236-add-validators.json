@@ -4,6 +4,20 @@
     "Bash(*README*)",
     "Bash(*.md*)",
     "Bash(*docs/*)",
+    "Bash(find:*)",
+    "Bash(ls:*)",
+    "Bash(grep:*)",
+    "Bash(cat:*)",
+    "Bash(head:*)",
+    "Bash(tail:*)",
+    "Bash(sed:*)",
+    "Bash(awk:*)",
+    "Read(/testbed/astropy/utils/misc.py)",
+    "Read(/testbed/astropy/utils/parsing.py)",
+    "Read(/testbed/astropy/utils/codegen.py)",
+    "Read(/testbed/astropy/utils/collections.py)",
+    "Read(/testbed/astropy/utils/argparse.py)",
+    "Read(/testbed/astropy/utils/xml/validate.py)",
     "Bash(pip:*)",
     "Bash(pip3:*)",
     "Bash(uv:*)",
@@ -25,6 +39,18 @@
       "effect": "block",
       "pattern": "(^|[;&|()\\s])(?:(?:pip3?|uv|poetry)\\s+(?:install|add)|(?:npm|pnpm|yarn|bun)\\s+(?:install|i|add))\\b",
       "reason": "Do not install or add new package dependencies unless the task explicitly requires dependency changes."
+    },
+    {
+      "id": "no-bash-file-ops",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:find|ls|grep|cat|head|tail|sed|awk)\\b",
+      "reason": "Use Task(subagent_type=Explore), Glob, Grep, and Read for repository file/search/listing operations; reserve Bash for pytest and ruff."
+    },
+    {
+      "id": "avoid-unrelated-utils-reads",
+      "effect": "block",
+      "pattern": "astropy/utils/(misc|parsing|codegen|collections|argparse|xml/validate)\\.py",
+      "reason": "Stay focused on validators: read __init__.py, shapes.py, and astropy/utils/tests patterns, then implement validation.py, exports, tests, pytest, and summary."
     }
   ]
 }

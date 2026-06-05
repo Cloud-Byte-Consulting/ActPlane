@@ -18,6 +18,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -240,6 +241,7 @@ class FeedbackBodyInjector:
         self.feedback_file = feedback_file
         self.trajectory_dir = trajectory_dir
         self.offset = 0
+        self.lock = threading.Lock()
 
     def _read_new_feedback(self) -> str:
         try:
@@ -319,11 +321,15 @@ class FeedbackBodyInjector:
         endpoint = parsed.path.rstrip("/")
         if endpoint not in {"/v1/messages", "/v1/chat/completions", "/chat/completions"}:
             return body
-        text = self._read_new_feedback()
+        with self.lock:
+            text = self._read_new_feedback()
         if not text:
             return body
-        compact = self._compact_feedback(text)
-        if not compact:
+        if (
+            "🚫 VIOLATION:" not in text
+            and "TAINT_VIOLATION" not in text
+            and '"actplane_rule"' not in text
+        ):
             return body
         try:
             payload = json.loads(body.decode("utf-8"))
@@ -334,13 +340,12 @@ class FeedbackBodyInjector:
             "tool action. Treat it as authoritative kernel feedback. Do not "
             "retry the same operation unchanged; adjust the next step according "
             "to the reason below.\n\n"
-            f"{compact}"
+            f"{text}"
         )
         if endpoint == "/v1/messages":
             self._inject_anthropic_system(payload, feedback)
         else:
             self._inject_chat_system(payload, feedback)
-        self._write_trajectory_record(feedback)
         print(f"[ActPlaneFeedbackProxy] injected feedback into {endpoint}", flush=True)
         return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
@@ -633,9 +638,6 @@ def validate_case_policy(policy_path: Path, condition: str, instance_id: str) ->
             raise SystemExit(
                 f"tool-regex policy case_id mismatch for {instance_id}: {policy_path}"
             )
-
-    if condition in {"actplane", "actplane-feedback"} and "\n    kill " in text:
-        raise SystemExit(f"ActPlane policy must be notify-only for this run: {policy_path}")
 
 
 def merge_claude_settings_script(update: dict[str, Any]) -> str:

@@ -30,9 +30,6 @@ policy: |
 
   rule destructive:
     notify exec "rm" if AGENT
-    notify unlink file "/workspace/**" if AGENT
-    notify unlink file "/testbed/**" if AGENT
-    notify unlink file "/app/**" if AGENT
     because "Avoid destructive file or command operations unless the task explicitly requires them and the target is confirmed."
 
   rule external_cli:
@@ -41,3 +38,19 @@ policy: |
     notify exec "gh" if AGENT
     notify exec "stripe" if AGENT
     because "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."
+
+  rule tool_workflow:
+    notify exec "find" if AGENT
+    notify exec "ls" if AGENT
+    notify exec "grep" if AGENT
+    notify exec "head" if AGENT
+    notify exec "tail" if AGENT
+    notify exec "sed" if AGENT
+    notify exec "awk" if AGENT
+    because "For this task's OctoBench instructions, do not use Bash file/search/listing commands for codebase exploration. Use Task(subagent_type=Explore), Glob, Grep, Read, and TodoWrite to plan and track the implementation before continuing."
+
+  rule validator_followthrough:
+    notify write file "*command_validator.py" if AGENT
+    notify write file "*cli_executor.py" if AGENT
+    notify write file "*server.py" if AGENT
+    because "After changing command validation code for this task, continue until the module is integrated into the command execution flow, focused unit tests are added, relevant pytest/ruff checks are run, and the final response summarizes implementation and test status."

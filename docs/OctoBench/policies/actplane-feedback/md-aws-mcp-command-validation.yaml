@@ -30,9 +30,6 @@ policy: |
 
   rule destructive:
     notify exec "rm" if AGENT
-    notify unlink file "/workspace/**" if AGENT
-    notify unlink file "/testbed/**" if AGENT
-    notify unlink file "/app/**" if AGENT
     because "Avoid destructive file or command operations unless the task explicitly requires them and the target is confirmed."
 
   rule external_cli:
@@ -41,3 +38,20 @@ policy: |
     notify exec "gh" if AGENT
     notify exec "stripe" if AGENT
     because "Avoid live external network or service CLI calls while implementing this repository task; use local tests or mocks."
+
+  rule tool_workflow:
+    notify exec "find" if AGENT
+    notify exec "ls" if AGENT
+    notify exec "grep" if AGENT
+    notify exec "head" if AGENT
+    notify exec "tail" if AGENT
+    notify exec "sed" if AGENT
+    notify exec "awk" if AGENT
+    because "For this AWS command-validation task, do not use Bash file/search/listing commands for repository exploration. Use Task(subagent_type=Explore), Glob, Grep, Read, and TodoWrite; keep exactly one todo in progress while implementing validation and timeout handling."
+
+  rule command_validation_followthrough:
+    notify write file "*cli_executor.py" if AGENT
+    notify write file "*server.py" if AGENT
+    notify write file "*command*valid*.py" if AGENT
+    notify write file "*test*.py" if AGENT
+    because "After changing AWS command validation, ensure commands must start with aws, credential-leak patterns are blocked without logging secrets, all execution paths have a timeout, focused validation/tests are run, and the final response summarizes changed files and test status."
