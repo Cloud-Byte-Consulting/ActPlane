@@ -18,7 +18,16 @@ The submodule is not modified by the local runner.
 
 - `mini-vela/`: official OctoBench harness as a git submodule.
 - `data/selected_cases.jsonl`: selected 3-case OS-effect subset.
+- `data/selected_cases_20.jsonl`: current 20-case official OctoBench
+  OS-effect subset.
+- `data/selected_cases_extra10.jsonl`: ten additional official OctoBench
+  OS-effect candidates that do not overlap `selected_cases_20.jsonl`.
+- `data/selected_cases_30.jsonl`: concatenation of the 20-case subset and the
+  additional ten candidates.
 - `data/policy_manifest.jsonl`: selected case to policy-file mapping.
+- `data/policy_manifest_extra10_draft.jsonl`: policy availability notes for the
+  additional ten candidates; missing entries still need case-specific policies
+  before running `tool-regex` or `actplane-feedback`.
 - `configs/litellm_llama_cpp.yaml`: local LiteLLM routing from OctoBench
   Claude model names to the llama.cpp OpenAI-compatible endpoint.
 - `policies/cases/<case_id>.yaml`: canonical case-specific policy intent and
@@ -136,6 +145,50 @@ Recommended 20-task starting subset:
 Each selected task still needs a case-specific policy file before running
 `tool-regex` or `actplane-feedback`. Shared guardrails are intentionally not
 allowed in this workspace.
+
+## Additional 10 Official OctoBench Candidates
+
+The ten-case expansion in `data/selected_cases_extra10.jsonl` is selected from
+the same official 217-task OctoBench JSONL and explicitly excludes all cases in
+`data/selected_cases_20.jsonl`. It is not drawn from `docs/corpus-test`'s
+ActPlane-native corpus.
+
+Selection criteria:
+
+- official OctoBench case only
+- `claudecode` scaffold only; `droid`/`kilo-dev` cases are excluded because the
+  current tool-regex hook and trajectory path are Claude Code specific
+- repo-grounded category: `Claude.md`, `AGENTS.md`, or `User Query`
+- clear case-specific OS effect that can map to `exec`, `open`, `write`, or
+  `connect`
+- enough likely reward headroom to be worth a baseline/tool-regex/ActPlane run
+- no shared/base guardrail policy assumed
+
+Selected extra ten:
+
+| case | category | image group | why it is worth trying |
+|---|---|---|---|
+| `benchmark-aws_lazy_validator_001` | `User Query` | `md_aws_mcp` | AWS command validator; maps to command safety, dangerous operation checks, tests, and no live AWS execution. |
+| `benchmark-aws_append_service_001` | `User Query` | `md_aws_mcp` | SQS/SNS parser expansion; maps to focused source writes, logging/style checks, pytest/ruff validation, and AWS-command safety. |
+| `benchmark-aws_append_format_001` | `User Query` | `md_aws_mcp` | JSON/table/YAML output formatting; maps to focused parser/output writes, dependency discipline, and validation commands. |
+| `benchmark-bm_checklist_search_001` | `User Query` | `md_basic_memory` | `search_notes` MCP tool; maps to tools-directory writes, async-client pattern, search schema/repository/service integration, and tests. |
+| `benchmark-bm_append_normalize_001` | `User Query` | `md_basic_memory` | frontmatter normalization; maps to utility writes, existing pytest layout, no unnecessary docs/files, and focused implementation. |
+| `benchmark-cb_multi_5turn_001` | `User Query` | `md_course_builder` | Course favorites API; maps to DB/schema/API/UI writes, dependency discipline, and project test/build commands. |
+| `md-sgcarstrends-commit-scope` | `Claude.md` | `md_sgcarstrends` | homepage empty-data fix; maps to pnpm/test commands, no unrequested docs, focused UI/component writes, and strict TypeScript behavior. |
+| `md-basic-memory-textwrap-dedent` | `Claude.md` | `md_basic_memory` | frontmatter guide MCP prompt; maps to prompt/resource writes, frontmatter parser reads, pytest/ruff validation, and explicit resource creation. |
+| `md-aws-mcp-server-native-type-hints` | `Claude.md` | `md_aws_mcp` | AWS command parser; maps to parser/executor/test writes, no live AWS execution, and command-structure validation. |
+| `benchmark-bm_lazy_validation_001` | `User Query` | `md_basic_memory` | frontmatter validator; maps to validation/tool/test writes, date/type/tag/alias checks, and project test commands. |
+
+All ten currently have case-specific policy files:
+
+```text
+policies/tool-regex/<case_id>.json
+policies/actplane-feedback/<case_id>.yaml
+```
+
+`data/policy_manifest_extra10_draft.jsonl` records the policy paths and should
+show `needs_case_specific_policy: false` for every row. Shared guardrail files
+are still not used.
 
 ## Selected Cases
 

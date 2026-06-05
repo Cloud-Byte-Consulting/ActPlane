@@ -1,0 +1,29 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule no_dependency_detour:
+    notify exec "pip" "install" if AGENT
+    notify exec "pip3" "install" if AGENT
+    notify exec "uv" "add" if AGENT
+    notify exec "poetry" "add" if AGENT
+    notify exec "npm" "install" if AGENT
+    notify exec "pnpm" "add" if AGENT
+    notify exec "yarn" "add" if AGENT
+    notify exec "bun" "add" if AGENT
+    because "The frontmatter validation tool should use existing Basic Memory validation/date parsing patterns."
+
+  rule frontmatter_validation_followthrough:
+    notify open file "*frontmatter*.py" if AGENT
+    notify open file "*markdown*.py" if AGENT
+    notify open file "*parser*.py" if AGENT
+    notify write file "*frontmatter*.py" if AGENT
+    notify write file "*valid*.py" if AGENT
+    notify write file "*markdown*.py" if AGENT
+    notify write file "*tools/__init__.py" if AGENT
+    notify write file "*test*.py" if AGENT
+    because "Complete the frontmatter validation checklist: implement concrete checks for non-empty title, valid date, allowed type values, tags array, optional aliases array, return clear error messages with no placeholders, integrate in the appropriate Basic Memory module/tool path, add pytest success/error cases, run pytest/ruff/pyright where practical, and summarize changed files plus validation status."

@@ -1,0 +1,17 @@
+case_id: benchmark-bm_checklist_search_001
+policy_intent:
+  - id: search_notes_followthrough
+    source: User query and Agents.md checklist
+    mapped_checks:
+      - UserQuery_title_search_supported
+      - UserQuery_tag_search_supported
+      - UserQuery_pagination_supported
+      - UserQuery_tool_in_tools_directory
+      - Agents_async_client_pattern_used
+    os_effect: write
+    enforcement:
+      tool_regex: block external/package detours
+      actplane: notify on search/tool/schema/repository writes with checklist feedback
+notes:
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

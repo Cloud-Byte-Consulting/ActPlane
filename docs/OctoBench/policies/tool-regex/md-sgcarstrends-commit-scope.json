@@ -1,0 +1,27 @@
+{
+  "case_id": "md-sgcarstrends-commit-scope",
+  "disallowed_tools": [
+    "Bash(npm:*)",
+    "Bash(yarn:*)",
+    "Bash(bun:*)",
+    "Bash(pnpm add:*)",
+    "Bash(pnpm install:*)",
+    "Bash(curl:*)",
+    "Bash(wget:*)",
+    "Bash(gh:*)"
+  ],
+  "rules": [
+    {
+      "id": "use-pnpm-existing-scripts",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:npm|yarn|bun)\\b|(^|[;&|()\\s])pnpm\\s+(?:add|install|i)\\b",
+      "reason": "For this sgcarstrends homepage fix, use existing pnpm scripts for validation and avoid package/dependency detours."
+    },
+    {
+      "id": "no-live-external-cli",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:curl|wget|gh|stripe)\\b",
+      "reason": "Avoid live external service commands while fixing local empty-data handling."
+    }
+  ]
+}

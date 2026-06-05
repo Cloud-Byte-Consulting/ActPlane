@@ -1,0 +1,24 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule no_live_aws:
+    notify exec "aws" if AGENT
+    because "For this output-format task, do not call live AWS CLI commands; use parser/formatter tests or mocks."
+
+  rule output_format_followthrough:
+    notify open file "*command_parser.py" if AGENT
+    notify open file "*cli_executor.py" if AGENT
+    notify open file "*server.py" if AGENT
+    notify write file "*format*.py" if AGENT
+    notify write file "*command_parser.py" if AGENT
+    notify write file "*cli_executor.py" if AGENT
+    notify write file "*server.py" if AGENT
+    notify write file "*test*.py" if AGENT
+    notify write file "*pyproject.toml" if AGENT
+    notify write file "*uv.lock" if AGENT
+    because "Complete the output-format checklist: keep JSON as the default, implement table output for list data, implement YAML as a mutually exclusive alternative to JSON, expose the option through the command/API path, update pyproject/lock if a YAML dependency is required, add tests for all formats and exclusivity, run ruff/pytest where practical, and include usage examples in the final response."

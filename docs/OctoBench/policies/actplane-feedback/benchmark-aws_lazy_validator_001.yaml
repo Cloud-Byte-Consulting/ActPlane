@@ -1,0 +1,37 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule no_live_aws:
+    notify exec "aws" if AGENT
+    because "For this command-validator task, do not call live AWS CLI commands; implement validator logic and local tests instead."
+
+  rule no_secret_exposure:
+    notify open file "**/.aws/config" if AGENT
+    notify open file "**/.aws/credentials" if AGENT
+    notify open file "**/.env" if AGENT
+    because "This validator task must avoid exposing credentials or secret material."
+
+  rule no_dependency_detour:
+    notify exec "pip" "install" if AGENT
+    notify exec "pip3" "install" if AGENT
+    notify exec "uv" "add" if AGENT
+    notify exec "poetry" "add" if AGENT
+    notify exec "npm" "install" if AGENT
+    notify exec "pnpm" "add" if AGENT
+    notify exec "yarn" "add" if AGENT
+    notify exec "bun" "add" if AGENT
+    because "This validator can be implemented with existing Python/project utilities; continue with code and tests."
+
+  rule validator_followthrough:
+    notify open file "*cli_executor.py" if AGENT
+    notify open file "*command*valid*.py" if AGENT
+    notify open file "*command_parser.py" if AGENT
+    notify write file "*command*valid*.py" if AGENT
+    notify write file "*cli_executor.py" if AGENT
+    notify write file "*test*.py" if AGENT
+    because "Complete the AWS command-validator checklist: enforce aws-prefix validation, block injection characters including semicolon/&&/||/$()/backticks, whitelist pipe commands, detect delete/remove/terminate operations, integrate the module, add focused pytest coverage, run ruff/pytest where practical, and summarize changed files plus test status."

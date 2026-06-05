@@ -1,0 +1,26 @@
+{
+  "case_id": "benchmark-bm_lazy_validation_001",
+  "disallowed_tools": [
+    "Bash(pip install:*)",
+    "Bash(pip3 install:*)",
+    "Bash(uv add:*)",
+    "Bash(poetry add:*)",
+    "Bash(curl:*)",
+    "Bash(wget:*)",
+    "Bash(gh:*)"
+  ],
+  "rules": [
+    {
+      "id": "no-dependency-detour",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:(?:pip3?|uv|poetry)\\s+(?:install|add)|(?:npm|pnpm|yarn|bun)\\s+(?:install|i|add))\\b",
+      "reason": "The frontmatter validation tool should use existing Basic Memory validation/date parsing patterns."
+    },
+    {
+      "id": "no-live-external-cli",
+      "effect": "block",
+      "pattern": "(^|[;&|()\\s])(?:curl|wget|gh|stripe)\\b",
+      "reason": "Avoid live external service commands while implementing this local validation tool."
+    }
+  ]
+}

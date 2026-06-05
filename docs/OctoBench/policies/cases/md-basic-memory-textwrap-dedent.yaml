@@ -1,0 +1,17 @@
+case_id: md-basic-memory-textwrap-dedent
+policy_intent:
+  - id: frontmatter_guide_followthrough
+    source: User query and Agents.md checklist
+    mapped_checks:
+      - UserQuery_context_reuse_frontmatter_implementation
+      - UserQuery_prompt_resource_implemented
+      - UserQuery_resource_loads_from_markdown
+      - UserQuery_content_fields_coverage
+      - Agents_prompt_architecture_pattern
+    os_effect: write
+    enforcement:
+      tool_regex: block external/package detours
+      actplane: notify on prompt/resource/test writes with frontmatter-guide checklist feedback
+notes:
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

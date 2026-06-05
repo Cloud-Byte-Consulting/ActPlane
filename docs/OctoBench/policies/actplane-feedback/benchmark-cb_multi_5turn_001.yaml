@@ -1,0 +1,27 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "claude"
+
+  rule package_workflow:
+    notify exec "npm" if AGENT
+    notify exec "yarn" if AGENT
+    notify exec "bun" if AGENT
+    notify exec "pnpm" "add" if AGENT
+    notify exec "pnpm" "install" if AGENT
+    because "For this Course Builder favorites feature, use existing pnpm scripts for validation and avoid package/dependency detours."
+
+  rule favorites_followthrough:
+    notify open file "*schema*" if AGENT
+    notify open file "*adapter*" if AGENT
+    notify open file "*router*" if AGENT
+    notify write file "*favorite*" if AGENT
+    notify write file "*schema*" if AGENT
+    notify write file "*adapter*" if AGENT
+    notify write file "*router*" if AGENT
+    notify write file "*course*" if AGENT
+    notify write file "*test*" if AGENT
+    because "Complete the favorites checklist end-to-end: add DB/schema support with favorite timestamp, add adapter methods, expose tRPC/API procedures, support unfavorite, return the user's favorites sorted newest first, wire UI/hooks if implied by existing patterns, preserve Course Builder style, run relevant pnpm checks/tests where practical, and summarize changed files plus validation status."

@@ -1,0 +1,18 @@
+case_id: benchmark-aws_append_format_001
+policy_intent:
+  - id: output_format_followthrough
+    source: User query and Agents.md checklist
+    mapped_checks:
+      - UserQuery_table_output_feature_implemented
+      - UserQuery_yaml_as_alternative_to_json
+      - UserQuery_follow_latest_instruction
+      - Agents_python_style_ruff_compliant
+    os_effect: write
+    enforcement:
+      tool_regex: block live AWS/external commands and credential exposure
+      actplane: notify on formatter/parser/test writes with output-format checklist feedback
+notes:
+  - Package-file writes are allowed if YAML support truly needs a dependency,
+    but the final result must update dependency metadata consistently.
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.

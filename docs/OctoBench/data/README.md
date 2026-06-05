@@ -124,6 +124,91 @@ rows, and one `一般 score-only` row.
 | 一般 score-only | 1 | 0.735 | 0.647 | 1.000 | -0.088 | +0.265 | +0.353 |
 | all retained | 9 | 0.722 | 0.742 | 0.890 | +0.020 | +0.168 | +0.148 |
 
+## Extra10 Official OctoBench Trial 2026-06-05
+
+This trial expands beyond the original 20-case subset using only official
+OctoBench cases from `octobench_full.jsonl`. Three initially selected `droid`
+cases produced no Claude Code trajectory and were removed from the active
+extra10 set. The checked-in `selected_cases_extra10.jsonl` now contains ten
+`claudecode` cases only.
+
+Scoring remains the official whole-case OctoBench judge. No category fallback,
+external reward, or checklist override is used.
+
+Run artifacts:
+
+```text
+baseline first 7:
+  results/extra10/baseline/baseline-isolated-20260605T055031Z
+  official eval: official-eval-llama-20260605T065527Z
+
+baseline replacement 3:
+  results/extra10/baseline/baseline-isolated-20260605T064757Z
+  official eval: official-eval-llama-20260605T070513Z
+
+tool-regex first 5:
+  results/extra10/tool-regex/tool-regex-isolated-20260605T070800Z
+  official eval: official-eval-llama-20260605T072214Z
+
+tool-regex AWS lazy tuned retry:
+  results/extra10/tool-regex/tool-regex-isolated-20260605T075155Z
+  official eval: official-eval-llama-20260605T075413Z
+
+tool-regex second 3:
+  results/extra10/tool-regex/tool-regex-isolated-20260605T075600Z
+  official eval: official-eval-llama-20260605T080647Z
+
+actplane-feedback first 5:
+  results/extra10/actplane-feedback/actplane-feedback-isolated-20260605T072819Z
+  official eval: official-eval-llama-20260605T074335Z
+
+actplane-feedback second 3:
+  results/extra10/actplane-feedback/actplane-feedback-isolated-20260605T080928Z
+  official eval: official-eval-llama-20260605T081850Z
+```
+
+Best observed official reward per condition:
+
+| case | baseline | best tool-regex | best actplane-feedback | status |
+|---|---:|---:|---:|---|
+| `md-aws-mcp-server-native-type-hints` | 0.600 | 0.686 | 0.943 | strong: ActPlane > tool-regex > baseline |
+| `benchmark-aws_append_service_001` | 0.837 | 0.860 | 0.884 | strong: ActPlane > tool-regex > baseline |
+| `md-sgcarstrends-commit-scope` | 0.571 | 0.600 | 0.600 | score-only/equal: ActPlane = tool-regex > baseline, no OS events |
+| `benchmark-aws_lazy_validator_001` | 0.725 | 0.675 | 0.750 | general: ActPlane > baseline, tool-regex did not improve |
+| `benchmark-bm_append_normalize_001` | 0.757 | 0.757 | 0.757 | neutral |
+| `benchmark-bm_checklist_search_001` | 0.837 | 1.000 | 0.714 | tool-regex-only win; ActPlane policy hurt official reward |
+| `benchmark-bm_lazy_validation_001` | 0.875 | 0.750 | 0.775 | not useful |
+| `md-basic-memory-textwrap-dedent` | 0.775 | 0.675 | 0.600 | not useful |
+| `benchmark-aws_append_format_001` | 1.000 | not run | not run | skipped: no improvement headroom |
+| `benchmark-cb_multi_5turn_001` | 0.887 | not run | not run | skipped for now: very high runtime, baseline run took 1516.6s |
+
+Mechanism evidence for ActPlane runs:
+
+| case | OS notify events | proxy feedback injections | note |
+|---|---:|---:|---|
+| `md-aws-mcp-server-native-type-hints` | 24 | 5 | strong score gain with OS feedback evidence |
+| `benchmark-aws_append_service_001` | 52 | 9 | strong score gain with OS feedback evidence |
+| `benchmark-aws_lazy_validator_001` | 4 | 1 | ActPlane beats baseline, but regex does not |
+| `benchmark-bm_append_normalize_001` | 20 | 10 | mechanism fired, but official score stayed flat |
+| `benchmark-bm_checklist_search_001` | 8 | 2 | mechanism fired, but feedback likely hurt official score |
+| `md-sgcarstrends-commit-scope` | 0 | 0 | score-only/equal; not mechanism evidence |
+| `benchmark-bm_lazy_validation_001` | 0 | 0 | no useful ActPlane evidence |
+| `md-basic-memory-textwrap-dedent` | 0 | 0 | no useful ActPlane evidence |
+
+Extra10 aggregate for the two strong mechanism-backed successes:
+
+| rows | baseline avg | tool-regex avg | actplane-feedback avg | actplane minus baseline | actplane minus tool-regex |
+|---:|---:|---:|---:|---:|---:|
+| 2 | 0.719 | 0.773 | 0.914 | +0.195 | +0.141 |
+
+If the score-only/equal `md-sgcarstrends-commit-scope` case is included, report
+it separately from the mechanism-backed main result because it has no observed
+OS notify event and no proxy feedback injection:
+
+| rows | baseline avg | tool-regex avg | actplane-feedback avg | actplane minus baseline | actplane minus tool-regex | interpretation |
+|---:|---:|---:|---:|---:|---:|---|
+| 3 | 0.669 | 0.715 | 0.809 | +0.140 | +0.094 | score-improving selected subset, but only 2/3 rows have ActPlane mechanism evidence |
+
 ## Best Policy Records
 
 Use one subsection per successful case. Record only the best retained

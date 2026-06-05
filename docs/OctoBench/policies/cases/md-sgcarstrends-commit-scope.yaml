@@ -1,0 +1,17 @@
+case_id: md-sgcarstrends-commit-scope
+policy_intent:
+  - id: homepage_empty_data_followthrough
+    source: User query and Claude.md checklist
+    mapped_checks:
+      - UserQuery_root_cause_analysis
+      - UserQuery_homepage_defensive_fetching
+      - UserQuery_component_empty_state_handling
+      - UserQuery_preserve_layout_with_empty_data
+      - Agents_use_pnpm_and_existing_scripts
+    os_effect: write
+    enforcement:
+      tool_regex: block wrong package manager, dependency detours, external CLI
+      actplane: notify on homepage/component/test writes with checklist feedback
+notes:
+  - Official OctoBench reward remains unchanged and is the only score.
+  - This file is case-specific; shared/base guardrails are intentionally not used.
