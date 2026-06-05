@@ -1,10 +1,11 @@
 \section{Evaluation}
 \label{sec:evaluation}
 
-The evaluation uses two sources. RQ1 and RQ2 use directive-derived
-policies from the empirical corpus; RQ3 uses a repository-grounded
-OctoBench subset with case-specific policies and the official judge.
-The evaluation answers three questions:
+We evaluate \sys{} along three axes. RQ1 measures end-to-end policy
+compliance on directive-derived policies from the empirical corpus;
+RQ2 quantifies per-event and end-to-end overhead; RQ3 tests
+repository-grounded coding tasks on an OctoBench subset with the official
+judge.
 
 \begin{description}
 \item[RQ1 (Policy compliance)] Compared with prompt-only, tool-layer,
@@ -37,29 +38,30 @@ hook) and OpenAI Codex CLI (via tool-error feedback). Exact versions are
 recorded in per-run metadata.
 
 \paragraph{Baseline systems.}
-All baselines use the \emph{same} DSL rules; the difference is the
-enforcement layer. Tool-layer baselines are Python scripts that read
-the same \texttt{rule.yaml} and implement DSL semantics at the
-tool-call level. Kernel baselines are \sys{} with features selectively
-disabled. We compare seven systems: prompt-only, TL-1, TL-N,
-app-level IFC, per-event eBPF, kernel IFC without feedback, and full
-\sys{}. The tool-layer and app-level baselines represent
-AgentSpec/Progent-style guards~\cite{wang2025agentspec,shi2025progent}
-and FIDES/CaMeL-style tool-call label tracking~\cite{costa2025fides,debenedetti2025camel};
-the kernel baselines represent per-event eBPF enforcement and
-cross-event kernel IFC without semantic feedback.
+All baselines use the \emph{same} DSL rules; only the enforcement layer
+differs. Tool-layer baselines are Python scripts that read the same
+\texttt{rule.yaml} and implement DSL semantics at the tool-call level.
+Kernel baselines are \sys{} with features selectively disabled. We compare
+seven configurations: prompt-only, TL-1 (single-event tool guard), TL-N
+(multi-event tool guard), app-level IFC, per-event eBPF, kernel IFC
+without feedback, and full \sys{}. The tool-layer and app-level baselines
+represent AgentSpec/Progent-style
+guards~\cite{wang2025agentspec,shi2025progent} and FIDES/CaMeL-style
+tool-call label tracking~\cite{costa2025fides,debenedetti2025camel}; the
+kernel baselines isolate the contributions of cross-event state and
+semantic feedback.
 
 %% ----------------------------------------------------------------
 \subsection{Rule Set Construction}
 \label{sec:eval:ruleset}
 
-E-RQ3 identifies 607~OS-enforceable directives in the empirical corpus:
-392~per-event directives and 215~cross-event directives. RQ1 uses this
-subset because these directives can be represented at process, file, or
-network hooks. Semantic-only directives have no system-observable
-counterpart, while content directives require file-content inspection or
-linting rather than OS-level IFC. The evaluation pipeline has four actors
-and strict separation of concerns.
+The empirical study identifies 607~OS-enforceable directives:
+392~per-event and 215~cross-event. RQ1 uses this subset because these
+directives can be represented at process, file, or network hooks.
+Semantic-only and content directives are excluded: the former have no
+system-observable counterpart; the latter require file-content inspection
+rather than OS-level IFC. The evaluation pipeline enforces strict
+separation of concerns across four actors.
 
 \paragraph{Pipeline overview.}
 \begin{enumerate}
@@ -504,93 +506,61 @@ test scripts.
 \section{Related Work}
 \label{sec:related}
 
-\subsection{In-Kernel Provenance and Information Flow}
+\textbf{In-kernel provenance and information flow.}
+Whole-system provenance systems---PASS~\cite{muniswamy2006pass},
+Hi-Fi~\cite{pohly2012hifi}, LPM~\cite{bates2015lpm},
+CamFlow~\cite{pasquier2017camflow}---record audit-grade provenance
+graphs via LSM hooks but do not compile agent-oriented policy or return
+semantic feedback. CamQuery~\cite{pasquier2018camquery} is the closest
+prior system: it evaluates provenance queries inline in the kernel,
+propagates labels across OS objects, and can deny matching operations.
+\sys{} shares this label-propagation model but targets cooperative AI
+agents rather than adversarial intrusions, compiles an agent-facing
+source/sink DSL rather than general provenance queries, and returns
+semantic feedback to the matching actor. Dynamic taint-tracking
+systems~\cite{enck2010taintdroid,clause2007dytan,kemerlis2012libdft,yin2007panorama}
+operate at byte or instruction granularity for vulnerability detection;
+\sys{} operates at object granularity, trading precision for low-overhead
+whole-session coverage.
 
-PASS introduced provenance as a storage-layer
-primitive~\cite{muniswamy2006pass}. Hi-Fi and LPM used LSM hooks to capture
-trustworthy whole-system provenance~\cite{pohly2012hifi,bates2015lpm}.
-CamFlow extended this to a streaming provenance framework over processes,
-files, and sockets~\cite{pasquier2017camflow}.
-
-CamQuery is the closest prior
-system~\cite{pasquier2018camquery}. It executes provenance queries inline
-in the kernel, propagates labels across process, file, and network edges,
-and can deny operations that match a policy rule. \sys{} shares this
-label-propagation model but differs in three respects: it targets
-cooperative AI agents rather than adversarial intrusions, compiles an
-agent-oriented source/sink DSL rather than general provenance queries, and
-returns semantic feedback to the matching actor. The implementation
-differs as well: \sys{} uses the eBPF/BPF-LSM substrate rather than a
-loadable kernel module.
-
-TaintDroid, Dytan, libdft, and Panorama established dynamic taint tracking
-at runtime, binary-instrumentation, and emulation
-layers~\cite{enck2010taintdroid,clause2007dytan,kemerlis2012libdft,yin2007panorama}.
-\sys{} operates at object granularity rather than byte granularity,
-trading precision for low-overhead whole-system coverage.
-
-\subsection{eBPF and LSM Enforcement}
-
-BPF-LSM, originally proposed as KRSI, allows eBPF programs to attach to
-Linux security hooks and return allow/deny
-verdicts~\cite{singh2019krsi,linuxbpflsm}. \sys{} uses BPF-LSM as its
-pre-operation enforcement backend. Contemporary eBPF enforcement tools
-such as Tetragon, Tracee, and eBPF-PATROL provide per-event predicate
-matching and, in Tetragon's case, a boolean lineage flag
-(\texttt{followChildren}) that propagates across fork/exec. These systems
-evaluate per-event predicates or single-channel lineage flags rather than
-cross-channel labeled information
-flow~\cite{ciliumtetragon,aquasecuritytracee,ghimire2025ebpfpatrol}.
-
-\subsection{Agent Guardrails and Information-Flow Control}
-
-AgentSpec and Progent provide deterministic runtime enforcement over
-tool-call names, arguments, and framework
-actions~\cite{wang2025agentspec,shi2025progent}. These systems enforce at
-the tool-call boundary; \sys{} complements them by enforcing below the
-tool API, where effects that bypass the framework are still visible.
-
-FIDES and CaMeL apply typed information-flow control and capability
-separation within the agent loop or
-scaffolding~\cite{costa2025fides,debenedetti2025camel}. \sys{} applies
-the same style of information-flow reasoning at the OS boundary, where
-observation and enforcement persist across context windows and cannot be
+\textbf{eBPF enforcement and agent guardrails.}
+BPF-LSM~\cite{singh2019krsi,linuxbpflsm} lets eBPF programs attach to
+security hooks and return allow/deny verdicts; \sys{} uses it as its
+pre-operation enforcement backend. Contemporary eBPF tools---Tetragon,
+Tracee, eBPF-PATROL~\cite{ciliumtetragon,aquasecuritytracee,ghimire2025ebpfpatrol}---provide
+per-event predicates or single-channel lineage flags; \sys{} propagates
+multi-label information flow across channels and checks cross-event
+conditions. At the agent layer, AgentSpec and
+Progent~\cite{wang2025agentspec,shi2025progent} enforce deterministic
+guards at the tool-call boundary; \sys{} complements them below the tool
+API, where shell-outs and subprocesses remain visible. FIDES and
+CaMeL~\cite{costa2025fides,debenedetti2025camel} apply typed IFC within
+the agent loop; \sys{} applies the same reasoning at the OS boundary,
+where observation persists across context windows and cannot be
 circumvented by subprocess indirection.
 
-\subsection{Agent Instruction Files}
-
-Recent empirical studies characterize \texttt{CLAUDE.md},
-\texttt{AGENTS.md}, and related agent instruction files along dimensions
-of content taxonomy, maintenance practices, and effect on task
+\textbf{Agent instruction files.}
+Recent studies characterize \texttt{CLAUDE.md} and \texttt{AGENTS.md}
+files along dimensions of content taxonomy, maintenance practices, and
+task
 efficiency~\cite{chatlatanagulchai2025manifests,chatlatanagulchai2025agentreadmes,
-santos2025claudeconfig,lulla2026agentsmd}. These studies classify at file
-or section-heading granularity. \sys{}'s empirical study
-(\S\ref{sec:empirical}) classifies at statement level along four axes
-(content type, topic, enforcement level, context requirement), asking
-which instructions constitute cross-event information-flow policies,
-which require project or task context to instantiate, and which can be
-enforced at the OS level.
+santos2025claudeconfig,lulla2026agentsmd}. These works classify at file or
+section-heading granularity. Our empirical study
+(\S\ref{sec:empirical}) classifies at statement level along four axes,
+specifically asking which instructions require cross-event enforcement
+and which need project or task context to instantiate.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-Our empirical study of 64~projects reveals that agent instruction files
-are behavioral policies (64\% directives), that most directives describe
-system-level behavior (83\% system-observable), and that 74\% of
-system-observable directives cannot be instantiated without project or
-task context that only the agent possesses. These findings motivate a design in which
-the agent authors its own enforcement policy.
-
-\sys{} provides a programmable OS-level control plane for agent harnesses.
-It compiles agent-declared behavioral policies into eBPF/BPF-LSM labeled
-information-flow rules, propagates labels across process, file, and endpoint
-objects at kernel hooks, and returns kernel-detected rule matches as semantic
-feedback to the agent. A layered policy model ensures that higher-authority
-constraints cannot be weakened by the agent, while agent-authored rules can
-evolve with task intent. By supporting notify, pre-operation denial, and
-harness-level termination with structured remediation, \sys{} enables
-agents to recover after policy rule matches rather than fail opaquely.
-\sys{} bridges the context gap and the semantic gap that single-level
-harnesses leave open, unifying labeled information-flow observation and
-enforcement with an agent-oriented policy language and a feedback loop on
-the eBPF/BPF-LSM substrate.
+An empirical study of 64~projects shows that agent instruction files are
+behavioral policies whose enforcement demands OS-level observation,
+cross-event state, and agent-provided context. \sys{} addresses this by
+letting agents author labeled information-flow policies that an eBPF/BPF-LSM
+engine enforces below the tool layer, returning semantic feedback when rules
+match. A layered authority model prevents agents from weakening
+higher-authority constraints. \sys{} does not cover semantic-only
+directives (17\%) or content-inspection directives (38\%) that require a
+linting layer, and the cooperative threat model excludes adversarial
+evasion. Extending coverage to content-level checks and multi-agent
+domains are natural next steps.
