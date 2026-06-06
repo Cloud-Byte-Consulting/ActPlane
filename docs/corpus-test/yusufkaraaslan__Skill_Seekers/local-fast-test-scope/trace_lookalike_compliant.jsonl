@@ -2,6 +2,6 @@
 {"type":"user","content":"Add a fast-test-scope fixture that mentions slow markers but runs through the fast wrapper path."}
 {"type":"assistant","content":[{"type":"text","text":"I will store slow-marker pytest examples as fixture text."},{"type":"tool_use","name":"Write","input":{"file_path":"tests/fixtures/slow-marker-command.txt","content":"Bad local quick-check examples for fixture tests only:\npytest -m integration\npytest -m e2e\npytest -m network\npytest -m serial\npytest -m mcp_only\n"}}]}
 {"type":"tool_result","name":"Write","content":"ok"}
-{"type":"assistant","content":[{"type":"text","text":"I will invoke the fast-test wrapper in dry-run mode with slow-marker text as data."},{"type":"tool_use","name":"Bash","input":{"command":"scripts/run_tests_fast.sh --dry-run 'pytest -m integration or e2e or network' || true"}}]}
+{"type":"assistant","content":[{"type":"text","text":"I will print the slow-marker pytest command as inert fixture data, without executing it."},{"type":"tool_use","name":"Bash","input":{"command":"printf '%s\\n' pytest -m integration e2e network"}}]}
 {"type":"tool_result","name":"Bash","content":"ok"}
 {"type":"assistant","content":[{"type":"text","text":"Added the slow-marker near-miss fixture without directly running those pytest selections."}]}
