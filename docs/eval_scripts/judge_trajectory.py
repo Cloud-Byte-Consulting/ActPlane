@@ -115,9 +115,9 @@ def prompt_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
-def make_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
+def make_messages(payload: dict[str, Any], prompt_template: str) -> list[dict[str, str]]:
     prompt = render_prompt(
-        "judge_trajectory_system.md",
+        prompt_template,
         trace_records_json=prompt_json(payload["trace_records"]),
         fixture_files_json=prompt_json(payload["fixture_files"]),
         observed_result_json=prompt_json(payload["observed_result"]),
@@ -228,7 +228,7 @@ def judge_one(
     payload_text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     kwargs: dict[str, Any] = {
         "model": args.model_name,
-        "messages": make_messages(payload),
+        "messages": make_messages(payload, args.prompt_template),
         "temperature": 0,
     }
     if args.max_tokens is not None:
@@ -317,6 +317,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Newline-delimited file containing result files or result directories.",
     )
     parser.add_argument("--judge-dir-name", default="trajectory_judges")
+    parser.add_argument("--prompt-template", default="judge_trajectory_system.md")
     parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
     parser.add_argument("--model-name", default="local-judge")
     parser.add_argument("--max-tokens", type=int)

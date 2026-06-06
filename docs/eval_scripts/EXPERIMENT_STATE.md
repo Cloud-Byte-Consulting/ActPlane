@@ -191,6 +191,12 @@ the original violating write/exec has already succeeded and the observed
 trajectory leaves that side effect in place. In these 24 FN cases, all setup
 interventions were `notify`; some cases had no meaningful recovery opportunity,
 some only inspected the violation, and some repeated related violating actions.
+Manual inspection also shows that a few of these final-state FN cases did start
+plausible corrective work after feedback, such as reading the required policy
+file or searching for the compliant target location. The current DCR judge does
+not give partial credit for that steering uptake. If we want to study whether
+feedback makes the agent aware and prepares a correction, report that as a
+separate uptake metric rather than merging it into final compliance.
 
 This is a paper-facing paired run. It is valid for reporting, with the caveat
 that the main RQ1 claim should be framed as runtime guardrail effectiveness
