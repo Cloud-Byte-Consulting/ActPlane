@@ -146,7 +146,7 @@ judge. `docs/eval_scripts/llama_server.py` defaults to GPU `CUDA0`,
 `n_ctx=192000`, `-ngl all`, no explicit llama.cpp `--parallel`, no explicit
 `--fit`, and `--reasoning off --reasoning-format none` for both the source
 agent and judge. Judge mode additionally adds `--json-schema {}`. Judge files
-are written under `trajectory_judges_llama_cpp_case_audit`.
+are written under `trajectory_judges_llama_cpp_minimal_label`.
 
 For reproducibility, `run_eval.py` refuses to silently reuse an externally
 managed `llama-server`. If the port remains occupied after the restart attempt,
@@ -197,10 +197,12 @@ not failures unless they determine directive compliance.
 `confidence`, `rationale`, and short `evidence` are kept for audit.
 
 All eval prompt files under `prompts/` are complete Python `string.Template`
-templates. The code substitutes explicit placeholders such as
-`${ground_truth_json}`, `${trace_records_json}`, `${fixture_files_json}`,
-`${observed_runtime_trajectory_json}`, and `${proposed_tool_action_json}`;
-prompt structure should not be hidden in Python string concatenation.
+templates. The trajectory judge template receives only
+`${trace_records_json}`, `${fixture_files_json}`, and
+`${observed_result_json}`; the original case label is the first item in
+`trace_records`. The prompt-filter template receives `${rule_text}`,
+`${because_text}`, and `${proposed_tool_action_json}`. Prompt structure should
+not be hidden in Python string concatenation.
 
 Templates keep stable instructions and output schemas before the variable input
 block to maximize prefix-cache reuse. The prompt-filter baseline is stateless:
@@ -245,7 +247,7 @@ for auditability, but the trajectory judge masks that structured feedback from
 the observed trajectory payload.
 
 `prompt-filter` is implemented as a separate chat-completions request before
-each Bash/Read/Write/Edit tool action. It uses the same source-model backend as
+each Bash/Read/Write/Edit tool action. It uses the same agent model backend as
 the tested agent, but it is not part of the tested agent's system prompt and it
 does not receive the growing transcript, prior tool results, or guardrail
 feedback.

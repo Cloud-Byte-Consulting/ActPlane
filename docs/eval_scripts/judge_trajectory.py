@@ -18,7 +18,6 @@ import concurrent.futures
 import hashlib
 import json
 import os
-import re
 import sys
 import time
 import uuid
@@ -31,9 +30,13 @@ from prompt_templates import render_prompt
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MAX_TRACE_EVENTS = 80
-MAX_STRING_CHARS = 4000
-FIXTURE_REF_RE = re.compile(r"\.eval-fixtures/[^\s\"'`;|&<>)]*")
+
+
+def truncate_string(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
+
 
 def iter_result_files(paths: list[Path]) -> list[Path]:
     files: list[Path] = []
@@ -76,120 +79,16 @@ def is_scorable_result(result: dict[str, Any]) -> bool:
     return not any(marker in output for marker in external_or_runner_errors)
 
 
-def truncate_string(value: str, limit: int) -> str:
-    if len(value) <= limit:
-        return value
-    return value[:limit] + f"\n...[truncated {len(value) - limit} chars]"
-
-
-def compact_value(value: Any, string_limit: int) -> Any:
-    if isinstance(value, str):
-        return truncate_string(value, string_limit)
-    if isinstance(value, list):
-        return [compact_value(v, string_limit) for v in value]
-    if isinstance(value, dict):
-        return {str(k): compact_value(v, string_limit) for k, v in value.items()}
-    return value
-
-
-def compact_trace(
-    records: list[dict[str, Any]],
-    *,
-    max_events: int,
-    string_limit: int,
-) -> list[dict[str, Any]]:
-    if len(records) <= max_events:
-        selected = records
-    else:
-        head = max_events // 2
-        tail = max_events - head
-        selected = [
-            *records[:head],
-            {"type": "trace_truncated", "omitted_events": len(records) - max_events},
-            *records[-tail:],
-        ]
-    return [compact_value(r, string_limit) for r in selected]
-
-
-def fixture_refs(value: Any) -> set[str]:
-    refs: set[str] = set()
-    if isinstance(value, str):
-        refs.update(match.group(0).rstrip(".,:") for match in FIXTURE_REF_RE.finditer(value))
-    elif isinstance(value, list):
-        for item in value:
-            refs.update(fixture_refs(item))
-    elif isinstance(value, dict):
-        for item in value.values():
-            refs.update(fixture_refs(item))
-    return refs
-
-
-def written_fixture_paths(trace_records: list[dict[str, Any]]) -> set[str]:
-    written: set[str] = set()
-    for record in trace_records:
-        if record.get("type") != "assistant":
-            continue
-        for item in record.get("content") or []:
-            if not isinstance(item, dict) or item.get("type") != "tool_use":
-                continue
-            if item.get("name") not in {"Write", "Edit"}:
-                continue
-            tool_input = item.get("input") if isinstance(item.get("input"), dict) else {}
-            file_path = str(tool_input.get("file_path") or "")
-            if file_path.startswith(".eval-fixtures/"):
-                written.add(file_path)
-    return written
-
-
-def selected_fixture_files(
-    *,
-    trace_records: list[dict[str, Any]],
-    fixture_snapshot: dict[str, Any],
-    result: dict[str, Any],
-) -> dict[str, str]:
-    refs = fixture_refs(trace_records)
-    refs.update(fixture_refs({
-        "tool_log": result.get("tool_log"),
-        "setup_feedbacks": result.get("setup_feedbacks"),
-        "recovery_feedbacks": result.get("recovery_feedbacks"),
-        "agent_output": result.get("agent_output"),
-    }))
-    written = written_fixture_paths(trace_records)
-
-    selected: dict[str, str] = {}
-    for raw_path, raw_text in fixture_snapshot.items():
-        path = str(raw_path)
-        if path in written:
-            continue
-        include = False
-        for ref in refs:
-            if ref == path or path.startswith(ref.rstrip("/") + "/"):
-                include = True
-                break
-        if include:
-            selected[path] = str(raw_text)
-    return selected
-
-
-def visible_result_fields(result: dict[str, Any]) -> dict[str, Any]:
-    setup_feedbacks = result.get("setup_feedbacks") or []
-    recovery_feedbacks = result.get("recovery_feedbacks") or []
-    if result.get("system") == "actplane-opaque":
-        setup_feedbacks = []
-        recovery_feedbacks = []
-    return {
-        "repo": result.get("repo"),
-        "statement_id": result.get("statement_id"),
-        "trace_file": result.get("trace_file"),
-        "ground_truth": result.get("ground_truth"),
-        "setup_fired": result.get("setup_fired"),
-        "setup_visible_intervention": result.get("setup_visible_intervention"),
-        "setup_feedbacks": setup_feedbacks,
-        "recovery_feedbacks": recovery_feedbacks,
-        "tool_log": result.get("tool_log") or [],
-        "score": result.get("score"),
-        "agent_output": result.get("agent_output"),
-    }
+def observed_runner_result(result: dict[str, Any]) -> dict[str, Any]:
+    observed = dict(result)
+    observed.pop("trace_records_snapshot", None)
+    observed.pop("fixture_files_snapshot", None)
+    observed.pop("score", None)
+    observed.pop("prompt_filter_template", None)
+    if observed.get("system") == "actplane-opaque":
+        observed["setup_feedbacks"] = []
+        observed["recovery_feedbacks"] = []
+    return observed
 
 
 def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
@@ -205,33 +104,10 @@ def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
             f"{result_path}: missing fixture_files_snapshot; rerun the runner "
             "with the snapshot-enabled harness"
         )
-    trace_records = [r for r in trace_snapshot if isinstance(r, dict)]
-    fixture_files = selected_fixture_files(
-        trace_records=trace_records,
-        fixture_snapshot=fixture_snapshot,
-        result=result,
-    )
-    ground_truth = result.get("ground_truth") if isinstance(result.get("ground_truth"), dict) else {}
     return {
-        "source_result_file": result_path.name,
-        "case_metadata": {
-            "repo": result.get("repo"),
-            "statement_id": result.get("statement_id"),
-            "trace_file": result.get("trace_file"),
-            "trace_label": "violation" if ground_truth.get("violation") else "benign",
-            "snapshot_source": "runner_result",
-        },
-        "ground_truth": compact_value(ground_truth, MAX_STRING_CHARS),
-        "trace_records": compact_trace(
-            trace_records,
-            max_events=MAX_TRACE_EVENTS,
-            string_limit=MAX_STRING_CHARS,
-        ),
-        "fixture_files": compact_value(fixture_files, MAX_STRING_CHARS),
-        "observed_runtime_trajectory": compact_value(
-            visible_result_fields(result),
-            MAX_STRING_CHARS,
-        ),
+        "trace_records": trace_snapshot,
+        "fixture_files": fixture_snapshot,
+        "observed_result": observed_runner_result(result),
     }
 
 
@@ -242,14 +118,9 @@ def prompt_json(value: Any) -> str:
 def make_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
     prompt = render_prompt(
         "judge_trajectory_system.md",
-        source_result_file=payload["source_result_file"],
-        case_metadata_json=prompt_json(payload["case_metadata"]),
-        ground_truth_json=prompt_json(payload["ground_truth"]),
         trace_records_json=prompt_json(payload["trace_records"]),
         fixture_files_json=prompt_json(payload["fixture_files"]),
-        observed_runtime_trajectory_json=prompt_json(
-            payload["observed_runtime_trajectory"]
-        ),
+        observed_result_json=prompt_json(payload["observed_result"]),
     )
     return [
         {"role": "user", "content": prompt},
@@ -362,8 +233,6 @@ def judge_one(
     }
     if args.max_tokens is not None:
         kwargs["max_tokens"] = args.max_tokens
-    if args.thinking != "default":
-        kwargs["extra_body"] = {"thinking": {"type": args.thinking}}
     response, retry_count, elapsed_ms = request_completion(
         client,
         kwargs=kwargs,
@@ -406,13 +275,11 @@ def judge_file(path: Path, args: argparse.Namespace) -> tuple[Path, Path, dict[s
     return path, default_output_path(path, args.judge_dir_name), judged
 
 
-def filter_results(files: list[Path], args: argparse.Namespace) -> list[Path]:
+def filter_results(files: list[Path]) -> list[Path]:
     selected: list[tuple[Path, dict[str, Any]]] = []
     for path in files:
         data = load_json(path)
         if not data:
-            continue
-        if args.source_model and data.get("model") != args.source_model:
             continue
         selected.append((path, data))
 
@@ -443,38 +310,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Judge trace-conditioned policy compliance for eval result JSON files"
     )
     parser.add_argument(
-        "paths",
-        nargs="*",
-        type=Path,
-        default=[],
-        help="Result files, results directories, or corpus roots",
-    )
-    parser.add_argument(
         "--input-list",
         type=Path,
         action="append",
-        default=[],
+        required=True,
         help="Newline-delimited file containing result files or result directories.",
     )
-    parser.add_argument("--source-model", help="Only judge result files from one tested model")
     parser.add_argument("--judge-dir-name", default="trajectory_judges")
     parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
     parser.add_argument("--model-name", default="local-judge")
-    parser.add_argument("--thinking", choices=["default", "enabled", "disabled"], default="default")
     parser.add_argument("--max-tokens", type=int)
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--retry-sleep", type=float, default=2.0)
     parser.add_argument("--retry-sleep-max", type=float, default=60.0)
-    parser.add_argument("--rate-limit-cooldown", type=float, default=60.0)
-    parser.add_argument("--sleep-between", type=float, default=0.0)
     parser.add_argument("--workers", type=int, default=1)
     return parser.parse_args(argv)
 
 
 def listed_paths(args: argparse.Namespace) -> list[Path]:
-    paths = list(args.paths)
+    paths: list[Path] = []
     for list_path in args.input_list:
         for line in list_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -489,10 +345,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         print("--workers must be >= 1", file=sys.stderr)
         return 2
     paths = listed_paths(args)
-    if not paths:
-        print("No input paths provided. Use run_eval.py, which passes selected runner results.", file=sys.stderr)
-        return 2
-    files = filter_results(iter_result_files(paths), args)
+    files = filter_results(iter_result_files(paths))
     if not files:
         print("No result files found.", file=sys.stderr)
         return 1
@@ -537,22 +390,11 @@ def cli_main(argv: list[str] | None = None) -> int:
                 continue
             write_judgment(path, default_output_path(path, args.judge_dir_name), judged)
             written += 1
-            retry_count = int(judged.get("retry_count") or 0)
-            if retry_count > 0 and args.rate_limit_cooldown > 0:
-                print(
-                    f"{path.name}: cooldown {args.rate_limit_cooldown:.1f}s "
-                    f"after {retry_count} judge retries"
-                )
-                time.sleep(args.rate_limit_cooldown)
-            if args.sleep_between > 0:
-                time.sleep(args.sleep_between)
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
             futures: list[concurrent.futures.Future[tuple[Path, Path, dict[str, Any]]]] = []
             for path in pending:
                 futures.append(pool.submit(judge_file, path, args))
-                if args.sleep_between > 0:
-                    time.sleep(args.sleep_between)
             for future in concurrent.futures.as_completed(futures):
                 try:
                     path, out_path, judged = future.result()

@@ -32,7 +32,7 @@ IMAGE = "actplane-rq1-agent-sdk:latest"
 AGENT_MAX_STEPS = 5
 LLAMA_API_KEY_ENV = "LLAMA_API_KEY"
 LLAMA_START_TIMEOUT = 360.0
-LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_case_audit"
+LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_minimal_label"
 LLAMA_JUDGE_WORKERS = 3
 LLAMA_JUDGE_MAX_TOKENS = 16384
 LLAMA_JUDGE_TIMEOUT = 1800.0
@@ -41,7 +41,7 @@ REMOTE_GLM_API_KEY_ENV = "GLM_API_KEY"
 REMOTE_GLM_MODEL_NAME = "glm-4.7-flash"
 REMOTE_GLM_AGENT_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
 REMOTE_GLM_JUDGE_BASE_URL = "https://api.z.ai/api/paas/v4"
-REMOTE_GLM_JUDGE_DIR = "trajectory_judges_glm_4_7_flash_case_audit"
+REMOTE_GLM_JUDGE_DIR = "trajectory_judges_glm_4_7_flash_minimal_label"
 REMOTE_GLM_JUDGE_WORKERS = 1
 REMOTE_GLM_JUDGE_TIMEOUT = 180.0
 
@@ -372,11 +372,9 @@ def validate_traces(env: dict[str, str], log_path: Path) -> int:
 def judge_and_summarize(
     *,
     result_list: Path,
-    source_model: str,
     judge_base_url: str,
     judge_model: str,
     judge_dir: str,
-    judge_thinking: str,
     judge_timeout: float,
     judge_workers: int,
     judge_max_tokens: int | None,
@@ -385,16 +383,12 @@ def judge_and_summarize(
     log_path: Path,
 ) -> int:
     judge_cmd = module_cmd("judge_trajectory", [
-        "--source-model",
-        source_model,
         "--judge-dir-name",
         judge_dir,
         "--base-url",
         judge_base_url,
         "--model-name",
         judge_model,
-        "--thinking",
-        judge_thinking,
         "--api-key-env",
         api_key_env,
         "--timeout",
@@ -405,10 +399,6 @@ def judge_and_summarize(
         "30",
         "--retry-sleep-max",
         "60",
-        "--rate-limit-cooldown",
-        "300",
-        "--sleep-between",
-        "0",
         "--workers",
         str(judge_workers),
         "--input-list",
@@ -420,8 +410,6 @@ def judge_and_summarize(
         return 1
 
     summary_cmd = module_cmd("summarize_agent_sdk_results", [
-        "--source-model",
-        source_model,
         "--judge-dir-name",
         judge_dir,
         "--input-list",
@@ -481,11 +469,9 @@ def main() -> int:
         result_list = write_result_list(out_dir, result_files)
         rc = judge_and_summarize(
             result_list=result_list,
-            source_model=REMOTE_GLM_MODEL_NAME,
             judge_base_url=REMOTE_GLM_JUDGE_BASE_URL,
             judge_model=REMOTE_GLM_MODEL_NAME,
             judge_dir=REMOTE_GLM_JUDGE_DIR,
-            judge_thinking="disabled",
             judge_timeout=REMOTE_GLM_JUDGE_TIMEOUT,
             judge_workers=REMOTE_GLM_JUDGE_WORKERS,
             judge_max_tokens=None,
@@ -526,11 +512,9 @@ def main() -> int:
             judge_server.start(timeout=LLAMA_START_TIMEOUT)
             rc = judge_and_summarize(
                 result_list=result_list,
-                source_model=source_model,
                 judge_base_url=f"{judge_server.base_url}/v1",
                 judge_model=judge_server.model_name(),
                 judge_dir=LLAMA_JUDGE_DIR,
-                judge_thinking="default",
                 judge_timeout=LLAMA_JUDGE_TIMEOUT,
                 judge_workers=LLAMA_JUDGE_WORKERS,
                 judge_max_tokens=LLAMA_JUDGE_MAX_TOKENS,

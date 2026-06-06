@@ -180,14 +180,15 @@ docs/eval_scripts/                      # active real-execution harness
   README.md                             # usage and scope
 ```
 
-Prompt templates use Python `string.Template` placeholders such as
-`${ground_truth_json}`, `${trace_records_json}`, `${fixture_files_json}`,
-`${observed_runtime_trajectory_json}`, and `${proposed_tool_action_json}`. The
-template files are intended to be complete and auditable; Python code only
-substitutes values into those placeholders. Stable instructions and output
-schemas appear before variable input blocks to maximize prefix-cache reuse. The
-prompt-filter baseline is stateless: each classifier request receives only the
-original natural-language rule and the current proposed tool action.
+Prompt templates use Python `string.Template`. The trajectory judge receives
+`${trace_records_json}`, `${fixture_files_json}`, and `${observed_result_json}`;
+the original case label is the first item in `trace_records`. The prompt-filter
+baseline receives `${rule_text}`, `${because_text}`, and
+`${proposed_tool_action_json}`. Template files are complete and auditable:
+Python code only substitutes values into placeholders. Stable instructions and
+output schemas appear before variable input blocks to maximize prefix-cache
+reuse. The prompt-filter baseline is stateless: each classifier request receives
+only the original natural-language rule and the current proposed tool action.
 
 `rule.yaml` and `trace_*.jsonl` are stable inputs. `results/{run_id}.json`
 is the output of a single execution and is append-only by default so

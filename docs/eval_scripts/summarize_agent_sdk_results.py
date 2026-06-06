@@ -180,26 +180,18 @@ def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Summarize final RQ1 directive-compliance results")
     parser.add_argument(
-        "paths",
-        nargs="*",
-        type=Path,
-        default=[],
-        help="Result files, results directories, or corpus roots",
-    )
-    parser.add_argument(
         "--input-list",
         type=Path,
         action="append",
-        default=[],
+        required=True,
         help="Newline-delimited file containing result files or result directories.",
     )
-    parser.add_argument("--source-model", help="Only include runs from this tested model")
     parser.add_argument("--judge-dir-name", default="trajectory_judges")
     return parser.parse_args(argv)
 
 
 def listed_paths(args: argparse.Namespace) -> list[Path]:
-    paths = list(args.paths)
+    paths: list[Path] = []
     for list_path in args.input_list:
         for line in list_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -211,18 +203,12 @@ def listed_paths(args: argparse.Namespace) -> list[Path]:
 def cli_main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     paths = listed_paths(args)
-    if not paths:
-        print("No input paths provided. Use run_eval.py, which passes selected runner results.")
-        return 2
-
     results: list[dict[str, Any]] = []
     for path in iter_result_files(paths):
         item = load_json(path)
         if not item:
             continue
         if item.get("system") not in SYSTEMS:
-            continue
-        if args.source_model and item.get("model") != args.source_model:
             continue
         results.append(item)
 
