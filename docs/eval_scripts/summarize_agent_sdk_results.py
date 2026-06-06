@@ -18,7 +18,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = ROOT / "docs" / "corpus-test"
-SYSTEMS = ["prompt-only", "tool-regex", "actplane", "actplane-opaque"]
+SYSTEMS = ["prompt-filter", "tool-regex", "actplane", "actplane-opaque"]
 
 
 def iter_result_files(paths: list[Path]) -> list[Path]:

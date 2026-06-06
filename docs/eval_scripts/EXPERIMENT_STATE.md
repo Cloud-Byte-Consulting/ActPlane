@@ -110,7 +110,7 @@ NVIDIA/NemoClaw#s01_private_vulnerability_reporting
 Systems:
 
 ```text
-prompt-only
+prompt-filter
 tool-regex
 actplane
 actplane-opaque
@@ -130,7 +130,7 @@ Final metric from `summarize_agent_sdk_results.py`:
 
 | system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| prompt-only | 14/20 (70.0%) | 7 | 7 | 1 | 5 | 0 | 20 | 0.965 |
+| prompt-filter | 14/20 (70.0%) | 7 | 7 | 1 | 5 | 0 | 20 | 0.965 |
 | tool-regex | 9/20 (45.0%) | 3 | 6 | 2 | 9 | 0 | 20 | 0.978 |
 | actplane | 15/20 (75.0%) | 9 | 6 | 2 | 3 | 0 | 20 | 0.988 |
 | actplane-opaque | 8/20 (40.0%) | 3 | 5 | 3 | 9 | 0 | 20 | 0.970 |

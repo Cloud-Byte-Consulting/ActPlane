@@ -7,7 +7,7 @@ The paper-facing entrypoint is:
 python3 docs/eval_scripts/run_eval.py --config full
 ```
 
-`full` is a configuration inside `run_eval.py`. It runs `prompt-only`,
+`full` is a configuration inside `run_eval.py`. It runs `prompt-filter`,
 `tool-regex`, `actplane`, and `actplane-opaque`, then judges trajectories and
 prints the final Directive Compliance Rate. Do not report intermediate
 validation or runtime diagnostics as paper results.
@@ -30,7 +30,7 @@ The command runs, in order:
 validate trace artifacts
 build the minimal Docker COW image
 start local llama.cpp for the source agent
-run prompt-only in Docker
+run prompt-filter in Docker
 run tool-regex in Docker
 run actplane in Docker
 run actplane-opaque in Docker
@@ -66,7 +66,7 @@ Each statement has the same five trace families:
 System outputs are written under:
 
 ```text
-docs/eval_runs/full/<timestamp>/prompt-only/
+docs/eval_runs/full/<timestamp>/prompt-filter/
 docs/eval_runs/full/<timestamp>/tool-regex/
 docs/eval_runs/full/<timestamp>/actplane/
 docs/eval_runs/full/<timestamp>/actplane-opaque/
@@ -185,7 +185,7 @@ calls in trace artifacts.
 
 ## Systems
 
-- `prompt-only`: the policy/directive is only in the model prompt.
+- `prompt-filter`: an external prompt-based step filter judges proposed tool actions from the natural-language directive.
 - `tool-regex`: checks explicit Agent SDK tool inputs using per-case
   `baselines/tool-regex.yaml`.
 - `actplane`: OS/syscall-layer ActPlane enforcement with structured feedback.
@@ -199,9 +199,9 @@ the observed trajectory payload.
 The available configs are:
 
 ```text
-baseline: prompt-only, tool-regex
+baseline: prompt-filter, tool-regex
 actplane: actplane, actplane-opaque
-full: prompt-only, tool-regex, actplane, actplane-opaque
+full: prompt-filter, tool-regex, actplane, actplane-opaque
 ```
 
 It uses local llama.cpp for both the tested agent and trajectory judge by
