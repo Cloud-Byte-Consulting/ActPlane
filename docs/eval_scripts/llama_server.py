@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""Manage a local llama-server process for eval.
+"""Internal local llama.cpp server manager for RQ1 eval.
 
-Usage as a module:
-    from llama_server import LlamaServer
-    srv = LlamaServer()
-    srv.start()        # blocks until healthy
-    # ... run eval ...
-    srv.stop()
-
-Usage as a script:
-    python llama_server.py start   # start in foreground, Ctrl-C to stop
-    python llama_server.py health  # check if already running
+Reported experiments must invoke this through run_eval.py, which starts one
+server for the source agent and restarts it in JSON mode for trajectory judging.
 """
 
 from __future__ import annotations
@@ -18,7 +10,6 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
-import sys
 import time
 from pathlib import Path
 from urllib.request import urlopen
@@ -239,22 +230,7 @@ class LlamaServer:
 
 
 if __name__ == "__main__":
-    action = sys.argv[1] if len(sys.argv) > 1 else "start"
-    srv = LlamaServer(judge_json="--judge-json" in sys.argv, restart_existing="--restart-existing" in sys.argv)
-
-    if action == "health":
-        if srv.healthy():
-            print(f"OK — llama-server healthy at {srv.base_url}")
-        else:
-            print(f"NOT RUNNING at {srv.base_url}")
-            sys.exit(1)
-    elif action == "start":
-        srv.start()
-        print("Press Ctrl-C to stop.")
-        try:
-            srv.proc.wait()
-        except KeyboardInterrupt:
-            srv.stop()
-    else:
-        print(f"Usage: {sys.argv[0]} [start|health]")
-        sys.exit(1)
+    raise SystemExit(
+        "llama_server.py is an internal helper. "
+        "Use docs/eval_scripts/run_eval.py as the only eval entrypoint."
+    )

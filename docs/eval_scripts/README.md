@@ -4,7 +4,7 @@ This directory contains the RQ1 trace-conditioned compliance evaluation path.
 The paper-facing entrypoint is:
 
 ```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config full
+python3 docs/eval_scripts/run_eval.py --config full
 ```
 
 `full` is a configuration inside `run_eval.py`. It runs `prompt-only`,
@@ -21,17 +21,20 @@ modules and direct execution intentionally exits.
 Full run:
 
 ```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config full
+python3 docs/eval_scripts/run_eval.py --config full
 ```
 
 The command runs, in order:
 
 ```text
 validate trace artifacts
+build the minimal Docker COW image
+start local llama.cpp for the source agent
 run prompt-only in Docker
 run tool-regex in Docker
 run actplane in Docker
 run actplane-opaque in Docker
+restart local llama.cpp in JSON judge mode
 judge trajectories
 summarize final Directive Compliance Rate
 ```
@@ -72,116 +75,78 @@ docs/eval_runs/full/<timestamp>/actplane-opaque/
 Baseline-only run:
 
 ```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py --config baseline
+python3 docs/eval_scripts/run_eval.py --config baseline
 ```
 
-First-50 baseline run, using existing runner results when present:
+ActPlane-only run:
 
 ```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
-  --config baseline \
-  --limit 50 \
-  --workers 1 \
-  --judge-workers 1 \
-  --judge-sleep-between 120 \
-  --out-dir docs/eval_runs/baseline/<timestamp>
+python3 docs/eval_scripts/run_eval.py --config actplane
 ```
 
-ActPlane-only extension run:
+Smoke run:
+
+```bash
+python3 docs/eval_scripts/run_eval.py \
+  --config full \
+  --limit 20 \
+  --out-dir docs/eval_runs/full/<timestamp>
+```
+
+`--limit` is for smoke tests only. Omit it for a paper run.
+
+Resume into a fixed output directory:
+
+```bash
+python3 docs/eval_scripts/run_eval.py \
+  --config full \
+  --out-dir docs/eval_runs/full/<timestamp>
+```
+
+For each system, completion is checked by `(repo, statement, trace)` keys and
+the source model name. Fresh runs use one Docker invocation per system. Resume
+runs skip complete keys and execute only missing keys, without adding a public
+trace-list flag.
+
+Remote GLM is opt-in:
 
 ```bash
 GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
   --config full \
-  --limit 50 \
-  --workers 1 \
-  --judge-workers 1 \
-  --judge-sleep-between 120 \
-  --out-dir docs/eval_runs/baseline/<timestamp>
+  --remote-glm
 ```
 
-This skips any existing complete `prompt-only` and `tool-regex` outputs in that
-directory, runs the missing ActPlane systems, then re-judges/summarizes all four
-systems. Completion is checked by `(repo, statement, trace)` keys, not by a raw
-JSON file count.
+## Fixed Constants
 
-Small sanity run:
-
-```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
-  --config actplane \
-  --limit 8 \
-  --max-steps 1
+```text
+AGENT_MAX_STEPS = 10
+LLAMA_JUDGE_WORKERS = 3
+LLAMA_JUDGE_MAX_TOKENS = 16384
+LLAMA_JUDGE_TIMEOUT = 1800 seconds
+REMOTE_GLM_JUDGE_WORKERS = 1
+REMOTE_GLM_JUDGE_TIMEOUT = 180 seconds
 ```
 
-Optional trace-level parallelism:
+These constants are experiment settings, not command-line knobs. Report them
+with the result table.
 
-```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
-  --config actplane \
-  --limit 8 \
-  --max-steps 1 \
-  --workers 2
-```
+## Model Backend
 
-`--workers > 1` runs one Docker invocation per trace and skips already completed
-`(repo, statement, trace)` keys in the target output directory. Keep ActPlane
-parallelism small until the run has been sanity-checked, because each worker
-loads an eBPF enforcement instance.
-
-Optional judge parallelism:
-
-```bash
-GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
-  --config baseline \
-  --limit 50 \
-  --judge-workers 2 \
-  --judge-sleep-between 120
-```
-
-Judge files are checkpointed next to each runner result and skipped on resume.
-For GLM-4.7-Flash, the conservative default is `--judge-workers 1`; higher
-parallelism can hit API rate limits on large trajectory payloads.
-`run_eval.py` sends small independent judge batches to reduce request-count
-limits, but writes one `.judge.json` per runner result and the final metric is
-still computed per trajectory.
-
-Local llama.cpp judge, managed by the same entrypoint:
-
-```bash
-python3 docs/eval_scripts/run_eval.py \
-  --config baseline \
-  --judge-backend llama \
-  --judge-input-list docs/eval_runs/llama-subset/20260605T_llama20/selected_runner_results.txt \
-  --out-dir docs/eval_runs/llama-subset/20260605T_llama20
-```
-
-`--judge-backend llama` starts and stops `llama-server` inside `run_eval.py`.
-The command is intentionally aligned with the OctoBench local judge path:
-`docs/eval_scripts/llama_server.py` defaults to GPU `CUDA0`, `n_ctx=192000`,
-`-ngl all`, no explicit llama.cpp `--parallel`, no explicit `--fit`, and
-`judge_json=True` adds `--reasoning off --reasoning-format none --json-schema
-{}`. The judge phase uses three parallel OpenAI-compatible requests,
-`batch_size=1`, `max_tokens=16384`, and writes judge files under
+Default runs use local llama.cpp for both the source agent and the trajectory
+judge. `docs/eval_scripts/llama_server.py` defaults to GPU `CUDA0`,
+`n_ctx=192000`, `-ngl all`, no explicit llama.cpp `--parallel`, no explicit
+`--fit`, and judge mode adds `--reasoning off --reasoning-format none
+--json-schema {}`. Judge files are written under
 `trajectory_judges_llama_cpp_octobench`.
 
 For reproducibility, `run_eval.py` refuses to silently reuse an externally
-managed `llama-server` when `--judge-backend llama` requests a restart. If the
-port remains occupied after the restart attempt, the run fails instead of
-mixing in a server with unknown parameters.
+managed `llama-server`. If the port remains occupied after the restart attempt,
+the run fails instead of mixing in a server with unknown parameters.
 
-Endpoint defaults follow Z.AI's documented split:
-
-- Agent runner: `https://api.z.ai/api/coding/paas/v4` for GLM Coding Plan /
-  coding-tool scenarios.
-- Trajectory judge: `https://api.z.ai/api/paas/v4` for ordinary
-  OpenAI-compatible chat completions.
-
-The trajectory judge runs GLM with `thinking.disabled` so strict JSON judge
-responses are not displaced by reasoning tokens.
-
-For trace-conditioned compliance, prefer `--max-steps 1`: the experiment asks
-whether the system steers the next decision point after the fixed trace, not
-whether the agent can complete an open-ended task.
+With `--remote-glm`, the source agent uses
+`https://api.z.ai/api/coding/paas/v4`, the trajectory judge uses
+`https://api.z.ai/api/paas/v4`, and judge requests run with
+`thinking.disabled`.
 
 ## Final Metric
 
@@ -239,9 +204,9 @@ actplane: actplane, actplane-opaque
 full: prompt-only, tool-regex, actplane, actplane-opaque
 ```
 
-It uses the GLM Coding Plan endpoint, `glm-4.7-flash` for both the tested agent
-and trajectory judge, and the standard `docs/corpus-test` corpus. Reported
-trace-conditioned runs should state the `--max-steps` budget used.
+It uses local llama.cpp for both the tested agent and trajectory judge by
+default, and the standard `docs/corpus-test` corpus. Reported
+trace-conditioned runs should state the fixed `AGENT_MAX_STEPS` budget used.
 
 ## Artifacts
 
@@ -270,16 +235,15 @@ not run `shlex`, split shell tokens, lower ActPlane DSL, inspect generated
 script contents beyond the explicit tool input string, or observe runtime
 subprocess/syscall effects.
 
-The original pilot corpus still uses `trace_compliant.jsonl` and
-`trace_violation.jsonl` for many cases. Expanded RQ1 cases should use the five
-trace roles above so the intent is explicit.
+The legacy `trace_compliant.jsonl` / `trace_violation.jsonl` files are outside
+the current manifest scope.
 
 ## Corpus Expansion
 
-Target RQ1 scale:
+Current RQ1 scope:
 
 ```text
-16 repos x 2 statements/repo x 5 traces/statement = 160 traces
+15 repos, 38 statements, 5 traces/statement = 190 traces
 ```
 
 Each statement should have exactly five trace-conditioned decision points:
@@ -299,8 +263,7 @@ Each statement should have exactly five trace-conditioned decision points:
   The trace exposes only the top-level invocation; the underlying write, unlink,
   exec, connect, or provenance event is visible only at runtime.
 
-The current pilot covers 10 repos, one statement per repo, and two traces per
-statement. Expand it with six additional repos:
+The expansion included these additional repos:
 
 | repo | why include it | statement themes to look for |
 |---|---|---|
@@ -311,7 +274,7 @@ statement. Expand it with six additional repos:
 | `browser-use__browser-harness` | browser automation harness; good source of subprocess and artifact cases | sandbox/output paths, test fixtures, credentials/session files |
 | `openai__codex` | coding-agent CLI/tooling repo; close to the evaluated agent setting | command execution policy, config handling, tests and release artifacts |
 
-These six are additions to the existing pilot set:
+These were additions to the existing pilot set:
 
 ```text
 Alishahryar1__free-claude-code
@@ -420,7 +383,7 @@ back to the host UID/GID so judge files can be written beside runner results.
 ## GLM Notes
 
 - Coding Plan endpoint: `https://api.z.ai/api/coding/paas/v4`.
-- Do not write API keys into scripts or result files. Use `--api-key-env`.
+- Remote GLM is opt-in via `--remote-glm` and reads `GLM_API_KEY`.
 - Use one fixed model ID for all systems in a reported run. If API errors occur,
   rerun those scenarios rather than counting external failures as safety
   failures.

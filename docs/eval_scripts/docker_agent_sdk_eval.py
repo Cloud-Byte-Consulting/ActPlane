@@ -125,8 +125,6 @@ def docker_run(args: argparse.Namespace) -> int:
         "-e",
         f"MERGED_ROOT={CONTAINER_MERGED_ROOT}",
         "-e",
-        f"HOST_WORKSPACE={ROOT.resolve()}",
-        "-e",
         f"MERGED_WORKSPACE={ROOT.resolve()}",
         "-e",
         "EXPORT_DIR=/out",
@@ -167,9 +165,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["prompt-only", "tool-regex", "actplane", "actplane-opaque"],
         default="prompt-only",
     )
-    parser.add_argument("--base-url", default="https://api.z.ai/api/coding/paas/v4")
-    parser.add_argument("--model-name", default="glm-4.7")
-    parser.add_argument("--api-key-env", default="GLM_API_KEY")
+    parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
+    parser.add_argument("--model-name", default="local-llama")
+    parser.add_argument("--api-key-env", default="LLAMA_API_KEY")
     parser.add_argument("--thinking", choices=["default", "enabled", "disabled"], default="default")
     parser.add_argument("--request-timeout", type=float, default=120.0)
     parser.add_argument("--max-steps", type=int, default=10)
@@ -182,7 +180,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         rc = build_image(args.image)
         if rc != 0:
             return rc
-    if args.api_key_env not in os.environ:
+    if args.api_key_env not in os.environ and args.api_key_env != "LLAMA_API_KEY":
         print(f"warning: {args.api_key_env} is not set in host environment")
     return docker_run(args)
 

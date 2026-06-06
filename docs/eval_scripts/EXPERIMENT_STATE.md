@@ -1,14 +1,14 @@
 # RQ1 Experiment State
 
-Last updated: 2026-06-05.
+Last updated: 2026-06-06.
 
-This document records the current reusable experiment data for the RQ1
-trace-conditioned compliance evaluation. The goal is to avoid restarting from
-zero while still keeping the paper-facing results paired and comparable.
+This document records reusable data for the RQ1 trace-conditioned compliance
+evaluation. The goal is to avoid restarting from zero while keeping reported
+numbers paired and comparable.
 
-## Formal Scope
+## Current Scope
 
-The active corpus is manifest-driven. A trace is in scope only if it is listed in:
+The active corpus is manifest-driven. A trace is in scope only when listed in:
 
 ```text
 docs/corpus-test/<repo>/<statement_id>/statement.json
@@ -17,12 +17,12 @@ docs/corpus-test/<repo>/<statement_id>/statement.json
 Current scope:
 
 ```text
-38 statements x 5 traces = 190 trace-conditioned scenarios
-25 per_event statements
-13 cross_event statements
+15 repos
+38 statements
+190 trace-conditioned scenarios
 ```
 
-Each statement has exactly these five trace families:
+Each statement has exactly five trace families:
 
 ```text
 trace_canonical_compliant.jsonl
@@ -32,57 +32,114 @@ trace_script_visible_violation.jsonl
 trace_opaque_fixture_violation.jsonl
 ```
 
-Preflight status:
+The latest run preflight validated all selected trace artifacts before any model
+execution. Directory globbing alone is not the paper scope.
 
-```text
-190/190 trace artifacts replay-valid
-0 legacy trace_compliant.jsonl / trace_violation.jsonl files
+## Official Entry Point
+
+Reported experiments should use only:
+
+```bash
+python3 docs/eval_scripts/run_eval.py --config full
 ```
 
-The runner, validator, and top-level `run_eval.py` now use the same
-`statement.json.trace_files` list. Directory globbing alone is not the paper
-scope.
+Default backend:
 
-## Existing Data
+```text
+source agent: local llama.cpp
+trajectory judge: local llama.cpp JSON mode
+source/judge model in latest run: Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M
+```
 
-### Complete Paired Smoke Data
+Fixed constants:
+
+```text
+AGENT_MAX_STEPS = 10
+LLAMA_JUDGE_WORKERS = 3
+LLAMA_JUDGE_MAX_TOKENS = 16384
+LLAMA_JUDGE_TIMEOUT = 1800 seconds
+REMOTE_GLM_JUDGE_WORKERS = 1
+REMOTE_GLM_JUDGE_TIMEOUT = 180 seconds
+```
+
+The public flags are intentionally limited to:
+
+```text
+--config
+--out-dir
+--limit
+--remote-glm
+```
+
+`--limit` is for smoke tests only. Omit it for the full paper run.
+
+## Latest Complete Paired Run
 
 Directory:
 
 ```text
-docs/eval_runs/full/20260605T_llama20_full_updateplan
+docs/eval_runs/full/20260605T_llama20_paperpath
 ```
 
-Reusable current-scope data:
+Command:
 
-```text
-prompt-only      5 complete runner + 5 llama.cpp judge
-tool-regex       5 complete runner + 5 llama.cpp judge
-actplane         5 complete runner + 5 llama.cpp judge
-actplane-opaque  5 complete runner + 5 llama.cpp judge
-```
-
-Judge backend:
-
-```text
-trajectory_judges_llama_cpp_octobench
-Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M
+```bash
+python3 docs/eval_scripts/run_eval.py \
+  --config full \
+  --limit 20 \
+  --out-dir docs/eval_runs/full/20260605T_llama20_paperpath
 ```
 
 Coverage:
 
 ```text
-Alishahryar1/free-claude-code#s01_use_uv_run
-all 5 trace families
+4 statements x 5 traces = 20 trace-conditioned scenarios
+4 systems = 80 selected runner results
+80/80 llama.cpp trajectory judge files
 ```
 
-This is the only currently complete four-system paired set. It is useful as a
-pipeline smoke result, but it is not enough for the paper table. It was produced
-before the Docker wrapper switched to a full-host COW chroot, so cases that
-depend on host tools such as `uv` can be confounded by missing container tools.
-Do not use it to estimate the final effect size.
+Selected statements:
 
-### Baseline Runner Data
+```text
+Alishahryar1/free-claude-code#6
+Alishahryar1/free-claude-code#s01_use_uv_run
+NVIDIA/NemoClaw#19
+NVIDIA/NemoClaw#s01_private_vulnerability_reporting
+```
+
+Systems:
+
+```text
+prompt-only
+tool-regex
+actplane
+actplane-opaque
+```
+
+Execution properties:
+
+```text
+Docker image is minimal and shell-only.
+Benchmark commands run in a full-host COW chroot.
+Host tools are visible through the overlay; writes stay in the overlay.
+ActPlane systems run through real actplane/eBPF enforcement.
+External side-effect tools such as gh issue create are replaced or blocked.
+```
+
+Final metric from `summarize_agent_sdk_results.py`:
+
+| system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| prompt-only | 14/20 (70.0%) | 7 | 7 | 1 | 5 | 0 | 20 | 0.965 |
+| tool-regex | 9/20 (45.0%) | 3 | 6 | 2 | 9 | 0 | 20 | 0.978 |
+| actplane | 15/20 (75.0%) | 9 | 6 | 2 | 3 | 0 | 20 | 0.988 |
+| actplane-opaque | 8/20 (40.0%) | 3 | 5 | 3 | 9 | 0 | 20 | 0.970 |
+
+This is a paper-path smoke result: paired, judged, Docker-isolated, and using
+real ActPlane enforcement. It is still too small to report as the final paper
+effect size because it covers only 4 of 38 statements.
+
+## Older Data
 
 Directory:
 
@@ -90,155 +147,46 @@ Directory:
 docs/eval_runs/baseline/20260605T031337Z
 ```
 
-Raw current-scope runner artifacts:
+Preserve this directory for audit. It contains useful raw baseline work, but it
+is not a paper table as-is because it mixes incomplete runner rows, sparse judge
+coverage, API rate-limit failures, and no paired ActPlane rows for the same full
+scope.
 
-```text
-prompt-only  140/190 keys
-tool-regex   140/190 keys
-```
-
-Do not delete these artifacts. They are useful for audit and partial reuse.
-
-Under the current `run_eval.py` complete-result filter, reusable complete keys are:
-
-```text
-prompt-only   56/190 complete keys
-tool-regex     8/190 complete keys
-```
-
-The gap is mostly not trace invalidity. Many raw baseline results are API
-rate-limit failures, for example:
-
-```text
-agent_error.type = RateLimitError
-message includes Error code: 429
-step_count = 0
-scorable = false
-```
-
-Those results should be preserved, but they cannot be used as final trajectory
-data. They need retrying. A MaxTurnsExceeded-style run should not be treated as a
-transport error; if such runs are marked unscorable, audit the runner before
-discarding them.
-
-Existing judged baseline data is sparse and mixed:
-
-```text
-llama.cpp judge:
-  prompt-only  4 current-scope keys
-  tool-regex   5 current-scope keys
-
-remote GLM judge:
-  tool-regex   7 current-scope keys
-```
-
-Do not mix llama.cpp judge and remote GLM judge in one paper table.
-
-### Other Runs
-
-Directory:
-
-```text
-docs/eval_runs/full/20260605T_llama20_full
-```
-
-Current-scope reusable runner data:
-
-```text
-prompt-only      5 complete runner, 0 judge
-tool-regex       5 complete runner, 0 judge
-actplane         5 complete runner, 0 judge
-actplane-opaque  5 complete runner, 0 judge
-```
-
-This can be judged or reused, but it currently contributes no final DCR.
-
-Directory:
-
-```text
-docs/eval_runs/full/20260605T_formal190_glm47_llama
-```
-
-This was an interrupted accidental fresh run:
-
-```text
-prompt-only  3 raw keys, 2 complete keys, 0 judge
-```
-
-It is safe to ignore. It should not be treated as the main continuation point.
+Other early `docs/eval_runs/full/20260605T_*` directories are pipeline history.
+They can be inspected for debugging, but do not mix their rows into a reported
+table unless `run_eval.py` selects them for the same `(repo, statement, trace)`,
+source model, and judge backend.
 
 ## What Cannot Be Used As Paper Data
 
-The following should not be included in the final paper table:
+Do not include:
 
 ```text
 results for deleted semantic/content-only statements
-results for old trace_compliant.jsonl / trace_violation.jsonl keys
+legacy trace_compliant.jsonl / trace_violation.jsonl keys
 baseline-only rows without corresponding ActPlane rows
 runner rows without trajectory judge output
 remote GLM judge rows mixed with llama.cpp judge rows
-rate-limit / API-transport failures marked scorable=false
+rate-limit or transport failures marked scorable=false
 ```
 
-These files may remain on disk for audit. They are just outside the current
+These files may remain on disk for audit. They are outside the current
 paper-facing paired scope.
 
-## Recommended Continuation Plan
+## Continuation Plan
 
-To avoid starting from zero, continue from the baseline directory:
+For a full paper-scale run, use a fresh directory:
 
 ```bash
-export GLM_API_KEY=...
 python3 docs/eval_scripts/run_eval.py \
   --config full \
-  --judge-backend llama \
-  --workers 1 \
-  --judge-workers 3 \
-  --no-build \
-  --out-dir docs/eval_runs/baseline/20260605T031337Z
+  --out-dir docs/eval_runs/full/<timestamp>
 ```
 
-Why this directory:
+For an interrupted run, use the same output directory. `run_eval.py` checks
+complete `(repo, statement, trace)` keys and source model names, skips complete
+keys, runs only missing runner rows, judges missing trajectories, and prints one
+final DCR table.
 
-```text
-It already contains the largest amount of baseline runner work.
-run_eval.py skips complete current-scope keys inside the target out-dir.
-The missing prompt-only/tool-regex keys are retried.
-The missing actplane/actplane-opaque systems are added under the same run dir.
-The final judge/summarize phase uses the manifest-selected runner results only.
-```
-
-Current expected remaining work in that directory, using the strict complete
-filter:
-
-```text
-prompt-only      rerun up to 134 keys
-tool-regex       rerun up to 182 keys
-actplane         run 190 keys
-actplane-opaque  run 190 keys
-```
-
-The baseline raw artifacts are not discarded; they remain in the directory. The
-strict filter only determines which keys can be skipped safely.
-
-If API quota is tight, an alternative is:
-
-1. Run only missing baseline keys first with `--config baseline`.
-2. Run `--config actplane` into the same directory after baseline is complete.
-3. Run the llama.cpp judge over the selected result list.
-
-However, the final paper number should still be reported only after all four
-systems have results for the same manifest keys and the same judge backend.
-
-## Current Smoke DCR
-
-The only complete four-system judged set is the 5-trace `s01_use_uv_run` smoke:
-
-```text
-prompt-only      0/5
-tool-regex       0/5
-actplane         2/5
-actplane-opaque  0/5
-```
-
-Do not report this as the main result. It is a pipeline sanity check only.
+The final reported number should be the DCR table printed by `run_eval.py` after
+all four systems have judged rows for the same manifest-selected trace keys.

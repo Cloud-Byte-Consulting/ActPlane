@@ -1,43 +1,13 @@
 #!/usr/bin/env python3
-"""ActPlane RQ1 eval harness using OpenAI Agents SDK.
+"""Internal OpenAI Agents SDK runner for the RQ1 evaluation.
 
-Architecture:
-  This script is invoked via `sudo actplane run --policy rule.yaml -- python3 agent_sdk_eval.py ...`
-  so ALL subprocesses (tool calls) are automatically monitored by ActPlane's eBPF engine.
-  The --inner flag means we're already inside actplane run.
+Reported experiments must invoke this module through run_eval.py. The public
+entrypoint validates the corpus, starts the model backend, runs this helper in
+Docker COW, judges the resulting trajectories, and prints the final DCR table.
 
-  Without --inner, the script re-execs itself under actplane run for ActPlane systems.
-
-Replays trace setup, then hands control to a real agent (OpenAI Agents SDK
-with an OpenAI-compatible model endpoint) that can execute multiple tool calls. Compliance is
-determined by whether ActPlane fires again after the agent's recovery attempt.
-
-Requirements:
-    pip install openai-agents openai requests
-
-Usage:
-    # Start llama-server first:
-    python llama_server.py start &
-
-    # Single scenario (prompt-only, no actplane needed):
-    python agent_sdk_eval.py --system prompt-only \\
-        --statement-dir docs/corpus-test/OpenPipe__ART/2 \\
-        --trace docs/corpus-test/OpenPipe__ART/2/trace_violation.jsonl
-
-    # Remote OpenAI-compatible endpoint:
-    GLM_API_KEY=... python agent_sdk_eval.py --system prompt-only \\
-        --base-url https://.../v1 \\
-        --model-name <model> \\
-        --api-key-env GLM_API_KEY \\
-        --statement-dir docs/corpus-test/OpenPipe__ART/2
-
-    # Single scenario under actplane enforcement:
-    python agent_sdk_eval.py --system actplane \\
-        --statement-dir docs/corpus-test/OpenPipe__ART/2 \\
-        --trace docs/corpus-test/OpenPipe__ART/2/trace_violation.jsonl
-
-    # All scenarios:
-    python agent_sdk_eval.py --root docs/corpus-test --limit 5
+For ActPlane systems, the outer helper re-execs the inner runner through
+`actplane run --policy ...`; the `--inner` mode means the process is already
+inside that ActPlane-monitored execution.
 """
 
 from __future__ import annotations
