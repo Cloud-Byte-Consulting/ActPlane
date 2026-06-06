@@ -119,7 +119,8 @@ GLM_API_KEY=... python3 docs/eval_scripts/run_eval.py \
 ## Fixed Constants
 
 ```text
-AGENT_MAX_STEPS = 10
+AGENT_MAX_STEPS = 5
+PROMPT_FILTER_MAX_TOKENS = 512
 LLAMA_JUDGE_WORKERS = 3
 LLAMA_JUDGE_MAX_TOKENS = 16384
 LLAMA_JUDGE_TIMEOUT = 1800 seconds
@@ -135,8 +136,8 @@ with the result table.
 Default runs use local llama.cpp for both the source agent and the trajectory
 judge. `docs/eval_scripts/llama_server.py` defaults to GPU `CUDA0`,
 `n_ctx=192000`, `-ngl all`, no explicit llama.cpp `--parallel`, no explicit
-`--fit`, and judge mode adds `--reasoning off --reasoning-format none
---json-schema {}`. Judge files are written under
+`--fit`, and `--reasoning off --reasoning-format none` for both the source
+agent and judge. Judge mode additionally adds `--json-schema {}`. Judge files are written under
 `trajectory_judges_llama_cpp_octobench_effective`.
 
 For reproducibility, `run_eval.py` refuses to silently reuse an externally
@@ -184,14 +185,13 @@ relevance belong to a separate attribution analysis, not the main DCR judge.
 All eval prompt files under `prompts/` are complete Python `string.Template`
 templates. The code substitutes explicit placeholders such as
 `${original_natural_language_rule}`, `${original_trace_json}`,
-`${observed_runtime_trajectory_json}`, `${guardrail_context_json}`, and
-`${proposed_tool_action_json}`; prompt structure should not be hidden in Python
-string concatenation.
+`${observed_runtime_trajectory_json}`, and `${proposed_tool_action_json}`;
+prompt structure should not be hidden in Python string concatenation.
 
 Templates keep stable instructions and output schemas before the variable input
-block to maximize prefix-cache reuse. The prompt-filter baseline should not send
-the full growing transcript on every step; it should send the original rule,
-a bounded deterministic guardrail context, and the proposed tool action.
+block to maximize prefix-cache reuse. The prompt-filter baseline is stateless:
+each classifier request receives only the original natural-language rule and the
+current proposed tool action.
 
 ## External Side Effects
 
@@ -233,7 +233,8 @@ the observed trajectory payload.
 `prompt-filter` is implemented as a separate chat-completions request before
 each Bash/Read/Write/Edit tool action. It uses the same source-model backend as
 the tested agent, but it is not part of the tested agent's system prompt and it
-does not receive the full growing transcript.
+does not receive the growing transcript, prior tool results, or guardrail
+feedback.
 
 The available configs are:
 

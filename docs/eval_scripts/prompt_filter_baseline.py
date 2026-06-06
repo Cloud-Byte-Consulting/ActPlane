@@ -17,6 +17,9 @@ from prompt_templates import render_prompt
 from tool_regex_baseline import ToolPolicyEvent
 
 
+MAX_FILTER_TOKENS = 512
+
+
 @dataclass
 class PromptFilterPolicy:
     client: OpenAI
@@ -47,6 +50,7 @@ class PromptFilterPolicy:
             model=self.model_name,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
+            max_tokens=MAX_FILTER_TOKENS,
         ).choices[0].message.content or ""
         parsed = parse_json_response(raw)
         decision = str(parsed.get("decision") or "allow").strip().lower()

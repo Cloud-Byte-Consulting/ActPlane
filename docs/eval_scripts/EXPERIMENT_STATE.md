@@ -49,12 +49,14 @@ Default backend:
 source agent: local llama.cpp
 trajectory judge: local llama.cpp JSON mode
 source/judge model in latest run: Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M
+source/judge llama.cpp reasoning: off
 ```
 
 Fixed constants:
 
 ```text
-AGENT_MAX_STEPS = 10
+AGENT_MAX_STEPS = 5
+PROMPT_FILTER_MAX_TOKENS = 512
 LLAMA_JUDGE_WORKERS = 3
 LLAMA_JUDGE_MAX_TOKENS = 16384
 LLAMA_JUDGE_TIMEOUT = 1800 seconds

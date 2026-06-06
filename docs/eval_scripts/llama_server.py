@@ -139,9 +139,13 @@ class LlamaServer:
             "-c",
             str(self.ctx_size),
             "--no-webui",
+            "--reasoning",
+            "off",
+            "--reasoning-format",
+            "none",
         ]
         if self.judge_json:
-            cmd.extend(["--reasoning", "off", "--reasoning-format", "none", "--json-schema", "{}"])
+            cmd.extend(["--json-schema", "{}"])
         return cmd
 
     def start(self, timeout: float = 120) -> None:

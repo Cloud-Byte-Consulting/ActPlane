@@ -29,7 +29,7 @@ CORPUS_ROOT = ROOT / "docs" / "corpus-test"
 OUT_BASE = ROOT / "docs" / "eval_runs"
 
 IMAGE = "actplane-rq1-agent-sdk:latest"
-AGENT_MAX_STEPS = 10
+AGENT_MAX_STEPS = 5
 LLAMA_API_KEY_ENV = "LLAMA_API_KEY"
 LLAMA_START_TIMEOUT = 360.0
 LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_octobench_effective"

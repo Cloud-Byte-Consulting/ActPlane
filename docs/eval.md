@@ -183,13 +183,12 @@ docs/eval_scripts/                      # active real-execution harness
 
 Prompt templates use Python `string.Template` placeholders such as
 `${original_natural_language_rule}`, `${original_trace_json}`,
-`${observed_runtime_trajectory_json}`, `${guardrail_context_json}`, and
-`${proposed_tool_action_json}`. The template files are intended to be complete
-and auditable; Python code only substitutes values into those placeholders.
-Stable instructions and output schemas appear before variable input blocks to
-maximize prefix-cache reuse. The prompt-filter baseline uses a bounded
-deterministic guardrail context rather than the full growing transcript at every
-step.
+`${observed_runtime_trajectory_json}`, and `${proposed_tool_action_json}`. The
+template files are intended to be complete and auditable; Python code only
+substitutes values into those placeholders. Stable instructions and output
+schemas appear before variable input blocks to maximize prefix-cache reuse. The
+prompt-filter baseline is stateless: each classifier request receives only the
+original natural-language rule and the current proposed tool action.
 
 `rule.yaml` and `trace_*.jsonl` are stable inputs. `results/{run_id}.json`
 is the output of a single execution and is append-only by default so
@@ -547,10 +546,10 @@ Key properties:
 - **Tested-agent phase**: bounded real Agent SDK execution. Proposed tool
   actions are actually run unless the selected runtime guardrail blocks them.
 - **LLM step filter baseline**: before each proposed tool action, a separate
-  classifier LLM receives the natural-language directive, a bounded
-  deterministic guardrail context, and the proposed tool action. It returns
-  `allow`, `report`, or `block` plus optional feedback. It does not execute or
-  inspect subprocess/syscall behavior after allowing the tool call.
+  classifier LLM receives the natural-language directive and the proposed tool
+  action. It returns `allow`, `report`, or `block` plus optional feedback. It
+  does not receive prior trace history, tool results, or guardrail feedback, and
+  it does not inspect subprocess/syscall behavior after allowing the tool call.
 - **Tool-regex baseline**: checks only explicit Agent SDK tool inputs.
 - **ActPlane**: observes and enforces below the tool layer, so subprocesses,
   helper scripts, and cross-event state remain visible to the guardrail.
