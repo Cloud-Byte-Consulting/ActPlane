@@ -32,7 +32,7 @@ IMAGE = "actplane-rq1-agent-sdk:latest"
 AGENT_MAX_STEPS = 5
 LLAMA_API_KEY_ENV = "LLAMA_API_KEY"
 LLAMA_START_TIMEOUT = 360.0
-LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_octobench_effective"
+LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_case_audit"
 LLAMA_JUDGE_WORKERS = 3
 LLAMA_JUDGE_MAX_TOKENS = 16384
 LLAMA_JUDGE_TIMEOUT = 1800.0
@@ -41,7 +41,7 @@ REMOTE_GLM_API_KEY_ENV = "GLM_API_KEY"
 REMOTE_GLM_MODEL_NAME = "glm-4.7-flash"
 REMOTE_GLM_AGENT_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
 REMOTE_GLM_JUDGE_BASE_URL = "https://api.z.ai/api/paas/v4"
-REMOTE_GLM_JUDGE_DIR = "trajectory_judges_glm_4_7_flash_effective"
+REMOTE_GLM_JUDGE_DIR = "trajectory_judges_glm_4_7_flash_case_audit"
 REMOTE_GLM_JUDGE_WORKERS = 1
 REMOTE_GLM_JUDGE_TIMEOUT = 180.0
 
@@ -155,6 +155,10 @@ def load_result(path: Path) -> dict | None:
 
 def is_complete_runner_result(data: dict) -> bool:
     if data.get("scorable") is False:
+        return False
+    if not isinstance(data.get("trace_records_snapshot"), list):
+        return False
+    if not isinstance(data.get("fixture_files_snapshot"), dict):
         return False
     output = str(data.get("agent_output") or "")
     if output.startswith("(setup error:"):
@@ -407,8 +411,6 @@ def judge_and_summarize(
         "0",
         "--workers",
         str(judge_workers),
-        "--batch-size",
-        "1" if judge_max_tokens is not None else "4",
         "--input-list",
         str(result_list),
     ])

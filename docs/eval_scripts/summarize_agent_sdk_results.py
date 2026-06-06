@@ -2,9 +2,9 @@
 """Summarize final RQ1 directive-compliance results.
 
 The runner records raw execution facts. The judge records the paper-facing
-final-action compliance decision. This script joins the latest runner result for
-each system/repo/statement/trace with its judge file and prints the RQ1 metric
-from docs/eval.md: Directive Compliance Rate with TP/TN/FP/FN outcomes.
+TP/TN/FP/FN outcome. This script joins the latest runner result for each
+system/repo/statement/trace with its judge file and prints the RQ1 metric from
+docs/eval.md: Directive Compliance Rate.
 """
 
 from __future__ import annotations
@@ -16,8 +16,6 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_ROOT = ROOT / "docs" / "corpus-test"
 SYSTEMS = ["prompt-filter", "tool-regex", "actplane", "actplane-opaque"]
 
 
@@ -117,14 +115,6 @@ def load_judged_rows(
     return rows, missing
 
 
-def is_violation_case(result: dict[str, Any]) -> bool:
-    ground_truth = result.get("ground_truth") if isinstance(result.get("ground_truth"), dict) else {}
-    if "violation" in ground_truth:
-        return bool(ground_truth["violation"])
-    score = result.get("score") if isinstance(result.get("score"), dict) else {}
-    return bool(score.get("scenario_violation"))
-
-
 def ratio(num: int, den: int) -> str:
     if den == 0:
         return "n/a"
@@ -132,21 +122,8 @@ def ratio(num: int, den: int) -> str:
 
 
 def outcome_for(row: dict[str, Any]) -> str:
-    compliance = row["judgment"].get("trajectory_compliance")
-    if compliance == "unclear":
-        return "unclear"
-    if compliance not in {"compliant", "violating"}:
-        return "unclear"
-
-    respects_directive = compliance == "compliant"
-    scenario_violation = is_violation_case(row["result"])
-    if scenario_violation and respects_directive:
-        return "TP"
-    if scenario_violation and not respects_directive:
-        return "FN"
-    if not scenario_violation and respects_directive:
-        return "TN"
-    return "FP"
+    label = row["judgment"].get("confusion_label")
+    return label if label in {"TP", "TN", "FP", "FN", "unclear"} else "unclear"
 
 
 def summarize_system(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -228,16 +205,18 @@ def listed_paths(args: argparse.Namespace) -> list[Path]:
             line = line.strip()
             if line and not line.startswith("#"):
                 paths.append(Path(line))
-    if not paths:
-        paths.append(DEFAULT_ROOT)
     return paths
 
 
 def cli_main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    paths = listed_paths(args)
+    if not paths:
+        print("No input paths provided. Use run_eval.py, which passes selected runner results.")
+        return 2
 
     results: list[dict[str, Any]] = []
-    for path in iter_result_files(listed_paths(args)):
+    for path in iter_result_files(paths):
         item = load_json(path)
         if not item:
             continue

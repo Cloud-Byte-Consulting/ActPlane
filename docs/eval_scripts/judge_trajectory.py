@@ -3,12 +3,12 @@
 
 This script is intentionally separate from agent_sdk_eval.py. The runner
 executes tools and records hard runtime signals; this judge reads completed
-result JSON files and asks an OpenAI-compatible model to evaluate the final
-trajectory for policy compliance only.
+result JSON files and asks an OpenAI-compatible model to audit the constructed
+case and assign the paper-facing TP/TN/FP/FN outcome.
 
 It is not a task-completion judge. The corpus-test setup samples one trace
-conditioned decision point, so the judge should decide whether the observed
-setup/recovery trajectory satisfies the directive at that point.
+conditioned decision point, so the judge should decide whether the trace label
+is valid and whether the tested guardrail handled that point correctly.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import uuid
@@ -30,9 +31,9 @@ from prompt_templates import render_prompt
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_ROOT = ROOT / "docs" / "corpus-test"
 MAX_TRACE_EVENTS = 80
 MAX_STRING_CHARS = 4000
+FIXTURE_REF_RE = re.compile(r"\.eval-fixtures/[^\s\"'`;|&<>)]*")
 
 def iter_result_files(paths: list[Path]) -> list[Path]:
     files: list[Path] = []
@@ -75,32 +76,6 @@ def is_scorable_result(result: dict[str, Any]) -> bool:
     return not any(marker in output for marker in external_or_runner_errors)
 
 
-def infer_statement_dir(result_path: Path, result: dict[str, Any]) -> Path | None:
-    if result_path.parent.name == "results":
-        candidate = result_path.parent.parent
-        trace_name = result.get("trace_file") or result.get("trace")
-        if not trace_name:
-            return candidate
-        if (candidate / Path(str(trace_name)).name).exists():
-            return candidate
-
-    rule_file = result.get("rule_file")
-    if rule_file:
-        rule_path = Path(rule_file)
-        if not rule_path.is_absolute():
-            rule_path = ROOT / rule_path
-        if rule_path.exists():
-            return rule_path.parent
-
-    repo = str(result.get("repo") or "").replace("/", "__")
-    statement_id = str(result.get("statement_id") or "")
-    if repo and statement_id:
-        candidate = DEFAULT_ROOT / repo / statement_id
-        if candidate.exists():
-            return candidate
-    return None
-
-
 def truncate_string(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
@@ -115,34 +90,6 @@ def compact_value(value: Any, string_limit: int) -> Any:
     if isinstance(value, dict):
         return {str(k): compact_value(v, string_limit) for k, v in value.items()}
     return value
-
-
-def read_trace_records(statement_dir: Path | None, result: dict[str, Any]) -> list[dict[str, Any]]:
-    if not statement_dir:
-        return []
-    trace_name = result.get("trace_file") or result.get("trace")
-    if not trace_name:
-        return []
-    trace_path = Path(str(trace_name))
-    if not trace_path.is_absolute():
-        trace_path = statement_dir / trace_path.name
-    if not trace_path.exists():
-        return []
-
-    records: list[dict[str, Any]] = []
-    with trace_path.open(encoding="utf-8", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                records.append({"type": "unparseable", "content": line})
-            else:
-                if isinstance(obj, dict):
-                    records.append(obj)
-    return records
 
 
 def compact_trace(
@@ -164,6 +111,66 @@ def compact_trace(
     return [compact_value(r, string_limit) for r in selected]
 
 
+def fixture_refs(value: Any) -> set[str]:
+    refs: set[str] = set()
+    if isinstance(value, str):
+        refs.update(match.group(0).rstrip(".,:") for match in FIXTURE_REF_RE.finditer(value))
+    elif isinstance(value, list):
+        for item in value:
+            refs.update(fixture_refs(item))
+    elif isinstance(value, dict):
+        for item in value.values():
+            refs.update(fixture_refs(item))
+    return refs
+
+
+def written_fixture_paths(trace_records: list[dict[str, Any]]) -> set[str]:
+    written: set[str] = set()
+    for record in trace_records:
+        if record.get("type") != "assistant":
+            continue
+        for item in record.get("content") or []:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            if item.get("name") not in {"Write", "Edit"}:
+                continue
+            tool_input = item.get("input") if isinstance(item.get("input"), dict) else {}
+            file_path = str(tool_input.get("file_path") or "")
+            if file_path.startswith(".eval-fixtures/"):
+                written.add(file_path)
+    return written
+
+
+def selected_fixture_files(
+    *,
+    trace_records: list[dict[str, Any]],
+    fixture_snapshot: dict[str, Any],
+    result: dict[str, Any],
+) -> dict[str, str]:
+    refs = fixture_refs(trace_records)
+    refs.update(fixture_refs({
+        "tool_log": result.get("tool_log"),
+        "setup_feedbacks": result.get("setup_feedbacks"),
+        "recovery_feedbacks": result.get("recovery_feedbacks"),
+        "agent_output": result.get("agent_output"),
+    }))
+    written = written_fixture_paths(trace_records)
+
+    selected: dict[str, str] = {}
+    for raw_path, raw_text in fixture_snapshot.items():
+        path = str(raw_path)
+        if path in written:
+            continue
+        include = False
+        for ref in refs:
+            if ref == path or path.startswith(ref.rstrip("/") + "/"):
+                include = True
+                break
+        if include:
+            selected[path] = str(raw_text)
+    return selected
+
+
 def visible_result_fields(result: dict[str, Any]) -> dict[str, Any]:
     setup_feedbacks = result.get("setup_feedbacks") or []
     recovery_feedbacks = result.get("recovery_feedbacks") or []
@@ -174,29 +181,53 @@ def visible_result_fields(result: dict[str, Any]) -> dict[str, Any]:
         "repo": result.get("repo"),
         "statement_id": result.get("statement_id"),
         "trace_file": result.get("trace_file"),
+        "ground_truth": result.get("ground_truth"),
+        "setup_fired": result.get("setup_fired"),
+        "setup_visible_intervention": result.get("setup_visible_intervention"),
         "setup_feedbacks": setup_feedbacks,
         "recovery_feedbacks": recovery_feedbacks,
         "tool_log": result.get("tool_log") or [],
+        "score": result.get("score"),
         "agent_output": result.get("agent_output"),
     }
 
 
 def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
-    statement_dir = infer_statement_dir(result_path, result)
-    trace_records = [
-        record
-        for record in read_trace_records(statement_dir, result)
-        if record.get("type") != "ground_truth"
-    ]
+    trace_snapshot = result.get("trace_records_snapshot")
+    fixture_snapshot = result.get("fixture_files_snapshot")
+    if not isinstance(trace_snapshot, list):
+        raise RuntimeError(
+            f"{result_path}: missing trace_records_snapshot; rerun the runner "
+            "with the snapshot-enabled harness"
+        )
+    if not isinstance(fixture_snapshot, dict):
+        raise RuntimeError(
+            f"{result_path}: missing fixture_files_snapshot; rerun the runner "
+            "with the snapshot-enabled harness"
+        )
+    trace_records = [r for r in trace_snapshot if isinstance(r, dict)]
+    fixture_files = selected_fixture_files(
+        trace_records=trace_records,
+        fixture_snapshot=fixture_snapshot,
+        result=result,
+    )
     ground_truth = result.get("ground_truth") if isinstance(result.get("ground_truth"), dict) else {}
     return {
         "source_result_file": result_path.name,
-        "original_natural_language_rule": ground_truth.get("directive"),
-        "original_trace": compact_trace(
+        "case_metadata": {
+            "repo": result.get("repo"),
+            "statement_id": result.get("statement_id"),
+            "trace_file": result.get("trace_file"),
+            "trace_label": "violation" if ground_truth.get("violation") else "benign",
+            "snapshot_source": "runner_result",
+        },
+        "ground_truth": compact_value(ground_truth, MAX_STRING_CHARS),
+        "trace_records": compact_trace(
             trace_records,
             max_events=MAX_TRACE_EVENTS,
             string_limit=MAX_STRING_CHARS,
         ),
+        "fixture_files": compact_value(fixture_files, MAX_STRING_CHARS),
         "observed_runtime_trajectory": compact_value(
             visible_result_fields(result),
             MAX_STRING_CHARS,
@@ -211,22 +242,14 @@ def prompt_json(value: Any) -> str:
 def make_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
     prompt = render_prompt(
         "judge_trajectory_system.md",
-        source_result_file=payload.get("source_result_file") or "",
-        original_natural_language_rule=payload.get("original_natural_language_rule") or "",
-        original_trace_json=prompt_json(payload.get("original_trace") or []),
+        source_result_file=payload["source_result_file"],
+        case_metadata_json=prompt_json(payload["case_metadata"]),
+        ground_truth_json=prompt_json(payload["ground_truth"]),
+        trace_records_json=prompt_json(payload["trace_records"]),
+        fixture_files_json=prompt_json(payload["fixture_files"]),
         observed_runtime_trajectory_json=prompt_json(
-            payload.get("observed_runtime_trajectory") or {}
+            payload["observed_runtime_trajectory"]
         ),
-    )
-    return [
-        {"role": "user", "content": prompt},
-    ]
-
-
-def make_batch_messages(cases: list[dict[str, Any]]) -> list[dict[str, str]]:
-    prompt = render_prompt(
-        "judge_trajectory_batch_system.md",
-        cases_json=prompt_json(cases),
     )
     return [
         {"role": "user", "content": prompt},
@@ -257,12 +280,15 @@ def parse_json_response(text: str) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def normalize_judgment(value: dict[str, Any] | None) -> dict[str, Any]:
-    allowed = {"compliant", "violating", "unclear"}
+    allowed = {"TP", "TN", "FP", "FN", "unclear"}
     judgment: dict[str, Any] = {}
     source = value or {}
 
-    tc = source.get("trajectory_compliance")
-    judgment["trajectory_compliance"] = tc if tc in allowed else "unclear"
+    label = source.get("confusion_label")
+    judgment["confusion_label"] = label if label in allowed else "unclear"
+
+    trace_label_valid = source.get("trace_label_valid")
+    judgment["trace_label_valid"] = trace_label_valid if isinstance(trace_label_valid, bool) else None
 
     confidence = source.get("confidence")
     if isinstance(confidence, int | float):
@@ -367,96 +393,6 @@ def judge_one(
     }
 
 
-def judge_batch(
-    client: OpenAI,
-    result_paths: list[Path],
-    args: argparse.Namespace,
-) -> list[tuple[Path, Path, dict[str, Any]]]:
-    cases: list[dict[str, Any]] = []
-    loaded: list[tuple[str, Path, dict[str, Any], dict[str, Any], str]] = []
-    for index, path in enumerate(result_paths):
-        result = load_json(path)
-        if not result:
-            raise RuntimeError(f"could not load result JSON: {path}")
-        case_id = f"case-{index:03d}"
-        payload = build_payload(path, result)
-        payload_text = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        loaded.append((
-            case_id,
-            path,
-            result,
-            payload,
-            hashlib.sha256(payload_text.encode("utf-8")).hexdigest(),
-        ))
-        cases.append({
-            "case_id": case_id,
-            "payload": payload,
-        })
-
-    kwargs: dict[str, Any] = {
-        "model": args.model_name,
-        "messages": make_batch_messages(cases),
-        "temperature": 0,
-    }
-    if args.max_tokens is not None:
-        kwargs["max_tokens"] = args.max_tokens
-    if args.thinking != "default":
-        kwargs["extra_body"] = {"thinking": {"type": args.thinking}}
-    label = f"batch[{','.join(path.name for path in result_paths)}]"
-    response, retry_count, elapsed_ms = request_completion(
-        client,
-        kwargs=kwargs,
-        args=args,
-        label=label,
-    )
-    raw = response.choices[0].message.content or ""
-    parsed, parse_error = parse_json_response(raw)
-    if parse_error:
-        raise RuntimeError(f"could not parse batch judge response: {parse_error}")
-    raw_cases = parsed.get("cases") if isinstance(parsed, dict) else None
-    if not isinstance(raw_cases, list):
-        raise RuntimeError("batch judge response missing cases list")
-
-    by_case_id: dict[str, dict[str, Any]] = {}
-    for item in raw_cases:
-        if isinstance(item, dict) and item.get("case_id") is not None:
-            by_case_id[str(item["case_id"])] = item
-
-    judged_items: list[tuple[Path, Path, dict[str, Any]]] = []
-    batch_run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
-    for case_id, path, result, _payload, payload_sha256 in loaded:
-        entry = by_case_id.get(case_id)
-        if entry is None:
-            raise RuntimeError(f"batch judge response missing {case_id} for {path}")
-        source = entry.get("judgment") if isinstance(entry.get("judgment"), dict) else entry
-        judgment = normalize_judgment(source)
-        judged_items.append((
-            path,
-            default_output_path(path, args.judge_dir_name),
-            {
-                "judge_run_id": f"{batch_run_id}-{case_id}",
-                "judge_batch_run_id": batch_run_id,
-                "judge_batch_size": len(result_paths),
-                "judge_batch_case_id": case_id,
-                "source_result": str(path),
-                "source_run_id": result.get("run_id"),
-                "repo": result.get("repo"),
-                "statement_id": result.get("statement_id"),
-                "trace_file": result.get("trace_file"),
-                "source_system": result.get("system"),
-                "source_model": result.get("model"),
-                "judge_model": args.model_name,
-                "elapsed_ms": elapsed_ms,
-                "retry_count": retry_count,
-                "payload_sha256": payload_sha256,
-                "judgment": judgment,
-                "parse_error": None,
-                "raw_response": raw,
-            },
-        ))
-    return judged_items
-
-
 def judge_file(path: Path, args: argparse.Namespace) -> tuple[Path, Path, dict[str, Any]]:
     result = load_json(path)
     if not result:
@@ -534,7 +470,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--rate-limit-cooldown", type=float, default=60.0)
     parser.add_argument("--sleep-between", type=float, default=0.0)
     parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--batch-size", type=int, default=1)
     return parser.parse_args(argv)
 
 
@@ -545,8 +480,6 @@ def listed_paths(args: argparse.Namespace) -> list[Path]:
             line = line.strip()
             if line and not line.startswith("#"):
                 paths.append(Path(line))
-    if not paths:
-        paths.append(DEFAULT_ROOT)
     return paths
 
 
@@ -555,13 +488,11 @@ def cli_main(argv: list[str] | None = None) -> int:
     if args.workers < 1:
         print("--workers must be >= 1", file=sys.stderr)
         return 2
-    if args.batch_size < 1:
-        print("--batch-size must be >= 1", file=sys.stderr)
+    paths = listed_paths(args)
+    if not paths:
+        print("No input paths provided. Use run_eval.py, which passes selected runner results.", file=sys.stderr)
         return 2
-    if args.workers > 1 and args.batch_size > 1:
-        print("--batch-size > 1 is only supported with --workers 1", file=sys.stderr)
-        return 2
-    files = filter_results(iter_result_files(listed_paths(args)), args)
+    files = filter_results(iter_result_files(paths), args)
     if not files:
         print("No result files found.", file=sys.stderr)
         return 1
@@ -584,7 +515,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         )
         j = judged["judgment"]
         print(
-            f"{path.name}: {j['trajectory_compliance']} "
+            f"{path.name}: {j['confusion_label']} "
             f"confidence={j['confidence']:.2f} -> {out_path}"
         )
 
@@ -594,35 +525,23 @@ def cli_main(argv: list[str] | None = None) -> int:
             base_url=args.base_url,
             timeout=args.timeout,
         )
-        for start in range(0, len(pending), args.batch_size):
-            chunk = pending[start : start + args.batch_size]
+        for path in pending:
             try:
-                if len(chunk) == 1:
-                    result = load_json(chunk[0])
-                    if not result:
-                        continue
-                    judged_items = [(
-                        chunk[0],
-                        default_output_path(chunk[0], args.judge_dir_name),
-                        judge_one(client, chunk[0], result, args),
-                    )]
-                else:
-                    judged_items = judge_batch(client, chunk, args)
+                result = load_json(path)
+                if not result:
+                    continue
+                judged = judge_one(client, path, result, args)
             except Exception as e:
-                failed += len(chunk)
-                names = ",".join(path.name for path in chunk)
-                print(f"{names}: ERROR {type(e).__name__}: {e}", file=sys.stderr)
+                failed += 1
+                print(f"{path.name}: ERROR {type(e).__name__}: {e}", file=sys.stderr)
                 continue
-            max_retry_count = 0
-            for path, out_path, judged in judged_items:
-                write_judgment(path, out_path, judged)
-                written += 1
-                max_retry_count = max(max_retry_count, int(judged.get("retry_count") or 0))
-            if max_retry_count > 0 and args.rate_limit_cooldown > 0:
-                names = ",".join(path.name for path in chunk)
+            write_judgment(path, default_output_path(path, args.judge_dir_name), judged)
+            written += 1
+            retry_count = int(judged.get("retry_count") or 0)
+            if retry_count > 0 and args.rate_limit_cooldown > 0:
                 print(
-                    f"{names}: cooldown {args.rate_limit_cooldown:.1f}s "
-                    f"after {max_retry_count} judge retries"
+                    f"{path.name}: cooldown {args.rate_limit_cooldown:.1f}s "
+                    f"after {retry_count} judge retries"
                 )
                 time.sleep(args.rate_limit_cooldown)
             if args.sleep_between > 0:

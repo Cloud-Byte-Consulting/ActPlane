@@ -56,6 +56,8 @@ DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
 DEFAULT_BASE_INSTRUCTIONS = Path(__file__).resolve().parent / "prompts" / "base_agent.md"
 PROMPT_FILTER_TEMPLATE = Path(__file__).resolve().parent / "prompts" / "prompt_filter_step.md"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
+MAX_SNAPSHOT_FIXTURE_FILES = 20
+MAX_SNAPSHOT_TEXT_CHARS = 4000
 
 
 def manifest_trace_files(statement_dir: Path) -> list[Path]:
@@ -305,6 +307,35 @@ def cleanup_workdir(mounted: bool, workdir: Path, ovl_base: Path) -> None:
     shutil.rmtree(ovl_base, ignore_errors=True)
 
 
+def snapshot_text(value: str) -> str:
+    if len(value) <= MAX_SNAPSHOT_TEXT_CHARS:
+        return value
+    return value[:MAX_SNAPSHOT_TEXT_CHARS] + f"\n...[truncated {len(value) - MAX_SNAPSHOT_TEXT_CHARS} chars]"
+
+
+def read_fixture_snapshot(statement_dir: Path) -> dict[str, str]:
+    fixture_dir = statement_dir / "fixtures"
+    if not fixture_dir.is_dir():
+        return {}
+    snapshot: dict[str, str] = {}
+    files = sorted(path for path in fixture_dir.rglob("*") if path.is_file())
+    for path in files[:MAX_SNAPSHOT_FIXTURE_FILES]:
+        rel_path = Path(".eval-fixtures") / path.relative_to(fixture_dir)
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            text = f"<could not read fixture: {type(e).__name__}: {e}>"
+        snapshot[str(rel_path)] = snapshot_text(text)
+    return snapshot
+
+
+def case_snapshot(statement_dir: Path, trace_path: Path) -> dict[str, Any]:
+    return {
+        "trace_records_snapshot": read_jsonl(trace_path),
+        "fixture_files_snapshot": read_fixture_snapshot(statement_dir),
+    }
+
+
 def make_unscorable_result(
     *,
     statement_dir: Path,
@@ -329,6 +360,7 @@ def make_unscorable_result(
         "system": system,
         "trace_file": trace_path.name,
         "ground_truth": ground_truth,
+        **case_snapshot(statement_dir, trace_path),
         "setup_fired": setup_fired,
         "setup_visible_intervention": setup_visible_intervention,
         "setup_feedbacks": list(setup_feedbacks or []),
@@ -1206,6 +1238,7 @@ async def run_scenario_inner(
         "system": system,
         "trace_file": trace_path.name,
         "ground_truth": gt,
+        **case_snapshot(statement_dir, trace_path),
         "setup_fired": setup_fired,
         "setup_visible_intervention": ctx.setup_visible_intervention,
         "setup_feedbacks": list(ctx.setup_feedbacks),
