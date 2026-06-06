@@ -35,6 +35,26 @@ trace_opaque_fixture_violation.jsonl
 The latest run preflight validated all selected trace artifacts before any model
 execution. Directory globbing alone is not the paper scope.
 
+## Trace Hardening Update
+
+On 2026-06-06, the trace artifacts were hardened after the first prompt-filter
+smoke exposed leakage in the benchmark input. In particular:
+
+```text
+opaque fixture traces now invoke only neutral .eval-fixtures/task.sh commands
+opaque fixture filenames no longer describe the hidden violating behavior
+trace user messages no longer paste "following this directive: <policy text>"
+script-visible helper names were neutralized when the filename itself leaked the answer
+```
+
+The policy artifacts (`rule.yaml` and `baselines/tool-regex.yaml`) were not
+changed by this cleanup. The cleanup changes only trace/setup artifacts so that
+prompt-filter, tool-regex, and ActPlane are compared at the intended visibility
+boundary.
+
+Runs completed before this trace-hardening point are useful pipeline smoke data,
+but they should not be reported as paper-facing effect sizes.
+
 ## Official Entry Point
 
 Reported experiments should use only:

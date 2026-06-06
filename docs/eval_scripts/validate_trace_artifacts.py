@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -21,6 +22,12 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = ROOT / "docs" / "corpus-test"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
+LEAKY_FIXTURE_PATH_RE = re.compile(
+    r"\.eval-fixtures/[^\"\s]*(?:without|vulnerab|secret|credential|public|"
+    r"commit|pytest|python|npm|generated|root|direct|delete|failing|env|test)"
+    r"[^\"\s]*",
+    re.IGNORECASE,
+)
 
 
 def load_runner_module():
@@ -106,6 +113,7 @@ def validate_one(runner: Any, trace: Path) -> dict[str, Any]:
         return item
 
     item["violation"] = bool(records[0].get("violation"))
+    item["errors"].extend(trace_quality_errors(trace, records))
     try:
         errors, tool_log = runner.validate_trace_setup(
             repo_dir,
@@ -118,8 +126,48 @@ def validate_one(runner: Any, trace: Path) -> dict[str, Any]:
 
     item["tool_count"] = len(tool_log)
     item["errors"].extend(errors)
+    for event in tool_log:
+        if event.get("tool") == "Bash" and event.get("returncode") not in (0, None):
+            command = str(event.get("command") or "")
+            item["errors"].append(
+                f"Bash setup command returned {event.get('returncode')}: {command}"
+            )
     item["valid"] = not item["errors"]
     return item
+
+
+def trace_quality_errors(trace: Path, records: list[dict[str, Any]]) -> list[str]:
+    """Catch trace leakage that would make prompt-filter/tool baselines too easy."""
+    errors: list[str] = []
+    is_opaque = trace.name == "trace_opaque_fixture_violation.jsonl"
+    for record in records:
+        if record.get("type") == "user":
+            content = str(record.get("content") or "")
+            if "following this directive:" in content:
+                errors.append("trace user message must not paste the policy directive")
+
+        if record.get("type") != "assistant":
+            continue
+        content = record.get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            tool = item.get("name")
+            inp = item.get("input") if isinstance(item.get("input"), dict) else {}
+            serialized = json.dumps(inp, ensure_ascii=False)
+            if LEAKY_FIXTURE_PATH_RE.search(serialized):
+                errors.append(f"leaky .eval-fixtures path in tool input: {serialized}")
+            if not is_opaque:
+                continue
+            if tool == "Read" and str(inp.get("file_path") or "").startswith(".eval-fixtures/"):
+                errors.append("opaque trace must not read .eval-fixtures files visibly")
+            if tool == "Bash":
+                command = str(inp.get("command") or "")
+                if ".eval-fixtures/" in command and command != "bash .eval-fixtures/task.sh":
+                    errors.append(f"opaque fixture command must be neutral task.sh: {command}")
+    return errors
 
 
 def print_text(rows: list[dict[str, Any]]) -> None:

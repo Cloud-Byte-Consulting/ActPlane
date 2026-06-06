@@ -63,6 +63,14 @@ Each statement has the same five trace families:
 `trace_visible_violation.jsonl`, `trace_script_visible_violation.jsonl`, and
 `trace_opaque_fixture_violation.jsonl`.
 
+Trace quality matters for the baseline comparison. Opaque fixture traces must
+not reveal the hidden behavior through filenames, user text, or tool command
+strings: the visible tool action should be a neutral local helper such as
+`bash .eval-fixtures/task.sh`. User messages in traces should describe the
+repository task, not paste the policy directive itself. The policy text is
+provided to the guardrail or judge through the evaluation harness, not through
+the agent's initial system prompt.
+
 System outputs are written under:
 
 ```text
