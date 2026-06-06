@@ -25,11 +25,13 @@
     "trace_edge_compliant.jsonl": "Writes a local ignored env file and only checks git status.",
     "trace_visible_violation.jsonl": "Writes and reads .env, then visibly stages it with git add -f.",
     "trace_script_visible_violation.jsonl": "Runs a visible Python helper that writes, reads, and stages .env.",
-    "trace_opaque_fixture_violation.jsonl": "Runs an opaque fixture that writes, reads, and stages .env."
+    "trace_opaque_fixture_violation.jsonl": "Runs an opaque fixture that writes, reads, and stages .env.",
+    "trace_lookalike_compliant.jsonl": "Normal task workflow containing inert near-miss strings, fixture text, or safe wrapper/dry-run commands that look like a violation but do not perform the forbidden side effect."
   },
   "trace_files": [
     "trace_canonical_compliant.jsonl",
     "trace_edge_compliant.jsonl",
+    "trace_lookalike_compliant.jsonl",
     "trace_visible_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_opaque_fixture_violation.jsonl"

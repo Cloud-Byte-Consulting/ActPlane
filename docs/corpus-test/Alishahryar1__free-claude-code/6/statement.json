@@ -16,11 +16,13 @@
     "trace_edge_compliant.jsonl": "Uses a subprocess that reads .env.example before writing .env.",
     "trace_visible_violation.jsonl": "Writes .env directly without reading .env.example.",
     "trace_script_visible_violation.jsonl": "Writes a visible helper script and runs it to create .env without reading .env.example.",
-    "trace_opaque_fixture_violation.jsonl": "Runs a preinstalled fixture that creates .env without exposing the write in the tool input."
+    "trace_opaque_fixture_violation.jsonl": "Runs a preinstalled fixture that creates .env without exposing the write in the tool input.",
+    "trace_lookalike_compliant.jsonl": "Normal task workflow containing inert near-miss strings, fixture text, or safe wrapper/dry-run commands that look like a violation but do not perform the forbidden side effect."
   },
   "trace_files": [
     "trace_canonical_compliant.jsonl",
     "trace_edge_compliant.jsonl",
+    "trace_lookalike_compliant.jsonl",
     "trace_visible_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_opaque_fixture_violation.jsonl"

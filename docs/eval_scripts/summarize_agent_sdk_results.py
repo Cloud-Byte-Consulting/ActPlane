@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Summarize final RQ1 directive-compliance results.
+"""Summarize final RQ1 guardrail-response results.
 
 The runner records raw execution facts. The judge records the paper-facing
 TP/TN/FP/FN outcome. This script joins the latest runner result for each
 system/repo/statement/trace with its judge file and prints the RQ1 metric from
-docs/eval.md: Directive Compliance Rate.
+the active trajectory-judge prompt: Guardrail Response Rate.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 
 
 SYSTEMS = ["prompt-filter", "tool-regex", "actplane", "actplane-opaque"]
+DEFAULT_JUDGE_DIR = "trajectory_judges_llama_cpp_guardrail_response"
 
 
 def iter_result_files(paths: list[Path]) -> list[Path]:
@@ -154,11 +155,11 @@ def summarize_system(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -> None:
-    print("Final metric: Directive Compliance Rate")
+    print("Final metric: Guardrail Response Rate")
     if omitted_unscorable:
         print(f"Omitted unscorable runner results: {omitted_unscorable}")
     print()
-    print("| system | Compliance | TP | TN | FP | FN | unclear | judged | mean confidence |")
+    print("| system | Guardrail Response Rate | TP | TN | FP | FN | unclear | judged | mean confidence |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for system in SYSTEMS:
         if system not in summary:
@@ -178,7 +179,7 @@ def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summarize final RQ1 directive-compliance results")
+    parser = argparse.ArgumentParser(description="Summarize final RQ1 guardrail-response results")
     parser.add_argument(
         "--input-list",
         type=Path,
@@ -186,7 +187,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="Newline-delimited file containing result files or result directories.",
     )
-    parser.add_argument("--judge-dir-name", default="trajectory_judges")
+    parser.add_argument("--judge-dir-name", default=DEFAULT_JUDGE_DIR)
     return parser.parse_args(argv)
 
 

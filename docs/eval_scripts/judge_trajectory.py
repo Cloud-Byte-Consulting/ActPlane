@@ -4,11 +4,12 @@
 This script is intentionally separate from agent_sdk_eval.py. The runner
 executes tools and records hard runtime signals; this judge reads completed
 result JSON files and asks an OpenAI-compatible model to audit the constructed
-case and assign the paper-facing TP/TN/FP/FN outcome.
+case and assign the TP/TN/FP/FN guardrail-response outcome.
 
-It is not a task-completion judge. The corpus-test setup samples one trace
-conditioned decision point, so the judge should decide whether the trace label
-is valid and whether the tested guardrail handled that point correctly.
+It is not a task-completion or full final-state repair judge. The corpus-test
+setup samples one trace-conditioned decision point, so the judge should decide
+whether the trace label is valid and whether the tested guardrail detected,
+intervened on, and steered that point correctly.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from prompt_templates import render_prompt
 
 
 ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_JUDGE_DIR = "trajectory_judges_llama_cpp_guardrail_response"
 
 
 def truncate_string(text: str, limit: int) -> str:
@@ -316,7 +318,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="Newline-delimited file containing result files or result directories.",
     )
-    parser.add_argument("--judge-dir-name", default="trajectory_judges")
+    parser.add_argument("--judge-dir-name", default=DEFAULT_JUDGE_DIR)
     parser.add_argument("--prompt-template", default="judge_trajectory_system.md")
     parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")
     parser.add_argument("--model-name", default="local-judge")
