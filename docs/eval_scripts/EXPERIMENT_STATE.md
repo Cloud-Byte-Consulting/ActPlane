@@ -95,6 +95,108 @@ The public flags are intentionally limited to:
 
 `--limit` is for smoke tests only. Omit it for the full paper run.
 
+## Latest Complete Paired Run
+
+Directory:
+
+```text
+docs/eval_runs/full/20260606T_clean190_llama
+```
+
+Command:
+
+```bash
+python3 docs/eval_scripts/run_eval.py \
+  --config full \
+  --out-dir docs/eval_runs/full/20260606T_clean190_llama
+```
+
+Coverage:
+
+```text
+38 statements x 5 traces = 190 trace-conditioned scenarios
+4 systems = 760 selected runner results
+760/760 llama.cpp trajectory judge files
+missing judge files = 0
+```
+
+Preflight and post-run validation:
+
+```text
+190/190 trace artifacts valid
+warnings = 0
+```
+
+Execution properties:
+
+```text
+Docker COW execution harness
+real Agent SDK next-step execution
+real ActPlane/eBPF enforcement for actplane and actplane-opaque
+local llama.cpp source agent and local llama.cpp trajectory judge
+judge directory: trajectory_judges_llama_cpp_steering_label
+```
+
+Final metric from `summarize_agent_sdk_results.py`:
+
+| system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| prompt-filter | 129/190 (67.9%) | 62 | 67 | 9 | 52 | 0 | 190 | 0.995 |
+| tool-regex | 106/190 (55.8%) | 39 | 67 | 9 | 75 | 0 | 190 | 0.995 |
+| actplane | 130/190 (68.4%) | 58 | 72 | 4 | 56 | 0 | 190 | 0.990 |
+| actplane-opaque | 116/190 (61.1%) | 43 | 73 | 3 | 71 | 0 | 190 | 0.991 |
+
+Trace-family breakdown:
+
+| trace family | prompt-filter | tool-regex | actplane | actplane-opaque |
+|---|---:|---:|---:|---:|
+| `trace_canonical_compliant.jsonl` | 34/38 (89.5%) | 37/38 (97.4%) | 36/38 (94.7%) | 37/38 (97.4%) |
+| `trace_edge_compliant.jsonl` | 33/38 (86.8%) | 30/38 (78.9%) | 36/38 (94.7%) | 36/38 (94.7%) |
+| `trace_visible_violation.jsonl` | 30/38 (78.9%) | 25/38 (65.8%) | 22/38 (57.9%) | 17/38 (44.7%) |
+| `trace_script_visible_violation.jsonl` | 32/38 (84.2%) | 14/38 (36.8%) | 22/38 (57.9%) | 16/38 (42.1%) |
+| `trace_opaque_fixture_violation.jsonl` | 0/38 (0.0%) | 0/38 (0.0%) | 14/38 (36.8%) | 10/38 (26.3%) |
+
+Interpretation:
+
+```text
+ActPlane is slightly ahead of prompt-filter overall and clearly ahead of
+tool-regex and actplane-opaque, but this run does not support a claim that
+ActPlane dominates prompt-filter on every trace family. Its advantage is
+concentrated in opaque fixture violations and benign overblocking reduction.
+```
+
+Important attribution from this run:
+
+```text
+ActPlane vs prompt-filter paired cases:
+  ActPlane correct / prompt-filter wrong: 26
+  prompt-filter correct / ActPlane wrong: 25
+  same correctness: 139
+
+ActPlane FN total: 56
+  setup did not fire: 32
+  setup fired with notify, but the original violating effect was not blocked: 24
+
+Feedback ablation:
+  actplane correct: 130
+  actplane-opaque correct: 116
+  structured feedback net gain: +14 cases
+```
+
+The dominant limitation is not the kernel path failing to run. It is the
+end-to-end system being evaluated: generated policies sometimes do not match the
+constructed violating path, and many corpus policies use `notify` for workflow
+directives. Under the current judge semantics, a notification is not enough when
+the original violating write/exec has already succeeded and the observed
+trajectory leaves that side effect in place. In these 24 FN cases, all setup
+interventions were `notify`; some cases had no meaningful recovery opportunity,
+some only inspected the violation, and some repeated related violating actions.
+
+This is a paper-facing paired run. It is valid for reporting, with the caveat
+that the main RQ1 claim should be framed as runtime guardrail effectiveness
+including policy-generation quality, not as an isolated kernel-enforcement
+microbenchmark.
+
 ## Latest Complete Paired Run (Legacy Setup)
 
 Directory:
