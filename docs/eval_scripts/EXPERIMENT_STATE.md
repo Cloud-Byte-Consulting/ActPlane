@@ -73,7 +73,7 @@ The public flags are intentionally limited to:
 
 `--limit` is for smoke tests only. Omit it for the full paper run.
 
-## Latest Complete Paired Run
+## Latest Complete Paired Run (Legacy Setup)
 
 Directory:
 
@@ -107,10 +107,10 @@ NVIDIA/NemoClaw#19
 NVIDIA/NemoClaw#s01_private_vulnerability_reporting
 ```
 
-Systems:
+Systems recorded in the result files:
 
 ```text
-prompt-filter
+legacy prompt-only / pre-wired prompt-filter label
 tool-regex
 actplane
 actplane-opaque
@@ -130,14 +130,16 @@ Final metric from `summarize_agent_sdk_results.py`:
 
 | system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| prompt-filter | 14/20 (70.0%) | 7 | 7 | 1 | 5 | 0 | 20 | 0.965 |
+| legacy prompt-only / pre-wired prompt-filter label | 14/20 (70.0%) | 7 | 7 | 1 | 5 | 0 | 20 | 0.965 |
 | tool-regex | 9/20 (45.0%) | 3 | 6 | 2 | 9 | 0 | 20 | 0.978 |
 | actplane | 15/20 (75.0%) | 9 | 6 | 2 | 3 | 0 | 20 | 0.988 |
 | actplane-opaque | 8/20 (40.0%) | 3 | 5 | 3 | 9 | 0 | 20 | 0.970 |
 
-This is a paper-path smoke result: paired, judged, Docker-isolated, and using
-real ActPlane enforcement. It is still too small to report as the final paper
-effect size because it covers only 4 of 38 statements.
+This is a useful pipeline smoke result: paired, judged, Docker-isolated, and
+using real ActPlane enforcement. It is **not** a paper-facing prompt-filter
+result because it predates the wired external prompt-filter classifier. It is
+also too small to report as the final paper effect size because it covers only 4
+of 38 statements.
 
 ## Older Data
 

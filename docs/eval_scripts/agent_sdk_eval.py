@@ -39,8 +39,11 @@ from agents import (
     set_tracing_disabled,
 )
 from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
-from openai import AsyncOpenAI
-from prompt_templates import read_prompt
+from openai import AsyncOpenAI, OpenAI
+from prompt_filter_baseline import (
+    PromptFilterPolicy,
+    format_prompt_filter_feedback,
+)
 from pydantic import BaseModel, ConfigDict
 from tool_regex_baseline import (
     ToolPolicyEvent,
@@ -51,6 +54,7 @@ from tool_regex_baseline import (
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
 DEFAULT_BASE_INSTRUCTIONS = Path(__file__).resolve().parent / "prompts" / "base_agent.md"
+PROMPT_FILTER_TEMPLATE = Path(__file__).resolve().parent / "prompts" / "prompt_filter_step.md"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
 
 
@@ -96,6 +100,7 @@ _CAN_UNSHARE_NET: bool | None = None
 class EvalContext:
     workdir: Path = field(default_factory=lambda: Path("."))
     feedback_file: Path | None = None
+    prompt_filter: PromptFilterPolicy | None = None
     tool_policy: ToolRegexPolicy | None = None
     deliver_feedback: bool = True
     tool_log: list[dict[str, Any]] = field(default_factory=list)
@@ -123,6 +128,10 @@ def check_tool_policy_before(
     command: str | None = None,
     file_path: str | None = None,
 ) -> ToolPolicyEvent | None:
+    if ec.prompt_filter:
+        event = ec.prompt_filter.check_before(tool, command=command, file_path=file_path)
+        if event:
+            return event
     if not ec.tool_policy:
         return None
     return ec.tool_policy.check_before(tool, command=command, file_path=file_path)
@@ -139,7 +148,28 @@ def record_tool_policy_after(
         ec.tool_policy.record_after(tool, command=command, file_path=file_path)
 
 
+def format_policy_feedback(event: ToolPolicyEvent) -> str:
+    if event.rule_id == "prompt-filter":
+        return format_prompt_filter_feedback(event)
+    return format_tool_policy_feedback(event)
+
+
+def record_guardrail_visible_event(ec: EvalContext, event: dict[str, Any]) -> None:
+    if ec.prompt_filter:
+        ec.prompt_filter.add_visible_event(event)
+
+
+def visible_tool_result(ec: EvalContext, tool: str, content: str) -> str:
+    record_guardrail_visible_event(ec, {
+        "kind": "tool_result",
+        "tool": tool,
+        "content": content,
+    })
+    return content
+
+
 def append_policy_feedback(ec: EvalContext, feedback: str) -> None:
+    record_guardrail_visible_event(ec, {"kind": "guardrail_feedback", "content": feedback})
     if ec.in_recovery:
         ec.actplane_feedbacks.append(feedback)
         ec.violation_after_recovery = True
@@ -253,6 +283,7 @@ def log_tool(
     if file_path is not None:
         entry["file_path"] = file_path
     ec.tool_log.append(entry)
+    record_guardrail_visible_event(ec, {"kind": "tool_action", **entry})
 
 
 def record_setup_error(ctx: EvalContext, message: str) -> None:
@@ -498,7 +529,7 @@ def bash_tool(ctx: RunContextWrapper[EvalContext], command: str) -> str:
     policy_event = check_tool_policy_before(ec, "Bash", command=command)
     if policy_event and policy_event.effect == "kill":
         log_tool(ec, "Bash", command=command, returncode=126, step=ec.step_count)
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
@@ -513,9 +544,13 @@ def bash_tool(ctx: RunContextWrapper[EvalContext], command: str) -> str:
             timeout=30,
         )
     except subprocess.TimeoutExpired:
-        return "Error: command timed out after 30s"
+        message = "Error: command timed out after 30s"
+        log_tool(ec, "Bash", command=command, returncode=124, step=ec.step_count)
+        return visible_tool_result(ec, "Bash", message)
     except OSError as e:
-        return f"Error: {e}"
+        message = f"Error: {e}"
+        log_tool(ec, "Bash", command=command, returncode=126, step=ec.step_count)
+        return visible_tool_result(ec, "Bash", message)
 
     log_tool(
         ec,
@@ -527,7 +562,7 @@ def bash_tool(ctx: RunContextWrapper[EvalContext], command: str) -> str:
     record_tool_policy_after(ec, "Bash", command=command)
 
     if policy_event and policy_event.effect == "notify":
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
@@ -544,7 +579,8 @@ def bash_tool(ctx: RunContextWrapper[EvalContext], command: str) -> str:
         output += f"\nSTDERR: {proc.stderr}"
     if proc.returncode != 0:
         output += f"\n(exit code {proc.returncode})"
-    return output.strip() or "(no output)"
+    result_text = output.strip() or "(no output)"
+    return visible_tool_result(ec, "Bash", result_text)
 
 
 @function_tool(name_override="Read")
@@ -555,23 +591,25 @@ def read_file(ctx: RunContextWrapper[EvalContext], file_path: str) -> str:
     policy_event = check_tool_policy_before(ec, "Read", file_path=file_path)
     if policy_event and policy_event.effect == "kill":
         log_tool(ec, "Read", file_path=file_path, returncode=126, step=ec.step_count)
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
     p = safe_path(ec.workdir, file_path)
     if not p.exists():
-        return f"Error: file not found: {file_path}"
+        message = f"Error: file not found: {file_path}"
+        return visible_tool_result(ec, "Read", message)
     try:
         content = p.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
-        return f"Error: {e}"
+        message = f"Error: {e}"
+        return visible_tool_result(ec, "Read", message)
 
     log_tool(ec, "Read", file_path=file_path, step=ec.step_count)
     record_tool_policy_after(ec, "Read", file_path=file_path)
 
     if policy_event and policy_event.effect == "notify":
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
@@ -583,7 +621,8 @@ def read_file(ctx: RunContextWrapper[EvalContext], file_path: str) -> str:
         if ec.deliver_feedback:
             return f"[ActPlane] {feedback}"
 
-    return content[:8192]
+    result_text = content[:8192]
+    return visible_tool_result(ec, "Read", result_text)
 
 
 @function_tool(name_override="Write")
@@ -594,7 +633,7 @@ def write_file(ctx: RunContextWrapper[EvalContext], file_path: str, content: str
     policy_event = check_tool_policy_before(ec, "Write", file_path=file_path)
     if policy_event and policy_event.effect == "kill":
         log_tool(ec, "Write", file_path=file_path, returncode=126, step=ec.step_count)
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
@@ -606,7 +645,7 @@ def write_file(ctx: RunContextWrapper[EvalContext], file_path: str, content: str
     record_tool_policy_after(ec, "Write", file_path=file_path)
 
     if policy_event and policy_event.effect == "notify":
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
@@ -618,7 +657,7 @@ def write_file(ctx: RunContextWrapper[EvalContext], file_path: str, content: str
         if ec.deliver_feedback:
             return f"[ActPlane] {feedback}"
 
-    return "ok"
+    return visible_tool_result(ec, "Write", "ok")
 
 
 @function_tool(name_override="Edit")
@@ -634,26 +673,29 @@ def edit_file(
     policy_event = check_tool_policy_before(ec, "Edit", file_path=file_path)
     if policy_event and policy_event.effect == "kill":
         log_tool(ec, "Edit", file_path=file_path, returncode=126, step=ec.step_count)
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
     p = safe_path(ec.workdir, file_path)
     if not p.exists():
-        return f"Error: file not found: {file_path}"
+        message = f"Error: file not found: {file_path}"
+        return visible_tool_result(ec, "Edit", message)
     try:
         content = p.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
-        return f"Error: {e}"
+        message = f"Error: {e}"
+        return visible_tool_result(ec, "Edit", message)
     if old_string not in content:
-        return f"Error: old_string not found in {file_path}"
+        message = f"Error: old_string not found in {file_path}"
+        return visible_tool_result(ec, "Edit", message)
     p.write_text(content.replace(old_string, new_string, 1), encoding="utf-8")
 
     log_tool(ec, "Edit", file_path=file_path, step=ec.step_count)
     record_tool_policy_after(ec, "Edit", file_path=file_path)
 
     if policy_event and policy_event.effect == "notify":
-        feedback = format_tool_policy_feedback(policy_event)
+        feedback = format_policy_feedback(policy_event)
         append_policy_feedback(ec, feedback)
         return feedback
 
@@ -665,7 +707,7 @@ def edit_file(
         if ec.deliver_feedback:
             return f"[ActPlane] {feedback}"
 
-    return "ok"
+    return visible_tool_result(ec, "Edit", "ok")
 
 
 @function_tool(name_override="update_plan")
@@ -721,6 +763,10 @@ def replay_trace_setup(
             continue
         if msg["type"] == "user":
             messages.append({"role": "user", "content": msg["content"]})
+            record_guardrail_visible_event(ctx, {
+                "kind": "user",
+                "content": msg.get("content", ""),
+            })
             i += 1
         elif msg["type"] == "assistant":
             text_parts = []
@@ -740,7 +786,14 @@ def replay_trace_setup(
                     f"{json.dumps(tool_use.get('input', {}), ensure_ascii=False)}"
                 )
             if assistant_lines:
-                messages.append({"role": "assistant", "content": "\n".join(assistant_lines)})
+                assistant_content = "\n".join(assistant_lines)
+                messages.append({"role": "assistant", "content": assistant_content})
+                assistant_text = " ".join(text_parts).strip()
+                if assistant_text:
+                    record_guardrail_visible_event(ctx, {
+                        "kind": "assistant",
+                        "content": assistant_text,
+                    })
 
             if tool_use:
                 setup_step += 1
@@ -760,7 +813,7 @@ def replay_trace_setup(
                     file_path=policy_file_path,
                 )
                 if policy_event and policy_event.effect == "kill":
-                    actual_result = format_tool_policy_feedback(policy_event)
+                    actual_result = format_policy_feedback(policy_event)
                     log_tool(
                         ctx,
                         name,
@@ -773,8 +826,12 @@ def replay_trace_setup(
                         "role": "user",
                         "content": f"TOOL_RESULT {name}: {actual_result}",
                     })
-                    ctx.setup_feedbacks.append(actual_result)
-                    ctx.setup_visible_intervention = True
+                    record_guardrail_visible_event(ctx, {
+                        "kind": "tool_result",
+                        "tool": name,
+                        "content": actual_result,
+                    })
+                    append_policy_feedback(ctx, actual_result)
                     fired = True
                     break
 
@@ -867,21 +924,29 @@ def replay_trace_setup(
                     "role": "user",
                     "content": f"TOOL_RESULT {name}: {actual_result}",
                 })
+                record_guardrail_visible_event(ctx, {
+                    "kind": "tool_result",
+                    "tool": name,
+                    "content": actual_result,
+                })
 
                 if policy_event and policy_event.effect == "notify":
-                    feedback = format_tool_policy_feedback(policy_event)
+                    feedback = format_policy_feedback(policy_event)
                     fired = True
-                    ctx.setup_feedbacks.append(feedback)
-                    ctx.setup_visible_intervention = True
+                    append_policy_feedback(ctx, feedback)
                     messages.append({
                         "role": "user",
-                        "content": f"[tool-regex feedback] {feedback}",
+                        "content": f"[guardrail feedback] {feedback}",
                     })
                     break
 
                 feedback = wait_feedback(ctx.feedback_file, timeout_s=0.3)
                 if feedback:
                     fired = True
+                    record_guardrail_visible_event(ctx, {
+                        "kind": "guardrail_feedback",
+                        "content": feedback,
+                    })
                     ctx.setup_feedbacks.append(feedback)
                     effect = actplane_feedback_effect(feedback)
                     if ctx.deliver_feedback:
@@ -1034,11 +1099,26 @@ async def run_scenario_inner(
             fb_path.parent.mkdir(parents=True, exist_ok=True)
             fb_path.write_text("", encoding="utf-8")
 
+    prompt_filter_client: OpenAI | None = None
+    prompt_filter: PromptFilterPolicy | None = None
+    if system == "prompt-filter":
+        prompt_filter_client = OpenAI(
+            api_key=os.environ.get(api_key_env, "local"),
+            base_url=base_url,
+            timeout=request_timeout,
+        )
+        prompt_filter = PromptFilterPolicy(
+            client=prompt_filter_client,
+            model_name=model_name,
+            original_rule=str(gt.get("directive") or ""),
+        )
+
     tool_policy_file = statement_dir / TOOL_REGEX_POLICY
     tool_policy = ToolRegexPolicy.from_policy_file(tool_policy_file) if system == "tool-regex" else None
     ctx = EvalContext(
         workdir=workdir,
         feedback_file=fb_path,
+        prompt_filter=prompt_filter,
         tool_policy=tool_policy,
         deliver_feedback=(system != "actplane-opaque"),
         max_steps=max_steps,
@@ -1115,6 +1195,8 @@ async def run_scenario_inner(
             await client.close()
         except Exception:
             pass
+        if prompt_filter_client is not None:
+            prompt_filter_client.close()
         cleanup_workdir(mounted, workdir, ovl_base)
 
     score = score_scenario(gt, system, setup_fired, ctx, final_output)
@@ -1142,6 +1224,11 @@ async def run_scenario_inner(
         "model": model_name,
         "thinking": thinking,
         "workdir_backend": "overlay" if mounted else "copy",
+        "prompt_filter_template": (
+            str(PROMPT_FILTER_TEMPLATE)
+            if system == "prompt-filter"
+            else None
+        ),
     }
 
 
@@ -1169,7 +1256,7 @@ def score_scenario(
     recovery_tools = [t for t in ctx.tool_log if t.get("phase") == "recovery"]
     final_text = str(final_output or "").strip()
     recovery_attempted = bool(recovery_tools) or bool(final_text)
-    enforcement_system = system in {"actplane", "actplane-opaque", "tool-regex"}
+    enforcement_system = system in {"prompt-filter", "tool-regex", "actplane", "actplane-opaque"}
     setup_visible = bool(ctx.setup_visible_intervention)
     overblocked = (not scenario_violation) and setup_fired
     blocked_expected_violation = scenario_violation and setup_visible
@@ -1382,6 +1469,12 @@ def run_one_scenario(spec_and_args):
         r.setdefault(
             "tool_policy_file",
             str(sd / TOOL_REGEX_POLICY) if args.system == "tool-regex" else None,
+        )
+        r.setdefault(
+            "prompt_filter_template",
+            str(PROMPT_FILTER_TEMPLATE)
+            if args.system == "prompt-filter"
+            else None,
         )
         r.setdefault("model", args.model_name)
         r.setdefault("thinking", args.thinking)

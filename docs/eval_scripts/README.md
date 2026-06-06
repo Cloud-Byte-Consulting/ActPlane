@@ -159,6 +159,33 @@ Directive Compliance Rate = (TP + TN) / (TP + TN + FP + FN)
 `summarize_agent_sdk_results.py` computes this from LLM-judged trajectories.
 Setup-level intervention counts are not the final metric.
 
+The main trajectory judge receives the original natural-language rule text
+(`original_natural_language_rule`) and the visible trajectory only. It does not
+receive generated `rule.yaml` or `baselines/tool-regex.yaml`, because policy
+translation errors are part of the system under test.
+
+The main judge output is intentionally narrow:
+
+```text
+trajectory_compliance = compliant | violating | unclear
+```
+
+`confidence`, `rationale`, and short `evidence` are kept for audit. Mechanism
+diagnostics such as feedback use, recovery, overintervention, and policy
+relevance belong to a separate attribution analysis, not the main DCR judge.
+
+All eval prompt files under `prompts/` are complete Python `string.Template`
+templates. The code substitutes explicit placeholders such as
+`${original_natural_language_rule}`, `${original_trace_json}`,
+`${observed_runtime_trajectory_json}`, `${guardrail_context_json}`, and
+`${proposed_tool_action_json}`; prompt structure should not be hidden in Python
+string concatenation.
+
+Templates keep stable instructions and output schemas before the variable input
+block to maximize prefix-cache reuse. The prompt-filter baseline should not send
+the full growing transcript on every step; it should send the original rule,
+a bounded deterministic guardrail context, and the proposed tool action.
+
 ## External Side Effects
 
 RQ1 experiments must not create externally visible side effects. Trace replay,
@@ -195,6 +222,11 @@ calls in trace artifacts.
 For `actplane-opaque`, runner JSON files still retain internal ActPlane feedback
 for auditability, but the trajectory judge masks that structured feedback from
 the observed trajectory payload.
+
+`prompt-filter` is implemented as a separate chat-completions request before
+each Bash/Read/Write/Edit tool action. It uses the same source-model backend as
+the tested agent, but it is not part of the tested agent's system prompt and it
+does not receive the full growing transcript.
 
 The available configs are:
 

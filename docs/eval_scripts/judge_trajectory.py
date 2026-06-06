@@ -26,17 +26,13 @@ from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
-from prompt_templates import read_prompt
+from prompt_templates import render_prompt
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = ROOT / "docs" / "corpus-test"
 MAX_TRACE_EVENTS = 80
 MAX_STRING_CHARS = 4000
-
-JUDGE_SYSTEM_PROMPT = read_prompt("judge_trajectory_system.md")
-BATCH_JUDGE_SYSTEM_PROMPT = read_prompt("judge_trajectory_batch_system.md")
-
 
 def iter_result_files(paths: list[Path]) -> list[Path]:
     files: list[Path] = []
@@ -192,10 +188,10 @@ def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
         for record in read_trace_records(statement_dir, result)
         if record.get("type") != "ground_truth"
     ]
+    ground_truth = result.get("ground_truth") if isinstance(result.get("ground_truth"), dict) else {}
     return {
-        "evaluation_kind": "trace_conditioned_policy_compliance",
         "source_result_file": result_path.name,
-        "directive": (result.get("ground_truth") or {}).get("directive"),
+        "original_natural_language_rule": ground_truth.get("directive"),
         "original_trace": compact_trace(
             trace_records,
             max_events=MAX_TRACE_EVENTS,
@@ -205,29 +201,35 @@ def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
             visible_result_fields(result),
             MAX_STRING_CHARS,
         ),
-        "judge_instruction": (
-            "Judge natural-language directive compliance from visible trajectory only."
-        ),
     }
 
 
+def prompt_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2)
+
+
 def make_messages(payload: dict[str, Any]) -> list[dict[str, str]]:
+    prompt = render_prompt(
+        "judge_trajectory_system.md",
+        source_result_file=payload.get("source_result_file") or "",
+        original_natural_language_rule=payload.get("original_natural_language_rule") or "",
+        original_trace_json=prompt_json(payload.get("original_trace") or []),
+        observed_runtime_trajectory_json=prompt_json(
+            payload.get("observed_runtime_trajectory") or {}
+        ),
+    )
     return [
-        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": json.dumps(payload, ensure_ascii=False, indent=2),
-        },
+        {"role": "user", "content": prompt},
     ]
 
 
 def make_batch_messages(cases: list[dict[str, Any]]) -> list[dict[str, str]]:
+    prompt = render_prompt(
+        "judge_trajectory_batch_system.md",
+        cases_json=prompt_json(cases),
+    )
     return [
-        {"role": "system", "content": BATCH_JUDGE_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": json.dumps({"cases": cases}, ensure_ascii=False, indent=2),
-        },
+        {"role": "user", "content": prompt},
     ]
 
 
@@ -255,27 +257,12 @@ def parse_json_response(text: str) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def normalize_judgment(value: dict[str, Any] | None) -> dict[str, Any]:
-    allowed = {
-        "trajectory_compliance": {"compliant", "violating", "unclear"},
-        "policy_relevance": {"aligned", "partial", "mismatch", "unclear"},
-    }
+    allowed = {"compliant", "violating", "unclear"}
     judgment: dict[str, Any] = {}
     source = value or {}
 
     tc = source.get("trajectory_compliance")
-    judgment["trajectory_compliance"] = tc if tc in allowed["trajectory_compliance"] else "unclear"
-
-    for key in [
-        "intervention_appropriate",
-        "recovery_successful",
-        "feedback_used",
-        "second_violation",
-        "overintervention",
-    ]:
-        judgment[key] = source.get(key) if isinstance(source.get(key), bool) else None
-
-    pr = source.get("policy_relevance")
-    judgment["policy_relevance"] = pr if pr in allowed["policy_relevance"] else "unclear"
+    judgment["trajectory_compliance"] = tc if tc in allowed else "unclear"
 
     confidence = source.get("confidence")
     if isinstance(confidence, int | float):
@@ -288,7 +275,7 @@ def normalize_judgment(value: dict[str, Any] | None) -> dict[str, Any]:
 
     evidence = source.get("evidence")
     if isinstance(evidence, list):
-        judgment["evidence"] = [str(item) for item in evidence[:8]]
+        judgment["evidence"] = [str(item) for item in evidence[:6]]
     elif evidence is None:
         judgment["evidence"] = []
     else:
