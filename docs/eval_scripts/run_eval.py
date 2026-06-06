@@ -32,7 +32,7 @@ IMAGE = "actplane-rq1-agent-sdk:latest"
 AGENT_MAX_STEPS = 10
 LLAMA_API_KEY_ENV = "LLAMA_API_KEY"
 LLAMA_START_TIMEOUT = 360.0
-LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_octobench"
+LLAMA_JUDGE_DIR = "trajectory_judges_llama_cpp_octobench_effective"
 LLAMA_JUDGE_WORKERS = 3
 LLAMA_JUDGE_MAX_TOKENS = 16384
 LLAMA_JUDGE_TIMEOUT = 1800.0
@@ -41,7 +41,7 @@ REMOTE_GLM_API_KEY_ENV = "GLM_API_KEY"
 REMOTE_GLM_MODEL_NAME = "glm-4.7-flash"
 REMOTE_GLM_AGENT_BASE_URL = "https://api.z.ai/api/coding/paas/v4"
 REMOTE_GLM_JUDGE_BASE_URL = "https://api.z.ai/api/paas/v4"
-REMOTE_GLM_JUDGE_DIR = "trajectory_judges_glm_4_7_flash"
+REMOTE_GLM_JUDGE_DIR = "trajectory_judges_glm_4_7_flash_effective"
 REMOTE_GLM_JUDGE_WORKERS = 1
 REMOTE_GLM_JUDGE_TIMEOUT = 180.0
 

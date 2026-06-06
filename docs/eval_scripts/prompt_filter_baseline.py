@@ -1,15 +1,15 @@
 """LLM step-filter baseline for RQ1.
 
 The prompt-filter baseline is an external runtime guardrail. It receives the
-original natural-language project rule, a bounded visible context, and one
-proposed Agent SDK tool action. It does not read generated ActPlane DSL or
-tool-regex policies.
+original natural-language project rule and one proposed Agent SDK tool action.
+It does not receive trace history, prior tool results, generated ActPlane DSL,
+or tool-regex policies.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from openai import OpenAI
@@ -17,21 +17,14 @@ from prompt_templates import render_prompt
 from tool_regex_baseline import ToolPolicyEvent
 
 
-MAX_CONTEXT_EVENTS = 12
-MAX_TEXT_CHARS = 1200
-
-
 @dataclass
 class PromptFilterPolicy:
     client: OpenAI
     model_name: str
     original_rule: str
-    history_events: list[dict[str, Any]] = field(default_factory=list)
 
     def add_visible_event(self, event: dict[str, Any]) -> None:
-        self.history_events.append(compact_value(event))
-        if len(self.history_events) > MAX_CONTEXT_EVENTS:
-            del self.history_events[: len(self.history_events) - MAX_CONTEXT_EVENTS]
+        return None
 
     def check_before(
         self,
@@ -48,13 +41,6 @@ class PromptFilterPolicy:
         prompt = render_prompt(
             "prompt_filter_step.md",
             original_natural_language_rule=self.original_rule,
-            guardrail_context_json=json.dumps(
-                {
-                    "recent_visible_events": self.history_events[-MAX_CONTEXT_EVENTS:],
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
             proposed_tool_action_json=json.dumps(action, ensure_ascii=False, indent=2),
         )
         raw = self.client.chat.completions.create(
@@ -79,19 +65,6 @@ class PromptFilterPolicy:
             command=command,
             file_path=file_path,
         )
-
-def compact_value(value: Any) -> Any:
-    if isinstance(value, str):
-        return value if len(value) <= MAX_TEXT_CHARS else value[:MAX_TEXT_CHARS] + "...[truncated]"
-    if isinstance(value, list):
-        return [compact_value(item) for item in value[-MAX_CONTEXT_EVENTS:]]
-    if isinstance(value, dict):
-        return {
-            str(k): compact_value(v)
-            for k, v in value.items()
-            if v not in (None, "", [], {})
-        }
-    return value
 
 
 def parse_json_response(text: str) -> dict[str, Any]:
