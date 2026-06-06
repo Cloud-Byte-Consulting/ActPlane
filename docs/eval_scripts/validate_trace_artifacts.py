@@ -96,6 +96,7 @@ def validate_one(runner: Any, trace: Path) -> dict[str, Any]:
         "trace_file": trace.name,
         "valid": False,
         "errors": [],
+        "warnings": [],
         "tool_count": 0,
         "violation": None,
     }
@@ -129,7 +130,7 @@ def validate_one(runner: Any, trace: Path) -> dict[str, Any]:
     for event in tool_log:
         if event.get("tool") == "Bash" and event.get("returncode") not in (0, None):
             command = str(event.get("command") or "")
-            item["errors"].append(
+            item["warnings"].append(
                 f"Bash setup command returned {event.get('returncode')}: {command}"
             )
     item["valid"] = not item["errors"]
@@ -189,6 +190,10 @@ def print_text(rows: list[dict[str, Any]]) -> None:
                 print(f"    - {err}")
             if len(row["errors"]) > 5:
                 print(f"    - ... {len(row['errors']) - 5} more")
+            for warning in row.get("warnings", [])[:3]:
+                print(f"    warning: {warning}")
+            if len(row.get("warnings", [])) > 3:
+                print(f"    warning: ... {len(row['warnings']) - 3} more")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

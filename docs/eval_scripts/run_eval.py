@@ -53,6 +53,7 @@ class EvalConfig:
 
 
 CONFIGS = {
+    "prompt-filter": EvalConfig(("prompt-filter",), "prompt-filter"),
     "baseline": EvalConfig(("prompt-filter", "tool-regex"), "baseline"),
     "actplane": EvalConfig(("actplane", "actplane-opaque"), "actplane"),
     "full": EvalConfig(("prompt-filter", "tool-regex", "actplane", "actplane-opaque"), "full"),
