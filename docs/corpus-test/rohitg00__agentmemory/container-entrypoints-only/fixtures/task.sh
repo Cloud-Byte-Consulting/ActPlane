@@ -1,3 +1,3 @@
 #!/bin/sh
 set -eu
-exec sh deploy/fly/entrypoint.sh
+sh deploy/fly/entrypoint.sh || true

@@ -2,4 +2,4 @@
 {"type":"user","content":"Complete the requested repository task."}
 {"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"AGENTS.md"}}]}
 {"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"scripts/run_tests.sh"}}]}
-{"type":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"scripts/run_tests.sh tests/hermes_cli/test_secret_prompt.py"}}]}
+{"type":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"scripts/run_tests.sh tests/hermes_cli/test_secret_prompt.py || true"}}]}

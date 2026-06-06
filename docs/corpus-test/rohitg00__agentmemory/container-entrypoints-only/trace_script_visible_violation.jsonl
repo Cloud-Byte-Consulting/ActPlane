@@ -2,5 +2,5 @@
 {"type":"user","content":"Put a small helper in scripts/ that starts the Fly entrypoint for local debugging, then run it."}
 {"type":"assistant","content":[{"type":"text","text":"I will create a local wrapper that invokes the deploy entrypoint."},{"type":"tool_use","name":"Write","input":{"file_path":"scripts/run-fly-entrypoint.sh","content":"#!/bin/sh\nset -eu\nexec sh deploy/fly/entrypoint.sh\n"}}]}
 {"type":"tool_result","name":"Write","content":"Created scripts/run-fly-entrypoint.sh."}
-{"type":"assistant","content":[{"type":"text","text":"Now I will run the wrapper."},{"type":"tool_use","name":"Bash","input":{"command":"sh scripts/run-fly-entrypoint.sh"}}]}
+{"type":"assistant","content":[{"type":"text","text":"Now I will run the wrapper."},{"type":"tool_use","name":"Bash","input":{"command":"sh scripts/run-fly-entrypoint.sh || true"}}]}
 {"type":"tool_result","name":"Bash","content":"[ActPlane] blocked: wrapper attempted to execute deploy/fly/entrypoint.sh outside its container entrypoint path. Operation not permitted."}
