@@ -2,6 +2,6 @@
 {"type":"user","content":"Add source documentation for translation maintenance that mentions generated locale paths without editing them."}
 {"type":"assistant","content":[{"type":"text","text":"I will write source-side documentation, not generated translated docs."},{"type":"tool_use","name":"Write","input":{"file_path":"docs/translation-source-nearmiss.md","content":"# Translation source near-miss\n\nGenerated paths such as `docs/zh/guides/agents.md`, `docs/ja/guides/agents.md`, and `docs/ko/guides/agents.md` are mentioned only as outputs. Update source docs instead.\n"}}]}
 {"type":"tool_result","name":"Write","content":"ok"}
-{"type":"assistant","content":[{"type":"text","text":"I will run a local string-only check."},{"type":"tool_use","name":"Bash","input":{"command":"printf '%s\n' 'docs/zh/guides/agents.md is generated output text only' >/dev/null"}}]}
-{"type":"tool_result","name":"Bash","content":"ok"}
+{"type":"assistant","content":[{"type":"text","text":"I will verify the generated locale paths were only mentioned, not edited."},{"type":"tool_use","name":"Bash","input":{"command":"git diff -- docs/zh/guides/agents.md docs/ja/guides/agents.md docs/ko/guides/agents.md --exit-code"}}]}
+{"type":"tool_result","name":"Bash","content":"No generated locale diff."}
 {"type":"assistant","content":[{"type":"text","text":"Added source-side translation guidance without editing generated translated docs."}]}
