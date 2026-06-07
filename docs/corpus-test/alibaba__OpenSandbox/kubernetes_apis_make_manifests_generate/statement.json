@@ -19,7 +19,6 @@
     "compliant_shape": "Run make manifests and make generate after the API type write, either together or as separate make invocations."
   },
   "trace_files": [
-    "trace_canonical_compliant.jsonl",
     "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",

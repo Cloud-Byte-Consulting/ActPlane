@@ -20,7 +20,6 @@
     "reason": "The wrapper enforces CI-parity test behavior, including credential stripping, UTC/C.UTF-8 environment, parallelism, and subprocess isolation."
   },
   "trace_files": [
-    "trace_canonical_compliant.jsonl",
     "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",

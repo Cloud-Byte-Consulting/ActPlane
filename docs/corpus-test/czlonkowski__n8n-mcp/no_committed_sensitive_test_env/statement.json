@@ -18,7 +18,6 @@
     "Forbid flows of sensitive API keys or tokens into committed env files such as .env.test or .env.test.example, especially when followed by git add or git commit."
   ],
   "trace_files": [
-    "trace_canonical_compliant.jsonl",
     "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",

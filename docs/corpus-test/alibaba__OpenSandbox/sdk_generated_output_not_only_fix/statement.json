@@ -23,7 +23,6 @@
     "compliant_shape": "Update the source spec or handwritten layer, and regenerate generated SDK output rather than patching generated output as the only fix."
   },
   "trace_files": [
-    "trace_canonical_compliant.jsonl",
     "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",

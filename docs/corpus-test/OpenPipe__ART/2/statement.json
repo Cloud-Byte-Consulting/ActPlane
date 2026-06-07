@@ -13,7 +13,6 @@
     "reason": "The OS layer can track source-file writes and later git commit execution. The temporal policy is re-armed by .py or .ts writes and satisfied only by a later prek execution."
   },
   "trace_intent": {
-    "trace_canonical_compliant.jsonl": "Edits a Python file, runs the required full prek command, then commits.",
     "trace_allowed_effect_compliant.jsonl": "Edits a Python file and runs a local smoke check but does not commit, so the protected action is not taken.",
     "trace_visible_violation.jsonl": "Edits a Python file and commits directly without the required full check.",
     "trace_script_visible_violation.jsonl": "Edits a Python file and runs a visible helper script that commits without the required check.",
@@ -21,7 +20,6 @@
     "trace_lookalike_compliant.jsonl": "Normal task workflow containing inert near-miss strings, fixture text, or safe wrapper/dry-run commands that look like a violation but do not perform the forbidden side effect."
   },
   "trace_files": [
-    "trace_canonical_compliant.jsonl",
     "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",

@@ -45,6 +45,12 @@ REMOTE_GLM_JUDGE_DIR = "trajectory_judges_glm_4_7_flash_guardrail_response"
 REMOTE_GLM_JUDGE_WORKERS = 1
 REMOTE_GLM_JUDGE_TIMEOUT = 180.0
 
+REMOTE_DEEPSEEK_API_KEY_ENV = "DEEPSEEK_API_KEY"
+REMOTE_DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
+REMOTE_DEEPSEEK_DEFAULT_MODEL_NAME = "deepseek-v4-pro"
+REMOTE_DEEPSEEK_JUDGE_WORKERS = 1
+REMOTE_DEEPSEEK_JUDGE_TIMEOUT = 300.0
+
 
 @dataclass(frozen=True)
 class EvalConfig:
@@ -65,6 +71,25 @@ def rel(path: Path) -> str:
         return str(path.relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def load_env_file(env: dict[str, str], path: Path) -> None:
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in env:
+            env[key] = value
+
+
+def safe_judge_dir(prefix: str, model_name: str) -> str:
+    safe = "".join(ch if ch.isalnum() else "_" for ch in model_name.lower()).strip("_")
+    return f"trajectory_judges_{prefix}_{safe}_guardrail_response"
 
 
 def run_phase(
@@ -290,6 +315,19 @@ def run_systems(
 ) -> list[Path] | None:
     job_by_key = {key: (statement_dir, trace) for statement_dir, trace, key in jobs}
     expected = set(job_by_key)
+    scope_statement_dir: Path | None = None
+    scope_trace: Path | None = None
+    if len(jobs) == 1:
+        scope_statement_dir, scope_trace, _key = jobs[0]
+    else:
+        statement_dirs = {statement_dir for statement_dir, _trace, _key in jobs}
+        if len(statement_dirs) == 1:
+            candidate_statement_dir = next(iter(statement_dirs))
+            requested = {trace.resolve() for _statement_dir, trace, _key in jobs}
+            manifest = {trace.resolve() for trace in manifest_trace_files(candidate_statement_dir)}
+            if requested == manifest:
+                scope_statement_dir = candidate_statement_dir
+
     system_dirs: list[Path] = []
     for system in config.systems:
         system_out = out_dir / system
@@ -313,6 +351,8 @@ def run_systems(
                 model_name=model_name,
                 api_key_env=api_key_env,
                 limit=limit,
+                statement_dir=scope_statement_dir,
+                trace=scope_trace,
             )
             if run_phase(f"run {system}", cmd, env=env, log_path=log_path).returncode != 0:
                 return None
@@ -427,7 +467,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", choices=sorted(CONFIGS), required=True)
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--limit", type=int, help="Smoke-test limit. Omit for the full corpus.")
+    parser.add_argument("--statement-dir", type=Path, help="Run only one statement directory for trace tuning.")
+    parser.add_argument("--trace", type=Path, help="Run only one trace file for trace tuning.")
     parser.add_argument("--remote-glm", action="store_true", help="Use remote GLM instead of local llama.cpp.")
+    parser.add_argument(
+        "--remote-deepseek",
+        action="store_true",
+        help="Use DeepSeek's OpenAI-compatible API instead of local llama.cpp.",
+    )
     return parser.parse_args()
 
 
@@ -439,8 +486,36 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     log_path = out_dir / "run.log"
     env = os.environ.copy()
+    load_env_file(env, ROOT / ".env")
 
-    jobs = trace_jobs(args.limit)
+    if args.remote_glm and args.remote_deepseek:
+        print("--remote-glm and --remote-deepseek are mutually exclusive", file=sys.stderr)
+        return 2
+
+    if args.trace and not args.statement_dir:
+        args.statement_dir = args.trace.parent
+    if args.statement_dir:
+        if args.trace:
+            trace = args.trace
+            if not trace.is_absolute() and trace.parent == Path("."):
+                trace = args.statement_dir / trace
+            traces = [trace]
+        else:
+            traces = manifest_trace_files(args.statement_dir)
+        jobs = [
+            (
+                args.statement_dir,
+                trace,
+                (
+                    args.statement_dir.parent.name.replace("__", "/"),
+                    args.statement_dir.name,
+                    trace.name,
+                ),
+            )
+            for trace in traces
+        ]
+    else:
+        jobs = trace_jobs(args.limit)
     expected = {key for _statement_dir, _trace, key in jobs}
     if not expected:
         print("No trace scenarios found.", file=sys.stderr)
@@ -449,7 +524,39 @@ def main() -> int:
     if validate_traces(env, log_path) != 0 or build_image(env, log_path) != 0:
         return 1
 
-    if args.remote_glm:
+    if args.remote_deepseek:
+        if REMOTE_DEEPSEEK_API_KEY_ENV not in env:
+            print(f"{REMOTE_DEEPSEEK_API_KEY_ENV} is not set", file=sys.stderr)
+            return 2
+        deepseek_base_url = env.get("DEEPSEEK_BASE_URL") or REMOTE_DEEPSEEK_DEFAULT_BASE_URL
+        deepseek_model = env.get("DEEPSEEK_MODEL") or REMOTE_DEEPSEEK_DEFAULT_MODEL_NAME
+        result_files = run_systems(
+            config=config,
+            out_dir=out_dir,
+            jobs=jobs,
+            agent_base_url=deepseek_base_url,
+            model_name=deepseek_model,
+            api_key_env=REMOTE_DEEPSEEK_API_KEY_ENV,
+            limit=args.limit,
+            env=env,
+            log_path=log_path,
+        )
+        if result_files is None:
+            return 1
+        result_list = write_result_list(out_dir, result_files)
+        rc = judge_and_summarize(
+            result_list=result_list,
+            judge_base_url=deepseek_base_url,
+            judge_model=deepseek_model,
+            judge_dir=safe_judge_dir("deepseek", deepseek_model),
+            judge_timeout=REMOTE_DEEPSEEK_JUDGE_TIMEOUT,
+            judge_workers=REMOTE_DEEPSEEK_JUDGE_WORKERS,
+            judge_max_tokens=None,
+            api_key_env=REMOTE_DEEPSEEK_API_KEY_ENV,
+            env=env,
+            log_path=log_path,
+        )
+    elif args.remote_glm:
         if REMOTE_GLM_API_KEY_ENV not in env:
             print(f"{REMOTE_GLM_API_KEY_ENV} is not set", file=sys.stderr)
             return 2
