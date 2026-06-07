@@ -69,7 +69,7 @@ feedback (RQ3).
 
 ### 3.3 Baseline Systems
 
-All RQ1 systems use the same real Agent SDK execution harness, the same
+All RQ1 systems use the same real Agent SDK AI agent harness, the same
 trace-conditioned decision points, and the same initial tested-agent prompt.
 The difference is the selected runtime policy enforcement system that observes or filters the agent's
 proposed actions. ActPlane consumes `rule.yaml`, tool-regex consumes explicit
@@ -171,10 +171,10 @@ docs/corpus-test/{repo}/                # RQ1: policy compliance (sampled)
 docs/OctoBench/                         # RQ3: OctoBench policy-compliance eval
   data/selected_cases_20.jsonl          # selected OS-observable cases
   policies/{actplane,tool-regex}/       # case-specific enforcement policies
-  run_cases.py                          # execution harness
+  run_cases.py                          # AI agent benchmark runner
   evaluate_with_llama.py                # official-checklist evaluation helper
 
-docs/eval_scripts/                      # active real-execution harness
+docs/eval_scripts/                      # active real Agent SDK harness
   agent_sdk_eval.py                     # trace setup + real Agent SDK next-step execution
   summarize_agent_sdk_results.py        # hard-signal aggregation
   llama_server.py                       # optional local llama.cpp helper

@@ -21,11 +21,13 @@
 \begin{document}
 \maketitle
 
-Modern coding agents are governed largely by natural-language harnesses:
-\texttt{CLAUDE.md}, \texttt{AGENTS.md}, and similar files tell them to run tests
-before committing, avoid direct pushes, keep secrets local, use review tools,
-or ask for confirmation before destructive operations. These instructions are
-useful but probabilistic. A cooperative agent can forget them during a long
+Modern coding agents run inside AI agent harnesses: software around the model that
+maintains the agent loop, routes tool calls, mediates resources, and returns
+feedback. Their behavior is governed largely by natural-language instruction
+files: \texttt{CLAUDE.md}, \texttt{AGENTS.md}, and similar files tell them to run
+tests before committing, avoid direct pushes, keep secrets local, use review
+tools, or ask for confirmation before destructive operations. These instructions
+are useful but probabilistic. A cooperative agent can forget them during a long
 task, or satisfy the wording at the tool layer while still reaching the same
 effect through \texttt{bash -c}, a Python subprocess, a helper binary, or an
 SDK. The result is a mismatch between the layer where policies are written and

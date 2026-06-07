@@ -6,15 +6,14 @@ AI coding agents such as Claude
 Code~\cite{anthropic2025claudecode}, Codex
 CLI~\cite{openai2025codex}, Cursor~\cite{cursor2025}, and
 Devin~\cite{devin2025} operate on repositories through an
-\emph{execution harness} that mediates tool calls, shell commands, file
-access, network access, and model
-feedback~\cite{langchain-harness,fowler-harness}. A single tool
+AI agent harnesses that mediate tool calls, shell commands, file access,
+network access, and model feedback~\cite{langchain-harness,fowler-harness}. A single tool
 invocation can run arbitrary scripts, spawn subprocesses, and touch many
 files and endpoints before control returns to the model. Projects encode
 behavioral expectations in instruction files
 (\texttt{CLAUDE.md},
 \texttt{AGENTS.md})~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd},
-but the harness must decide how, and at what layer, to enforce them.
+but the AI agent harness must decide how, and at what layer, to enforce them.
 
 \textbf{Information-flow control.}
 Information-flow control (IFC) tracks how data or authority moves from
@@ -32,27 +31,31 @@ CamFlow~\cite{pasquier2017camflow} and
 CamQuery~\cite{pasquier2018camquery} record and query cross-event label
 histories. IFC thus captures constraints whose correctness depends on
 execution history; this is exactly the pattern that agent workflow directives (``run
-tests before committing'') exhibit.
+tests before committing'') exhibit. More general OS-level mechanisms
+(seccomp~\cite{seccomp-bpf}, AppArmor~\cite{apparmor},
+BPF-LSM~\cite{linuxbpflsm}, Tetragon~\cite{ciliumtetragon}) also observe
+system effects below the tool layer, but require statically pre-written
+policies and return opaque errors with no connection to the agent's
+declared directives.
 
-\textbf{Agent harness enforcement.}
-Existing agent harnesses enforce policy at one of three levels. Prompt
-instructions rely on the model's own compliance, which is inherently
-probabilistic~\cite{liu2024lost}. Tool-call guardrails such as
+\textbf{AI agent harness enforcement.}
+An \emph{AI agent harness} is the software around the model that
+maintains the agent loop and session state, routes tool calls, mediates
+shell, file, and network access, and returns results or feedback to the
+model. Existing AI agent harnesses enforce policy at one of three levels. We use
+\emph{runtime policy enforcement system} for any system that applies a
+policy while the agent executes. Prompt instructions rely on the model's own compliance,
+which is inherently probabilistic~\cite{liu2024lost}. Tool-call guardrails such as
 AgentSpec~\cite{wang2025agentspec} and Progent~\cite{shi2025progent}
 intercept tool-call names and arguments deterministically, while
 application-level IFC systems such as FIDES~\cite{costa2025fides} and
 CaMeL~\cite{debenedetti2025camel} track data flow within the agent loop.
-These mechanisms observe only the harness request, not the system-level
+These mechanisms observe only the AI agent harness request, not the system-level
 effects that follow once a tool starts executing: a subprocess, a
 shell-out, or a compiled binary can bypass the tool boundary entirely.
-OS-level mechanisms
-(seccomp~\cite{seccomp-bpf}, AppArmor~\cite{apparmor},
-BPF-LSM~\cite{linuxbpflsm}, Tetragon~\cite{ciliumtetragon}) observe
-those effects but require statically pre-written policies and return
-opaque errors with no connection to the agent's declared directives. No current
-layer bridges both: connecting the agent's project context to
-deterministic OS-level observation and enforcement. The empirical study
-below asks whether real project instructions demand this bridge.
+The missing piece is the bridge: connecting the agent's project context
+to deterministic OS-level observation and enforcement. The empirical
+study below asks whether real project instructions demand this bridge.
 
 \section{Empirical Study}
 \label{sec:empirical}

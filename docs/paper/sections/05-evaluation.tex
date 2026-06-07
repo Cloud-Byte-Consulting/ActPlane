@@ -33,13 +33,13 @@ the exact LSM state used for each performance run.
 
 \paragraph{Agent environment.}
 % TODO: Fill in agent versions.
-The active agent harnesses are Claude Code (via the \sys{} feedback
+The active AI agent harnesses are Claude Code (via the \sys{} feedback
 hook) and OpenAI Codex CLI (via tool-error feedback). Exact versions are
 recorded in per-run metadata.
 
 \paragraph{Baseline systems.}
 RQ1 compares four runtime policy enforcement systems on the same
-trace-conditioned agent harness. \textsc{Prompt-filter} is a stateless LLM classifier over
+trace-conditioned AI agent harness. \textsc{Prompt-filter} is a stateless LLM classifier over
 the natural-language directive and the proposed tool action.
 \textsc{Tool-regex} applies a generated per-case regex policy to raw Agent
 SDK tool inputs. \textsc{ActPlane-opaque} runs the same generated

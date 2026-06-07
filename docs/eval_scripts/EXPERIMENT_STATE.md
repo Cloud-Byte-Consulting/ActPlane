@@ -197,7 +197,7 @@ warnings = 0
 Execution properties:
 
 ```text
-Docker COW execution harness
+Docker COW AI agent harness
 real Agent SDK next-step execution
 real ActPlane/eBPF enforcement for actplane and actplane-opaque
 local llama.cpp source agent and local llama.cpp trajectory judge

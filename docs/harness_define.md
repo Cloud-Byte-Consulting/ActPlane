@@ -3,6 +3,11 @@
 > 本文汇总 2025-2026 年 "agent harness" 在学术/工业/社区的定义、用法和演化，
 > 并给出 ActPlane paper 的术语选择建议。数据来源于 2026-05 的系统性搜索。
 
+**推荐一句话定义**：An AI agent harness is the software around the model
+that maintains the agent loop and session state, routes tool calls,
+mediates shell, file, network, and sandbox resources, and returns results
+or feedback to the model.
+
 ---
 
 ## 1. 术语起源与时间线
