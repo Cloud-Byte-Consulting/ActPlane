@@ -8,3 +8,6 @@
 	path = docs/OctoBench/mini-vela
 	url = https://github.com/eunomia-bpf/mini-vela
 	branch = actplane
+[submodule "docs/papers"]
+	path = docs/papers
+	url = https://github.com/yunwei37/actplane-atc
