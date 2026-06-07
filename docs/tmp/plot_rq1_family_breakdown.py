@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
 """Generate the RQ1 trace-family diagnostic breakdown figure.
 
-The values come from the current latest judged RQ1 snapshot:
-docs/tmp/rq1/latest_existing_stats/current_latest_stats_20260607T051713Z.txt.
+The script reads the paper-facing full run directly instead of copying values
+from an intermediate text summary:
+docs/eval_runs/full/20260607_current_full_after_trace_harness_fix
 """
 
 from __future__ import annotations
 
-import re
+import json
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 
 
-STATS = Path("docs/tmp/rq1/latest_existing_stats/current_latest_stats_20260607T051713Z.txt")
+RUN_ROOT = Path("docs/eval_runs/full/20260607_current_full_after_trace_harness_fix")
 OUT = Path("docs/paper/figures/rq1_family_breakdown.pdf")
+
+FAMILY_FROM_TRACE = {
+    "trace_canonical_compliant.jsonl": "canonical_compliant",
+    "trace_allowed_effect_compliant.jsonl": "allowed_effect_compliant",
+    "trace_lookalike_compliant.jsonl": "lookalike_compliant",
+    "trace_visible_violation.jsonl": "visible_violation",
+    "trace_script_visible_violation.jsonl": "script_visible_violation",
+    "trace_opaque_fixture_violation.jsonl": "opaque_fixture_violation",
+}
 
 FAMILIES = [
     ("canonical_compliant", "Canonical\nbenign"),
@@ -34,22 +45,24 @@ SYSTEMS = [
 
 
 def load_rates() -> dict[tuple[str, str], float]:
+    counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    for system, _ in SYSTEMS:
+        for path in (RUN_ROOT / system).glob(
+            "**/trajectory_judges_llama_cpp_guardrail_response/*.judge.json"
+        ):
+            data = json.loads(path.read_text())
+            family = FAMILY_FROM_TRACE[data["trace_file"]]
+            label = data["judgment"]["confusion_label"].upper()
+            counts[(family, system)][label] += 1
+
     rates: dict[tuple[str, str], float] = {}
-    row_re = re.compile(
-        r"^\| ([^|]+) \| ([^|]+) \| \d+/\d+ \(([\d.]+)%\) \|"
-    )
-    in_family_table = False
-    for line in STATS.read_text().splitlines():
-        if line == "By trace family and setup":
-            in_family_table = True
-            continue
-        if in_family_table and line == "Coverage details":
-            break
-        match = row_re.match(line)
-        if not match:
-            continue
-        family, system, rate = (part.strip() for part in match.groups())
-        rates[(family, system)] = float(rate)
+    for family, _ in FAMILIES:
+        for system, _ in SYSTEMS:
+            counter = counts[(family, system)]
+            total = sum(counter.values())
+            if total != 38:
+                raise RuntimeError(f"{family}/{system}: expected 38 judgments, got {total}")
+            rates[(family, system)] = (counter["TP"] + counter["TN"]) / total * 100.0
     return rates
 
 
@@ -63,7 +76,7 @@ def main() -> None:
     plt.rcParams.update(
         {
             "font.family": "DejaVu Sans",
-            "font.size": 8.8,
+            "font.size": 9.6,
             "axes.spines.top": False,
             "axes.spines.right": False,
             "axes.spines.bottom": False,
@@ -71,15 +84,15 @@ def main() -> None:
         }
     )
 
-    fig, ax = plt.subplots(figsize=(3.35, 2.55), dpi=300)
+    fig, ax = plt.subplots(figsize=(3.65, 2.8), dpi=300)
     image = ax.imshow(matrix, cmap="YlGnBu", vmin=0, vmax=100, aspect="auto")
     del image
 
     ax.set_xticks(range(len(SYSTEMS)), [label for _, label in SYSTEMS])
     ax.set_yticks(range(len(FAMILIES)), [label for _, label in FAMILIES])
     ax.tick_params(axis="both", which="both", length=0)
-    ax.tick_params(axis="x", labelsize=8.6, pad=2)
-    ax.tick_params(axis="y", labelsize=8.6, pad=2)
+    ax.tick_params(axis="x", labelsize=9.3, pad=3)
+    ax.tick_params(axis="y", labelsize=9.2, pad=3)
 
     ax.set_xticks([x - 0.5 for x in range(1, len(SYSTEMS))], minor=True)
     ax.set_yticks([y - 0.5 for y in range(1, len(FAMILIES))], minor=True)
@@ -95,7 +108,7 @@ def main() -> None:
                 f"{rate:.1f}",
                 ha="center",
                 va="center",
-                fontsize=8.4,
+                fontsize=9.2,
                 fontweight="bold",
                 color=color,
             )

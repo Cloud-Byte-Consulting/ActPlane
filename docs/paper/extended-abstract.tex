@@ -102,30 +102,26 @@ therefore a wrapper command such as \texttt{actplane run <agent-or-command>},
 with an optional policy file when the current directory's policy should not be
 used.
 
-The evaluation will answer four practical questions before claiming results.
-First, can ActPlane catch the same violation across direct tool calls, nested
-shell strings, subprocesses, SDK/helper paths, and direct syscalls? Second, does
-corrective feedback improve task completion and reduce repeated violations
-relative to bare \texttt{-EPERM} or \texttt{SIGKILL}? Third, what false positive
-rate arises from object-level label propagation, and do declassification and gate paths
-allow intended work? Fourth, what overhead does label propagation add to
-fork/exec, file, and connect events, and to real agent tasks? The evaluation
-matrix leaves numeric result cells \textsc{TBD} until the experiments are run.
+The evaluation separates mechanism from user experience. In RQ1, we run a
+228-trace guardrail benchmark sampled from 38 directive-derived policies. Each
+policy has benign, lookalike, allowed-effect, visible-violation,
+script-mediated, and opaque-fixture traces, and each trace is executed under
+prompt-filter, tool-regex, ActPlane without structured feedback, and full
+ActPlane. Full ActPlane reaches 75.4\% guardrail response correctness, compared
+with 52.6\% for prompt-filter, 52.6\% for tool-regex, and 61.4\% for the opaque
+feedback ablation. The gain comes mainly from reducing false negatives on
+script and opaque runtime effects, while remaining false positives reflect
+generated-policy precision limits rather than invalid traces.
 
-The planned experiments separate mechanism from user experience. The bypass
-coverage experiment uses paired triggers that reach the same effect through
-different routes: a direct tool call, a shell string, a Python subprocess, a
-helper binary, an SDK path, and a direct syscall-oriented test where applicable.
-The feedback experiment compares prompt-only operation, notify-only reporting,
-failure without semantic feedback, and failure with ActPlane's feedback file and
-hook bridge. The false-positive experiment runs allowed workflows that should
-pass only after the correct gate, including redaction before egress,
-test-before-commit, confirmation-before-destructive-action, and read-only
-sub-agent delegation. The overhead experiment measures both per-event costs and
-whole-agent task time. Finally, the corpus experiment maps real
-\texttt{AGENTS.md}, \texttt{CLAUDE.md}, and similar instructions into
-observable, expressible, robust, and temptable categories before deriving a
-policy/task benchmark.
+The remaining experiments measure both cost and end-to-end usefulness. The
+overhead experiment measures per-event costs and deterministic whole-agent task
+time; at 32 active no-hit rules, ActPlane adds 1.9\% on agent trace replay and
+6.5\% on a Linux build. The repository-grounded experiment runs a selected
+20-task OctoBench subset and improves official reward from 0.788 without
+enforcement and 0.818 with tool-regex to 0.888 with ActPlane. Finally, the
+corpus experiment maps real \texttt{AGENTS.md}, \texttt{CLAUDE.md}, and similar
+instructions into observable, expressible, robust, and temptable categories
+before deriving the policy/task benchmark.
 
 The mechanism is intentionally conservative. Kernel provenance systems such as
 CamQuery~\cite{pasquier2018camquery} already showed that cross-channel tracking

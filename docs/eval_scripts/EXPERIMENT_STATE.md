@@ -99,13 +99,13 @@ The public flags are intentionally limited to:
 ## Latest Current Six-Family Snapshot
 
 This is the current paper-facing RQ1 snapshot for the six-family corpus. It
-selects the latest judged result for each (`system`, `statement`, `trace`) cell
-from the existing RQ1 run directories and targeted trace reruns.
+comes from one full `run_eval.py --config full` run after trace and harness
+cleanup.
 
-Selection report:
+Run directory:
 
 ```text
-docs/tmp/rq1/latest_existing_stats/selected_latest_judged_results.txt
+docs/eval_runs/full/20260607_current_full_after_trace_harness_fix
 ```
 
 Coverage:
@@ -115,33 +115,47 @@ Coverage:
 228 trace-conditioned scenarios
 4 systems
 912 expected system-trace cells
-912 selected latest judged cells
+912 runner results
+912 trajectory judge results
 0 missing cells
+0 judge parse errors
 0 stale cells relative to current trace files
 ```
 
 Final metric:
 
-| system | DCR | TP | TN | FP | FN | unclear | judged |
+| system | GRR | TP | TN | FP | FN | unclear | judged |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| prompt-filter | 131/228 (57.5%) | 50 | 81 | 33 | 64 | 0 | 228 |
-| tool-regex | 135/228 (59.2%) | 50 | 85 | 29 | 64 | 0 | 228 |
-| actplane | 177/228 (77.6%) | 79 | 98 | 16 | 35 | 0 | 228 |
-| actplane-opaque | 154/228 (67.5%) | 42 | 112 | 2 | 72 | 0 | 228 |
+| prompt-filter | 120/228 (52.6%) | 41 | 79 | 35 | 73 | 0 | 228 |
+| tool-regex | 120/228 (52.6%) | 37 | 83 | 31 | 77 | 0 | 228 |
+| actplane | 172/228 (75.4%) | 85 | 87 | 27 | 29 | 0 | 228 |
+| actplane-opaque | 140/228 (61.4%) | 29 | 111 | 3 | 85 | 0 | 228 |
 
 Main-text reporting plan:
 
 ```text
-one overall DCR bar chart
+one overall GRR bar chart
 one TP/TN/FP/FN confusion-matrix table
-no main-text trace-family heatmap/table
+optional diagnostic trace-family heatmap/table if space allows
 ```
 
 The trace-family breakdown remains diagnostic artifact data. The main RQ1
-interpretation should state that ActPlane's aggregate advantage comes from
-runtime visibility on subprocess/fixture effects and lower benign overblocking,
-while the opaque-feedback ablation isolates the value of structured corrective
-feedback for agent recovery.
+interpretation should state that ActPlane's aggregate advantage comes primarily
+from violation recall on script-mediated and opaque runtime effects, while the
+opaque-feedback ablation isolates the value of structured corrective feedback
+for agent recovery. ActPlane still has 27 false positives, so the claim should
+not be framed as precision being solved.
+
+Current trace-family breakdown:
+
+| trace family | prompt-filter | tool-regex | actplane | actplane-opaque |
+|---|---:|---:|---:|---:|
+| `trace_canonical_compliant.jsonl` | 30/38 (78.9%) | 34/38 (89.5%) | 29/38 (76.3%) | 36/38 (94.7%) |
+| `trace_allowed_effect_compliant.jsonl` | 25/38 (65.8%) | 23/38 (60.5%) | 28/38 (73.7%) | 37/38 (97.4%) |
+| `trace_lookalike_compliant.jsonl` | 24/38 (63.2%) | 26/38 (68.4%) | 30/38 (78.9%) | 38/38 (100.0%) |
+| `trace_visible_violation.jsonl` | 32/38 (84.2%) | 32/38 (84.2%) | 31/38 (81.6%) | 12/38 (31.6%) |
+| `trace_script_visible_violation.jsonl` | 9/38 (23.7%) | 4/38 (10.5%) | 26/38 (68.4%) | 4/38 (10.5%) |
+| `trace_opaque_fixture_violation.jsonl` | 0/38 (0.0%) | 1/38 (2.6%) | 28/38 (73.7%) | 13/38 (34.2%) |
 
 ## Latest Historical Complete Paired Run
 
@@ -371,7 +385,7 @@ python3 docs/eval_scripts/run_eval.py \
 For an interrupted run, use the same output directory. `run_eval.py` checks
 complete `(repo, statement, trace)` keys and source model names, skips complete
 keys, runs only missing runner rows, judges missing trajectories, and prints one
-final DCR table.
+final GRR table.
 
-The final reported number should be the DCR table printed by `run_eval.py` after
+The final reported number should be the GRR table printed by `run_eval.py` after
 all four systems have judged rows for the same manifest-selected trace keys.

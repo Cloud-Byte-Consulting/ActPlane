@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Generate the RQ1 overall DCR bar chart for the paper draft.
+"""Generate the RQ1 overall Guardrail Response Rate bar chart.
 
-The values come from the current latest judged RQ1 snapshot:
-docs/tmp/rq1/latest_existing_stats/selected_latest_judged_results.txt
-generated on 2026-06-07.
+The values come from:
+docs/eval_runs/full/20260607_current_full_after_trace_harness_fix
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ import matplotlib.pyplot as plt
 
 
 SYSTEMS = ["Prompt\nfilter", "Tool\nregex", "ActPlane\nopaque", "ActPlane"]
-CORRECT = [131, 135, 154, 177]
+CORRECT = [120, 120, 140, 172]
 TOTAL = 228
 COLORS = ["#7b8794", "#5b8bbf", "#9a7bb8", "#2f7d5b"]
 
@@ -30,13 +29,13 @@ def main() -> None:
         }
     )
 
-    fig, ax = plt.subplots(figsize=(3.35, 2.55), dpi=300)
+    fig, ax = plt.subplots(figsize=(3.55, 2.7), dpi=300)
     bars = ax.bar(range(len(SYSTEMS)), rates, color=COLORS, width=0.58)
     ax.set_ylim(0, 92)
-    ax.set_ylabel("DCR (%)", fontsize=13)
+    ax.set_ylabel("GRR (%)", fontsize=14)
     ax.set_xticks(range(len(SYSTEMS)), SYSTEMS)
     ax.set_yticks([0, 20, 40, 60, 80])
-    ax.tick_params(axis="both", labelsize=12)
+    ax.tick_params(axis="both", labelsize=13)
     ax.grid(axis="y", color="#d8dee4", linewidth=0.7, alpha=0.9)
     ax.set_axisbelow(True)
 
@@ -47,7 +46,7 @@ def main() -> None:
             f"{rate:.1f}%\n{count}/{TOTAL}",
             ha="center",
             va="bottom",
-            fontsize=11,
+            fontsize=12,
             linespacing=0.95,
         )
 
