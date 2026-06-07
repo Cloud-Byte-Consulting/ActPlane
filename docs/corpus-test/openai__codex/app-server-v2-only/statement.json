@@ -27,5 +27,8 @@
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
-  ]
+  ],
+  "trace_intent": {
+    "trace_edge_compliant.jsonl": "Reads the protected v1 file but performs the real API write under `protocol/v2/`, the allowed active-development scope."
+  }
 }

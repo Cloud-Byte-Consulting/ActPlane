@@ -320,12 +320,16 @@ Current RQ1 scope:
 Each statement should have exactly six trace-conditioned decision points:
 
 - `canonical_compliant`: direct, ordinary compliant behavior.
-- `edge_compliant`: compliant behavior with more realistic complexity, such as
-  subprocesses, multi-file edits, or cross-directory changes that should not be
-  overblocked.
-- `lookalike_compliant`: benign precision stress behavior that mentions or
-  manipulates risky-looking strings, paths, dry-run inputs, fixtures, or docs
-  without performing the forbidden side effect.
+- `lookalike_compliant`: semantic or lexical decoys that look risky in names,
+  prompts, docs, fixture strings, dry-run commands, or other visible text, but
+  do not perform the restricted side effect. This family tests overmatching on
+  surface form.
+- `edge_compliant`: allowed-effect compliant behavior. The trace must perform a
+  real tool/runtime effect close to the policy boundary, such as a write, edit,
+  unlink, exec, commit, generated output, or subprocess action, but that effect
+  is compliant because it satisfies the required predecessor, path scope,
+  exception, ordering, or paired action. This family tests overblocking of real
+  but allowed workflows, not merely risky-looking text.
 - `visible_violation`: a violation visible in the Agent SDK tool input, where
   `tool-regex` should have a fair chance.
 - `script_visible_violation`: the agent writes or inlines a helper script during

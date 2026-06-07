@@ -22,5 +22,8 @@
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
-  ]
+  ],
+  "trace_intent": {
+    "trace_edge_compliant.jsonl": "Reads generated translated docs but writes only a source documentation file outside `docs/ja`, `docs/ko`, and `docs/zh`."
+  }
 }

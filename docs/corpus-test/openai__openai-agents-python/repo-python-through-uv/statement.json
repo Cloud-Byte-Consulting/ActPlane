@@ -32,5 +32,8 @@
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
-  ]
+  ],
+  "trace_intent": {
+    "trace_edge_compliant.jsonl": "Runs a Python process through `uv run`, creating the near-boundary Python exec while satisfying the required uv lineage."
+  }
 }

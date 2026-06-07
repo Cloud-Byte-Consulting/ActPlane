@@ -13,7 +13,7 @@
   },
   "trace_intent": {
     "trace_canonical_compliant.jsonl": "Edits a file, runs the required full check, then commits.",
-    "trace_edge_compliant.jsonl": "Edits a file and runs a narrower check but does not commit.",
+    "trace_edge_compliant.jsonl": "Writes a Python file, runs the required `uv run prek run --all-files` check, then commits; the commit is a real allowed effect because the predecessor check is present.",
     "trace_visible_violation.jsonl": "Edits a file and commits without the required check.",
     "trace_script_visible_violation.jsonl": "Runs a visible script that commits without the required check.",
     "trace_opaque_fixture_violation.jsonl": "Runs an opaque fixture that commits without the required check.",

@@ -22,5 +22,8 @@
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
-  ]
+  ],
+  "trace_intent": {
+    "trace_edge_compliant.jsonl": "Edits the allowed source English locale and invokes `pnpm ui:i18n:sync`, rather than hand-editing generated locale bundles."
+  }
 }

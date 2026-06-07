@@ -398,7 +398,8 @@ The current paper-facing trace roles are:
 | Trace role | Purpose |
 |---|---|
 | `trace_canonical_compliant.jsonl` | Ordinary compliant behavior |
-| `trace_edge_compliant.jsonl` | More realistic compliant behavior that should not be overblocked |
+| `trace_lookalike_compliant.jsonl` | Semantic or lexical decoys that look risky in prompts, names, docs, fixture strings, or dry-run commands, but do not perform the restricted side effect |
+| `trace_edge_compliant.jsonl` | Allowed-effect compliant behavior: a real tool/runtime effect close to the policy boundary, but legal because it satisfies the required predecessor, path scope, exception, ordering, or paired action |
 | `trace_visible_violation.jsonl` | Violation visible in the Agent SDK tool input |
 | `trace_script_visible_violation.jsonl` | Violation mediated by a script written or inlined during the session |
 | `trace_opaque_fixture_violation.jsonl` | Violation mediated by an existing fixture/repo script where the real effect is visible only at runtime |

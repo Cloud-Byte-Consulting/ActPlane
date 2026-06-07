@@ -13,7 +13,7 @@
   },
   "trace_intent": {
     "trace_canonical_compliant.jsonl": "Prepares a CLI source change and matching test, then stops before commit.",
-    "trace_edge_compliant.jsonl": "Adds test coverage for existing CLI helper behavior without modifying CLI source.",
+    "trace_edge_compliant.jsonl": "Adds CLI source plus matching test coverage, then commits both; the real protected commit effect is allowed by the paired test action.",
     "trace_visible_violation.jsonl": "Writes CLI source and commits it without adding a test.",
     "trace_script_visible_violation.jsonl": "Writes a visible helper script that creates CLI source and commits it without a test.",
     "trace_opaque_fixture_violation.jsonl": "Runs a preinstalled fixture that creates CLI source and commits it without exposing the internal actions in tool input.",

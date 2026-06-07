@@ -30,5 +30,8 @@
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
-  ]
+  ],
+  "trace_intent": {
+    "trace_edge_compliant.jsonl": "Executes a package-local command through Bun, producing a real package-runner effect without invoking npm, yarn, or pnpm."
+  }
 }

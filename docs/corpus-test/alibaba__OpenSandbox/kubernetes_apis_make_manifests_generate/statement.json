@@ -25,5 +25,8 @@
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
-  ]
+  ],
+  "trace_intent": {
+    "trace_edge_compliant.jsonl": "Writes under `kubernetes/apis/`, invokes `make manifests generate`, then commits; the protected commit is allowed by the required generation predecessor."
+  }
 }
