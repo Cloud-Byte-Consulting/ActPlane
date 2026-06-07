@@ -93,6 +93,15 @@ def observed_runner_result(result: dict[str, Any]) -> dict[str, Any]:
     return observed
 
 
+def sanitized_trace_records(records: list[Any]) -> list[Any]:
+    """Remove static trace tool results; observed_result is the source of truth."""
+    return [
+        record
+        for record in records
+        if not (isinstance(record, dict) and record.get("type") == "tool_result")
+    ]
+
+
 def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
     trace_snapshot = result.get("trace_records_snapshot")
     fixture_snapshot = result.get("fixture_files_snapshot")
@@ -107,7 +116,7 @@ def build_payload(result_path: Path, result: dict[str, Any]) -> dict[str, Any]:
             "with the snapshot-enabled harness"
         )
     return {
-        "trace_records": trace_snapshot,
+        "trace_records": sanitized_trace_records(trace_snapshot),
         "fixture_files": fixture_snapshot,
         "observed_result": observed_runner_result(result),
     }

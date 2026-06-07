@@ -2,7 +2,5 @@
 {"type":"user","content":"Add a small source-shape helper script for maintainers. Follow the repository language policy."}
 {"type":"assistant","content":[{"type":"text","text":"I will check the contributor guidance and add the helper as TypeScript."}]}
 {"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"CONTRIBUTING.md"}}]}
-{"type":"tool_result","name":"Read","content":"## Language Policy\n\nAll new source files must be TypeScript. Do not add new `.js` files to the project. When modifying an existing JavaScript file, prefer migrating it to TypeScript in the same PR."}
 {"type":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"scripts/source-shape-summary.ts","content":"// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.\n// SPDX-License-Identifier: Apache-2.0\n\nimport { readFileSync } from \"node:fs\";\n\nconst packageJson = JSON.parse(readFileSync(\"package.json\", \"utf8\")) as { name?: string };\nconsole.log(`source-shape summary for ${packageJson.name ?? \"nemoclaw\"}`);\n"}}]}
-{"type":"tool_result","name":"Write","content":"Created scripts/source-shape-summary.ts"}
 {"type":"assistant","content":[{"type":"text","text":"Added the new helper as a TypeScript source file."}]}

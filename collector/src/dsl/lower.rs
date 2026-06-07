@@ -22,6 +22,7 @@ const M_PREFIX: u8 = 1;
 const M_SUFFIX: u8 = 2;
 const M_ANY: u8 = 3;
 const M_CONTAINS: u8 = 4;
+const MAX_CONTAINS_LITERAL: usize = 24; // mirrors TAINT_SUF_MAX in bpf/taint.h
 const OP_EXEC: u8 = 0;
 const OP_OPEN: u8 = 1;
 const OP_WRITE: u8 = 2;
@@ -97,42 +98,156 @@ fn lower_exec(pat: &str) -> (u8, String) {
     }
 }
 
+fn shorten_contains_literal(lit: &str) -> String {
+    if lit.len() <= MAX_CONTAINS_LITERAL {
+        return lit.to_string();
+    }
+    let trimmed = lit.trim_start_matches('/');
+    if trimmed.len() <= MAX_CONTAINS_LITERAL {
+        return trimmed.to_string();
+    }
+    for (idx, _) in trimmed.match_indices('/') {
+        let candidate = &trimmed[idx + 1..];
+        if !candidate.is_empty() && candidate.len() <= MAX_CONTAINS_LITERAL {
+            return candidate.to_string();
+        }
+    }
+    let last = trimmed.rsplit('/').next().unwrap_or(trimmed);
+    if !last.is_empty() && last.len() <= MAX_CONTAINS_LITERAL {
+        return last.to_string();
+    }
+    let start = trimmed.len().saturating_sub(MAX_CONTAINS_LITERAL);
+    trimmed[start..].to_string()
+}
+
+fn shorten_repo_relative_exact_literal(path: &str) -> String {
+    if path.len() <= MAX_CONTAINS_LITERAL {
+        return path.to_string();
+    }
+    for (idx, _) in path.match_indices('/') {
+        let candidate = &path[idx + 1..];
+        if candidate.contains('/') && candidate.len() <= MAX_CONTAINS_LITERAL {
+            return candidate.to_string();
+        }
+    }
+    if let Some((parent, _base)) = path.rsplit_once('/') {
+        return shorten_contains_literal(&format!("{}/", parent));
+    }
+    shorten_contains_literal(path)
+}
+
 /// (match, literal) lowering for path patterns.
 fn lower_path(pat: &str) -> (u8, String) {
-    if pat == "*" || pat == "**" {
+    if pat == "*" || pat == "**" || pat == "**/*" {
         return (M_ANY, String::new());
     }
+    let repo_relative = !pat.starts_with('/');
     // **/middle/** → contains "/middle/" (substring search)
     if let Some(inner) = pat.strip_prefix("**/").and_then(|r| r.strip_suffix("/**")) {
         if !inner.contains('*') {
-            return (M_CONTAINS, format!("/{inner}/"));
+            return (M_CONTAINS, shorten_contains_literal(&format!("/{inner}/")));
         }
     }
     // **/middle/* → contains "/middle/" (files directly inside)
     if let Some(inner) = pat.strip_prefix("**/").and_then(|r| r.strip_suffix("/*")) {
         if !inner.contains('*') {
-            return (M_CONTAINS, format!("/{inner}/"));
+            return (M_CONTAINS, shorten_contains_literal(&format!("/{inner}/")));
         }
     }
+    if let Some(inner) = pat.strip_prefix("**/") {
+        if let Some(suffix) = inner.strip_prefix('*') {
+            return (M_CONTAINS, shorten_contains_literal(suffix));
+        }
+        return (M_CONTAINS, shorten_contains_literal(inner));
+    }
     if let Some(p) = pat.strip_suffix("/**") {
-        return (M_PREFIX, format!("{}/", p));
+        if repo_relative {
+            if !p.contains('*') {
+                return (M_CONTAINS, shorten_contains_literal(&format!("{}/", p)));
+            }
+        } else {
+            return (M_PREFIX, format!("{}/", p));
+        }
     }
     if let Some(p) = pat.strip_suffix("**") {
-        return (M_PREFIX, p.to_string());
+        if repo_relative {
+            if !p.contains('*') {
+                return (M_CONTAINS, shorten_contains_literal(p));
+            }
+        } else {
+            return (M_PREFIX, p.to_string());
+        }
     }
     if let Some(p) = pat.strip_suffix("/*") {
-        return (M_PREFIX, format!("{}/", p));
-    }
-    if let Some(p) = pat.strip_prefix("**/") {
-        return (M_SUFFIX, p.to_string());
+        if repo_relative {
+            if !p.contains('*') {
+                return (M_CONTAINS, shorten_contains_literal(&format!("{}/", p)));
+            }
+        } else {
+            return (M_PREFIX, format!("{}/", p));
+        }
     }
     if let Some(p) = pat.strip_prefix('*') {
+        if repo_relative {
+            return (M_CONTAINS, shorten_contains_literal(p));
+        }
         return (M_SUFFIX, p.to_string());
     }
     if let Some(idx) = pat.find('*') {
+        if repo_relative {
+            return (M_CONTAINS, shorten_contains_literal(&pat[..idx]));
+        }
         return (M_PREFIX, pat[..idx].to_string());
     }
+    if repo_relative && pat.contains('/') {
+        return (M_CONTAINS, shorten_repo_relative_exact_literal(pat));
+    }
+    if repo_relative {
+        return (M_CONTAINS, shorten_contains_literal(pat));
+    }
     (M_EXACT, pat.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repo_relative_paths_match_absolute_runtime_paths() {
+        assert_eq!(lower_path("pyproject.toml"), (M_CONTAINS, "pyproject.toml".into()));
+        assert_eq!(
+            lower_path("src/google/adk/agents/config_schemas/AgentConfig.json"),
+            (M_CONTAINS, "agents/config_schemas/".into())
+        );
+        assert_eq!(
+            lower_path("ui/src/i18n/locales/en.ts"),
+            (M_CONTAINS, "src/i18n/locales/en.ts".into())
+        );
+        assert_eq!(
+            lower_path("codex-rs/app-server-protocol/schema/typescript/v2/**"),
+            (M_CONTAINS, "schema/typescript/v2/".into())
+        );
+        assert_eq!(
+            lower_path("packages/oh-my-opencode-*/bin/**"),
+            (M_CONTAINS, "packages/oh-my-opencode-".into())
+        );
+        assert_eq!(
+            lower_path("src/browser_harness/**"),
+            (M_CONTAINS, "src/browser_harness/".into())
+        );
+        assert_eq!(
+            lower_path("ui/src/i18n/locales/*.ts"),
+            (M_CONTAINS, "ui/src/i18n/locales/".into())
+        );
+        assert_eq!(lower_path("**/*.js"), (M_CONTAINS, ".js".into()));
+        assert_eq!(lower_path("**/*"), (M_ANY, String::new()));
+    }
+
+    #[test]
+    fn absolute_paths_keep_absolute_semantics() {
+        assert_eq!(lower_path("/tmp/guarded/**"), (M_PREFIX, "/tmp/guarded/".into()));
+        assert_eq!(lower_path("/tmp/guarded/file.txt"), (M_EXACT, "/tmp/guarded/file.txt".into()));
+    }
 }
 
 /// Lower an IPv4 prefix/host pattern to (net, mask) in the same byte order as

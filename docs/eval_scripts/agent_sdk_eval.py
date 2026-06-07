@@ -301,10 +301,173 @@ def format_command_result(stdout: str, stderr: str, returncode: int) -> str:
     return output.strip() or "(no output)"
 
 
+FILE_CHANGE_SCRIPT = r"""
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(sys.stdin.read())
+path = Path(payload["path"])
+display_path = payload.get("display_path") or str(path)
+op = payload["op"]
+
+try:
+    if op == "write":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload.get("content", ""), encoding="utf-8")
+        print("ok")
+    elif op == "edit":
+        if not path.exists():
+            print(f"Error: file not found: {display_path}")
+            raise SystemExit(2)
+        content = path.read_text(encoding="utf-8", errors="replace")
+        old_string = payload.get("old_string", "")
+        if old_string not in content:
+            print(f"Error: old_string not found in {display_path}")
+            raise SystemExit(2)
+        new_string = payload.get("new_string", "")
+        path.write_text(content.replace(old_string, new_string, 1), encoding="utf-8")
+        print("ok")
+    else:
+        print(f"Error: unsupported file change op: {op}")
+        raise SystemExit(2)
+except SystemExit:
+    raise
+except OSError as exc:
+    print(f"Error: {exc}")
+    raise SystemExit(1)
+"""
+
+
+@dataclass
+class ToolProcessResult:
+    text: str
+    returncode: int
+
+
+@dataclass
+class WorkdirLease:
+    workdir: Path
+    ovl_base: Path
+    mounted: bool
+    backend: str
+
+
+def run_file_change_script(
+    workdir: Path,
+    *,
+    op: str,
+    file_path: str,
+    content: str | None = None,
+    old_string: str | None = None,
+    new_string: str | None = None,
+) -> ToolProcessResult:
+    """Run file-changing tool effects in a child process.
+
+    ActPlane may kill this child on a violating syscall; the benchmark harness
+    parent must stay alive so it can consume feedback and write a result JSON.
+    """
+    target = safe_path(workdir, file_path)
+    try:
+        syscall_path = target.relative_to(workdir.resolve())
+    except ValueError:
+        syscall_path = target
+    payload = {
+        "op": op,
+        "path": str(syscall_path),
+        "display_path": file_path,
+        "content": content or "",
+        "old_string": old_string or "",
+        "new_string": new_string or "",
+    }
+    with tempfile.TemporaryDirectory(prefix="actplane-tool-") as tmp:
+        script = Path(tmp) / "file_change_tool.py"
+        script.write_text(FILE_CHANGE_SCRIPT, encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=workdir,
+            env=safe_subprocess_env(workdir),
+            input=json.dumps(payload),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+    return ToolProcessResult(
+        text=format_command_result(proc.stdout, proc.stderr, proc.returncode),
+        returncode=proc.returncode,
+    )
+
+
 def cleanup_workdir(mounted: bool, workdir: Path, ovl_base: Path) -> None:
     if mounted:
         subprocess.run(["umount", "-l", str(workdir)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     shutil.rmtree(ovl_base, ignore_errors=True)
+
+
+def prepare_workdir(real_repo: Path, statement_dir: Path | None) -> WorkdirLease:
+    ovl_base = Path(tempfile.mkdtemp(prefix="actplane-eval-"))
+    mounted = False
+    ovl_upper = ovl_base / "upper"
+    ovl_work = ovl_base / "work"
+    ovl_merged = ovl_base / "merged"
+    ovl_upper.mkdir()
+    ovl_work.mkdir()
+    ovl_merged.mkdir()
+    mount_proc = subprocess.run(
+        [
+            "mount", "-t", "overlay", "overlay",
+            "-o", f"lowerdir={real_repo},upperdir={ovl_upper},workdir={ovl_work}",
+            str(ovl_merged),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if mount_proc.returncode == 0:
+        mounted = True
+        workdir = ovl_merged
+        backend = "overlay"
+    else:
+        workdir = ovl_base / "scratch"
+        shutil.copytree(real_repo, workdir, symlinks=True)
+        backend = "copy"
+
+    if not (workdir / ".git").exists():
+        subprocess.run(["git", "init"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["git", "config", "user.email", "eval@test"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["git", "config", "user.name", "eval"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    apply_fixtures(statement_dir, workdir)
+    install_eval_safety_bin(workdir)
+    return WorkdirLease(workdir=workdir, ovl_base=ovl_base, mounted=mounted, backend=backend)
+
+
+def deferred_cleanup_info(mounted: bool, workdir: Path, ovl_base: Path) -> dict[str, Any]:
+    return {
+        "mounted": mounted,
+        "workdir": str(workdir),
+        "ovl_base": str(ovl_base),
+    }
+
+
+def cleanup_deferred_workdir(info: Any) -> None:
+    if not isinstance(info, dict):
+        return
+    ovl_base_raw = info.get("ovl_base")
+    workdir_raw = info.get("workdir")
+    if not isinstance(ovl_base_raw, str) or not isinstance(workdir_raw, str):
+        return
+    ovl_base = Path(ovl_base_raw)
+    workdir = Path(workdir_raw)
+    tmp_root = Path(tempfile.gettempdir()).resolve()
+    try:
+        ovl_resolved = ovl_base.resolve()
+    except OSError:
+        ovl_resolved = ovl_base.absolute()
+    if ovl_base.name.startswith("actplane-eval-") and (
+        ovl_resolved == tmp_root or tmp_root in ovl_resolved.parents
+    ):
+        cleanup_workdir(bool(info.get("mounted")), workdir, ovl_base)
 
 
 def snapshot_text(value: str) -> str:
@@ -331,9 +494,14 @@ def read_fixture_snapshot(statement_dir: Path) -> dict[str, str]:
 
 def case_snapshot(statement_dir: Path, trace_path: Path) -> dict[str, Any]:
     return {
-        "trace_records_snapshot": read_jsonl(trace_path),
+        "trace_records_snapshot": sanitized_trace_records(read_jsonl(trace_path)),
         "fixture_files_snapshot": read_fixture_snapshot(statement_dir),
     }
+
+
+def sanitized_trace_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only the replay inputs; tool results must come from the runner."""
+    return [record for record in records if record.get("type") != "tool_result"]
 
 
 def make_unscorable_result(
@@ -667,12 +835,25 @@ def write_file(ctx: RunContextWrapper[EvalContext], file_path: str, content: str
         append_policy_feedback(ec, feedback)
         return feedback
 
-    p = safe_path(ec.workdir, file_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
+    try:
+        tool_result = run_file_change_script(
+            ec.workdir,
+            op="write",
+            file_path=file_path,
+            content=content,
+        )
+    except subprocess.TimeoutExpired:
+        message = "Error: file change timed out after 30s"
+        log_tool(ec, "Write", file_path=file_path, returncode=124, step=ec.step_count)
+        return visible_tool_result(ec, "Write", message)
+    except OSError as e:
+        message = f"Error: {e}"
+        log_tool(ec, "Write", file_path=file_path, returncode=126, step=ec.step_count)
+        return visible_tool_result(ec, "Write", message)
 
-    log_tool(ec, "Write", file_path=file_path, step=ec.step_count)
-    record_tool_policy_after(ec, "Write", file_path=file_path)
+    log_tool(ec, "Write", file_path=file_path, returncode=tool_result.returncode, step=ec.step_count)
+    if tool_result.returncode == 0:
+        record_tool_policy_after(ec, "Write", file_path=file_path)
 
     if policy_event and policy_event.effect == "notify":
         feedback = format_policy_feedback(policy_event)
@@ -687,7 +868,7 @@ def write_file(ctx: RunContextWrapper[EvalContext], file_path: str, content: str
         if ec.deliver_feedback:
             return f"[ActPlane] {feedback}"
 
-    return visible_tool_result(ec, "Write", "ok")
+    return visible_tool_result(ec, "Write", tool_result.text)
 
 
 @function_tool(name_override="Edit")
@@ -707,22 +888,26 @@ def edit_file(
         append_policy_feedback(ec, feedback)
         return feedback
 
-    p = safe_path(ec.workdir, file_path)
-    if not p.exists():
-        message = f"Error: file not found: {file_path}"
-        return visible_tool_result(ec, "Edit", message)
     try:
-        content = p.read_text(encoding="utf-8", errors="replace")
+        tool_result = run_file_change_script(
+            ec.workdir,
+            op="edit",
+            file_path=file_path,
+            old_string=old_string,
+            new_string=new_string,
+        )
+    except subprocess.TimeoutExpired:
+        message = "Error: file change timed out after 30s"
+        log_tool(ec, "Edit", file_path=file_path, returncode=124, step=ec.step_count)
+        return visible_tool_result(ec, "Edit", message)
     except OSError as e:
         message = f"Error: {e}"
+        log_tool(ec, "Edit", file_path=file_path, returncode=126, step=ec.step_count)
         return visible_tool_result(ec, "Edit", message)
-    if old_string not in content:
-        message = f"Error: old_string not found in {file_path}"
-        return visible_tool_result(ec, "Edit", message)
-    p.write_text(content.replace(old_string, new_string, 1), encoding="utf-8")
 
-    log_tool(ec, "Edit", file_path=file_path, step=ec.step_count)
-    record_tool_policy_after(ec, "Edit", file_path=file_path)
+    log_tool(ec, "Edit", file_path=file_path, returncode=tool_result.returncode, step=ec.step_count)
+    if tool_result.returncode == 0:
+        record_tool_policy_after(ec, "Edit", file_path=file_path)
 
     if policy_event and policy_event.effect == "notify":
         feedback = format_policy_feedback(policy_event)
@@ -737,7 +922,7 @@ def edit_file(
         if ec.deliver_feedback:
             return f"[ActPlane] {feedback}"
 
-    return visible_tool_result(ec, "Edit", "ok")
+    return visible_tool_result(ec, "Edit", tool_result.text)
 
 
 @function_tool(name_override="update_plan")
@@ -884,37 +1069,50 @@ def replay_trace_setup(
                     file_path = inp.get("file_path", "file.txt")
                     old_string = str(inp.get("old_string", ""))
                     new_string = str(inp.get("new_string", ""))
-                    p = safe_path(ctx.workdir, file_path)
-                    if not p.exists():
-                        actual_result = f"Error: file not found: {file_path}"
+                    try:
+                        tool_result = run_file_change_script(
+                            ctx.workdir,
+                            op="edit",
+                            file_path=file_path,
+                            old_string=old_string,
+                            new_string=new_string,
+                        )
+                        actual_result = tool_result.text
+                        returncode = tool_result.returncode
+                    except subprocess.TimeoutExpired:
+                        actual_result = "Error: file change timed out after 30s"
+                        returncode = 124
+                    except OSError as e:
+                        actual_result = f"Error: {e}"
+                        returncode = 126
+                    if returncode != 0 and actual_result.startswith("Error:"):
                         record_setup_error(ctx, actual_result)
-                    else:
-                        try:
-                            content = p.read_text(encoding="utf-8", errors="replace")
-                            if old_string not in content:
-                                actual_result = f"Error: old_string not found in {file_path}"
-                                record_setup_error(ctx, actual_result)
-                            else:
-                                p.write_text(content.replace(old_string, new_string, 1), encoding="utf-8")
-                                actual_result = "ok"
-                        except OSError as e:
-                            actual_result = f"Error: {e}"
-                            record_setup_error(ctx, actual_result)
-                    log_tool(ctx, "Edit", file_path=file_path, step=setup_step)
-                    record_tool_policy_after(ctx, "Edit", file_path=file_path)
+                    log_tool(ctx, "Edit", file_path=file_path, returncode=returncode, step=setup_step)
+                    if returncode == 0:
+                        record_tool_policy_after(ctx, "Edit", file_path=file_path)
 
                 elif name == "Write":
                     file_path = inp.get("file_path", "file.txt")
-                    p = safe_path(ctx.workdir, file_path)
-                    p.parent.mkdir(parents=True, exist_ok=True)
                     try:
-                        p.write_text(str(inp.get("content", "")), encoding="utf-8")
-                        actual_result = "ok"
+                        tool_result = run_file_change_script(
+                            ctx.workdir,
+                            op="write",
+                            file_path=file_path,
+                            content=str(inp.get("content", "")),
+                        )
+                        actual_result = tool_result.text
+                        returncode = tool_result.returncode
+                    except subprocess.TimeoutExpired:
+                        actual_result = "Error: file change timed out after 30s"
+                        returncode = 124
                     except OSError as e:
                         actual_result = f"Error: {e}"
+                        returncode = 126
+                    if returncode != 0 and actual_result.startswith("Error:"):
                         record_setup_error(ctx, actual_result)
-                    log_tool(ctx, "Write", file_path=file_path, step=setup_step)
-                    record_tool_policy_after(ctx, "Write", file_path=file_path)
+                    log_tool(ctx, "Write", file_path=file_path, returncode=returncode, step=setup_step)
+                    if returncode == 0:
+                        record_tool_policy_after(ctx, "Write", file_path=file_path)
 
                 elif name == "Bash":
                     cmd = inp.get("command", "")
@@ -1055,6 +1253,10 @@ async def run_scenario_inner(
     system: str,
     max_steps: int,
     skip_prevalidation: bool,
+    prepared_workdir: Path | None = None,
+    prepared_ovl_base: Path | None = None,
+    prepared_mounted: bool = False,
+    prepared_workdir_backend: str | None = None,
 ) -> dict[str, Any]:
     trace_records = read_jsonl(trace_path)
     if not trace_records or trace_records[0].get("type") != "ground_truth":
@@ -1087,37 +1289,19 @@ async def run_scenario_inner(
                 tool_log=validation_tool_log,
             )
 
-    ovl_base = Path(tempfile.mkdtemp(prefix="actplane-eval-"))
-    mounted = False
-    ovl_upper = ovl_base / "upper"
-    ovl_work = ovl_base / "work"
-    ovl_merged = ovl_base / "merged"
-    ovl_upper.mkdir()
-    ovl_work.mkdir()
-    ovl_merged.mkdir()
-    mount_proc = subprocess.run(
-        [
-            "mount", "-t", "overlay", "overlay",
-            "-o", f"lowerdir={real_repo},upperdir={ovl_upper},workdir={ovl_work}",
-            str(ovl_merged),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    if mount_proc.returncode == 0:
-        mounted = True
-        workdir = ovl_merged
+    owns_workdir = prepared_workdir is None
+    if prepared_workdir is not None:
+        workdir = prepared_workdir
+        ovl_base = prepared_ovl_base or prepared_workdir.parent
+        mounted = prepared_mounted
+        workdir_backend = prepared_workdir_backend or "prepared"
     else:
-        workdir = ovl_base / "scratch"
-        shutil.copytree(real_repo, workdir, symlinks=True)
-
-    if not (workdir / ".git").exists():
-        subprocess.run(["git", "init"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["git", "config", "user.email", "eval@test"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["git", "config", "user.name", "eval"], cwd=workdir, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    apply_fixtures(statement_dir, workdir)
-    install_eval_safety_bin(workdir)
+        lease = prepare_workdir(real_repo, statement_dir)
+        workdir = lease.workdir
+        ovl_base = lease.ovl_base
+        mounted = lease.mounted
+        workdir_backend = lease.backend
+    defer_cleanup = system in ("actplane", "actplane-opaque") and owns_workdir
 
     fb_path: Path | None = None
     if system in ("actplane", "actplane-opaque"):
@@ -1156,8 +1340,9 @@ async def run_scenario_inner(
 
     history, setup_fired = replay_trace_setup(trace_records, ctx)
     if ctx.setup_errors:
-        cleanup_workdir(mounted, workdir, ovl_base)
-        return make_unscorable_result(
+        if owns_workdir and not defer_cleanup:
+            cleanup_workdir(mounted, workdir, ovl_base)
+        result = make_unscorable_result(
             statement_dir=statement_dir,
             trace_path=trace_path,
             ground_truth=gt,
@@ -1170,8 +1355,11 @@ async def run_scenario_inner(
             setup_visible_intervention=ctx.setup_visible_intervention,
             setup_feedbacks=ctx.setup_feedbacks,
             recovery_feedbacks=ctx.actplane_feedbacks,
-            workdir_backend="overlay" if mounted else "copy",
+            workdir_backend=workdir_backend,
         )
+        if defer_cleanup:
+            result["_deferred_cleanup"] = deferred_cleanup_info(mounted, workdir, ovl_base)
+        return result
 
     ctx.in_recovery = True
     ctx.blocked_after_recovery = False
@@ -1227,11 +1415,12 @@ async def run_scenario_inner(
             pass
         if prompt_filter_client is not None:
             prompt_filter_client.close()
-        cleanup_workdir(mounted, workdir, ovl_base)
+        if owns_workdir and not defer_cleanup:
+            cleanup_workdir(mounted, workdir, ovl_base)
 
     score = score_scenario(gt, system, setup_fired, ctx, final_output)
 
-    return {
+    result = {
         "run_id": f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}",
         "repo": statement_dir.parent.name.replace("__", "/"),
         "statement_id": statement_dir.name,
@@ -1253,13 +1442,16 @@ async def run_scenario_inner(
         "score": score,
         "model": model_name,
         "thinking": thinking,
-        "workdir_backend": "overlay" if mounted else "copy",
+        "workdir_backend": workdir_backend,
         "prompt_filter_template": (
             str(PROMPT_FILTER_TEMPLATE)
             if system == "prompt-filter"
             else None
         ),
     }
+    if defer_cleanup:
+        result["_deferred_cleanup"] = deferred_cleanup_info(mounted, workdir, ovl_base)
+    return result
 
 
 def make_model_settings(thinking: str) -> ModelSettings:
@@ -1333,26 +1525,34 @@ def run_under_actplane(
         "from agent_sdk_eval import cli_main; "
         "raise SystemExit(cli_main(sys.argv[1:]))"
     )
-    cmd = [
-        str(actplane_bin),
-        "--policy", str(rule_path.resolve()),
-        "run", "--run-as-root", "--",
-        sys.executable, "-c", code,
-        "--inner",
-        *inner_args,
-    ]
-    if os.geteuid() != 0:
-        cmd = ["sudo", f"--preserve-env={preserve}", *cmd]
-    env = os.environ.copy()
-    pythonpath = env.get("PYTHONPATH", "")
-    user_site = Path.home() / ".local" / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
-    if str(user_site) not in pythonpath:
-        env["PYTHONPATH"] = f"{user_site}:{pythonpath}" if pythonpath else str(user_site)
+    with tempfile.TemporaryDirectory(prefix="actplane-eval-agent-") as tmp:
+        # Some corpus policies label the agent as exec "claude", while the
+        # benchmark harness is a Python process. Enter through a lightweight
+        # claude-named wrapper, then exec Python so both old and new source
+        # labels can attach and propagate to tool subprocesses.
+        wrapper = Path(tmp) / "claude"
+        wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} \"$@\"\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+        cmd = [
+            str(actplane_bin),
+            "--policy", str(rule_path.resolve()),
+            "run", "--run-as-root", "--",
+            str(wrapper), "-c", code,
+            "--inner",
+            *inner_args,
+        ]
+        if os.geteuid() != 0:
+            cmd = ["sudo", f"--preserve-env={preserve}", *cmd]
+        env = os.environ.copy()
+        pythonpath = env.get("PYTHONPATH", "")
+        user_site = Path.home() / ".local" / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+        if str(user_site) not in pythonpath:
+            env["PYTHONPATH"] = f"{user_site}:{pythonpath}" if pythonpath else str(user_site)
 
-    proc = subprocess.run(
-        cmd, env=env, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
+        proc = subprocess.run(
+            cmd, env=env, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
 
     for line in proc.stdout.strip().splitlines():
         if line.startswith("{"):
@@ -1411,6 +1611,10 @@ async def main_inner(args):
         system=args.system,
         max_steps=args.max_steps,
         skip_prevalidation=args.skip_prevalidation,
+        prepared_workdir=args.prepared_workdir,
+        prepared_ovl_base=args.prepared_ovl_base,
+        prepared_mounted=args.prepared_mounted,
+        prepared_workdir_backend=args.prepared_workdir_backend,
     )
     print(json.dumps(r, ensure_ascii=False))
     return 0
@@ -1445,6 +1649,7 @@ def run_one_scenario(spec_and_args):
                 tool_log=validation_tool_log,
             )
         elif args.system in ("actplane", "actplane-opaque"):
+            lease = prepare_workdir(real_repo, sd)
             inner_args = [
                 "--skip-prevalidation",
                 "--statement-dir", str(sd),
@@ -1458,8 +1663,17 @@ def run_one_scenario(spec_and_args):
                 "--request-timeout", str(args.request_timeout),
                 "--max-steps", str(args.max_steps),
                 "--base-instructions", str(args.base_instructions),
+                "--prepared-workdir", str(lease.workdir),
+                "--prepared-ovl-base", str(lease.ovl_base),
+                "--prepared-workdir-backend", lease.backend,
             ]
-            r = run_under_actplane(args.actplane, rule, inner_args, preserve_env=args.api_key_env)
+            if lease.mounted:
+                inner_args.append("--prepared-mounted")
+            try:
+                r = run_under_actplane(args.actplane, rule, inner_args, preserve_env=args.api_key_env)
+                cleanup_deferred_workdir(r.pop("_deferred_cleanup", None))
+            finally:
+                cleanup_workdir(lease.mounted, lease.workdir, lease.ovl_base)
         else:
             base_instructions = args.base_instructions.read_text(encoding="utf-8").strip()
             r = asyncio.run(run_scenario_inner(
@@ -1562,6 +1776,10 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("--request-timeout", type=float, default=90.0)
     p.add_argument("--max-steps", type=int, default=10)
     p.add_argument("--skip-prevalidation", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--prepared-workdir", type=Path, default=None, help=argparse.SUPPRESS)
+    p.add_argument("--prepared-ovl-base", type=Path, default=None, help=argparse.SUPPRESS)
+    p.add_argument("--prepared-mounted", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--prepared-workdir-backend", default=None, help=argparse.SUPPRESS)
     return p.parse_args(argv)
 
 

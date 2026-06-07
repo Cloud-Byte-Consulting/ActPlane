@@ -142,6 +142,9 @@ def trace_quality_errors(trace: Path, records: list[dict[str, Any]]) -> list[str
     errors: list[str] = []
     is_opaque = trace.name == "trace_opaque_fixture_violation.jsonl"
     for record in records:
+        if record.get("type") == "tool_result":
+            errors.append("trace must not contain static tool_result records; runner records real tool results")
+            continue
         if record.get("type") == "user":
             content = str(record.get("content") or "")
             if "following this directive:" in content:
