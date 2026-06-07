@@ -7,10 +7,12 @@ autonomously write code, run tests, and manage infrastructure across
 extended sessions.
 
 % ¶2: Agents need harnesses; instruction files are behavioral policy
-As agents gain autonomy, they require \emph{AI agent harnesses} that apply
-behavioral policies: constraints on what the agent may do, in what
-order, and under what conditions~\cite{langchain-harness,fowler-harness}.
-Projects encode such policies in instruction files (\texttt{CLAUDE.md},
+As agents gain autonomy, they require \emph{AI agent harnesses}: software
+around the model that improves agent performance while keeping execution
+within safety, security, and compliance
+constraints~\cite{langchain-harness,fowler-harness}. Projects encode many
+such constraints as behavioral policies in instruction files
+(\texttt{CLAUDE.md},
 \texttt{AGENTS.md})~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd}.
 
 % ¶3: Empirical — the problem is pervasive; LLMs can't self-enforce
@@ -25,7 +27,7 @@ through planning errors, shell-script side effects, and opaque tool
 behavior.
 
 % ¶4: Semantic gap — existing deterministic mechanisms also fail
-Yet existing harnesses fail to connect these intent-level declarations
+Yet existing harness enforcement mechanisms fail to connect these intent-level declarations
 to deterministic system-level enforcement, leaving a \emph{semantic
 gap}. Tool-call
 guardrails~\cite{wang2025agentspec,shi2025progent} lose track of

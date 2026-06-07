@@ -5,15 +5,13 @@
 AI coding agents such as Claude
 Code~\cite{anthropic2025claudecode}, Codex
 CLI~\cite{openai2025codex}, Cursor~\cite{cursor2025}, and
-Devin~\cite{devin2025} operate on repositories through an
-AI agent harnesses that mediate tool calls, shell commands, file access,
-network access, and model feedback~\cite{langchain-harness,fowler-harness}. A single tool
+Devin~\cite{devin2025} operate on repositories. A single tool
 invocation can run arbitrary scripts, spawn subprocesses, and touch many
 files and endpoints before control returns to the model. Projects encode
 behavioral expectations in instruction files
 (\texttt{CLAUDE.md},
 \texttt{AGENTS.md})~\cite{chatlatanagulchai2025manifests,lulla2026agentsmd},
-but the AI agent harness must decide how, and at what layer, to enforce them.
+but this layer must decide how, and at what layer, to enforce them.
 
 \textbf{Information-flow control.}
 Information-flow control (IFC) tracks how data or authority moves from
@@ -30,7 +28,7 @@ whole-system provenance frameworks such as
 CamFlow~\cite{pasquier2017camflow} and
 CamQuery~\cite{pasquier2018camquery} record and query cross-event label
 histories. IFC thus captures constraints whose correctness depends on
-execution history; this is exactly the pattern that agent workflow directives (``run
+execution history; this is exactly the pattern that agent behavioral directives (``run
 tests before committing'') exhibit. More general OS-level mechanisms
 (seccomp~\cite{seccomp-bpf}, AppArmor~\cite{apparmor},
 BPF-LSM~\cite{linuxbpflsm}, Tetragon~\cite{ciliumtetragon}) also observe
@@ -42,9 +40,12 @@ declared directives.
 An \emph{AI agent harness} is the software around the model that
 maintains the agent loop and session state, routes tool calls, mediates
 shell, file, and network access, and returns results or feedback to the
-model. Existing AI agent harnesses enforce policy at one of three levels. We use
-\emph{runtime policy enforcement system} for any system that applies a
-policy while the agent executes. Prompt instructions rely on the model's own compliance,
+model, improving agent performance while keeping execution within safety,
+security, and compliance constraints. We use \emph{runtime policy
+enforcement system} for the part of a harness that enforces those
+constraints while the agent executes. Existing AI agent harnesses place
+such enforcement at one of three levels.
+Prompt instructions rely on the model's own compliance,
 which is inherently probabilistic~\cite{liu2024lost}. Tool-call guardrails such as
 AgentSpec~\cite{wang2025agentspec} and Progent~\cite{shi2025progent}
 intercept tool-call names and arguments deterministically, while
