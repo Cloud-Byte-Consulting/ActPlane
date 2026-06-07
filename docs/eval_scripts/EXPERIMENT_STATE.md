@@ -1,6 +1,6 @@
 # RQ1 Experiment State
 
-Last updated: 2026-06-06.
+Last updated: 2026-06-07.
 
 This document records reusable data for the RQ1 trace-conditioned compliance
 evaluation. The goal is to avoid restarting from zero while keeping reported
@@ -95,6 +95,53 @@ The public flags are intentionally limited to:
 ```
 
 `--limit` is for smoke tests only. Omit it for the full paper run.
+
+## Latest Current Six-Family Snapshot
+
+This is the current paper-facing RQ1 snapshot for the six-family corpus. It
+selects the latest judged result for each (`system`, `statement`, `trace`) cell
+from the existing RQ1 run directories and targeted trace reruns.
+
+Selection report:
+
+```text
+docs/tmp/rq1/latest_existing_stats/selected_latest_judged_results.txt
+```
+
+Coverage:
+
+```text
+38 statements
+228 trace-conditioned scenarios
+4 systems
+912 expected system-trace cells
+912 selected latest judged cells
+0 missing cells
+0 stale cells relative to current trace files
+```
+
+Final metric:
+
+| system | DCR | TP | TN | FP | FN | unclear | judged |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| prompt-filter | 131/228 (57.5%) | 50 | 81 | 33 | 64 | 0 | 228 |
+| tool-regex | 135/228 (59.2%) | 50 | 85 | 29 | 64 | 0 | 228 |
+| actplane | 177/228 (77.6%) | 79 | 98 | 16 | 35 | 0 | 228 |
+| actplane-opaque | 154/228 (67.5%) | 42 | 112 | 2 | 72 | 0 | 228 |
+
+Main-text reporting plan:
+
+```text
+one overall DCR bar chart
+one TP/TN/FP/FN confusion-matrix table
+no main-text trace-family heatmap/table
+```
+
+The trace-family breakdown remains diagnostic artifact data. The main RQ1
+interpretation should state that ActPlane's aggregate advantage comes from
+runtime visibility on subprocess/fixture effects and lower benign overblocking,
+while the opaque-feedback ablation isolates the value of structured corrective
+feedback for agent recovery.
 
 ## Latest Historical Complete Paired Run
 

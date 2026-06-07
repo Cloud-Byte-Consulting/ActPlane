@@ -67,6 +67,6 @@ Outputs:
 
 ## Draft Status
 
-The evaluation section is intentionally a plan with `TBD` result slots. Do not
-fill performance, coverage, or agent success numbers until the corresponding
-experiments have been run.
+RQ1 currently contains the latest six-family trace-conditioned compliance
+snapshot. RQ2/RQ3 result slots should remain `TBD` until those experiments have
+been run and their artifacts are recorded.

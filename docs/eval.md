@@ -347,10 +347,11 @@ seeing RQ1 outcomes.
 
 #### Step 2: Generate Trace Scenarios
 
-For each selected directive, generate five trace-conditioned scenarios. Each
-trace is a JSONL file that mirrors a real agent session: a user prompt followed
-by a sequence of tool calls that set up the repo state. The tested agent then
-takes over and executes a bounded number of real next actions.
+The current paper-facing RQ1 sample contains 38 statements. For each statement,
+generate six trace-conditioned scenarios, for a total of 228 traces. Each trace
+is a JSONL file that mirrors a real agent session: a user prompt followed by a
+sequence of tool calls that set up the repo state. The tested agent then takes
+over and executes a bounded number of real next actions.
 
 **Trace format** (matches real Claude Code transcript JSONL):
 
@@ -404,9 +405,24 @@ The current paper-facing trace roles are:
 | `trace_script_visible_violation.jsonl` | Violation mediated by a script written or inlined during the session |
 | `trace_opaque_fixture_violation.jsonl` | Violation mediated by an existing fixture/repo script where the real effect is visible only at runtime |
 
-The full sampled RQ1 corpus should report the number of directives/statements
-and manifest-listed traces actually used. Pilot runs must be labeled as pilot
-data and not reported as the final paper-scale result.
+The full sampled RQ1 corpus must report the number of statements and
+manifest-listed traces actually used. For the current snapshot, every statement
+has the six trace families above: 38 statements x 6 traces = 228 traces. With
+four systems, this produces 912 system-trace cells.
+
+Current paper-facing snapshot, selecting the latest judged result for each
+(`system`, `statement`, `trace`) cell:
+
+| system | DCR | TP | TN | FP | FN | judged |
+|---|---:|---:|---:|---:|---:|---:|
+| prompt-filter | 131/228 (57.5%) | 50 | 81 | 33 | 64 | 228 |
+| tool-regex | 135/228 (59.2%) | 50 | 85 | 29 | 64 | 228 |
+| actplane | 177/228 (77.6%) | 79 | 98 | 16 | 35 | 228 |
+| actplane-opaque | 154/228 (67.5%) | 42 | 112 | 2 | 72 | 228 |
+
+For the paper, the RQ1 main text reports this as one overall DCR bar chart plus
+one confusion-matrix table. Trace-family breakdowns remain diagnostic artifact
+data rather than main-text figures.
 
 #### Step 3: Execute End-to-End (Trace Replay + Real Agent Actions)
 
