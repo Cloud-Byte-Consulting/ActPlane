@@ -2,7 +2,8 @@
 \label{sec:design}
 
 The empirical study establishes one overarching requirement: connect
-the agent's intent-level context to deterministic OS-level enforcement.
+AI agent intent and project or task context to deterministic OS-level
+enforcement.
 Achieving this raises three design challenges.
 
 \textbf{C1: Agent-authorable OS-level policy} (\S\ref{sec:dsl}).
@@ -60,8 +61,8 @@ feedback to the agent: the rule name, reason, and remediation.
 \subsection{Policy DSL}
 \label{sec:dsl}
 
-The DSL mediates between intent-level instructions and system-level
-enforcement. A policy contains \emph{sources} that introduce labels,
+The DSL mediates between AI agent intent and enforceable system actions.
+A policy contains \emph{sources} that introduce labels,
 \emph{rules} that match labeled events at sinks, and optional
 \emph{gates} that express ordering or controlled declassification. The
 DSL restricts expressiveness to source/sink/gate patterns that compile
