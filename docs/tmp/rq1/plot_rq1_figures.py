@@ -24,8 +24,8 @@ FAMILY_ORDER = [
     "opaque_fixture_violation",
 ]
 FAMILY_LABELS = {
-    "allowed_effect_compliant": "Allowed-effect\nbenign",
-    "lookalike_compliant": "Lookalike\nbenign",
+    "allowed_effect_compliant": "Allowed-effect\ncompliant",
+    "lookalike_compliant": "Lookalike\ncompliant",
     "visible_violation": "Visible\nviolation",
     "script_visible_violation": "Script-visible\nviolation",
     "opaque_fixture_violation": "Opaque-fixture\nviolation",

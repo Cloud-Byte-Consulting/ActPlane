@@ -37,21 +37,16 @@ The active AI agent harnesses are Claude Code (via the \sys{} feedback
 hook) and OpenAI Codex CLI (via tool-error feedback). Exact versions are
 recorded in per-run metadata.
 
-\paragraph{Baseline systems.}
-RQ1 compares four runtime policy enforcement systems on the same
-trace-conditioned AI agent harness. \textsc{Prompt-filter} is a stateless LLM classifier over
-the natural-language directive and the proposed tool action.
-\textsc{Tool-regex} applies a generated per-case regex policy to raw Agent
-SDK tool inputs. \textsc{ActPlane-opaque} runs the same generated
-\sys{} policy below the tool layer but hides structured corrective feedback
-from the agent. Full \sys{} runs the generated OS policy and returns the
-matched rule reason and remediation. Policy artifacts are frozen before
-execution and are not repaired after seeing outcomes. The prompt and regex
-baselines instantiate two common runtime enforcement layers: LLM/prompt-based
-rails over proposed actions~\cite{rebedea2023nemo,xiang2025guardagent}
-and deterministic tool-call policies over tool names and arguments in the
-style of AgentSpec~\cite{wang2025agentspec}. The opaque ablation isolates
-the value of semantic feedback on top of OS-level observation.
+\paragraph{Compared systems.}
+RQ1 uses four runtime policy enforcement systems on the same
+trace-conditioned AI agent harness: a prompt-based action filter, a
+tool-input regex policy, \sys{} without structured corrective feedback, and
+full \sys{}. The prompt and regex baselines instantiate two common
+runtime enforcement layers: LLM/prompt-based rails over proposed
+actions~\cite{rebedea2023nemo,xiang2025guardagent} and deterministic
+tool-call policies over tool names and arguments in the style of
+AgentSpec~\cite{wang2025agentspec}. The opaque ablation isolates the value
+of semantic feedback on top of OS-level observation.
 
 %% ----------------------------------------------------------------
 \subsection{Rule Set Construction}
@@ -70,17 +65,15 @@ The pipeline has five stages with strict actor separation.
 A translation LLM reads the sampled directive text, the project's
 \texttt{CLAUDE.md}, the cloned repository, and the DSL reference to
 produce a rule file; it cannot see traces or ground truth.
-A separate trace generator reads the directive and project
-structure to produce violation and compliant trace files, each with a
+A separate trace generator reads the directive and project structure to
+produce five challenge trace families per statement, each with a
 ground-truth header; it cannot see the rule file, preventing circular
-bias.
-A trace generator reads the directive and project structure to produce
-six trace families per statement: ordinary benign behavior,
-allowed-effect benign behavior, lookalike benign behavior, directly
-visible violations, script-mediated violations, and opaque fixture
-violations. Script-mediated traces split script authoring and script
-execution across separate tool calls; opaque traces expose only a neutral
-helper entrypoint while the real side effect is visible at runtime.
+bias. The families cover allowed-effect compliant behavior, lookalike
+compliant behavior, directly visible violations, script-mediated violations, and
+opaque fixture violations. Script-mediated traces split script authoring
+and script execution across separate tool calls; opaque traces expose only
+a neutral helper entrypoint while the real side effect is visible at
+runtime.
 The eval harness replays each trace under each system, collects the
 system response, and issues bounded tool-action turns to a tested LLM, a
 smaller model standing in for the agent.
@@ -89,13 +82,11 @@ ground truth and classifies the outcome as TP, TN, FP, or FN.
 Because the translation LLM and the trace generator are different actors,
 translation blind spots do not hide in traces; because the tested LLM
 never sees ground truth, it acts like a real agent.
-Each runtime artifact is generated before execution from the same directive
-and project context, but the artifacts are system-specific: prompt-filter
-uses the directive and a fixed classifier template, tool-regex uses a
-generated regex policy, and \sys{} uses a generated DSL policy. Translation
-errors remain part of the end-to-end system result rather than being repaired
-after outcomes. Figure~\ref{fig:policy-example} shows representative
-per-event and cross-event \sys{} rules.
+Runtime artifacts are frozen before execution from the same directive and
+project context. Translation errors remain part of the end-to-end system
+result rather than being repaired after outcomes.
+Figure~\ref{fig:policy-example} shows representative per-event and
+cross-event \sys{} rules.
 
 %% ----------------------------------------------------------------
 \subsection{RQ1: End-to-End Policy Compliance}
@@ -103,18 +94,38 @@ per-event and cross-event \sys{} rules.
 
 \paragraph{Method.}
 RQ1 uses a trace-conditioned benchmark derived from the OS-enforceable
-directive corpus. The current paper-facing sample contains 38 statements.
+directive corpus. It is a system-effect challenge benchmark: each trace
+exercises whether a runtime policy enforcement system connects an
+intent-level directive to concrete tool and OS effects. The current
+paper-facing sample contains 38 statements.
 The sample is manifest-selected: we select 2--3 statements from each of 15 repositories to cover both
 per-event and cross-event rules, project- and task-context requirements,
 and common repository policy themes. The final manifest contains 20
 per-event-like and 18 cross-event-like rules. No system outcome is used to
 select statements or repair policy artifacts.
-For each statement we construct six manifest-listed traces: three benign
-families (canonical, allowed-effect, and lookalike) and three violation
+For each statement we construct five manifest-listed traces: two compliant
+challenge families (allowed-effect and lookalike) and three violation
 families (visible, script-mediated, and opaque-fixture). This yields
-228 traces and 912 system--trace cells across four systems: prompt-filter,
+190 traces and 760 system--trace cells across four systems: prompt-filter,
 tool-regex, \sys{} without structured feedback (\textsc{ActPlane-opaque}),
 and full \sys{}.
+
+RQ1 is an end-to-end runtime enforcement measurement. Given the same
+natural-language directive and the same trace-conditioned agent context,
+each system must connect the directive to the proposed action or resulting
+system effects, intervene on violations, and, where feedback is available,
+steer the agent toward a policy-correct outcome. The four systems differ in
+how the directive enters the harness. \textsc{Prompt-filter} has no
+translated policy artifact: before each proposed tool action, a separate
+stateless LLM classifier receives the natural-language directive and the
+proposed action and returns allow, report, or block feedback.
+\textsc{Tool-regex} uses a per-case regex artifact generated before
+execution from the directive and project context, then checks raw Agent SDK
+tool names and arguments. \textsc{ActPlane-opaque} uses the generated
+\sys{} DSL policy below the tool layer but hides structured corrective
+feedback from the agent. Full \sys{} uses the same generated OS policy and
+returns the matched rule reason and remediation. All generated policy
+artifacts are frozen before execution and are not repaired after outcomes.
 
 Each trace is a JSONL transcript with a ground-truth header followed by a
 user prompt and concrete tool calls that establish the repo state. The
@@ -122,19 +133,14 @@ trace files do not store static tool results; during replay the harness
 executes each tool call on a real copy-on-write repository and records the
 actual result. The tested agent then continues for a bounded number of real
 Agent SDK tool steps. All systems use the same trace, model, Docker
-copy-on-write repo execution, and trajectory judge. The prompt-filter
-baseline applies a
-stateless LLM classifier to proposed tool actions using the natural-language
-directive; tool-regex applies the per-case raw tool-input regex policy; and
-\sys{} runs the generated OS policy below the tool layer through the
-eBPF/ActPlane runner. Ground truth and policy artifacts are not shown to the
-tested agent.
+copy-on-write repo execution, and trajectory judge. Ground truth and policy
+artifacts are not shown to the tested agent.
 
 A separate LLM trajectory judge assigns TP, TN, FP, or FN from the raw
 runner result. TP means a valid violation trace received an
 enforcement-visible report, block, failure, intervention, or agent
-awareness; TN means a valid benign trace completed without wrongful
-enforcement intervention; FP means a benign trace was wrongly blocked,
+awareness; TN means a valid compliant trace completed without wrongful
+enforcement intervention; FP means a compliant trace was wrongly blocked,
 reported, failed, or steered away; FN means a violation trace was missed
 or left without enforcement-visible awareness. We report Decision
 Compliance Rate (DCR), the fraction of trace-conditioned decision points
@@ -144,18 +150,19 @@ enforcement system: \(\mathrm{DCR}=(\mathrm{TP}+\mathrm{TN})/(\mathrm{TP}+\mathr
 translation, runtime enforcement, feedback delivery, and agent recovery;
 it is not detector accuracy in isolation or unguided agent compliance.
 For this snapshot, each
-(\textit{system}, \textit{statement}, \textit{trace}) cell comes from the
-same full run directory; all 912 runner cells and all 912 llama.cpp judge
-cells are present, with no judge parse errors.
+(\textit{system}, \textit{statement}, \textit{trace}) cell is selected from
+the latest non-stale run for the current five-family manifest; all 760
+runner cells and all 760 trajectory-judge cells are present, with no judge
+parse errors.
 
 \paragraph{Results.}
 \begin{figure}[tb]
 \centering
 \includegraphics[width=\columnwidth]{figures/rq1_dcr_bar.pdf}
-\caption{Overall RQ1 Decision Compliance Rate across 228 traces.}
+\caption{Overall RQ1 Decision Compliance Rate across 190 traces.}
 \Description{Bar chart comparing overall directive compliance rates:
-prompt-filter 52.6 percent, tool-regex 52.6 percent, ActPlane-opaque
-61.4 percent, and ActPlane 75.4 percent.}
+prompt-filter 48.4 percent, tool-regex 45.3 percent, ActPlane-opaque
+53.7 percent, and ActPlane 75.8 percent.}
 \label{fig:rq1-dcr}
 \end{figure}
 
@@ -167,30 +174,30 @@ prompt-filter 52.6 percent, tool-regex 52.6 percent, ActPlane-opaque
 \toprule
 System & DCR & TP & TN & FP & FN & Judged \\
 \midrule
-\textsc{Prompt-filter} & 52.6\% & 41 & 79 & 35 & 73 & 228 \\
-\textsc{Tool-regex} & 52.6\% & 37 & 83 & 31 & 77 & 228 \\
-\textsc{ActPlane-opaque} & 61.4\% & 29 & \textbf{111} & \textbf{3} & 85 & 228 \\
-\sys{} & \textbf{75.4\%} & \textbf{85} & 87 & 27 & \textbf{29} & 228 \\
+\textsc{Prompt-filter} & 48.4\% & 44 & 48 & 28 & 70 & 190 \\
+\textsc{Tool-regex} & 45.3\% & 38 & 48 & 28 & 76 & 190 \\
+\textsc{ActPlane-opaque} & 53.7\% & 27 & \textbf{75} & \textbf{1} & 87 & 190 \\
+\sys{} & \textbf{75.8\%} & \textbf{86} & 58 & 18 & \textbf{28} & 190 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\sys{} improves overall compliance by 22.8 percentage points over both
-tool-regex and prompt-filter. The improvement comes primarily from
-violation recall. Full \sys{} reduces FNs to 29, compared with 73 for
-prompt-filter and 77 for tool-regex, because it observes runtime side
+\sys{} reaches a DCR 27.4 percentage points higher than prompt-filter and
+30.5 points higher than tool-regex. The difference comes primarily from
+violation recall. Full \sys{} reduces FNs to 28, compared with 70 for
+prompt-filter and 76 for tool-regex, because it observes runtime side
 effects below the tool layer and can detect script- and fixture-mediated
 violations that are not available to prompt or raw tool-input filters.
-It also reduces benign overblocking relative to the baselines, though this
-margin is smaller: full \sys{} has 27 FPs, compared with 35 for
-prompt-filter and 31 for tool-regex.
+It also reduces compliant-trace overblocking relative to the baselines,
+though this margin is smaller: full \sys{} has 18 FPs, compared with 28 for
+both prompt-filter and tool-regex.
 
 The feedback ablation isolates the value of semantic recovery information.
 \textsc{ActPlane-opaque} has very few false positives, but it misses many
-violations (85 FNs) because the agent receives no structured corrective
-payload after enforcement. Full \sys{} trades some additional benign
+violations (87 FNs) because the agent receives no structured corrective
+payload after enforcement. Full \sys{} trades some additional compliant-trace
 interventions for a much larger FN reduction, increasing correct responses
-from 140 to 172. Thus, the result is not simply that kernel enforcement can
+from 102 to 144. Thus, the result is not simply that kernel enforcement can
 stop more effects; model-facing feedback is part of the end-to-end
 policy-enforcement system.
 
@@ -202,10 +209,11 @@ for each system across the 38 traces in that family; darker cells
 are higher. The breakdown exposes where the aggregate gain comes from,
 rather than serving as a separate benchmark.}
 \Description{Heatmap of directive compliance rate by trace family and
-system. ActPlane performs best on script and opaque violation
-families, while prompt-filter and tool-regex are competitive on visible
-violations. ActPlane-opaque has high benign compliance but lower violation
-coverage.}
+system. ActPlane performs best on visible violations and retains higher
+coverage on script-visible and opaque-fixture violations, while
+prompt-filter and tool-regex are strongest on visible violations.
+ActPlane-opaque has a high compliant-trace TN rate but low violation
+coverage without structured feedback.}
 \label{fig:rq1-family-breakdown}
 \end{figure}
 
