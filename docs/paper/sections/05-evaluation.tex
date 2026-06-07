@@ -133,6 +133,9 @@ and none are stale relative to the trace files.
 \centering
 \includegraphics[width=\columnwidth]{figures/rq1_dcr_bar.pdf}
 \caption{Overall RQ1 directive compliance rate across 228 traces.}
+\Description{Bar chart comparing overall directive compliance rates:
+prompt-filter 57.5 percent, tool-regex 59.2 percent, ActPlane-opaque
+67.5 percent, and ActPlane 77.6 percent.}
 \label{fig:rq1-dcr}
 \end{figure}
 
@@ -168,97 +171,20 @@ preserving substantially lower FP counts than the prompt and regex
 baselines. Thus, the result is not simply that kernel enforcement can stop
 more effects; model-facing feedback is part of the end-to-end guardrail.
 
-%% ----------------------------------------------------------------
-\subsection{System Comparison Across Execution Paths}
-\label{sec:eval:bypass}
-
-This sub-experiment isolates three architectural failure modes: tool-layer
-guards losing coverage on bypass paths, OS mechanisms lacking cross-event
-state, and kernel mechanisms returning bare errors without semantic
-context. We compare all seven systems on the same directives.
-
-\paragraph{Method.}
-We select all rules from the \textbf{TP~set} of RQ1 (rules where
-\sys{} produced the correct outcome on direct traces). This isolates
-translation noise, so any difference between systems is purely
-architectural. For each TP~rule, we take the RQ1 violation trace and
-programmatically generate \textbf{3~bypass variants} by replacing the
-triggering tool call with an indirect execution path:
-
-\begin{description}
-\item[\texttt{bash~-c}] The triggering command is wrapped in
-  \texttt{bash~-c~'<cmd>'}.
-\item[Python subprocess] The command is wrapped in
-  \texttt{python3~-c~"import subprocess; subprocess.run([...])"}.
-\item[Compiled binary] The command is embedded in a pre-built helper
-  binary (\texttt{./commit-helper}).
-\end{description}
-
-Each TP rule yields 4~traces (1~direct + 3~bypass).
-Each trace uses the same JSONL format as RQ1 and the same minimal
-agent harness: deterministic replay $\to$ system responds $\to$ LLM
-handles the response (1--2 API calls per trace).
-
-For kernel systems (\sys{}, Kernel~IFC, Per-event~eBPF) the trace
-runs under \texttt{sudo actplane run [--flags]}. For tool-layer and
-app-level baselines the replay executor intercepts tool calls through
-the Python baseline checker.
-
-\paragraph{Metrics.}
-\begin{itemize}
-\item \textbf{Directive compliance rate} per system, broken down by
-  enforcement level (per-event vs.\ cross-event) and execution path
-  (direct vs.\ bypass).
-\item \textbf{Bypass gap}: the difference between direct and bypass
-  compliance per system; this shows which systems lose coverage on indirect
-  paths.
-\item \textbf{Feedback recovery gap}: Kernel~IFC (bare \texttt{-EPERM})
-  vs.\ \sys{} (semantic feedback); this shows the value of feedback for
-  agent recovery.
-\end{itemize}
-
-% TODO: Fill in numbers after experiments.
-
-\begin{table}[tb]\small
+\begin{figure}[tb]
 \centering
-\caption{Directive compliance rate by system and execution path.}
-\label{tab:bypass-path}
-\begin{tabular}{lrrr}
-\toprule
-System & Direct & Bypass & Gap \\
-\midrule
-\sys{}         & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-Kernel IFC       & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-Per-event eBPF   & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-App-level IFC    & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-TL-N             & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-TL-1             & \texttt{TODO} & \texttt{TODO} & \texttt{TODO} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[tb]\small
-\centering
-\caption{Directive compliance rate by system and enforcement level.}
-\label{tab:bypass-level}
-\begin{tabular}{lrrr}
-\toprule
-System & Per-event & Cross-event & Total \\
-\midrule
-\sys{}         & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
-Kernel IFC       & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
-Per-event eBPF   & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
-App-level IFC    & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
-TL-N             & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
-TL-1             & \texttt{TODO}/$N_1$ & \texttt{TODO}/$N_2$ & \texttt{TODO} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Kernel~IFC and \sys{} share identical detection; the compliance
-difference isolates the value of semantic feedback for agent recovery.
-
-% TODO: Figure — Directive compliance by system (grouped bar chart).
+\includegraphics[width=\columnwidth]{figures/rq1_family_breakdown.pdf}
+\caption{Diagnostic RQ1 breakdown by trace family. Cells show DCR (\%)
+for each guardrail setup across the 38 traces in that family; darker cells
+are higher. The breakdown exposes where the aggregate gain comes from,
+rather than serving as a separate benchmark.}
+\Description{Heatmap of directive compliance rate by trace family and
+guardrail setup. ActPlane performs best on script and opaque violation
+families, while prompt-filter and tool-regex are stronger on visible
+violations. ActPlane-opaque has high benign compliance but lower violation
+coverage.}
+\label{fig:rq1-family-breakdown}
+\end{figure}
 
 %% ----------------------------------------------------------------
 \subsection{RQ2: Overhead}

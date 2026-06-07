@@ -23,20 +23,20 @@ def main() -> None:
     rates = [count / TOTAL * 100 for count in CORRECT]
     plt.rcParams.update(
         {
-            "font.size": 10,
+            "font.size": 12,
             "font.family": "DejaVu Sans",
             "axes.spines.top": False,
             "axes.spines.right": False,
         }
     )
 
-    fig, ax = plt.subplots(figsize=(3.35, 2.35), dpi=300)
+    fig, ax = plt.subplots(figsize=(3.35, 2.55), dpi=300)
     bars = ax.bar(range(len(SYSTEMS)), rates, color=COLORS, width=0.58)
     ax.set_ylim(0, 92)
-    ax.set_ylabel("DCR (%)", fontsize=11)
+    ax.set_ylabel("DCR (%)", fontsize=13)
     ax.set_xticks(range(len(SYSTEMS)), SYSTEMS)
     ax.set_yticks([0, 20, 40, 60, 80])
-    ax.tick_params(axis="both", labelsize=10)
+    ax.tick_params(axis="both", labelsize=12)
     ax.grid(axis="y", color="#d8dee4", linewidth=0.7, alpha=0.9)
     ax.set_axisbelow(True)
 
@@ -47,7 +47,7 @@ def main() -> None:
             f"{rate:.1f}%\n{count}/{TOTAL}",
             ha="center",
             va="bottom",
-            fontsize=9.5,
+            fontsize=11,
             linespacing=0.95,
         )
 
