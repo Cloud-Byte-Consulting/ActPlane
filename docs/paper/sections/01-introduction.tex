@@ -41,22 +41,23 @@ require intent-level project or task context that only the agent
 possesses.
 
 % ¶5: Insight — agent authors policy, OS enforces it
-This gap arises because no existing layer lets the agent, the only
-entity with the context to instantiate its own rules, also program the
-OS-level mechanism that enforces them. Since 
-only the agent itself knows the project and task context, it must author its own
-enforcement policy but must not enforce it: trusted to honestly declare
-intent, but not trusted to reliably follow it during execution. This
-separation calls for a programmable interface that lets agents
-dynamically define and adapt policy for their own system-level actions
-based on their intent context.
+The key insight is to split policy authoring from policy enforcement. A
+project directive such as ``run the relevant tests before committing'' is
+not a complete OS rule by itself: the relevant test command, generated
+files, helper scripts, and task-specific exceptions depend on live
+repository and user-task context. The agent is the component that has this
+context, so it should instantiate natural-language directives into
+concrete runtime policy. But the same agent must not be trusted to enforce
+that policy during execution. Instead, the agent authors the policy, and
+the OS enforces it below the tool layer.
 
 % ¶5: System — \sys{}
-We realize this in \sys{}. Agents and developers declare behavioral
-policies in a compact domain-specific language (DSL) that agents
-themselves can generate from natural-language directives; \sys{} compiles
-them into labeled information-flow rules and loads them into an
-eBPF/BPF-LSM (Linux Security Modules) enforcement engine. Named labels propagate across processes, files, and network
+\sys{} is a programmable OS-level runtime policy enforcement system for
+AI agent harnesses. Agents express behavioral policies in a compact
+domain-specific language (DSL) generated from natural-language project
+directives; \sys{} compiles them into labeled information-flow rules and
+loads them into an eBPF/BPF-LSM
+(Linux Security Modules) enforcement engine. Named labels propagate across processes, files, and network
 endpoints at kernel hooks, encoding execution history as checkable state.
 When a labeled event matches a rule, \sys{} returns semantic
 feedback: which rule matched, why, and what compliant alternative
@@ -74,16 +75,16 @@ showing that cross-event information-flow policies are pervasive (81\% of
 repositories) and that 74\% of system-level directives require project or
 task context that only the agent can supply (\S\ref{sec:empirical}).
 
-\item \textbf{\sys{}}, a programmable OS-level enforcement layer for agent
-harnesses. \sys{} compiles behavioral policies into eBPF/BPF-LSM labeled
+\item \textbf{\sys{}}, a programmable OS-level runtime policy enforcement
+system for AI agent harnesses. \sys{} compiles behavioral policies into eBPF/BPF-LSM labeled
 information-flow rules, enforces them across process, file, and network
 boundaries, and returns semantic feedback that reconnects rule matches to
 intent-level remediation (\S\ref{sec:design}--\ref{sec:implementation}).
 
 \item An \textbf{evaluation} across directive-derived rules,
 system workloads, and a 20-task OctoBench subset. On a 228-trace
-guardrail benchmark sampled from 38~directives, \sys{} improves policy
-compliance by 22.8 percentage points over both prompt-filter and
+decision-compliance benchmark sampled from 38~directives, \sys{} improves
+policy compliance by 22.8 percentage points over both prompt-filter and
 tool-regex baselines while adding less than 2\% end-to-end overhead on
 agent workloads
 (\S\ref{sec:evaluation}).

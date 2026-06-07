@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the RQ1 overall Guardrail Response Rate bar chart.
+"""Generate the RQ1 overall Decision Compliance Rate bar chart.
 
 The values come from:
 docs/eval_runs/full/20260607_current_full_after_trace_harness_fix
@@ -32,7 +32,7 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=(3.55, 2.7), dpi=300)
     bars = ax.bar(range(len(SYSTEMS)), rates, color=COLORS, width=0.58)
     ax.set_ylim(0, 92)
-    ax.set_ylabel("GRR (%)", fontsize=14)
+    ax.set_ylabel("DCR (%)", fontsize=14)
     ax.set_xticks(range(len(SYSTEMS)), SYSTEMS)
     ax.set_yticks([0, 20, 40, 60, 80])
     ax.tick_params(axis="both", labelsize=13)

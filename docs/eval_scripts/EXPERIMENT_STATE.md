@@ -124,7 +124,7 @@ Coverage:
 
 Final metric:
 
-| system | GRR | TP | TN | FP | FN | unclear | judged |
+| system | DCR | TP | TN | FP | FN | unclear | judged |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | prompt-filter | 120/228 (52.6%) | 41 | 79 | 35 | 73 | 0 | 228 |
 | tool-regex | 120/228 (52.6%) | 37 | 83 | 31 | 77 | 0 | 228 |
@@ -134,7 +134,7 @@ Final metric:
 Main-text reporting plan:
 
 ```text
-one overall GRR bar chart
+one overall DCR bar chart
 one TP/TN/FP/FN confusion-matrix table
 optional diagnostic trace-family heatmap/table if space allows
 ```
@@ -206,7 +206,7 @@ judge directory: trajectory_judges_llama_cpp_steering_label
 
 Final metric from `summarize_agent_sdk_results.py`:
 
-| system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
+| system | DCR (old run printed this as GRR) | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | prompt-filter | 129/190 (67.9%) | 62 | 67 | 9 | 52 | 0 | 190 | 0.995 |
 | tool-regex | 106/190 (55.8%) | 39 | 67 | 9 | 75 | 0 | 190 | 0.995 |
@@ -260,15 +260,14 @@ interventions were `notify`; some cases had no meaningful recovery opportunity,
 some only inspected the violation, and some repeated related violating actions.
 Manual inspection also shows that a few of these final-state FN cases did start
 plausible corrective work after feedback, such as reading the required policy
-file or searching for the compliant target location. The current DCR judge does
+file or searching for the compliant target location. The compliance judge does
 not give partial credit for that steering uptake. If we want to study whether
 feedback makes the agent aware and prepares a correction, report that as a
 separate uptake metric rather than merging it into final compliance.
 
-This is a paper-facing paired run. It is valid for reporting, with the caveat
-that the main RQ1 claim should be framed as runtime guardrail effectiveness
-including policy-generation quality, not as an isolated kernel-enforcement
-microbenchmark.
+This run has been superseded by the 228-trace six-family snapshot above. It
+remains valid historical evidence for pipeline debugging, but should not be
+reported as the current paper-facing effect size.
 
 ## Latest Complete Paired Run (Legacy Setup)
 
@@ -325,7 +324,7 @@ External side-effect tools such as gh issue create are replaced or blocked.
 
 Final metric from `summarize_agent_sdk_results.py`:
 
-| system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
+| system | DCR (old run printed this as GRR) | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | legacy prompt-only / pre-wired prompt-filter label | 14/20 (70.0%) | 7 | 7 | 1 | 5 | 0 | 20 | 0.965 |
 | tool-regex | 9/20 (45.0%) | 3 | 6 | 2 | 9 | 0 | 20 | 0.978 |
@@ -385,7 +384,7 @@ python3 docs/eval_scripts/run_eval.py \
 For an interrupted run, use the same output directory. `run_eval.py` checks
 complete `(repo, statement, trace)` keys and source model names, skips complete
 keys, runs only missing runner rows, judges missing trajectories, and prints one
-final GRR table.
+final DCR table.
 
-The final reported number should be the GRR table printed by `run_eval.py` after
+The final reported number should be the DCR table printed by `run_eval.py` after
 all four systems have judged rows for the same manifest-selected trace keys.

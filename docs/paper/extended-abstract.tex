@@ -103,11 +103,11 @@ with an optional policy file when the current directory's policy should not be
 used.
 
 The evaluation separates mechanism from user experience. In RQ1, we run a
-228-trace guardrail benchmark sampled from 38 directive-derived policies. Each
+228-trace decision-compliance benchmark sampled from 38 directive-derived policies. Each
 policy has benign, lookalike, allowed-effect, visible-violation,
 script-mediated, and opaque-fixture traces, and each trace is executed under
 prompt-filter, tool-regex, ActPlane without structured feedback, and full
-ActPlane. Full ActPlane reaches 75.4\% guardrail response correctness, compared
+ActPlane. Full ActPlane reaches 75.4\% Decision Compliance Rate, compared
 with 52.6\% for prompt-filter, 52.6\% for tool-regex, and 61.4\% for the opaque
 feedback ablation. The gain comes mainly from reducing false negatives on
 script and opaque runtime effects, while remaining false positives reflect
