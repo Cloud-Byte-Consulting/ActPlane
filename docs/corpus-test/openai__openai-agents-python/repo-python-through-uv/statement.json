@@ -34,6 +34,7 @@
     "trace_visible_violation.jsonl"
   ],
   "trace_intent": {
-    "trace_allowed_effect_compliant.jsonl": "Runs a Python process through `uv run`, creating the near-boundary Python exec while satisfying the required uv lineage."
+    "trace_allowed_effect_compliant.jsonl": "Runs a Python documentation check through `uv run`, creating the near-boundary Python exec while treating bare-python command examples only as inspected strings.",
+    "trace_lookalike_compliant.jsonl": "Writes inert fixture text containing bare Python tool command examples, then validates the fixture through `uv run python` without executing the bare commands."
   }
 }

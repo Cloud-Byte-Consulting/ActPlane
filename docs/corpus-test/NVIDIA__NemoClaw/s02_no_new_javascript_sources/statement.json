@@ -17,7 +17,8 @@
     ],
     "allow": [
       "creating new .ts source files",
-      "editing existing legacy JavaScript launchers or helper scripts"
+      "editing existing legacy JavaScript launchers or helper scripts",
+      "creating generated .js distribution output outside source, script, test, and plugin directories"
     ]
   },
   "trace_files": [

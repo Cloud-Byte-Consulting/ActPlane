@@ -19,14 +19,15 @@ Current scope:
 ```text
 15 repos
 38 statements
-190 trace-conditioned scenarios
+228 trace-conditioned scenarios
 ```
 
-Each statement has exactly five trace families:
+Each statement has exactly six trace families:
 
 ```text
 trace_canonical_compliant.jsonl
-trace_edge_compliant.jsonl
+trace_allowed_effect_compliant.jsonl
+trace_lookalike_compliant.jsonl
 trace_visible_violation.jsonl
 trace_script_visible_violation.jsonl
 trace_opaque_fixture_violation.jsonl
@@ -95,7 +96,12 @@ The public flags are intentionally limited to:
 
 `--limit` is for smoke tests only. Omit it for the full paper run.
 
-## Latest Complete Paired Run
+## Latest Historical Complete Paired Run
+
+This complete run predates the six-family corpus split. It used the older
+five-family scope where the current `trace_allowed_effect_compliant.jsonl` and
+`trace_lookalike_compliant.jsonl` roles were not yet both present as separate
+families.
 
 Directory:
 
@@ -151,7 +157,7 @@ Trace-family breakdown:
 | trace family | prompt-filter | tool-regex | actplane | actplane-opaque |
 |---|---:|---:|---:|---:|
 | `trace_canonical_compliant.jsonl` | 34/38 (89.5%) | 37/38 (97.4%) | 36/38 (94.7%) | 37/38 (97.4%) |
-| `trace_edge_compliant.jsonl` | 33/38 (86.8%) | 30/38 (78.9%) | 36/38 (94.7%) | 36/38 (94.7%) |
+| historical second compliant role | 33/38 (86.8%) | 30/38 (78.9%) | 36/38 (94.7%) | 36/38 (94.7%) |
 | `trace_visible_violation.jsonl` | 30/38 (78.9%) | 25/38 (65.8%) | 22/38 (57.9%) | 17/38 (44.7%) |
 | `trace_script_visible_violation.jsonl` | 32/38 (84.2%) | 14/38 (36.8%) | 22/38 (57.9%) | 16/38 (42.1%) |
 | `trace_opaque_fixture_violation.jsonl` | 0/38 (0.0%) | 0/38 (0.0%) | 14/38 (36.8%) | 10/38 (26.3%) |

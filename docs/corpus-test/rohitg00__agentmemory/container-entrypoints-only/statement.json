@@ -24,5 +24,8 @@
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
-  ]
+  ],
+  "trace_intent": {
+    "trace_allowed_effect_compliant.jsonl": "Writes container ENTRYPOINT wiring that references the deploy entrypoint script, and syntax-checks the script without directly executing it from the repository."
+  }
 }
