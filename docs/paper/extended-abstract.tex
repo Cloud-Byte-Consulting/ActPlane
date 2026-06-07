@@ -32,7 +32,7 @@ SDK. The result is a mismatch between the layer where policies are written and
 the layer where agent actions actually happen.
 
 Existing defenses do not close this gap. Prompt-only constraints have no
-deterministic enforcement. Tool-layer guardrails such as policy checks over tool
+deterministic enforcement. Tool-call guardrails over tool
 names and arguments are deterministic, but they only see effects that cross the
 guarded tool API. Whole-agent sandboxes draw a coarse perimeter, but cannot
 easily express workflow invariants such as ``commit only after tests'' or
@@ -40,8 +40,9 @@ easily express workflow invariants such as ``commit only after tests'' or
 common layer below these routes: every exec, file access, and socket connect
 crosses a kernel interface regardless of how the agent initiated it.
 
-ActPlane is an OS-level harness for AI agents. It compiles declarative
-source/sink/gate policies into an eBPF/BPF-LSM backend that performs
+ActPlane is a programmable OS-level runtime policy enforcement system for AI
+agent harnesses. It compiles declarative source/sink/gate policies into an
+eBPF/BPF-LSM backend that performs
 \emph{labeled information-flow control}: it maintains named labels over
 processes, files, and endpoints. Labels propagate through
 fork/exec, file reads and writes, and connect-level endpoint edges. Rules then check whether a

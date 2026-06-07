@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Summarize final RQ1 guardrail-response results.
+"""Summarize final RQ1 decision-compliance results.
 
 The runner records raw execution facts. The judge records the paper-facing
 TP/TN/FP/FN outcome. This script joins the latest runner result for each
-system/repo/statement/trace with its judge file and prints the RQ1 metric from
-the active trajectory-judge prompt: Guardrail Response Rate.
+system/repo/statement/trace with its judge file and prints the RQ1 metric:
+Decision Compliance Rate.
 """
 
 from __future__ import annotations
@@ -155,11 +155,11 @@ def summarize_system(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -> None:
-    print("Final metric: Guardrail Response Rate")
+    print("Final metric: Decision Compliance Rate")
     if omitted_unscorable:
         print(f"Omitted unscorable runner results: {omitted_unscorable}")
     print()
-    print("| system | Guardrail Response Rate | TP | TN | FP | FN | unclear | judged | mean confidence |")
+    print("| system | Decision Compliance Rate | TP | TN | FP | FN | unclear | judged | mean confidence |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for system in SYSTEMS:
         if system not in summary:
@@ -179,7 +179,7 @@ def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summarize final RQ1 guardrail-response results")
+    parser = argparse.ArgumentParser(description="Summarize final RQ1 decision-compliance results")
     parser.add_argument(
         "--input-list",
         type=Path,

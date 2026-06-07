@@ -206,7 +206,7 @@ judge directory: trajectory_judges_llama_cpp_steering_label
 
 Final metric from `summarize_agent_sdk_results.py`:
 
-| system | DCR (old run printed this as GRR) | TP | TN | FP | FN | unclear | judged | mean confidence |
+| system | DCR (old run printed this metric under the prior name) | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | prompt-filter | 129/190 (67.9%) | 62 | 67 | 9 | 52 | 0 | 190 | 0.995 |
 | tool-regex | 106/190 (55.8%) | 39 | 67 | 9 | 75 | 0 | 190 | 0.995 |
@@ -324,7 +324,7 @@ External side-effect tools such as gh issue create are replaced or blocked.
 
 Final metric from `summarize_agent_sdk_results.py`:
 
-| system | DCR (old run printed this as GRR) | TP | TN | FP | FN | unclear | judged | mean confidence |
+| system | DCR (old run printed this metric under the prior name) | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | legacy prompt-only / pre-wired prompt-filter label | 14/20 (70.0%) | 7 | 7 | 1 | 5 | 0 | 20 | 0.965 |
 | tool-regex | 9/20 (45.0%) | 3 | 6 | 2 | 9 | 0 | 20 | 0.978 |

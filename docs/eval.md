@@ -2,7 +2,7 @@
 
 ## 1. Evaluation Goals
 
-Evaluate ActPlane as a runtime enforcement system for
+Evaluate ActPlane as a runtime policy enforcement system for
 directive-derived policies: ActPlane interposes below the agent tool API,
 enforces policy rules on real OS behavior, and returns semantic feedback
 that helps the agent recover after a blocked action. We evaluate this
@@ -26,7 +26,7 @@ All evaluation rules are drawn from the empirical study corpus
 We evaluate ActPlane on a 228-trace decision-compliance benchmark sampled from
 38 directive-derived policies across 64 real projects. Natural-language
 directives are translated into runtime policies, then evaluated across
-six trace families under four real-execution enforcement configurations: prompt-filter,
+six trace families under four runtime policy enforcement systems: prompt-filter,
 tool-regex, ActPlane, and ActPlane opaque-feedback ablation. Full ActPlane
 reaches 75.4% Decision Compliance Rate, compared with 52.6% for
 prompt-filter, 52.6% for tool-regex, and 61.4% for ActPlane-opaque (RQ1).
@@ -71,7 +71,7 @@ feedback (RQ3).
 
 All RQ1 systems use the same real Agent SDK execution harness, the same
 trace-conditioned decision points, and the same initial tested-agent prompt.
-The difference is the runtime enforcement configuration that observes or filters the agent's
+The difference is the selected runtime policy enforcement system that observes or filters the agent's
 proposed actions. ActPlane consumes `rule.yaml`, tool-regex consumes explicit
 per-case policies under `baselines/tool-regex.yaml`, and the prompt-based
 baseline consumes the natural-language directive directly.
@@ -119,7 +119,7 @@ natural-language directive, `ground_truth`, `expected_action`, `rule.yaml`,
 `baselines/tool-regex.yaml`, `scenario_violation`, or evaluator labels. If a
 directive appears in the replayed trace because it was part of the user's task
 or a project file the agent read, that is ordinary visible context and is
-allowed; otherwise the directive is consumed only by the runtime enforcement configuration or
+allowed; otherwise the directive is consumed only by the runtime policy enforcement system or
 the final scorer.
 
 Additional baselines must reuse the same result schema and Agent SDK tool
@@ -170,7 +170,7 @@ docs/corpus-test/{repo}/                # RQ1: policy compliance (sampled)
 
 docs/OctoBench/                         # RQ3: OctoBench policy-compliance eval
   data/selected_cases_20.jsonl          # selected OS-observable cases
-  policies/{actplane,tool-regex}/       # case-specific guardrail policies
+  policies/{actplane,tool-regex}/       # case-specific enforcement policies
   run_cases.py                          # execution harness
   evaluate_with_llama.py                # official-checklist evaluation helper
 
@@ -260,7 +260,7 @@ enabling independent sampling and re-runs.
 | 2. Generate ActPlane policy | **Policy-generation LLM** | directive text, project instruction files, cloned repo, DSL reference | traces, ground truth labels, results | `rule.yaml` |
 | 3. Generate tool-regex policy | **Policy-generation LLM or deterministic baseline authoring** | directive text, project instruction files, cloned repo, tool-regex spec | ActPlane result outcomes | `baselines/tool-regex.yaml` |
 | 4. Generate traces | **Trace generator** (LLM or human) | directive, user prompt, project structure | `rule.yaml`, tool-regex policy, results | manifest-listed `trace_*.jsonl` files |
-| 5. Replay + runtime filtering | **Eval harness** | trace JSONL + selected runtime enforcement configuration | final scorer labels | visible agent history, real tool results, enforcement feedback/errors |
+| 5. Replay + runtime filtering | **Eval harness** | trace JSONL + selected runtime policy enforcement system | final scorer labels | visible agent history, real tool results, enforcement feedback/errors |
 | 6. Tested agent execution | **Tested LLM** | base instructions + visible trace history + visible feedback/errors | ground truth labels, expected action, rule artifacts unless naturally visible | real recovery trajectory in `results/{run_id}.json` |
 | 7. Main trajectory scoring | **Scorer model/human** | natural-language directive + visible trajectory | hidden runtime oracle fields, policy artifacts | final compliance judgment |
 | 8. Attribution scoring | **Scorer model/human or script** | result record + policy artifact + ground truth | — | failure labels such as policy mismatch, overblock, missed intervention |
@@ -270,7 +270,7 @@ Key separations:
   where the translator's blind spots hide in traces.
 - **Tested LLM sees the same initial prompt for every system**: it does not get
   an extra directive-only system message in the prompt-based condition.
-- **Runtime enforcement configurations consume the directive/policy**: LLM step filter consumes
+- **Runtime policy enforcement systems consume the directive/policy**: LLM step filter consumes
   the natural-language directive; tool-regex consumes its explicit regex policy;
   ActPlane consumes its generated DSL policy.
 - **Main scorer judges natural-language compliance**: it should not use
@@ -285,7 +285,7 @@ programmatic wrappers (`bash -c`, subprocess, helper binary); others are
 fixture-based opaque runtime paths. No trace is generated from the translated
 ActPlane rule.
 
-All runtime-enforcement systems are evaluated on the **same selected
+All runtime policy enforcement systems are evaluated on the **same selected
 directive/trace set**. Policy-generation errors are not removed from the
 end-to-end result; they are part of the system being evaluated.
 
@@ -326,7 +326,7 @@ artifact to remove from the main result.
 
 RQ1 is not a full task-completion benchmark. It fixes the prior history trace,
 repo state, model, and continuation point, then lets the tested agent execute a
-bounded number of real tool actions. Each runtime enforcement configuration observes the same
+bounded number of real tool actions. Each runtime policy enforcement system observes the same
 proposed actions and can allow, report, block, kill, or return feedback. The
 final question is whether the visible trajectory remains compliant with the
 original natural-language directive.
@@ -477,7 +477,7 @@ def run_scenario(trace_jsonl, runtime_system):
 
     # Phase 2: tested agent continues from the same initial prompt contract.
     # The agent may execute up to AGENT_MAX_STEPS real tool actions. Before each
-    # proposed action, the selected runtime enforcement configuration checks or observes it.
+    # proposed action, the selected runtime policy enforcement system checks or observes it.
     agent = make_tested_agent(
         system_prompt="docs/eval_scripts/prompts/base_agent.md",
         visible_history=visible_history,
@@ -504,7 +504,7 @@ def run_scenario(trace_jsonl, runtime_system):
 | Role | Actor/model | What it does |
 |---|---|---|
 | **Tested LLM** (weak) | e.g., small Llama/Qwen | Reads visible context + visible feedback/errors, then executes real tool actions through the Agent SDK. |
-| **Runtime enforcement configuration** | LLM step filter / tool-regex / ActPlane | Checks or observes proposed actions and returns allow/block/report feedback according to the selected system. |
+| **Runtime policy enforcement system** | LLM step filter / tool-regex / ActPlane | Checks or observes proposed actions and returns allow/block/report feedback according to the selected system. |
 | **Main scorer** | human audit or separate scorer model | Reads natural-language directive + visible trajectory only, then judges final compliance. |
 | **Attribution scorer** | human/script/scorer model | Reads rule artifacts and ground-truth labels to classify why failures happened. |
 
@@ -570,9 +570,9 @@ Under ActPlane (with feedback):
 
 Key properties:
 - **Replay phase**: 0 tested-model calls. It is deterministic and
-  reproducible, but runtime enforcement configurations may still observe or intervene.
+  reproducible, but runtime policy enforcement systems may still observe or intervene.
 - **Tested-agent phase**: bounded real Agent SDK execution. Proposed tool
-  actions are actually run unless the selected runtime enforcement configuration blocks them.
+  actions are actually run unless the selected runtime policy enforcement system blocks them.
 - **LLM step filter baseline**: before each proposed tool action, a separate
   classifier LLM receives the natural-language directive and the proposed tool
   action. It returns `allow`, `report`, or `block` plus optional feedback. It
@@ -580,7 +580,7 @@ Key properties:
   it does not inspect subprocess/syscall behavior after allowing the tool call.
 - **Tool-regex baseline**: checks only explicit Agent SDK tool inputs.
 - **ActPlane**: observes and enforces below the tool layer, so subprocesses,
-  helper scripts, and cross-event state remain visible to the enforcement configuration.
+  helper scripts, and cross-event state remain visible to the selected system.
 - **Scoring is separate**: the main scorer audits the constructed case and the
   observed system run, then outputs TP/TN/FP/FN directly. Rule artifacts are not
   shown to the scorer.
@@ -858,7 +858,7 @@ Each selected task runs under three conditions:
 | Condition | Enforcement configuration | Feedback | What it tests |
 |---|---|---|---|
 | **Baseline** | None | None | Raw agent behavior on the task |
-| **Tool-regex** | Case-specific tool-call hooks | Tool-layer error/feedback | Common tool-layer enforcement configuration |
+| **Tool-regex** | Case-specific tool-call hooks | Tool-layer error/feedback | Common tool-layer runtime policy enforcement system |
 | **ActPlane** | Case-specific OS-level policy | Semantic ActPlane feedback | Runtime side-effect coverage + recovery |
 
 The ActPlane and tool-regex policy artifacts are case-specific and frozen

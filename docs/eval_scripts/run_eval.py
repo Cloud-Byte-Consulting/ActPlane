@@ -6,7 +6,7 @@ Paper-facing entrypoint:
     python3 docs/eval_scripts/run_eval.py --config full
 
 The script validates the corpus, runs the selected systems in Docker COW,
-judges trajectories, and prints the final Guardrail Response Rate table.
+judges trajectories, and prints the final Decision Compliance Rate table.
 """
 
 from __future__ import annotations

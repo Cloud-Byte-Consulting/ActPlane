@@ -38,7 +38,7 @@ hook) and OpenAI Codex CLI (via tool-error feedback). Exact versions are
 recorded in per-run metadata.
 
 \paragraph{Baseline systems.}
-RQ1 compares four active runtime enforcement configurations on the same
+RQ1 compares four runtime policy enforcement systems on the same
 trace-conditioned agent harness. \textsc{Prompt-filter} is a stateless LLM classifier over
 the natural-language directive and the proposed tool action.
 \textsc{Tool-regex} applies a generated per-case regex policy to raw Agent
@@ -47,7 +47,7 @@ SDK tool inputs. \textsc{ActPlane-opaque} runs the same generated
 from the agent. Full \sys{} runs the generated OS policy and returns the
 matched rule reason and remediation. Policy artifacts are frozen before
 execution and are not repaired after seeing outcomes. The prompt and regex
-baselines represent common prompt/tool-layer enforcement configurations in the style of
+baselines represent common prompt- and tool-layer runtime policy enforcement systems in the style of
 AgentSpec/Progent~\cite{wang2025agentspec,shi2025progent}; the opaque
 ablation isolates the value of semantic feedback on top of OS-level
 observation.
@@ -132,8 +132,8 @@ enforcement intervention; FP means a benign trace was wrongly blocked,
 reported, failed, or steered away; FN means a violation trace was missed
 or left without enforcement-visible awareness. We report Decision
 Compliance Rate (DCR), the fraction of trace-conditioned decision points
-whose final outcome is policy-correct under the selected enforcement
-configuration: \(\mathrm{DCR}=(\mathrm{TP}+\mathrm{TN})/(\mathrm{TP}+\mathrm{TN}
+whose final outcome is policy-correct under the selected runtime policy
+enforcement system: \(\mathrm{DCR}=(\mathrm{TP}+\mathrm{TN})/(\mathrm{TP}+\mathrm{TN}
 +\mathrm{FP}+\mathrm{FN})\). DCR is end-to-end: it includes policy
 translation, runtime enforcement, feedback delivery, and agent recovery;
 it is not detector accuracy in isolation or unguided agent compliance.
@@ -155,7 +155,7 @@ prompt-filter 52.6 percent, tool-regex 52.6 percent, ActPlane-opaque
 
 \begin{table}[tb]\small
 \centering
-\caption{RQ1 confusion matrix by runtime enforcement configuration.}
+\caption{RQ1 confusion matrix by runtime policy enforcement system.}
 \label{tab:rq1-confusion}
 \begin{tabular}{lrrrrrr}
 \toprule
@@ -192,11 +192,11 @@ policy-enforcement system.
 \centering
 \includegraphics[width=\columnwidth]{figures/rq1_family_breakdown.pdf}
 \caption{Diagnostic RQ1 breakdown by trace family. Cells show DCR (\%)
-for each enforcement configuration across the 38 traces in that family; darker cells
+for each system across the 38 traces in that family; darker cells
 are higher. The breakdown exposes where the aggregate gain comes from,
 rather than serving as a separate benchmark.}
 \Description{Heatmap of directive compliance rate by trace family and
-enforcement configuration. ActPlane performs best on script and opaque violation
+system. ActPlane performs best on script and opaque violation
 families, while prompt-filter and tool-regex are competitive on visible
 violations. ActPlane-opaque has high benign compliance but lower violation
 coverage.}
@@ -356,7 +356,7 @@ operate at byte or instruction granularity for vulnerability detection;
 \sys{} operates at object granularity, trading precision for low-overhead
 whole-session coverage.
 
-\textbf{eBPF enforcement and agent guardrails.}
+\textbf{eBPF enforcement and agent policy systems.}
 BPF-LSM~\cite{singh2019krsi,linuxbpflsm} lets eBPF programs attach to
 security hooks and return allow/deny verdicts; \sys{} uses it as its
 pre-operation enforcement backend. Contemporary eBPF tools such as Tetragon,
