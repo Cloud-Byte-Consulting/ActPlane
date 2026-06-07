@@ -31,9 +31,9 @@ Yet existing harness enforcement mechanisms leave a \emph{semantic gap}:
 \emph{AI agent intent} is expressed through natural-language directives
 plus project and task context, but enforcement must decide over
 \emph{system actions}: concrete commands, file operations, network
-connections, and subprocess effects. Tool-call
-guardrails~\cite{wang2025agentspec,shi2025progent} lose track of
-system actions when agents shell out or spawn subprocesses: the
+connections, and subprocess effects. Runtime prompt, agent-action, and
+tool-call policy systems~\cite{rebedea2023nemo,xiang2025guardagent,wang2025agentspec}
+lose track of system actions when agents shell out or spawn subprocesses: the
 same \texttt{git~push} can be reached through a tool call, a
 \texttt{bash~-c} wrapper, or a compiled binary; and 81\% of projects
 require cross-event state tracking that tool-level interception cannot

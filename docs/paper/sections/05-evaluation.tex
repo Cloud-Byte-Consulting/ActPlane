@@ -47,10 +47,11 @@ SDK tool inputs. \textsc{ActPlane-opaque} runs the same generated
 from the agent. Full \sys{} runs the generated OS policy and returns the
 matched rule reason and remediation. Policy artifacts are frozen before
 execution and are not repaired after seeing outcomes. The prompt and regex
-baselines represent common prompt- and tool-layer runtime policy enforcement systems in the style of
-AgentSpec/Progent~\cite{wang2025agentspec,shi2025progent}; the opaque
-ablation isolates the value of semantic feedback on top of OS-level
-observation.
+baselines instantiate two common runtime enforcement layers: LLM/prompt-based
+rails over proposed actions~\cite{rebedea2023nemo,xiang2025guardagent}
+and deterministic tool-call policies over tool names and arguments in the
+style of AgentSpec~\cite{wang2025agentspec}. The opaque ablation isolates
+the value of semantic feedback on top of OS-level observation.
 
 %% ----------------------------------------------------------------
 \subsection{Rule Set Construction}
@@ -103,6 +104,11 @@ per-event and cross-event \sys{} rules.
 \paragraph{Method.}
 RQ1 uses a trace-conditioned benchmark derived from the OS-enforceable
 directive corpus. The current paper-facing sample contains 38 statements.
+The sample is manifest-selected: we select 2--3 statements from each of 15 repositories to cover both
+per-event and cross-event rules, project- and task-context requirements,
+and common repository policy themes. The final manifest contains 20
+per-event-like and 18 cross-event-like rules. No system outcome is used to
+select statements or repair policy artifacts.
 For each statement we construct six manifest-listed traces: three benign
 families (canonical, allowed-effect, and lookalike) and three violation
 families (visible, script-mediated, and opaque-fixture). This yields
@@ -300,7 +306,13 @@ benchmark with 217~Dockerized tasks spanning system prompts, tool
 schemas, project files (\texttt{CLAUDE.md}, \texttt{AGENTS.md}), and
 user queries. We use the official evaluator unchanged. Because \sys{}
 cannot observe purely semantic checks (e.g., tone), we select a 20-task
-subset with system-observable policy points and case-specific policies.
+OS-observable subset. A task is eligible when at least one checklist item maps to a
+concrete command, file operation, generated artifact, or tool-execution
+constraint that can be expressed as a case-specific policy before
+execution. The selected subset spans \texttt{CLAUDE.md},
+\texttt{AGENTS.md}, and user-query policy sources, two agent scaffolds,
+and seven Docker images. Pure style, tone, and natural-language-only
+cases are excluded.
 Each task runs under three conditions: baseline (no enforcement),
 tool-regex (case-specific tool-call hooks), and \sys{} (OS-level hooks
 plus semantic feedback).
@@ -363,10 +375,11 @@ pre-operation enforcement backend. Contemporary eBPF tools such as Tetragon,
 Tracee, and eBPF-PATROL~\cite{ciliumtetragon,aquasecuritytracee,ghimire2025ebpfpatrol} provide
 per-event predicates or single-channel lineage flags; \sys{} propagates
 multi-label information flow across channels and checks cross-event
-conditions. At the agent layer, AgentSpec and
-Progent~\cite{wang2025agentspec,shi2025progent} enforce deterministic
-guards at the tool-call boundary; \sys{} complements them below the tool
-API, where shell-outs and subprocesses remain visible. FIDES and
+conditions. At the agent layer, programmable rails and guard agents
+check prompts or action trajectories~\cite{rebedea2023nemo,xiang2025guardagent},
+and AgentSpec~\cite{wang2025agentspec} enforces deterministic guards at
+the tool-call boundary; \sys{} complements them below the tool API, where
+shell-outs and subprocesses remain visible. FIDES and
 CaMeL~\cite{costa2025fides,debenedetti2025camel} apply typed IFC within
 the agent loop but do not expose a layered authority stack that separates
 platform, project, and agent policy; Flume~\cite{flume} provides

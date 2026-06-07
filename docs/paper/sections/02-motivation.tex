@@ -50,11 +50,13 @@ agent harness that enforces safety, security, and compliance constraints
 while the agent executes. Existing AI agent harnesses place such
 enforcement at one of three levels.
 Prompt instructions rely on the model's own compliance,
-which is inherently probabilistic~\cite{liu2024lost}. Tool-call guardrails such as
-AgentSpec~\cite{wang2025agentspec} and Progent~\cite{shi2025progent}
-intercept tool-call names and arguments deterministically, while
-application-level IFC systems such as FIDES~\cite{costa2025fides} and
-CaMeL~\cite{debenedetti2025camel} track data flow within the agent loop.
+which is inherently probabilistic~\cite{liu2024lost}. Programmable rails
+and guard agents can check prompts, responses, or action trajectories at
+runtime~\cite{rebedea2023nemo,xiang2025guardagent}. Tool-call guardrails
+such as AgentSpec~\cite{wang2025agentspec} intercept tool-call names and
+arguments deterministically, while application-level IFC systems such as
+FIDES~\cite{costa2025fides} and CaMeL~\cite{debenedetti2025camel} track
+data flow within the agent loop.
 These mechanisms observe only the AI agent harness request, not the system-level
 effects that follow once a tool starts executing: a subprocess, a
 shell-out, or a compiled binary can bypass the tool boundary entirely.
