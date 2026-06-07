@@ -18,9 +18,6 @@ An IFC rule is pure system policy:
 rule = condition + effect + reason
 ```
 
-It does not say whether it is mandatory for child domains. That is a runtime
-domain decision.
-
 A domain is the runtime policy boundary for a process tree:
 
 ```text
@@ -35,17 +32,11 @@ labels and participate in flow rules.
 A binding attaches a rule to a domain:
 
 ```text
-binding = domain + rule + mode
+binding = domain + rule
 ```
 
-Binding modes:
-
-```text
-locked   -> child domain cannot disable this binding
-default  -> child domain may disable this binding for itself
-```
-
-So "locked/default" belongs to the domain binding, not to the rule definition.
+All bindings are mandatory and monotonic: once a rule is bound to a domain, it
+cannot be removed or disabled by the domain or its children.
 
 ## Two Logical YAMLs
 
@@ -85,27 +76,23 @@ version: 1
 domains:
   session:
     bind:
-      - rule: no-git-branch
-        mode: locked
-      - rule: no-network
-        mode: default
+      - no-git-branch
+      - no-network
 ```
 
-The same rule can be bound differently by different domains:
+The same rule can be bound by different domains:
 
 ```yaml
 domains:
   review:
     parent: session
     bind:
-      - rule: readonly
-        mode: locked
+      - readonly
 
   build:
     parent: session
     bind:
-      - rule: readonly
-        mode: default
+      - readonly
 ```
 
 ## Effective Policy
@@ -113,26 +100,18 @@ domains:
 For a domain `D`:
 
 ```text
-locked(D)  = locked(parent(D)) + local_locked(D)
-default(D) = default(parent(D)) - disabled_defaults(D) + local_default(D)
-policy(D)  = locked(D) + default(D)
+policy(D) = policy(parent(D)) + local(D)
 ```
 
-Only locked policy is a security invariant:
+The security invariant is monotonic tightening:
 
 ```text
-locked(child) >= locked(parent)
+policy(child) >= policy(parent)
 ```
 
-Here `>=` means "at least as restrictive", not "more privileges".
-
-Default policy is a template:
-
-```text
-default(parent)
-```
-
-Child domains may keep it, disable it, or replace it with stricter local policy.
+Here `>=` means "at least as restrictive". A child domain inherits all parent
+rules and may only add more rules. It cannot remove, disable, or weaken any
+inherited rule.
 
 ## Child Updates
 
@@ -141,9 +120,7 @@ A child domain may update its own domain policy if its authority allows it.
 Allowed updates:
 
 ```text
-add local default bindings
-add local locked bindings
-disable inherited default bindings
+add local bindings
 add labels
 add gates
 narrow scope
@@ -153,54 +130,18 @@ create child domains with no more authority than delegated
 Rejected updates:
 
 ```text
-disable inherited locked bindings
+remove inherited bindings
 modify parent domain state
 modify sibling domain state
-remove inherited locked bindings
 widen scope
 remove labels or gates
 increase delegated authority
-mutate an existing locked rule definition
+mutate an existing rule definition
 ```
 
 ## Examples
 
-### 1. Default Block That Child Disables
-
-Parent domain:
-
-```yaml
-domains:
-  session:
-    bind:
-      - rule: no-git-branch
-        mode: locked
-      - rule: no-network
-        mode: default
-```
-
-Child domain:
-
-```yaml
-domains:
-  review:
-    parent: session
-    disable:
-      - no-network
-```
-
-Result:
-
-```text
-review still enforces no-git-branch
-review does not enforce no-network
-session and sibling domains are unchanged
-```
-
-Trying to disable `no-git-branch` is rejected because its inherited binding is
-locked.
-
-### 2. Child Adds a Locked Rule for Its Own Children
+### 1. Child Adds a Rule for Its Own Children
 
 Child domain:
 
@@ -209,8 +150,7 @@ domains:
   review:
     parent: session
     bind:
-      - rule: readonly
-        mode: locked
+      - readonly
 ```
 
 Grandchild domain:
@@ -219,53 +159,17 @@ Grandchild domain:
 domains:
   review-helper:
     parent: review
-    disable:
-      - readonly
 ```
 
 Result:
 
 ```text
-review-helper cannot disable readonly
-readonly was locked by review, so it is mandatory below review
-session policy is unchanged
+review-helper inherits no-git-branch, no-network from session
+review-helper inherits readonly from review
+review-helper cannot remove any of these rules
 ```
 
-This lets a child domain define stricter policy for its descendants without
-modifying the parent.
-
-### 3. Child Adds a Default Rule for Its Own Children
-
-Child domain:
-
-```yaml
-domains:
-  build:
-    parent: session
-    bind:
-      - rule: no-network
-        mode: default
-```
-
-Grandchild domain:
-
-```yaml
-domains:
-  build-fetch:
-    parent: build
-    disable:
-      - no-network
-```
-
-Result:
-
-```text
-build enforces no-network by default
-build-fetch may disable no-network
-locked rules inherited from session still apply
-```
-
-### 4. Runtime Rule Addition
+### 2. Runtime Rule Addition
 
 Rules can be added at runtime if they are submitted as compiled policy deltas.
 The kernel should not parse YAML or DSL in the admission path.
@@ -274,7 +178,7 @@ CLI shape:
 
 ```bash
 actplane rule compile rules/no-curl.yaml --out no-curl.ir
-actplane domain bind review --rule-ir no-curl.ir --mode default
+actplane domain bind review --rule-ir no-curl.ir
 ```
 
 Semantics:
@@ -289,38 +193,10 @@ kernel installs rule into review's effective policy
 A domain can also bind an existing catalog rule at runtime:
 
 ```bash
-actplane domain bind review --rule no-network --mode locked
+actplane domain bind review --rule no-network
 ```
 
 This is allowed only if the caller has authority to update `review`.
-
-### 5. Runtime Disable of Default Policy
-
-CLI shape:
-
-```bash
-actplane domain disable review no-network
-```
-
-Admission checks:
-
-```text
-caller can update review
-no-network is inherited as default, not locked
-review's effective locked policy remains unchanged
-```
-
-Rejected case:
-
-```bash
-actplane domain disable review no-git-branch
-```
-
-Reason:
-
-```text
-no-git-branch is inherited as locked
-```
 
 ## Runtime Delta Admission
 
@@ -332,7 +208,6 @@ Useful delta classes:
 create_domain
 bind_rule
 add_rule_ir
-disable_default_rule
 add_label
 add_gate
 narrow_scope
@@ -349,8 +224,6 @@ add_restrict_mask
 add_gate_mask
 new_scope_id
 bind_rule_ids
-bind_modes
-disable_default_rule_ids
 ```
 
 The kernel admits a delta only if:
@@ -361,9 +234,7 @@ caller may affect the target domain
 caller has the required authority bits
 scope only narrows
 labels/gates/restrictions only add
-disabled rules are inherited as default
-locked parent bindings remain effective
-new locked bindings do not weaken inherited locked policy
+new bindings do not weaken inherited policy
 ```
 
 Accepted deltas are merged into the domain's already-computed effective state.
@@ -377,7 +248,7 @@ Runtime-added rules should be content-addressed or versioned:
 rule_id = hash(compiled_rule_ir)
 ```
 
-This prevents a child from changing the meaning of an inherited locked rule by
+This prevents a child from changing the meaning of an inherited rule by
 reusing its name with different contents.
 
 Names such as `no-network` are user-facing aliases. Kernel admission should use
@@ -415,8 +286,7 @@ default_domain / --domain selection
 actplane domains effective-policy view
 actplane check/compile selected-domain summary
 starter actplane.yaml generated in domain schema
-locked/default binding resolution at compile time
-disable inherited default bindings at compile time
+binding resolution at compile time
 valid and invalid domain policy corpus tests
 CLI UX tests for domain selection/errors
 user ringbuf request path
@@ -432,9 +302,7 @@ Still needed to fully implement this model:
 domain naming in low-level BPF ABI
 stable rule IDs / content hashes
 runtime domain binding table
-runtime locked/default binding metadata
-runtime disabled-default rule set
-delta admission for bind/disable
+delta admission for bind
 runtime add-rule IR maps
 dynamic child-domain creation
 ```
