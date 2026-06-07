@@ -22,13 +22,13 @@
   ],
   "trace_files": [
     "trace_canonical_compliant.jsonl",
-    "trace_edge_compliant.jsonl",
+    "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
   ],
   "trace_intent": {
-    "trace_edge_compliant.jsonl": "Runs a real pytest selection containing the risky marker names only as explicit exclusions, which is allowed by the directive."
+    "trace_allowed_effect_compliant.jsonl": "Runs a real pytest selection containing the risky marker names only as explicit exclusions, which is allowed by the directive."
   }
 }

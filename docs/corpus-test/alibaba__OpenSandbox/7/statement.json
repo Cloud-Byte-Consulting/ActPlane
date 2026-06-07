@@ -16,7 +16,7 @@
   },
   "trace_intent": {
     "trace_canonical_compliant.jsonl": "Reads the spec guide and affected server/SDK guides before writing server and SDK implementation files.",
-    "trace_edge_compliant.jsonl": "Reads the spec guide and the affected server guide before making a server-only implementation update.",
+    "trace_allowed_effect_compliant.jsonl": "Reads the spec guide and the affected server guide before making a server-only implementation update.",
     "trace_visible_violation.jsonl": "Writes a server implementation file without first reading specs/AGENTS.md.",
     "trace_script_visible_violation.jsonl": "Runs a visible helper script whose body writes a server implementation file before reading specs/AGENTS.md.",
     "trace_opaque_fixture_violation.jsonl": "Runs an opaque local fixture that writes server and SDK files before reading specs/AGENTS.md.",
@@ -24,7 +24,7 @@
   },
   "trace_files": [
     "trace_canonical_compliant.jsonl",
-    "trace_edge_compliant.jsonl",
+    "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_visible_violation.jsonl",
     "trace_script_visible_violation.jsonl",

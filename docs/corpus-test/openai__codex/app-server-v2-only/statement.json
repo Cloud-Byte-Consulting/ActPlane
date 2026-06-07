@@ -22,13 +22,13 @@
   ],
   "trace_files": [
     "trace_canonical_compliant.jsonl",
-    "trace_edge_compliant.jsonl",
+    "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
   ],
   "trace_intent": {
-    "trace_edge_compliant.jsonl": "Reads the protected v1 file but performs the real API write under `protocol/v2/`, the allowed active-development scope."
+    "trace_allowed_effect_compliant.jsonl": "Reads the protected v1 file but performs the real API write under `protocol/v2/`, the allowed active-development scope."
   }
 }

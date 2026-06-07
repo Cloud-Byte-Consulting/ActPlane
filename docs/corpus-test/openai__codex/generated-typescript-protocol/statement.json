@@ -22,13 +22,13 @@
   ],
   "trace_files": [
     "trace_canonical_compliant.jsonl",
-    "trace_edge_compliant.jsonl",
+    "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",
     "trace_visible_violation.jsonl"
   ],
   "trace_intent": {
-    "trace_edge_compliant.jsonl": "Reads generated TypeScript but writes only Rust protocol source, producing an allowed source-side protocol effect."
+    "trace_allowed_effect_compliant.jsonl": "Reads generated TypeScript but writes only Rust protocol source, producing an allowed source-side protocol effect."
   }
 }

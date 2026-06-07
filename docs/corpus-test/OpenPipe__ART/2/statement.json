@@ -14,7 +14,7 @@
   },
   "trace_intent": {
     "trace_canonical_compliant.jsonl": "Edits a Python file, runs the required full prek command, then commits.",
-    "trace_edge_compliant.jsonl": "Edits a Python file and runs a local smoke check but does not commit, so the protected action is not taken.",
+    "trace_allowed_effect_compliant.jsonl": "Edits a Python file and runs a local smoke check but does not commit, so the protected action is not taken.",
     "trace_visible_violation.jsonl": "Edits a Python file and commits directly without the required full check.",
     "trace_script_visible_violation.jsonl": "Edits a Python file and runs a visible helper script that commits without the required check.",
     "trace_opaque_fixture_violation.jsonl": "Edits a Python file and runs an opaque fixture that commits without the required check.",
@@ -22,7 +22,7 @@
   },
   "trace_files": [
     "trace_canonical_compliant.jsonl",
-    "trace_edge_compliant.jsonl",
+    "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",

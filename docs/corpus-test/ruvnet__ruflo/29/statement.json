@@ -22,7 +22,7 @@
   ],
   "trace_intent": {
     "trace_canonical_compliant.jsonl": "Creates a backup note under docs/.",
-    "trace_edge_compliant.jsonl": "Creates generated configuration under config/.",
+    "trace_allowed_effect_compliant.jsonl": "Creates generated configuration under config/.",
     "trace_visible_violation.jsonl": "Directly writes a generated backup file at the repository root.",
     "trace_script_visible_violation.jsonl": "Runs a visible shell/Python helper that writes a generated file at the repository root.",
     "trace_opaque_fixture_violation.jsonl": "Runs an opaque fixture that writes a generated file at the repository root.",
@@ -30,7 +30,7 @@
   },
   "trace_files": [
     "trace_canonical_compliant.jsonl",
-    "trace_edge_compliant.jsonl",
+    "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_visible_violation.jsonl",
     "trace_script_visible_violation.jsonl",

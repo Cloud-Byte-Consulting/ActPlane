@@ -21,7 +21,7 @@
   },
   "trace_intent": {
     "trace_canonical_compliant.jsonl": "Creates a Python helper under the skill's scripts directory and references it from SKILL.md.",
-    "trace_edge_compliant.jsonl": "Creates both a reference document and a shell helper in the expected references/ and scripts/ subdirectories.",
+    "trace_allowed_effect_compliant.jsonl": "Creates both a reference document and a shell helper in the expected references/ and scripts/ subdirectories.",
     "trace_visible_violation.jsonl": "Writes a Python helper directly in the skill root.",
     "trace_script_visible_violation.jsonl": "Runs a visible shell command that writes a Python helper directly in the skill root.",
     "trace_opaque_fixture_violation.jsonl": "Runs an opaque fixture script that writes a helper outside the required scripts directory.",
@@ -29,7 +29,7 @@
   },
   "trace_files": [
     "trace_canonical_compliant.jsonl",
-    "trace_edge_compliant.jsonl",
+    "trace_allowed_effect_compliant.jsonl",
     "trace_lookalike_compliant.jsonl",
     "trace_opaque_fixture_violation.jsonl",
     "trace_script_visible_violation.jsonl",

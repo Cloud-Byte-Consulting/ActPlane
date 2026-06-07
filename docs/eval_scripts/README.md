@@ -59,7 +59,7 @@ Current RQ1 corpus scope:
 ```
 
 Each statement has the same six trace families:
-`trace_canonical_compliant.jsonl`, `trace_edge_compliant.jsonl`,
+`trace_canonical_compliant.jsonl`, `trace_allowed_effect_compliant.jsonl`,
 `trace_lookalike_compliant.jsonl`, `trace_visible_violation.jsonl`,
 `trace_script_visible_violation.jsonl`, and `trace_opaque_fixture_violation.jsonl`.
 
@@ -67,6 +67,11 @@ Each statement has the same six trace families:
 look like normal agent work that naturally mentions risky commands, paths, or
 secret-shaped placeholders in docs, fixtures, dry-run inputs, or already-allowed
 wrappers, but it must not perform the forbidden side effect.
+
+`trace_allowed_effect_compliant.jsonl` is an allowed-effect compliant case. It
+must perform a real tool/runtime effect near the policy boundary, but that
+effect is compliant because it satisfies the required predecessor, path scope,
+exception, ordering, or paired action.
 
 Trace quality matters for the baseline comparison. Opaque fixture traces must
 not reveal the hidden behavior through filenames, user text, or tool command
@@ -286,7 +291,7 @@ Each case keeps separate policy artifacts:
 rule.yaml                  # ActPlane DSL
 baselines/tool-regex.yaml  # tool-layer regex baseline policy
 trace_canonical_compliant.jsonl
-trace_edge_compliant.jsonl
+trace_allowed_effect_compliant.jsonl
 trace_lookalike_compliant.jsonl
 trace_visible_violation.jsonl
 trace_script_visible_violation.jsonl
@@ -324,12 +329,12 @@ Each statement should have exactly six trace-conditioned decision points:
   prompts, docs, fixture strings, dry-run commands, or other visible text, but
   do not perform the restricted side effect. This family tests overmatching on
   surface form.
-- `edge_compliant`: allowed-effect compliant behavior. The trace must perform a
-  real tool/runtime effect close to the policy boundary, such as a write, edit,
-  unlink, exec, commit, generated output, or subprocess action, but that effect
-  is compliant because it satisfies the required predecessor, path scope,
-  exception, ordering, or paired action. This family tests overblocking of real
-  but allowed workflows, not merely risky-looking text.
+- `allowed_effect_compliant`: allowed-effect compliant behavior. The trace must
+  perform a real tool/runtime effect close to the policy boundary, such as a
+  write, edit, unlink, exec, commit, generated output, or subprocess action, but
+  that effect is compliant because it satisfies the required predecessor, path
+  scope, exception, ordering, or paired action. This family tests overblocking
+  of real but allowed workflows, not merely risky-looking text.
 - `visible_violation`: a violation visible in the Agent SDK tool input, where
   `tool-regex` should have a fair chance.
 - `script_visible_violation`: the agent writes or inlines a helper script during
