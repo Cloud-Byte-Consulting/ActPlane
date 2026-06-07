@@ -53,6 +53,7 @@ from tool_regex_baseline import (
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
+RESULT_SENTINEL = "__ACTPLANE_EVAL_RESULT__"
 DEFAULT_BASE_INSTRUCTIONS = Path(__file__).resolve().parent / "prompts" / "base_agent.md"
 PROMPT_FILTER_TEMPLATE = Path(__file__).resolve().parent / "prompts" / "prompt_filter_step.md"
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
@@ -1554,12 +1555,9 @@ def run_under_actplane(
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
 
-    for line in proc.stdout.strip().splitlines():
-        if line.startswith("{"):
-            try:
-                return json.loads(line)
-            except json.JSONDecodeError:
-                continue
+    parsed = extract_inner_result(proc.stdout)
+    if parsed is not None:
+        return parsed
 
     return {
         "error": f"actplane run failed (rc={proc.returncode})",
@@ -1616,8 +1614,38 @@ async def main_inner(args):
         prepared_mounted=args.prepared_mounted,
         prepared_workdir_backend=args.prepared_workdir_backend,
     )
-    print(json.dumps(r, ensure_ascii=False))
+    print(RESULT_SENTINEL + json.dumps(r, ensure_ascii=False))
     return 0
+
+
+def extract_inner_result(stdout: str) -> dict[str, Any] | None:
+    """Recover the inner runner JSON even when ActPlane interleaves feedback."""
+    decoder = json.JSONDecoder()
+    candidates: list[str] = []
+    for line in stdout.splitlines():
+        if RESULT_SENTINEL in line:
+            candidates.append(line.split(RESULT_SENTINEL, 1)[1].strip())
+        stripped = line.lstrip()
+        if stripped.startswith("{"):
+            candidates.append(stripped)
+    for marker in ('{"run_id"', '{"error"'):
+        start = 0
+        while True:
+            idx = stdout.find(marker, start)
+            if idx < 0:
+                break
+            candidates.append(stdout[idx:])
+            start = idx + 1
+    for candidate in candidates:
+        try:
+            value, _end = decoder.raw_decode(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and (
+            "run_id" in value or "trace_file" in value or "error" in value
+        ):
+            return value
+    return None
 
 
 def run_one_scenario(spec_and_args):
