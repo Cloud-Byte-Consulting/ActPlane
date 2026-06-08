@@ -27,6 +27,7 @@ OFFICIAL = ROOT / "OpenAgentSafety"
 DEFAULT_CONFIG = ROOT / "configs" / "openhands_local_llama_config.toml"
 DEFAULT_PATCH = ROOT / "patches" / "local-llama-openhands.patch"
 DEFAULT_ACTPLANE = REPO_ROOT / "target" / "release" / "actplane"
+DEFAULT_POLICY_DIR = ROOT / "policies" / "actplane"
 DEFAULT_OUTPUT = ROOT / "results"
 EVAL_SCRIPTS = REPO_ROOT / "docs" / "eval_scripts"
 CONDITIONS = ("baseline", "actplane")
@@ -369,7 +370,7 @@ def run_case(case: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> d
     mount_path = case_dir / "mount"
     mount_path.mkdir(parents=True, exist_ok=True)
     os.chmod(mount_path, 0o777)
-    policy_path = ROOT / "policies" / "actplane" / f"{task_id}.yaml"
+    policy_path = args.policy_dir / f"{task_id}.yaml"
     base_container_image = (
         prepare_task_image(task_id, task_path, args, case_dir)
         if args.prepare_task_images
@@ -414,6 +415,7 @@ def run_case(case: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> d
             "cwd": str(args.official / "evaluation"),
             "condition": args.condition,
             "policy": str(policy_path) if args.condition == "actplane" else None,
+            "policy_dir": str(args.policy_dir) if args.condition == "actplane" else None,
             "base_container_image": base_container_image,
             "runtime_container_image": args.runtime_container_image,
             "mount_path": str(mount_path),
@@ -438,7 +440,7 @@ def run_case(case: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> d
         feedback_file = REPO_ROOT / ".actplane" / "last-violation.txt"
         if feedback_file.exists():
             feedback_file.unlink()
-        stop_oas_actplane_watchers()
+        stop_oas_actplane_watchers(args.policy_dir)
         stop_openhands_runtimes()
         env["OAS_ACTPLANE_BIN"] = str(args.actplane)
         env["OAS_ACTPLANE_POLICY"] = str(policy_path)
@@ -497,6 +499,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config-template", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--patch", type=Path, default=DEFAULT_PATCH)
     parser.add_argument("--actplane", type=Path, default=DEFAULT_ACTPLANE)
+    parser.add_argument("--policy-dir", type=Path, default=DEFAULT_POLICY_DIR)
     parser.add_argument("--case", action="append", dest="cases", default=[])
     parser.add_argument("--case-file", action="append", type=Path, default=[])
     parser.add_argument("--all", action="store_true", help="Run all official safety tasks after optional filters.")
@@ -529,6 +532,7 @@ def main() -> None:
     args.official = args.official.resolve()
     args.output_root = args.output_root.resolve()
     args.actplane = args.actplane.resolve()
+    args.policy_dir = args.policy_dir.resolve()
 
     require_official_checkout(args.official)
     if args.apply_local_patches:
