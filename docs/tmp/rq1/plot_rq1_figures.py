@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -30,6 +31,9 @@ FAMILY_LABELS = {
     "script_visible_violation": "Script-visible\nviolation",
     "opaque_fixture_violation": "Opaque-fixture\nviolation",
 }
+CONFUSION_LABELS = ("TP", "TN", "FP", "FN", "unclear")
+SCORED_LABELS = ("TP", "TN", "FP", "FN")
+DEEPSEEK_JUDGE_DIR = "trajectory_judges_deepseek_deepseek_v4_pro_guardrail_response"
 
 
 def family(trace_file: str) -> str:
@@ -57,39 +61,108 @@ def load_rows(path: Path) -> list[dict]:
     return rows
 
 
+def load_deepseek_rows(run_dir: Path) -> list[dict]:
+    selected_file = run_dir / "selected_runner_results.txt"
+    selected_sources = set()
+    if selected_file.exists():
+        selected_sources = {
+            line.strip()
+            for line in selected_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+
+    rows = []
+    for judge_path in run_dir.rglob(f"{DEEPSEEK_JUDGE_DIR}/*.judge.json"):
+        data = json.loads(judge_path.read_text(encoding="utf-8"))
+        judgment = data.get("judgment") or {}
+        label = judgment.get("confusion_label")
+        if label not in CONFUSION_LABELS:
+            continue
+        source = str(data.get("source_result") or "")
+        if selected_sources and source not in selected_sources:
+            continue
+        rows.append(
+            {
+                "system": data.get("source_system"),
+                "repo": str(data.get("repo") or "").replace("/", "__"),
+                "statement": str(data.get("statement_id") or ""),
+                "trace_file": str(data.get("trace_file") or ""),
+                "family": family(str(data.get("trace_file") or "")),
+                "label": label,
+                "run_id": str(data.get("source_run_id") or ""),
+                "source": source,
+            }
+        )
+    return rows
+
+
 def dcr(counts: Counter) -> float:
-    total = sum(counts.values())
+    total = sum(counts[label] for label in SCORED_LABELS)
     return 100.0 * (counts["TP"] + counts["TN"]) / total if total else 0.0
 
 
-def plot_bar(rows: list[dict], out: Path) -> None:
+def system_counts(rows: list[dict]) -> dict[str, Counter]:
     counts = defaultdict(Counter)
     for row in rows:
         counts[row["system"]][row["label"]] += 1
-    values = [dcr(counts[system]) for system in SYSTEM_ORDER]
+    return counts
+
+
+def print_summary(name: str, rows: list[dict]) -> None:
+    counts = system_counts(rows)
+    print(name)
+    for system in SYSTEM_ORDER:
+        c = counts[system]
+        scored = sum(c[label] for label in SCORED_LABELS)
+        correct = c["TP"] + c["TN"]
+        judged = sum(c[label] for label in CONFUSION_LABELS)
+        print(f"  {system}: {correct}/{scored} ({dcr(c):.1f}%), unclear={c['unclear']}, judged={judged}")
+
+
+def plot_bar(primary_rows: list[dict], replication_rows: list[dict], out: Path) -> None:
+    primary_counts = system_counts(primary_rows)
+    replication_counts = system_counts(replication_rows)
+    primary_values = [dcr(primary_counts[system]) for system in SYSTEM_ORDER]
+    replication_values = [dcr(replication_counts[system]) for system in SYSTEM_ORDER]
 
     plt.rcParams.update({"font.size": 15, "pdf.fonttype": 42, "ps.fonttype": 42})
-    fig, ax = plt.subplots(figsize=(7.2, 4.2))
-    colors = ["#9aa3ad", "#7fa2c7", "#c99a5b", "#3b6f5c"]
-    bars = ax.bar(range(len(values)), values, color=colors, width=0.68)
+    fig, ax = plt.subplots(figsize=(7.8, 4.4))
+    x = np.arange(len(SYSTEM_ORDER))
+    width = 0.34
+    primary_bars = ax.bar(
+        x - width / 2,
+        primary_values,
+        color="#4c78a8",
+        width=width,
+        label="Qwen3.6-27B run",
+    )
+    replication_bars = ax.bar(
+        x + width / 2,
+        replication_values,
+        color="#f28e2b",
+        width=width,
+        label="DeepSeek-Pro V4 run",
+    )
     ax.set_ylabel("Decision Compliance Rate (%)", fontsize=16)
     ax.set_ylim(0, 90)
-    ax.set_xticks(range(len(values)), [SYSTEM_LABELS[s] for s in SYSTEM_ORDER], fontsize=15)
+    ax.set_xticks(x, [SYSTEM_LABELS[s] for s in SYSTEM_ORDER], fontsize=15)
     ax.tick_params(axis="y", labelsize=14)
     ax.grid(axis="y", color="#d9d9d9", linewidth=0.8)
     ax.set_axisbelow(True)
+    ax.legend(frameon=False, loc="upper left", ncols=2, fontsize=13)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
-    for bar, value in zip(bars, values):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            value + 1.2,
-            f"{value:.1f}",
-            ha="center",
-            va="bottom",
-            fontsize=15,
-            fontweight="bold",
-        )
+    for bars, values in ((primary_bars, primary_values), (replication_bars, replication_values)):
+        for bar, value in zip(bars, values, strict=True):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                value + 1.2,
+                f"{value:.1f}",
+                ha="center",
+                va="bottom",
+                fontsize=12,
+                fontweight="bold",
+            )
     fig.tight_layout(pad=0.8)
     fig.savefig(out)
     plt.close(fig)
@@ -140,12 +213,22 @@ def main() -> int:
         type=Path,
         default=Path("docs/tmp/rq1/latest_existing_stats/selected_latest_judged_results.txt"),
     )
-    parser.add_argument("--out-dir", type=Path, default=Path("docs/paper/figures"))
+    parser.add_argument(
+        "--deepseek-run",
+        type=Path,
+        default=Path("docs/eval_runs/full/deepseek_rq1_20260607T193612Z_v4_pro"),
+    )
+    parser.add_argument("--out-dir", type=Path, default=Path("docs/papers/figures"))
+    parser.add_argument("--bar-only", action="store_true")
     args = parser.parse_args()
     rows = load_rows(args.selected)
+    deepseek_rows = load_deepseek_rows(args.deepseek_run)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    plot_bar(rows, args.out_dir / "rq1_dcr_bar.pdf")
-    plot_family(rows, args.out_dir / "rq1_family_breakdown.pdf")
+    print_summary("Qwen3.6-27B end-to-end run", rows)
+    print_summary("DeepSeek-Pro V4 end-to-end run", deepseek_rows)
+    plot_bar(rows, deepseek_rows, args.out_dir / "rq1_dcr_bar.pdf")
+    if not args.bar_only:
+        plot_family(rows, args.out_dir / "rq1_family_breakdown.pdf")
     return 0
 
 

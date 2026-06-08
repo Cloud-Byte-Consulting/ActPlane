@@ -30,8 +30,8 @@ system-effect challenge trace families under four runtime policy enforcement
 systems: prompt-filter, tool-regex, ActPlane, and ActPlane opaque-feedback
 ablation. Full ActPlane reaches 75.8% Decision Compliance Rate, compared with
 48.4% for prompt-filter, 45.3% for tool-regex, and 53.7% for
-ActPlane-opaque (RQ1). An external DeepSeek Pro trajectory-judge replication on
-the same 190 traces preserves the ordering: 77.4% for ActPlane, 61.7% for
+ActPlane-opaque (RQ1). A DeepSeek-Pro V4 end-to-end model-setting run on the
+same 190 traces preserves the ordering: 77.4% for ActPlane, 61.7% for
 ActPlane-opaque, 52.5% for prompt-filter, and 43.7% for tool-regex.
 For overhead, ActPlane adds 1.9% on agent trace replay and 6.5% on a
 Linux build at 32 active no-hit rules (RQ2). On a 20-task OctoBench subset,
@@ -429,8 +429,10 @@ manifest-listed traces actually used. For the current paper-facing snapshot,
 every statement has the five trace families above: 38 statements x 5 traces =
 190 traces. With four systems, this produces 760 system-trace cells.
 
-Current paper-facing local-judge result, as reported in
-`docs/papers/sections/05-evaluation.tex`. The runner prints the metric as
+Current paper-facing primary Qwen3.6-27B model-setting result, as reported in
+`docs/papers/sections/05-evaluation.tex`. In this setting, Qwen3.6-27B is used
+for the tested-agent continuation, the prompt-filter classifier, and trajectory
+judging. The runner prints the metric as
 **Decision Compliance Rate (DCR)**:
 `(TP + TN) / (TP + TN + FP + FN)`.
 
@@ -456,19 +458,24 @@ RQ1 result.
 | actplane-opaque | 140/228 (61.4%) | 29 | 111 | 3 | 85 | 228 |
 
 For the paper, the RQ1 main text should report the 190-trace result as one
-overall DCR bar chart plus one confusion-matrix table. A trace-family breakdown
-is useful as a diagnostic figure or appendix table, but it should not be
-presented as a separate benchmark.
+grouped overall DCR bar chart plus one primary confusion-matrix table. The bar
+chart should include both model settings: Qwen3.6-27B and DeepSeek-Pro V4. Color
+distinguishes the model setting, not just the judge. The confusion-matrix table
+should stay primary-setting only; otherwise the main text reads like two
+competing benchmark tables. A trace-family breakdown is useful as a diagnostic
+figure or appendix table, but it should not be presented as a separate
+benchmark.
 
-#### External Judge Replication: DeepSeek Pro
+#### External Model-Setting Replication: DeepSeek Pro
 
 After trace tuning moved the active paper corpus from six trace families to
 five trace families (dropping canonical benign from the paper-facing challenge
-set), we ran the full RQ1 pipeline with DeepSeek Pro as an external trajectory
-judge. This run is a judge/model replication pass, not a new trace-tuning run:
-it uses the selected 190-trace corpus (38 statements x 5 trace families) and the
-same four runtime policy enforcement systems, for 760 selected system-trace
-cells.
+set), we ran the full RQ1 pipeline with DeepSeek-Pro V4 as the LLM for the
+tested-agent continuation, the prompt-filter classifier, and trajectory judge.
+This run is a full model-setting replication pass, not a judge-only rescore and
+not a new trace-tuning run: it uses the selected 190-trace corpus (38 statements
+x 5 trace families) and the same four runtime policy enforcement systems, for
+760 selected system-trace cells.
 
 Run artifact:
 `docs/eval_runs/full/deepseek_rq1_20260607T193612Z_v4_pro`.
@@ -480,7 +487,7 @@ Validation:
 - Manual summarizer rerun over `selected_runner_results.txt` matches the
   automatic `run_eval.py` summary exactly.
 
-DeepSeek Pro RQ1 DCR:
+DeepSeek-Pro V4 model-setting RQ1 DCR:
 
 | system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -493,19 +500,20 @@ Interpretation for paper placement:
 
 - Do **not** mix this table with the older 228-trace llama.cpp snapshot. The
   DeepSeek run corresponds to the active 190-trace, five-family paper corpus.
-- If the paper keeps the current local llama.cpp judge as the primary RQ1
-  scorer, the DeepSeek result should appear as a robustness/replication note,
-  not as the main table. The main text can state that an external DeepSeek Pro
-  judge preserves the ordering and the main conclusion: ActPlane remains best
-  overall (77.4% DCR), ahead of ActPlane-opaque (61.7%), prompt-filter (52.5%),
-  and tool-regex (43.7%).
-- The DeepSeek replication strengthens the claim that the RQ1 ordering is not
-  an artifact of the local llama.cpp judge. It should be reported in one short
-  paragraph under RQ1 results, with the full confusion matrix either in a small
-  robustness table or a footnote/artifact note depending on space.
-- If the paper instead chooses DeepSeek Pro as the primary judge, then the RQ1
-  bar chart and confusion table must be regenerated from these numbers, and the
-  local llama.cpp result should become the replication check. Do not present two
+- If the paper keeps the current Qwen3.6-27B model setting as the primary RQ1
+  result, the DeepSeek result should appear in Figure 10 as a grouped
+  robustness/replication bar, not as a second main confusion table. The main
+  text can state that a DeepSeek-Pro V4 end-to-end run preserves the ordering
+  and the main conclusion: ActPlane remains best overall (77.4% DCR), ahead of
+  ActPlane-opaque (61.7%), prompt-filter (52.5%), and tool-regex (43.7%).
+- The DeepSeek run strengthens the claim that the RQ1 ordering is not an
+  artifact of a single tested-agent/prompt-filter/judge model setting. It should
+  be reported in one short paragraph under RQ1 results, while the full DeepSeek
+  confusion matrix remains in this evaluation note/artifact unless space permits
+  a small robustness table.
+- If the paper instead chooses DeepSeek Pro as the primary model setting, then
+  the RQ1 confusion table must be regenerated from these numbers, and the
+  Qwen3.6-27B result should become the replication check. Do not present two
   different primary DCR tables in the main text.
 
 #### Step 3: Execute End-to-End (Trace Replay + Real Agent Actions)
@@ -733,23 +741,26 @@ decomposed in the failure-attribution table.
 
 ### 5.3 Results and Diagnostics
 
-RQ1 now reports the paired 228-trace result above rather than the older
-607-directive placeholder tables. The 607-directive empirical analysis remains
-the source population; the paper-facing RQ1 experiment is the validated
-38-statement sample with six trace families per statement.
+RQ1 now reports the 190-trace, five-family system-effect challenge benchmark
+rather than the older 607-directive placeholder tables or the archived
+228-trace six-family snapshot. The 607-directive empirical analysis remains the
+source population; the paper-facing RQ1 experiment is the validated
+38-statement sample with five trace families per statement.
 
 The main result is that full ActPlane improves Decision Compliance Rate by
-22.8 percentage points over both prompt-filter and tool-regex. The largest
-effect is on violation recall: ActPlane has 29 FNs, compared with 73 for
-prompt-filter and 77 for tool-regex. ActPlane also has fewer benign false
-positives than the baselines, but this margin is modest: 27 FPs, compared with
-35 and 31. The remaining ActPlane FPs are mostly generated-policy or
-harness-policy precision issues rather than trace invalidity.
+27.4 percentage points over prompt-filter and 30.5 percentage points over
+tool-regex under the primary Qwen3.6-27B model setting. The largest effect is on
+violation recall: ActPlane has 28 FNs, compared with 70 for prompt-filter and
+76 for tool-regex. ActPlane also has fewer benign false positives than the
+baselines, but this margin is modest: 18 FPs, compared with 28 for both
+prompt-filter and tool-regex. The remaining ActPlane FPs are mostly
+generated-policy or harness-policy precision issues rather than trace
+invalidity.
 
 The opaque-feedback ablation is intentionally not monotone-better or
-monotone-worse on every cell. It has very low FP (3) because it hides
+monotone-worse on every cell. It has very low FP (1) because it hides
 structured feedback and therefore rarely steers benign work away. It also has
-very high FN (85) because the agent receives no semantic remediation when a
+very high FN (87) because the agent receives no semantic remediation when a
 violation is detected or failed. Full ActPlane trades some additional FP for a
 large FN reduction, yielding the best overall score.
 
@@ -757,12 +768,11 @@ Diagnostic family breakdown for the current run:
 
 | trace family | prompt-filter | tool-regex | actplane | actplane-opaque |
 |---|---:|---:|---:|---:|
-| canonical compliant | 30/38 (78.9%) | 34/38 (89.5%) | 29/38 (76.3%) | 36/38 (94.7%) |
-| allowed-effect compliant | 25/38 (65.8%) | 23/38 (60.5%) | 28/38 (73.7%) | 37/38 (97.4%) |
+| allowed-effect compliant | 24/38 (63.2%) | 22/38 (57.9%) | 28/38 (73.7%) | 37/38 (97.4%) |
 | lookalike compliant | 24/38 (63.2%) | 26/38 (68.4%) | 30/38 (78.9%) | 38/38 (100.0%) |
-| visible violation | 32/38 (84.2%) | 32/38 (84.2%) | 31/38 (81.6%) | 12/38 (31.6%) |
-| script visible violation | 9/38 (23.7%) | 4/38 (10.5%) | 26/38 (68.4%) | 4/38 (10.5%) |
-| opaque fixture violation | 0/38 (0.0%) | 1/38 (2.6%) | 28/38 (73.7%) | 13/38 (34.2%) |
+| visible violation | 34/38 (89.5%) | 33/38 (86.8%) | 31/38 (81.6%) | 11/38 (28.9%) |
+| script visible violation | 10/38 (26.3%) | 5/38 (13.2%) | 27/38 (71.1%) | 4/38 (10.5%) |
+| opaque fixture violation | 0/38 (0.0%) | 0/38 (0.0%) | 28/38 (73.7%) | 12/38 (31.6%) |
 
 ### 5.4 Methodological Notes
 
