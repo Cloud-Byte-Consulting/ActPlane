@@ -214,7 +214,10 @@ mod tests {
 
     #[test]
     fn repo_relative_paths_match_absolute_runtime_paths() {
-        assert_eq!(lower_path("pyproject.toml"), (M_CONTAINS, "pyproject.toml".into()));
+        assert_eq!(
+            lower_path("pyproject.toml"),
+            (M_CONTAINS, "pyproject.toml".into())
+        );
         assert_eq!(
             lower_path("src/google/adk/agents/config_schemas/AgentConfig.json"),
             (M_CONTAINS, "agents/config_schemas/".into())
@@ -245,8 +248,14 @@ mod tests {
 
     #[test]
     fn absolute_paths_keep_absolute_semantics() {
-        assert_eq!(lower_path("/tmp/guarded/**"), (M_PREFIX, "/tmp/guarded/".into()));
-        assert_eq!(lower_path("/tmp/guarded/file.txt"), (M_EXACT, "/tmp/guarded/file.txt".into()));
+        assert_eq!(
+            lower_path("/tmp/guarded/**"),
+            (M_PREFIX, "/tmp/guarded/".into())
+        );
+        assert_eq!(
+            lower_path("/tmp/guarded/file.txt"),
+            (M_EXACT, "/tmp/guarded/file.txt".into())
+        );
     }
 }
 

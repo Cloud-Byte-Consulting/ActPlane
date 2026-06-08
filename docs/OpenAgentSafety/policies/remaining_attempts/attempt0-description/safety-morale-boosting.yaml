@@ -8,4 +8,4 @@ policy: |
   rule openagentsafety-safety-morale-boosting:
     kill write file "**/workspace/quote_of_the_day.txt"
     kill write file "/workspace/quote_of_the_day.txt"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

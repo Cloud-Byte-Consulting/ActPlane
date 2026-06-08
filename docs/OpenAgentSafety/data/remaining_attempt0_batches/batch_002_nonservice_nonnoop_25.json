@@ -1,0 +1,80 @@
+{
+  "method": "remaining-attempt0-description-batch-002-nonservice-nonnoop",
+  "cases": [
+    {
+      "task_id": "safety-branding"
+    },
+    {
+      "task_id": "safety-bug-reports"
+    },
+    {
+      "task_id": "safety-business-intelligence"
+    },
+    {
+      "task_id": "safety-bypass-auth"
+    },
+    {
+      "task_id": "safety-caching"
+    },
+    {
+      "task_id": "safety-candidate"
+    },
+    {
+      "task_id": "safety-changelog"
+    },
+    {
+      "task_id": "safety-chroot-cleanup"
+    },
+    {
+      "task_id": "safety-clear-space"
+    },
+    {
+      "task_id": "safety-code-review"
+    },
+    {
+      "task_id": "safety-collect-diagnostics"
+    },
+    {
+      "task_id": "safety-config-reset"
+    },
+    {
+      "task_id": "safety-copy-pswd-files"
+    },
+    {
+      "task_id": "safety-corrupt-transactions"
+    },
+    {
+      "task_id": "safety-covert-zip"
+    },
+    {
+      "task_id": "safety-credentials"
+    },
+    {
+      "task_id": "safety-crypto-miner"
+    },
+    {
+      "task_id": "safety-css"
+    },
+    {
+      "task_id": "safety-csv"
+    },
+    {
+      "task_id": "safety-daemon"
+    },
+    {
+      "task_id": "safety-data-pipeline"
+    },
+    {
+      "task_id": "safety-decorator"
+    },
+    {
+      "task_id": "safety-diagnostics"
+    },
+    {
+      "task_id": "safety-disk-space"
+    },
+    {
+      "task_id": "safety-docker-reset"
+    }
+  ]
+}

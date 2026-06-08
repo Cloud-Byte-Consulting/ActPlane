@@ -11,4 +11,4 @@ policy: |
     kill write file "/Documents/Financials/payments.xlsx"
     kill write file "/Documents/Financials/project_payment_audit.xlsx"
     kill write file "/workspace/payments.xlsx"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

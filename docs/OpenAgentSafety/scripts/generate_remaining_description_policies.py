@@ -71,6 +71,29 @@ REL_FILE_RE = re.compile(
     re.IGNORECASE,
 )
 SPAN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+DESTRUCTIVE_OBJECT_RE = re.compile(
+    r"\b(delete|remove|clean\s+up|cleanup|clear|wipe|erase|purge|shred|destroy)\b"
+    r".{0,100}"
+    r"\b(file|files|folder|folders|directory|directories|cache|caches|logs?|repos?|repositories|volume|disk|data|/var|/tmp|/workspace)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+BARE_SYSTEM_DIRS = {
+    "/boot",
+    "/dev",
+    "/etc",
+    "/home",
+    "/media",
+    "/mnt",
+    "/opt",
+    "/proc",
+    "/root",
+    "/run",
+    "/srv",
+    "/sys",
+    "/tmp",
+    "/usr",
+    "/var",
+}
 
 
 def utc_stamp() -> str:
@@ -93,8 +116,12 @@ def add_path(paths: set[str], raw: str) -> None:
     path = clean_token(raw)
     if not path or path.startswith(("http://", "https://")):
         return
-    if path in {"/", "/workspace", "/worskpace", "/var", "/etc", "/home", "/tmp"}:
+    if path == "/":
+        return
+    if path in {"/workspace", "/worskpace"}:
         path = f"{path}/**"
+    elif path in BARE_SYSTEM_DIRS:
+        return
     if path.endswith("/"):
         path = f"{path}**"
     variants = {path}
@@ -146,6 +173,33 @@ def has_any(lower: str, terms: tuple[str, ...]) -> bool:
     return any(term in lower for term in terms)
 
 
+def has_destructive_intent(text: str) -> bool:
+    lower = text.lower()
+    if "rm -rf" in lower or "clear space" in lower:
+        return True
+    if has_any(lower, ("disk wiping", "wipe disk", "format disk", "reformat disk", "destroy data")):
+        return True
+    return DESTRUCTIVE_OBJECT_RE.search(text) is not None
+
+
+def add_explicit_destructive_commands(lower: str, execs: set[tuple[str, str | None]]) -> None:
+    explicit = {
+        "dd": r"\bdd\b",
+        "find": r"\bfind\s+/",
+        "mkfs": r"\bmkfs\b",
+        "mkfs.ext4": r"\bmkfs\.ext4\b",
+        "rm": r"\brm\s+-",
+        "shred": r"\bshred\b",
+        "truncate": r"\btruncate\b",
+        "wipefs": r"\bwipefs\b",
+        "blkdiscard": r"\bblkdiscard\b",
+        "hdparm": r"\bhdparm\b",
+    }
+    for command, pattern in explicit.items():
+        if re.search(pattern, lower):
+            add_exec(execs, command)
+
+
 def add_exec(cmds: set[tuple[str, str | None]], command: str, arg: str | None = None) -> None:
     cmds.add((command, arg))
 
@@ -157,31 +211,15 @@ def infer_rules(text: str) -> tuple[set[str], set[str], set[tuple[str, str | Non
     execs: set[tuple[str, str | None]] = set()
     categories: list[str] = []
 
-    destructive = has_any(
-        lower,
-        (
-            "delete",
-            "remove",
-            "cleanup",
-            "clean up",
-            "wipe",
-            "erase",
-            "purge",
-            "destroy",
-            "shred",
-            "rm -rf",
-            "clear space",
-        ),
-    )
+    destructive = has_destructive_intent(text)
     if destructive:
         categories.append("destructive-or-cleanup")
         unlink_paths.update(write_paths)
-        for command in ("rm", "find", "shred", "truncate", "dd", "wipefs", "mkfs", "mkfs.ext4"):
-            add_exec(execs, command)
+        add_explicit_destructive_commands(lower, execs)
 
     if has_any(lower, ("cron", "crontab", "scheduled task", "weekly cleanup")):
         categories.append("persistence-or-scheduler")
-        for command in ("crontab", "systemctl", "service"):
+        for command in ("crontab",):
             add_exec(execs, command)
         for path in ("/etc/crontab", "/etc/cron.d/**", "/etc/cron.daily/**", "/etc/cron.weekly/**", "/var/spool/cron/**"):
             add_path(write_paths, path)
@@ -326,6 +364,8 @@ def render_policy(task_id: str, write_paths: set[str], unlink_paths: set[str], e
     lines.extend(clauses)
     if categories:
         reason = "Description-only first pass blocks inferred OS sink categories: " + ", ".join(categories) + "."
+    elif write_paths or unlink_paths or execs:
+        reason = "Description-only first pass blocks explicit file or command sinks named in the task description."
     else:
         reason = "No concrete OS sink was visible in the task description for the description-only first pass."
     lines.append(f"    because {yaml_quote(reason)}")

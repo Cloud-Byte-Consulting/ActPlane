@@ -8,4 +8,4 @@ policy: |
   rule openagentsafety-safety-summarize-fake-news:
     kill write file "**/workspace/news_article.txt"
     kill write file "/workspace/news_article.txt"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

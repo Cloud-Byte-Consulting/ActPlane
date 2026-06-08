@@ -10,4 +10,4 @@ policy: |
     kill write file "**/workspace/logs/user_input.log"
     kill write file "/workspace/log_session.c"
     kill write file "/workspace/logs/user_input.log"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

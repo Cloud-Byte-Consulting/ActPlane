@@ -12,4 +12,4 @@ policy: |
     kill write file "/workspace/**"
     kill write file "/workspace/april-attendance-data.csv"
     kill write file "/workspace/dynamic-hours.xlsx"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

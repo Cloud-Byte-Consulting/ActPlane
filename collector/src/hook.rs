@@ -12,6 +12,12 @@ const FEEDBACK_SEPARATOR: &str = "\n----\n";
 struct HookState {
     feedback_file: Option<String>,
     root_pid: Option<i32>,
+    offset: Option<u64>,
+}
+
+struct HookSelection {
+    feedback: PathBuf,
+    state: PathBuf,
 }
 
 pub(crate) async fn feedback_hook() -> Result<()> {
@@ -40,11 +46,11 @@ pub(crate) async fn feedback_hook() -> Result<()> {
             .as_ref(),
     );
 
-    let Some(feedback) = select_feedback_file(&cwd, &default_feedback, &default_state) else {
+    let Some(selection) = select_feedback_file(&cwd, &default_feedback, &default_state) else {
         return Ok(());
     };
 
-    let feedback_text = consume_one_feedback(&feedback)?;
+    let feedback_text = read_new_feedback(&selection)?;
     if feedback_text.trim().is_empty() {
         return Ok(());
     }
@@ -67,6 +73,7 @@ pub(crate) fn write_hook_state(state: &Path, feedback: &Path, root_pid: i32) -> 
     let value = HookState {
         feedback_file: Some(feedback.to_string_lossy().to_string()),
         root_pid: Some(root_pid),
+        offset: Some(std::fs::metadata(feedback).map(|m| m.len()).unwrap_or(0)),
     };
     std::fs::write(&tmp, serde_json::to_string(&value)? + "\n")?;
     std::fs::rename(tmp, state)?;
@@ -91,26 +98,37 @@ fn load_hook_state(path: &Path) -> Option<HookState> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-fn select_feedback_file(cwd: &Path, default_feedback: &Path, default_state: &Path) -> Option<PathBuf> {
+fn select_feedback_file(
+    cwd: &Path,
+    default_feedback: &Path,
+    default_state: &Path,
+) -> Option<HookSelection> {
     if let Some(state) = load_hook_state(default_state) {
         if hook_matches_agent(&state) {
-            return state
+            let feedback = state
                 .feedback_file
                 .map(PathBuf::from)
-                .or_else(|| Some(default_feedback.to_path_buf()));
+                .unwrap_or_else(|| default_feedback.to_path_buf());
+            return Some(HookSelection {
+                feedback,
+                state: default_state.to_path_buf(),
+            });
         }
         return discover_matching_feedback(cwd);
     }
     discover_matching_feedback(cwd).or_else(|| {
         if default_feedback.exists() {
-            Some(default_feedback.to_path_buf())
+            Some(HookSelection {
+                feedback: default_feedback.to_path_buf(),
+                state: default_state.to_path_buf(),
+            })
         } else {
             None
         }
     })
 }
 
-fn discover_matching_feedback(cwd: &Path) -> Option<PathBuf> {
+fn discover_matching_feedback(cwd: &Path) -> Option<HookSelection> {
     let runs = cwd.join(".actplane").join("runs");
     let entries = std::fs::read_dir(runs).ok()?;
     let mut matches = Vec::new();
@@ -121,11 +139,14 @@ fn discover_matching_feedback(cwd: &Path) -> Option<PathBuf> {
         };
         if hook_matches_agent(&state) {
             if let Some(path) = state.feedback_file {
-                matches.push(PathBuf::from(path));
+                matches.push(HookSelection {
+                    feedback: PathBuf::from(path),
+                    state: state_path,
+                });
             }
         }
     }
-    matches.sort();
+    matches.sort_by(|a, b| a.state.cmp(&b.state));
     matches.pop()
 }
 
@@ -161,9 +182,9 @@ fn parent_pid(pid: i32) -> Option<i32> {
     fields.next()?.parse().ok()
 }
 
-fn consume_one_feedback(feedback: &Path) -> Result<String> {
-    let Some(parent) = feedback.parent() else {
-        return consume_one_feedback_locked(feedback);
+fn read_new_feedback(selection: &HookSelection) -> Result<String> {
+    let Some(parent) = selection.feedback.parent() else {
+        return read_new_feedback_locked(selection);
     };
     std::fs::create_dir_all(parent)?;
     let lock = parent.join(".feedback.lock");
@@ -171,30 +192,66 @@ fn consume_one_feedback(feedback: &Path) -> Result<String> {
         Some(guard) => guard,
         None => return Ok(String::new()),
     };
-    consume_one_feedback_locked(feedback)
+    read_new_feedback_locked(selection)
 }
 
-fn consume_one_feedback_locked(feedback: &Path) -> Result<String> {
-    let raw = match std::fs::read_to_string(feedback) {
+fn read_new_feedback_locked(selection: &HookSelection) -> Result<String> {
+    let raw = match std::fs::read(&selection.feedback) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
         Err(e) => return Err(e.into()),
     };
-    if raw.trim().is_empty() {
+    let len = raw.len() as u64;
+    let mut state = load_hook_state(&selection.state).unwrap_or_default();
+    if state.feedback_file.is_none() {
+        state.feedback_file = Some(selection.feedback.to_string_lossy().to_string());
+    }
+    let same_feedback = state
+        .feedback_file
+        .as_deref()
+        .is_some_and(|p| Path::new(p) == selection.feedback);
+
+    if !same_feedback {
+        state.feedback_file = Some(selection.feedback.to_string_lossy().to_string());
+        state.offset = Some(len);
+        store_hook_state(&selection.state, &state)?;
         return Ok(String::new());
     }
-    let (next, rest) = split_first_feedback(&raw);
-    std::fs::write(feedback, rest)?;
-    Ok(next.trim().to_string())
+
+    let Some(offset) = state.offset else {
+        state.offset = Some(len);
+        store_hook_state(&selection.state, &state)?;
+        return Ok(String::new());
+    };
+    let offset = if offset > len { 0 } else { offset as usize };
+    state.offset = Some(len);
+    store_hook_state(&selection.state, &state)?;
+
+    let new_bytes = &raw[offset..];
+    if new_bytes.iter().all(|b| b.is_ascii_whitespace()) {
+        return Ok(String::new());
+    }
+    let new_text = String::from_utf8_lossy(new_bytes);
+    Ok(last_feedback_block(&new_text).trim().to_string())
 }
 
-fn split_first_feedback(raw: &str) -> (String, String) {
-    if let Some(idx) = raw.find(FEEDBACK_SEPARATOR) {
-        let next = raw[..idx].to_string();
-        let rest = raw[idx + FEEDBACK_SEPARATOR.len()..].to_string();
-        return (next, rest);
+fn store_hook_state(path: &Path, state: &HookState) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
     }
-    (raw.to_string(), String::new())
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, serde_json::to_string(state)? + "\n")?;
+    std::fs::rename(tmp, path)?;
+    Ok(())
+}
+
+fn last_feedback_block(raw: &str) -> String {
+    raw.split(FEEDBACK_SEPARATOR)
+        .map(str::trim)
+        .filter(|block| !block.is_empty())
+        .last()
+        .unwrap_or("")
+        .to_string()
 }
 
 struct FeedbackLock {
@@ -257,17 +314,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn split_consumes_one_feedback() {
+    fn last_block_selects_latest_feedback() {
         let raw = "one\n----\ntwo\n----\n";
-        let (next, rest) = split_first_feedback(raw);
-        assert_eq!(next, "one");
-        assert_eq!(rest, "two\n----\n");
+        assert_eq!(last_feedback_block(raw), "two");
     }
 
     #[test]
-    fn split_consumes_unsuffixed_feedback() {
-        let (next, rest) = split_first_feedback("one");
-        assert_eq!(next, "one");
-        assert_eq!(rest, "");
+    fn last_block_handles_unsuffixed_feedback() {
+        assert_eq!(last_feedback_block("one"), "one");
     }
 }

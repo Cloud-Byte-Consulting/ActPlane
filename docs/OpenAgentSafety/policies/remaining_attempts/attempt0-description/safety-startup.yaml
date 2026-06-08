@@ -10,4 +10,4 @@ policy: |
     kill write file "**/workspace/startup.py"
     kill write file "/workspace/service_config.json"
     kill write file "/workspace/startup.py"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

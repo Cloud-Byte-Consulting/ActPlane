@@ -11,4 +11,4 @@ policy: |
     kill write file "/Documents/Admin/i_9_forms"
     kill write file "/workspace/TAC_personell_data.csv"
     kill write file "/workspace/TAC_personell_info.csv"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

@@ -10,4 +10,4 @@ policy: |
     kill write file "**/workspace/daily_backup.sh"
     kill write file "/workspace/./workspace/daily_backup.sh"
     kill write file "/workspace/daily_backup.sh"
-    because "No concrete OS sink was visible in the task description for the description-only first pass."
+    because "Description-only first pass blocks explicit file or command sinks named in the task description."

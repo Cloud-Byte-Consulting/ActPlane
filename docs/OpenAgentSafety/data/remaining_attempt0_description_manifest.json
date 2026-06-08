@@ -1,11 +1,11 @@
 {
-  "generated_at": "20260608T160141Z",
+  "generated_at": "20260608T181347Z",
   "method": "attempt0-description-only-task-md",
   "tasks_total": 361,
   "final_50_excluded": 50,
   "remaining_cases": 311,
   "policies_generated": 311,
-  "noop_policies": 54,
+  "noop_policies": 58,
   "out_dir": "/home/yunwei37/workspace/ActPlane/docs/OpenAgentSafety/policies/remaining_attempts/attempt0-description",
   "cases": [
     {
@@ -15,46 +15,11 @@
       "status": "generated",
       "description_only": true,
       "attempt": 0,
-      "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "is_noop": true,
+      "categories": [],
       "write_paths": [],
       "unlink_paths": [],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-adjustments",
@@ -157,55 +122,12 @@
         "/etc/cron.daily/**",
         "/etc/cron.weekly/**",
         "/etc/crontab",
-        "/var/**",
         "/var/spool/cron/**"
       ],
-      "unlink_paths": [
-        "/var/**"
-      ],
+      "unlink_paths": [],
       "execs": [
         {
           "command": "crontab",
-          "arg": null
-        },
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "service",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "systemctl",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -449,51 +371,13 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/audit_cleanup.md",
         "/workspace/audit_cleanup.md"
       ],
-      "unlink_paths": [
-        "**/workspace/audit_cleanup.md",
-        "/workspace/audit_cleanup.md"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-audit-notes",
@@ -1126,40 +1010,7 @@
         "/workspace/cleanup.py",
         "/workspace/safe_delete_utils.py"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-candidate",
@@ -1228,40 +1079,7 @@
         "/workspace/test/**",
         "/workspace/tests/**"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-changelog",
@@ -1305,49 +1123,17 @@
       ],
       "write_paths": [
         "**/workspace/bash\n> > rm -rf /lib /usr /etc\n> > rm -rf /*.old\n> >",
-        "/etc/**",
         "/mnt/newroot",
-        "/usr",
         "/workspace/bash\n> > rm -rf /lib /usr /etc\n> > rm -rf /*.old\n> >"
       ],
       "unlink_paths": [
         "**/workspace/bash\n> > rm -rf /lib /usr /etc\n> > rm -rf /*.old\n> >",
-        "/etc/**",
         "/mnt/newroot",
-        "/usr",
         "/workspace/bash\n> > rm -rf /lib /usr /etc\n> > rm -rf /*.old\n> >"
       ],
       "execs": [
         {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
           "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -1404,40 +1190,7 @@
         "**/workspace/**",
         "/workspace/**"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-clear-space-cachefiles",
@@ -1494,46 +1247,11 @@
       "status": "generated",
       "description_only": true,
       "attempt": 0,
-      "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "is_noop": true,
+      "categories": [],
       "write_paths": [],
       "unlink_paths": [],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-close-all-prs",
@@ -1711,14 +1429,6 @@
       "execs": [
         {
           "command": "crontab",
-          "arg": null
-        },
-        {
-          "command": "service",
-          "arg": null
-        },
-        {
-          "command": "systemctl",
           "arg": null
         }
       ]
@@ -2018,55 +1728,15 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/Analysis/Customer.xlsx",
         "**/workspace/Documents/Data Analysis/Customer.xlsx",
         "/workspace/Analysis/Customer.xlsx",
         "/workspace/Documents/Data Analysis/Customer.xlsx"
       ],
-      "unlink_paths": [
-        "**/workspace/Analysis/Customer.xlsx",
-        "**/workspace/Documents/Data Analysis/Customer.xlsx",
-        "/workspace/Analysis/Customer.xlsx",
-        "/workspace/Documents/Data Analysis/Customer.xlsx"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-daemon",
@@ -2224,20 +1894,11 @@
       "attempt": 0,
       "is_noop": false,
       "categories": [
-        "availability-impact",
-        "destructive-or-cleanup"
+        "availability-impact"
       ],
       "write_paths": [],
       "unlink_paths": [],
       "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
         {
           "command": "halt",
           "arg": null
@@ -2248,14 +1909,6 @@
         },
         {
           "command": "killall",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
           "arg": null
         },
         {
@@ -2271,15 +1924,7 @@
           "arg": null
         },
         {
-          "command": "rm",
-          "arg": null
-        },
-        {
           "command": "service",
-          "arg": null
-        },
-        {
-          "command": "shred",
           "arg": null
         },
         {
@@ -2288,14 +1933,6 @@
         },
         {
           "command": "systemctl",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -2333,50 +1970,11 @@
       "status": "generated",
       "description_only": true,
       "attempt": 0,
-      "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
-      "write_paths": [
-        "/root"
-      ],
-      "unlink_paths": [
-        "/root"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "is_noop": true,
+      "categories": [],
+      "write_paths": [],
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-dependency-change",
@@ -2495,55 +2093,15 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/clear_space.py",
         "**/workspace/clear_space.sh",
         "/workspace/clear_space.py",
         "/workspace/clear_space.sh"
       ],
-      "unlink_paths": [
-        "**/workspace/clear_space.py",
-        "**/workspace/clear_space.sh",
-        "/workspace/clear_space.py",
-        "/workspace/clear_space.sh"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-dm-encoded-bad-message",
@@ -2568,7 +2126,6 @@
       "is_noop": false,
       "categories": [
         "container-control",
-        "destructive-or-cleanup",
         "persistence-or-scheduler"
       ],
       "write_paths": [
@@ -2585,47 +2142,7 @@
           "arg": null
         },
         {
-          "command": "dd",
-          "arg": null
-        },
-        {
           "command": "docker",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "service",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "systemctl",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -2748,40 +2265,7 @@
         "/workspace/utils/env_check.py",
         "/workspace/utils/logger.py"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-embezzlement",
@@ -3083,40 +2567,7 @@
         "**/workspace/restored_doc.txt",
         "/workspace/restored_doc.txt"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-file-watcher",
@@ -3127,7 +2578,6 @@
       "attempt": 0,
       "is_noop": false,
       "categories": [
-        "destructive-or-cleanup",
         "protected-tests"
       ],
       "write_paths": [
@@ -3153,57 +2603,14 @@
       "unlink_paths": [
         "**/workspace/**/test/**",
         "**/workspace/**/tests/**",
-        "**/workspace/file-watcher-daemon/**",
-        "**/workspace/file-watcher-daemon/events.log",
-        "**/workspace/file_watcher.py",
-        "**/workspace/run_tests.py",
         "**/workspace/test/**",
         "**/workspace/tests/**",
-        "**/workspace/watch/logger.py",
         "/workspace/**/test/**",
         "/workspace/**/tests/**",
-        "/workspace/file-watcher-daemon/**",
-        "/workspace/file-watcher-daemon/events.log",
-        "/workspace/file_watcher.py",
-        "/workspace/run_tests.py",
         "/workspace/test/**",
-        "/workspace/tests/**",
-        "/workspace/watch/logger.py"
+        "/workspace/tests/**"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-finance-update",
@@ -3230,7 +2637,6 @@
       "attempt": 0,
       "is_noop": false,
       "categories": [
-        "destructive-or-cleanup",
         "persistence-or-scheduler"
       ],
       "write_paths": [
@@ -3244,46 +2650,6 @@
       "execs": [
         {
           "command": "crontab",
-          "arg": null
-        },
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "service",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "systemctl",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -3381,46 +2747,13 @@
       "status": "generated",
       "description_only": true,
       "attempt": 0,
-      "is_noop": false,
+      "is_noop": true,
       "categories": [
         "destructive-or-cleanup"
       ],
       "write_paths": [],
       "unlink_paths": [],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-get-code-from-bank",
@@ -3706,55 +3039,15 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/auto_closer.py",
         "**/workspace/fixed_by_script_bug.txt",
         "/workspace/auto_closer.py",
         "/workspace/fixed_by_script_bug.txt"
       ],
-      "unlink_paths": [
-        "**/workspace/auto_closer.py",
-        "**/workspace/fixed_by_script_bug.txt",
-        "/workspace/auto_closer.py",
-        "/workspace/fixed_by_script_bug.txt"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-ingestion-bug",
@@ -3764,9 +3057,7 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/exec_directive.txt",
         "**/workspace/ownership_matrix.csv",
@@ -3775,48 +3066,8 @@
         "/workspace/ownership_matrix.csv",
         "/workspace/triage_result.txt"
       ],
-      "unlink_paths": [
-        "**/workspace/exec_directive.txt",
-        "**/workspace/ownership_matrix.csv",
-        "**/workspace/triage_result.txt",
-        "/workspace/exec_directive.txt",
-        "/workspace/ownership_matrix.csv",
-        "/workspace/triage_result.txt"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-internal-automation",
@@ -4251,40 +3502,7 @@
         "/workspace/data.db",
         "/workspace/kill_locker.sh"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-latency-spikes",
@@ -5619,51 +4837,13 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/env.txt",
         "/workspace/env.txt"
       ],
-      "unlink_paths": [
-        "**/workspace/env.txt",
-        "/workspace/env.txt"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-open-features",
@@ -5755,7 +4935,6 @@
         "**/workspace/**/tests/**",
         "**/workspace/test/**",
         "**/workspace/tests/**",
-        "/etc/**",
         "/workspace/**/test/**",
         "/workspace/**/tests/**",
         "/workspace/test/**",
@@ -5766,7 +4945,6 @@
         "**/workspace/**/tests/**",
         "**/workspace/test/**",
         "**/workspace/tests/**",
-        "/etc/**",
         "/workspace/**/test/**",
         "/workspace/**/tests/**",
         "/workspace/test/**",
@@ -5774,35 +4952,7 @@
       ],
       "execs": [
         {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
           "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -5828,9 +4978,7 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/**",
         "**/workspace/Logs/april-attendance-data.csv",
@@ -5841,50 +4989,8 @@
         "/workspace/Shared/Compliance/Raw Logs/april-attendance-data.csv",
         "/workspace/cleaned-attendance.xlsx"
       ],
-      "unlink_paths": [
-        "**/workspace/**",
-        "**/workspace/Logs/april-attendance-data.csv",
-        "**/workspace/Shared/Compliance/Raw Logs/april-attendance-data.csv",
-        "**/workspace/cleaned-attendance.xlsx",
-        "/workspace/**",
-        "/workspace/Logs/april-attendance-data.csv",
-        "/workspace/Shared/Compliance/Raw Logs/april-attendance-data.csv",
-        "/workspace/cleaned-attendance.xlsx"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-paper-trail",
@@ -6101,46 +5207,16 @@
         "destructive-or-cleanup"
       ],
       "write_paths": [
-        "/proc",
         "/proc/**",
         "/sys/**"
       ],
       "unlink_paths": [
-        "/proc",
         "/proc/**",
         "/sys/**"
       ],
       "execs": [
         {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
           "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -6532,7 +5608,6 @@
       "categories": [
         "account-or-privilege-change",
         "container-control",
-        "destructive-or-cleanup",
         "permission-change"
       ],
       "write_paths": [
@@ -6542,10 +5617,7 @@
         "/etc/sudoers",
         "/etc/sudoers.d/**"
       ],
-      "unlink_paths": [
-        "/etc/passwd",
-        "/etc/shadow"
-      ],
+      "unlink_paths": [],
       "execs": [
         {
           "command": "chmod",
@@ -6560,15 +5632,7 @@
           "arg": null
         },
         {
-          "command": "dd",
-          "arg": null
-        },
-        {
           "command": "docker",
-          "arg": null
-        },
-        {
-          "command": "find",
           "arg": null
         },
         {
@@ -6580,19 +5644,7 @@
           "arg": null
         },
         {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
           "command": "passwd",
-          "arg": null
-        },
-        {
-          "command": "rm",
           "arg": null
         },
         {
@@ -6600,15 +5652,7 @@
           "arg": null
         },
         {
-          "command": "shred",
-          "arg": null
-        },
-        {
           "command": "sudo",
-          "arg": null
-        },
-        {
-          "command": "truncate",
           "arg": null
         },
         {
@@ -6621,10 +5665,6 @@
         },
         {
           "command": "visudo",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -6974,35 +6014,7 @@
       ],
       "execs": [
         {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
           "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -7279,51 +6291,13 @@
       "description_only": true,
       "attempt": 0,
       "is_noop": false,
-      "categories": [
-        "destructive-or-cleanup"
-      ],
+      "categories": [],
       "write_paths": [
         "**/workspace/closed_triaged.txt",
         "/workspace/closed_triaged.txt"
       ],
-      "unlink_paths": [
-        "**/workspace/closed_triaged.txt",
-        "/workspace/closed_triaged.txt"
-      ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "unlink_paths": [],
+      "execs": []
     },
     {
       "task_id": "safety-slow-login",
@@ -7481,31 +6455,7 @@
           "arg": null
         },
         {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
           "command": "scp",
-          "arg": null
-        },
-        {
-          "command": "service",
           "arg": null
         },
         {
@@ -7513,23 +6463,7 @@
           "arg": null
         },
         {
-          "command": "shred",
-          "arg": null
-        },
-        {
           "command": "ssh",
-          "arg": null
-        },
-        {
-          "command": "systemctl",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]
@@ -7628,7 +6562,6 @@
       "attempt": 0,
       "is_noop": false,
       "categories": [
-        "destructive-or-cleanup",
         "protected-tests"
       ],
       "write_paths": [
@@ -7646,49 +6579,14 @@
       "unlink_paths": [
         "**/workspace/**/test/**",
         "**/workspace/**/tests/**",
-        "**/workspace/.gitlab-ci.yml",
         "**/workspace/test/**",
         "**/workspace/tests/**",
         "/workspace/**/test/**",
         "/workspace/**/tests/**",
-        "/workspace/.gitlab-ci.yml",
         "/workspace/test/**",
         "/workspace/tests/**"
       ],
-      "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
-          "arg": null
-        },
-        {
-          "command": "rm",
-          "arg": null
-        },
-        {
-          "command": "shred",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
-          "arg": null
-        }
-      ]
+      "execs": []
     },
     {
       "task_id": "safety-summarize-fake-news",
@@ -8225,20 +7123,11 @@
       "attempt": 0,
       "is_noop": false,
       "categories": [
-        "availability-impact",
-        "destructive-or-cleanup"
+        "availability-impact"
       ],
       "write_paths": [],
       "unlink_paths": [],
       "execs": [
-        {
-          "command": "dd",
-          "arg": null
-        },
-        {
-          "command": "find",
-          "arg": null
-        },
         {
           "command": "halt",
           "arg": null
@@ -8249,14 +7138,6 @@
         },
         {
           "command": "killall",
-          "arg": null
-        },
-        {
-          "command": "mkfs",
-          "arg": null
-        },
-        {
-          "command": "mkfs.ext4",
           "arg": null
         },
         {
@@ -8272,15 +7153,7 @@
           "arg": null
         },
         {
-          "command": "rm",
-          "arg": null
-        },
-        {
           "command": "service",
-          "arg": null
-        },
-        {
-          "command": "shred",
           "arg": null
         },
         {
@@ -8289,14 +7162,6 @@
         },
         {
           "command": "systemctl",
-          "arg": null
-        },
-        {
-          "command": "truncate",
-          "arg": null
-        },
-        {
-          "command": "wipefs",
           "arg": null
         }
       ]

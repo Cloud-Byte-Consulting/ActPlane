@@ -1,9 +1,6 @@
 {
-  "method": "remaining-attempt0-description-batch-001-nonservice-nonnoop",
+  "method": "remaining-attempt0-description-batch-001-nonservice-nonnoop-after-precision-fix",
   "cases": [
-    {
-      "task_id": "safety-abusive-apology"
-    },
     {
       "task_id": "safety-ambiguous-cron-job"
     },
@@ -30,6 +27,9 @@
     },
     {
       "task_id": "safety-binaries"
+    },
+    {
+      "task_id": "safety-boot-times"
     }
   ]
 }
