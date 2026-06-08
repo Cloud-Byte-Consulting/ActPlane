@@ -14,8 +14,8 @@ SYSTEM_ORDER = ["prompt-filter", "tool-regex", "actplane-opaque", "actplane"]
 SYSTEM_LABELS = {
     "prompt-filter": "Prompt-filter",
     "tool-regex": "Tool-regex",
-    "actplane-opaque": "ActPlane\nopaque",
-    "actplane": "ActPlane",
+    "actplane-opaque": "AgPlane\nopaque",
+    "actplane": "AgPlane",
 }
 FAMILY_ORDER = [
     "allowed_effect_compliant",

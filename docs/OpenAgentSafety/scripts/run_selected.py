@@ -59,7 +59,36 @@ def task_dependencies(task_path: Path) -> list[str]:
     return deps
 
 
-def load_cases(official: Path, case_ids: list[str], run_all: bool, limit: int | None, skip_services: bool) -> list[dict[str, Any]]:
+def load_case_file(path: Path) -> list[str]:
+    if not path.exists():
+        raise SystemExit(f"case file not found: {path}")
+    if path.suffix == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        raw_cases = payload["cases"] if isinstance(payload, dict) else payload
+        case_ids: list[str] = []
+        for entry in raw_cases:
+            if isinstance(entry, str):
+                case_ids.append(entry)
+            elif isinstance(entry, dict) and "task_id" in entry:
+                case_ids.append(str(entry["task_id"]))
+            else:
+                raise SystemExit(f"unsupported case entry in {path}: {entry!r}")
+        return case_ids
+    return [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def load_cases(
+    official: Path,
+    case_ids: list[str],
+    case_files: list[Path],
+    run_all: bool,
+    limit: int | None,
+    skip_services: bool,
+) -> list[dict[str, Any]]:
     tasks_root = official / "workspaces" / "tasks"
     if not tasks_root.exists():
         raise SystemExit(f"official tasks directory not found: {tasks_root}")
@@ -67,8 +96,10 @@ def load_cases(official: Path, case_ids: list[str], run_all: bool, limit: int | 
     if run_all:
         selected_ids = sorted(path.name for path in tasks_root.iterdir() if path.is_dir() and path.name.startswith("safety"))
     else:
+        for case_file in case_files:
+            case_ids.extend(load_case_file(case_file))
         if not case_ids:
-            raise SystemExit("pass at least one --case <task_id>, or use --all")
+            raise SystemExit("pass at least one --case <task_id>, --case-file <path>, or use --all")
         selected_ids = case_ids
 
     cases: list[dict[str, Any]] = []
@@ -272,6 +303,58 @@ def start_actplane(actplane: Path, policy_path: Path, log_path: Path) -> subproc
     raise RuntimeError(f"ActPlane did not become ready; see {log_path}")
 
 
+def actplane_log_has_violation(log_path: Path) -> bool:
+    if not log_path.exists():
+        return False
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    return "effect: kill" in text or "effect: block" in text
+
+
+def stop_oas_actplane_watchers(policy_path: Path | None = None) -> None:
+    marker = str(policy_path) if policy_path is not None else str(ROOT / "policies" / "actplane")
+    ps = subprocess.run(
+        ["ps", "-eo", "pid=,pgid=,args="],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    pgids: set[int] = set()
+    for line in ps.stdout.splitlines():
+        if "actplane" not in line or " watch" not in line or marker not in line:
+            continue
+        parts = line.strip().split(None, 2)
+        if len(parts) < 2:
+            continue
+        try:
+            pgids.add(int(parts[1]))
+        except ValueError:
+            continue
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    if pgids:
+        time.sleep(1.0)
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def stop_openhands_runtimes() -> None:
+    ps = subprocess.run(
+        ["docker", "ps", "--filter", "name=openhands-runtime", "--format", "{{.ID}}"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    ids = [line.strip() for line in ps.stdout.splitlines() if line.strip()]
+    if ids:
+        subprocess.run(["docker", "stop", *ids], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def run_case(case: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> dict[str, Any]:
     task_id = case["task_id"]
     case_dir = run_dir / task_id
@@ -305,6 +388,8 @@ def run_case(case: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> d
             "TMPDIR": str(mount_path),
         }
     )
+    if args.runtime_container_image:
+        env["OAS_RUNTIME_CONTAINER_IMAGE"] = args.runtime_container_image
 
     cmd = [
         "poetry",
@@ -330,12 +415,12 @@ def run_case(case: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> d
             "condition": args.condition,
             "policy": str(policy_path) if args.condition == "actplane" else None,
             "base_container_image": base_container_image,
+            "runtime_container_image": args.runtime_container_image,
             "mount_path": str(mount_path),
             "task": case,
         },
     )
 
-    watch: subprocess.Popen[str] | None = None
     if args.dry_run:
         return {
             "task_id": task_id,
@@ -353,30 +438,52 @@ def run_case(case: dict[str, Any], args: argparse.Namespace, run_dir: Path) -> d
         feedback_file = REPO_ROOT / ".actplane" / "last-violation.txt"
         if feedback_file.exists():
             feedback_file.unlink()
-        watch = start_actplane(args.actplane, policy_path, case_dir / "actplane-watch.log")
+        stop_oas_actplane_watchers()
+        stop_openhands_runtimes()
+        env["OAS_ACTPLANE_BIN"] = str(args.actplane)
+        env["OAS_ACTPLANE_POLICY"] = str(policy_path)
+        env["OAS_ACTPLANE_LOG"] = str(case_dir / "actplane-watch.log")
+        env["OAS_REPO_ROOT"] = str(REPO_ROOT)
 
     started = time.time()
-    try:
-        proc = subprocess.run(
+    timed_out = False
+    stopped_after_violation = False
+    stdout_path = case_dir / "stdout.txt"
+    stderr_path = case_dir / "stderr.txt"
+    with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
+        proc = subprocess.Popen(
             cmd,
             cwd=args.official / "evaluation",
             env=env,
             text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=args.timeout,
+            stdout=stdout,
+            stderr=stderr,
+            preexec_fn=os.setsid,
         )
-    finally:
-        if watch is not None:
-            stop_process_tree(watch)
+        deadline = started + args.timeout
+        while proc.poll() is None:
+            if time.time() >= deadline:
+                timed_out = True
+                stop_process_tree(proc)
+                if args.condition == "actplane":
+                    stop_oas_actplane_watchers(policy_path)
+                    stop_openhands_runtimes()
+                break
+            if args.condition == "actplane" and actplane_log_has_violation(case_dir / "actplane-watch.log"):
+                stopped_after_violation = True
+                stop_process_tree(proc)
+                stop_oas_actplane_watchers(policy_path)
+                stop_openhands_runtimes()
+                break
+            time.sleep(1.0)
 
-    (case_dir / "stdout.txt").write_text(proc.stdout or "", encoding="utf-8")
-    (case_dir / "stderr.txt").write_text(proc.stderr or "", encoding="utf-8")
     return {
         "task_id": task_id,
         "condition": args.condition,
-        "returncode": proc.returncode,
-        "success": proc.returncode == 0,
+        "returncode": proc.poll(),
+        "success": proc.poll() == 0,
+        "timed_out": timed_out,
+        "actplane_violation": stopped_after_violation,
         "elapsed_s": time.time() - started,
         "output_path": str(output_path),
     }
@@ -391,6 +498,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patch", type=Path, default=DEFAULT_PATCH)
     parser.add_argument("--actplane", type=Path, default=DEFAULT_ACTPLANE)
     parser.add_argument("--case", action="append", dest="cases", default=[])
+    parser.add_argument("--case-file", action="append", type=Path, default=[])
     parser.add_argument("--all", action="store_true", help="Run all official safety tasks after optional filters.")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--skip-services", action="store_true")
@@ -408,6 +516,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--server-hostname", default="localhost")
     parser.add_argument("--task-image-version", default="1.0.0")
     parser.add_argument("--base-container-image", default=OFFICIAL_BASE_IMAGE)
+    parser.add_argument("--runtime-container-image", default="")
     parser.add_argument("--task-base-image", default=OFFICIAL_BASE_IMAGE)
     parser.add_argument("--task-image-template", default=OFFICIAL_TASK_IMAGE)
     parser.add_argument("--prepare-task-images", action=argparse.BooleanOptionalAction, default=True)
@@ -431,7 +540,8 @@ def main() -> None:
         config_path = install_local_llm_config(args.config_template.resolve(), args.official)
         print(f"wrote OpenHands config: {config_path}")
 
-    cases = load_cases(args.official, args.cases, args.all, args.limit, args.skip_services)
+    args.case_file = [path.resolve() for path in args.case_file]
+    cases = load_cases(args.official, args.cases, args.case_file, args.all, args.limit, args.skip_services)
     if not cases:
         raise SystemExit("no cases selected")
 
