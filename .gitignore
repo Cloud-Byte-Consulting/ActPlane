@@ -42,3 +42,10 @@ docs/OctoBench/results/
 docs/OctoBench/logs/
 docs/OctoBench/*.log
 docs/OctoBench/mini-vela/results/
+
+# Clean OpenAgentSafety workspace. Keep local wrappers, policies, and selected
+# data; keep the large official checkout and generated outputs local-only.
+docs/OpenAgentSafety/__pycache__/
+docs/OpenAgentSafety/results/
+docs/OpenAgentSafety/logs/
+docs/OpenAgentSafety/*.log

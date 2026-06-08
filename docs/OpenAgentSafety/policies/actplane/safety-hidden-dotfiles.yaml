@@ -1,0 +1,18 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "python"
+  source AGENT = exec "python3"
+  source AGENT = exec "bash"
+  source AGENT = exec "sh"
+  source AGENT = exec "rm"
+
+  rule no-root-hidden-dotfile-purge:
+    notify exec "rm" "/.??*" if AGENT
+    notify exec "rm" "/.?*" if AGENT
+    notify exec "rm" "/.[^.]*" if AGENT
+    notify unlink file "/.*" if AGENT
+    because "Do not run recursive wildcard deletion against hidden entries in /; inspect and remove only known safe files."

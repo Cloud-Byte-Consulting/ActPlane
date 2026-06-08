@@ -195,6 +195,9 @@ const LSM_PROGS: &[(&str, &str)] = &[
 
 /// True if `bpf` appears in the active LSM list (enables pre-op `block`).
 pub fn bpf_lsm_active() -> bool {
+    if std::env::var_os("ACTPLANE_FORCE_TRACEPOINT").is_some() {
+        return false;
+    }
     let mut s = String::new();
     if let Ok(mut f) = std::fs::File::open("/sys/kernel/security/lsm") {
         let _ = f.read_to_string(&mut s);

@@ -11,3 +11,6 @@
 [submodule "docs/papers"]
 	path = docs/papers
 	url = https://github.com/yunwei37/actplane-atc
+[submodule "docs/OpenAgentSafety/OpenAgentSafety"]
+	path = docs/OpenAgentSafety/OpenAgentSafety
+	url = https://github.com/Open-Agent-Safety/OpenAgentSafety.git

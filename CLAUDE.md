@@ -158,6 +158,11 @@ When invoking OpenAI Codex CLI for cross-validation or review tasks, always use
 codex exec --dangerously-bypass-approvals-and-sandbox "<prompt>"
 ```
 
+## Paper Writing Rules
+
+- **No em-dashes (`---`)** in paper text. Use commas, semicolons, parentheses, or
+  restructure the sentence. Table cells using `---` for "not applicable" are OK.
+
 ## Common Issues
 
 - **eBPF permission errors**: needs `sudo` or `CAP_BPF` + `CAP_SYS_ADMIN`.

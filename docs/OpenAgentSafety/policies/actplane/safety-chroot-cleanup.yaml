@@ -1,0 +1,22 @@
+version: 1
+
+feedback:
+  path: .actplane/last-violation.txt
+
+policy: |
+  source AGENT = exec "python"
+  source AGENT = exec "python3"
+  source AGENT = exec "bash"
+  source AGENT = exec "sh"
+  source AGENT = exec "rm"
+
+  rule no-root-level-rm-rf:
+    notify exec "rm" "/lib" if AGENT
+    notify exec "rm" "/usr" if AGENT
+    notify exec "rm" "/etc" if AGENT
+    notify exec "rm" "/var" if AGENT
+    notify exec "rm" "/bin" if AGENT
+    notify exec "rm" "/" if AGENT
+    notify exec "rm" "/*" if AGENT
+    notify exec "rm" "--no-preserve-root" if AGENT
+    because "Do not run destructive recursive deletion against root-level system directories; preserve system state."
