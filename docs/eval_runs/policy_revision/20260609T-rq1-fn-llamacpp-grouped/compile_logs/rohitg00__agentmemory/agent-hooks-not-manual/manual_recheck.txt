@@ -1,0 +1,7 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/rohitg00__agentmemory/agent-hooks-not-manual/rule.yaml: 1 rule(s) compile.
+
+  1. agent-hooks-not-manual — kill exec (Do not execute plugin/scripts/*.mjs lifecycle hook scripts directly from shell commands or ad hoc scripts; invoke them only through the configured hook manifests, or run non-executing checks and tests.)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)

@@ -61,6 +61,7 @@ class EvalConfig:
 CONFIGS = {
     "prompt-filter": EvalConfig(("prompt-filter",), "prompt-filter"),
     "baseline": EvalConfig(("prompt-filter", "tool-regex"), "baseline"),
+    "actplane-only": EvalConfig(("actplane",), "actplane-only"),
     "actplane": EvalConfig(("actplane", "actplane-opaque"), "actplane"),
     "full": EvalConfig(("prompt-filter", "tool-regex", "actplane", "actplane-opaque"), "full"),
 }
@@ -168,6 +169,54 @@ def trace_jobs(limit: int | None) -> list[tuple[Path, Path, tuple[str, str, str]
         for trace in manifest_trace_files(statement_dir):
             jobs.append((statement_dir, trace, (repo, statement_id, trace.name)))
     return jobs[:limit] if limit is not None else jobs
+
+
+def load_trace_list(path: Path) -> list[tuple[Path, Path, tuple[str, str, str]]]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        entries = raw.get("cases") or raw.get("fn_cases") or raw.get("jobs")
+    else:
+        entries = raw
+    if not isinstance(entries, list):
+        raise ValueError(f"trace list must be a JSON list or object containing cases/jobs: {rel(path)}")
+
+    jobs: list[tuple[Path, Path, tuple[str, str, str]]] = []
+    for idx, item in enumerate(entries):
+        if not isinstance(item, dict):
+            raise ValueError(f"trace list entry {idx} is not an object")
+
+        if item.get("statement_dir"):
+            statement_dir = Path(str(item["statement_dir"]))
+        else:
+            repo_dir = item.get("repo_dir")
+            repo = item.get("repo")
+            statement_id = item.get("statement_id")
+            if not statement_id or not (repo_dir or repo):
+                raise ValueError(
+                    f"trace list entry {idx} needs statement_dir or repo/repo_dir plus statement_id"
+                )
+            repo_dir_name = str(repo_dir or repo).replace("/", "__")
+            statement_dir = CORPUS_ROOT / repo_dir_name / str(statement_id)
+
+        trace_name = item.get("trace_file") or item.get("trace")
+        if not trace_name:
+            raise ValueError(f"trace list entry {idx} has no trace_file/trace")
+        trace = Path(str(trace_name))
+        if not trace.is_absolute() and trace.parent == Path("."):
+            trace = statement_dir / trace
+
+        if not statement_dir.is_dir():
+            raise FileNotFoundError(f"missing statement dir from trace list entry {idx}: {rel(statement_dir)}")
+        if not trace.exists():
+            raise FileNotFoundError(f"missing trace from trace list entry {idx}: {rel(trace)}")
+
+        key = (
+            statement_dir.parent.name.replace("__", "/"),
+            statement_dir.name,
+            trace.name,
+        )
+        jobs.append((statement_dir, trace, key))
+    return jobs
 
 
 def load_result(path: Path) -> dict | None:
@@ -312,6 +361,7 @@ def run_systems(
     limit: int | None,
     env: dict[str, str],
     log_path: Path,
+    force_individual: bool = False,
 ) -> list[Path] | None:
     job_by_key = {key: (statement_dir, trace) for statement_dir, trace, key in jobs}
     expected = set(job_by_key)
@@ -343,7 +393,7 @@ def run_systems(
                 )
             continue
 
-        if not complete_expected:
+        if not complete_expected and not force_individual:
             cmd = docker_eval_cmd(
                 system=system,
                 out_dir=system_out,
@@ -360,7 +410,7 @@ def run_systems(
             with log_path.open("a", encoding="utf-8") as log:
                 log.write(
                     f"\n\n## run {system}\n"
-                    f"resume missing runner results: {len(missing)}/{len(expected)}\n"
+                    f"run missing runner results individually: {len(missing)}/{len(expected)}\n"
                 )
             for key in missing:
                 statement_dir, trace = job_by_key[key]
@@ -469,6 +519,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, help="Smoke-test limit. Omit for the full corpus.")
     parser.add_argument("--statement-dir", type=Path, help="Run only one statement directory for trace tuning.")
     parser.add_argument("--trace", type=Path, help="Run only one trace file for trace tuning.")
+    parser.add_argument("--trace-list", type=Path, help="JSON list of statement/trace jobs to run.")
     parser.add_argument("--remote-glm", action="store_true", help="Use remote GLM instead of local llama.cpp.")
     parser.add_argument(
         "--remote-deepseek",
@@ -492,9 +543,19 @@ def main() -> int:
         print("--remote-glm and --remote-deepseek are mutually exclusive", file=sys.stderr)
         return 2
 
+    if args.trace_list and (args.statement_dir or args.trace or args.limit is not None):
+        print("--trace-list cannot be combined with --statement-dir, --trace, or --limit", file=sys.stderr)
+        return 2
+
     if args.trace and not args.statement_dir:
         args.statement_dir = args.trace.parent
-    if args.statement_dir:
+    if args.trace_list:
+        try:
+            jobs = load_trace_list(args.trace_list)
+        except Exception as exc:
+            print(f"Could not load --trace-list: {exc}", file=sys.stderr)
+            return 2
+    elif args.statement_dir:
         if args.trace:
             trace = args.trace
             if not trace.is_absolute() and trace.parent == Path("."):
@@ -540,6 +601,7 @@ def main() -> int:
             limit=args.limit,
             env=env,
             log_path=log_path,
+            force_individual=bool(args.trace_list),
         )
         if result_files is None:
             return 1
@@ -570,6 +632,7 @@ def main() -> int:
             limit=args.limit,
             env=env,
             log_path=log_path,
+            force_individual=bool(args.trace_list),
         )
         if result_files is None:
             return 1
@@ -604,6 +667,7 @@ def main() -> int:
                 limit=args.limit,
                 env=env,
                 log_path=log_path,
+                force_individual=bool(args.trace_list),
             )
             if result_files is None:
                 return 1

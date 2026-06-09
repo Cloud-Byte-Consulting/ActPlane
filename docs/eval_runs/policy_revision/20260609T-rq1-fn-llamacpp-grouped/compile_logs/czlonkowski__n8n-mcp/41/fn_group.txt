@@ -1,0 +1,10 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/czlonkowski__n8n-mcp/41/rule.yaml: 4 rule(s) compile.
+
+  1. prefer-edit-over-create — notify write (Prefer editing an existing file over creating a new one; verify the file already exists before writing)
+  2. prefer-edit-over-create-via-script — notify exec (Executing bash scripts may create new files; prefer editing existing files directly)
+  3. prefer-edit-over-create-via-python — notify exec (Executing python scripts may create new files; prefer editing existing files directly)
+  4. prefer-edit-over-create-via-node — notify exec (Executing node scripts may create new files; prefer editing existing files directly)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)

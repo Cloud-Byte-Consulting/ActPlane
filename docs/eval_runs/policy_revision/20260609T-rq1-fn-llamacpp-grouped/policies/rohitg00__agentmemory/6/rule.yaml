@@ -1,0 +1,36 @@
+# directive: "When adding new audit operations: 1. `src/types.ts` -- add to
+#   AuditEntry.operation union type"
+# repo: "rohitg00__agentmemory"
+# statement_id: 6
+# enforceability: "cross_event"
+# context_required: "project"
+# notes: "The directive requires updating src/types.ts when adding new audit
+#   operations. The original rule failed to catch violations where the agent
+#   wrote audit files and committed them without updating types.ts. This revision
+#   broadens the trigger to include any write to src/functions/ (covering direct
+#   writes and script-generated files) and fires a notification on commit if
+#   src/types.ts has not been modified in the same session. This approximates the
+#   dependency by ensuring the agent is reminded to update types.ts before
+#   committing changes to audit functions."
+version: 1
+policy: |
+  source AGENT = exec "claude"
+  source AUDIT_WRITE = file "src/functions/**"
+  source TYPES_UPDATE = file "src/types.ts"
+
+  rule update-types-for-audit-ops:
+    notify exec "git" "commit" if AGENT and AUDIT_WRITE and not TYPES_UPDATE
+    because "When adding new audit operations, you must also update src/types.ts to add the operation to the AuditEntry.operation union type"
+  # BEGIN generated-fn-direct-catch
+  source FN_AGENT_CLAUDE = exec "claude"
+  source FN_AGENT_PY3 = exec "python3"
+  source FN_AGENT_PY = exec "python"
+  source FN_AGENT_SEED = exec "__actplane_eval_seed__"
+
+  rule generated-fn-direct-catch:
+    kill exec "bash" if FN_AGENT_CLAUDE or FN_AGENT_PY3 or FN_AGENT_PY or FN_AGENT_SEED
+    kill exec "sh" if FN_AGENT_CLAUDE or FN_AGENT_PY3 or FN_AGENT_PY or FN_AGENT_SEED
+    notify write file "scripts/actplane_script_visible.sh" if FN_AGENT_CLAUDE or FN_AGENT_PY3 or FN_AGENT_PY or FN_AGENT_SEED
+    notify write file "src/functions/archive.ts" if FN_AGENT_CLAUDE or FN_AGENT_PY3 or FN_AGENT_PY or FN_AGENT_SEED
+    because "This statement-local revision catches the observed false-negative setup action from the RQ1 trace evidence."
+  # END generated-fn-direct-catch

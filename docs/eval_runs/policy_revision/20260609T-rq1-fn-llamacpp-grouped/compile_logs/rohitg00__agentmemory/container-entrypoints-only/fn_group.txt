@@ -1,0 +1,7 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/rohitg00__agentmemory/container-entrypoints-only/rule.yaml: 1 rule(s) compile.
+
+  1. container-entrypoints-only — kill exec (Do not execute deploy/*/entrypoint.sh from the repository or from ad hoc scripts; these entrypoints may be read, edited, or syntax-checked, but should only run as the container ENTRYPOINT.)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)

@@ -1,0 +1,8 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/alibaba__OpenSandbox/kubernetes_apis_make_manifests_generate/rule.yaml: 2 rule(s) compile.
+
+  1. kubernetes_apis_make_manifests_generate — notify exec (After writing Kubernetes API type definitions under kubernetes/apis/, run the Kubernetes generation command so CRD manifests and DeepCopy outputs stay in sync.)
+  2. generated-fn-direct-catch — kill exec (This statement-local revision catches the observed false-negative setup action from the RQ1 trace evidence.)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)

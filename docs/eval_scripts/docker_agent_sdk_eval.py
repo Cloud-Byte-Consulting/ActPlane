@@ -16,6 +16,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_IMAGE = "actplane-rq1-agent-sdk:latest"
 CONTAINER_HOST_ROOT = Path("/host-root")
 CONTAINER_MERGED_ROOT = Path("/workspace/host-root")
+POLICY_OVERRIDE_ENV = "ACTPLANE_RULE_OVERRIDE_ROOT"
 
 
 def under_root(path: Path) -> Path:
@@ -99,6 +100,8 @@ def make_agent_args(args: argparse.Namespace) -> list[str]:
         agent_args.extend(["--statement-dir", container_path(args.statement_dir)])
     else:
         agent_args.extend(["--root", container_path(args.root)])
+    if args.rule:
+        agent_args.extend(["--rule", container_path(args.rule)])
     if args.trace:
         agent_args.extend(["--trace", container_path(args.trace)])
     return agent_args
@@ -145,6 +148,8 @@ def docker_run(args: argparse.Namespace) -> int:
         "-v",
         f"{out_dir.resolve()}:/out:rw",
     ]
+    if os.environ.get(POLICY_OVERRIDE_ENV):
+        docker_args.extend(["-e", f"{POLICY_OVERRIDE_ENV}={os.environ[POLICY_OVERRIDE_ENV]}"])
     docker_args.extend([args.image, *make_agent_args(args)])
     rc = run(docker_args)
     print(f"docker eval output: {out_dir}")
@@ -158,6 +163,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out-dir", type=Path)
     parser.add_argument("--root", type=Path, default=ROOT / "docs" / "corpus-test")
     parser.add_argument("--statement-dir", type=Path)
+    parser.add_argument("--rule", type=Path)
     parser.add_argument("--trace", type=Path)
     parser.add_argument("--limit", type=int)
     parser.add_argument(

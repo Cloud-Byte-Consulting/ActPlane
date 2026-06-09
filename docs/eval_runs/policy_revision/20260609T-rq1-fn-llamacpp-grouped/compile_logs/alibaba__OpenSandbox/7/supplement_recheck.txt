@@ -1,0 +1,8 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/alibaba__OpenSandbox/7/rule.yaml: 2 rule(s) compile.
+
+  1. read-specs-before-cross-cutting — notify write/exec (For cross-cutting changes, read specs/AGENTS.md first to understand the API contract before modifying server or SDK code or running scripts that may modify them)
+  2. generated-fn-direct-catch — kill exec/write (This statement-local revision catches the observed false-negative setup action from the RQ1 trace evidence.)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)

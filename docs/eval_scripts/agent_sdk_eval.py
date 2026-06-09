@@ -59,6 +59,7 @@ PROMPT_FILTER_TEMPLATE = Path(__file__).resolve().parent / "prompts" / "prompt_f
 CORPUS_EVALUATED = ROOT / "docs" / "corpus-evaluated"
 MAX_SNAPSHOT_FIXTURE_FILES = 20
 MAX_SNAPSHOT_TEXT_CHARS = 4000
+POLICY_OVERRIDE_ENV = "ACTPLANE_RULE_OVERRIDE_ROOT"
 
 
 def manifest_trace_files(statement_dir: Path) -> list[Path]:
@@ -81,6 +82,17 @@ def manifest_trace_files(statement_dir: Path) -> list[Path]:
             raise FileNotFoundError(f"manifest trace not found: {trace}")
         traces.append(trace)
     return traces
+
+
+def selected_rule_path(statement_dir: Path, explicit_rule: Path | None = None) -> Path:
+    if explicit_rule is not None:
+        return explicit_rule
+    override_root = os.environ.get(POLICY_OVERRIDE_ENV)
+    if override_root:
+        candidate = Path(override_root) / statement_dir.parent.name / statement_dir.name / "rule.yaml"
+        if candidate.exists():
+            return candidate
+    return statement_dir / "rule.yaml"
 TOOL_REGEX_POLICY = Path("baselines") / "tool-regex.yaml"
 SAFE_BIN_NAME = ".eval-safe-bin"
 FIXTURE_BIN_NAME = ".eval-fixtures/bin"
@@ -1575,17 +1587,18 @@ def discover_specs(args):
     specs = []
     if args.trace:
         sd = args.statement_dir or args.trace.parent
-        rule = args.rule or sd / "rule.yaml"
+        rule = selected_rule_path(sd, args.rule)
         specs.append((sd, rule, args.trace))
     elif args.statement_dir:
         sd = args.statement_dir
-        rule = args.rule or sd / "rule.yaml"
+        rule = selected_rule_path(sd, args.rule)
         for t in manifest_trace_files(sd):
             specs.append((sd, rule, t))
     else:
         root = args.root
         for rule in sorted(root.rglob("rule.yaml")):
             sd = rule.parent
+            rule = selected_rule_path(sd, args.rule)
             for t in manifest_trace_files(sd):
                 specs.append((sd, rule, t))
     if args.limit:
@@ -1596,9 +1609,10 @@ def discover_specs(args):
 async def main_inner(args):
     """Inner mode: already running under actplane run."""
     base_instructions = args.base_instructions.read_text(encoding="utf-8").strip()
+    statement_dir = Path(args.statement_dir)
     r = await run_scenario_inner(
-        statement_dir=Path(args.statement_dir),
-        rule_path=Path(args.rule) if args.rule else Path(args.statement_dir) / "rule.yaml",
+        statement_dir=statement_dir,
+        rule_path=selected_rule_path(statement_dir, Path(args.rule) if args.rule else None),
         trace_path=Path(args.trace),
         base_instructions=base_instructions,
         base_url=args.base_url,

@@ -1,0 +1,7 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/ruvnet__ruflo/no-root-workfiles/rule.yaml: 1 rule(s) compile.
+
+  1. no-root-workfiles — notify write (Do not create or save working files, markdown drafts, notes, or tests in the repository root; place them in the appropriate existing directory such as docs/, tests/, src/, config/, scripts/, or examples/.)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)

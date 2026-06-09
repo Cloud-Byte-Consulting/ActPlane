@@ -1,0 +1,8 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/yusufkaraaslan__Skill_Seekers/local-fast-test-scope/rule.yaml: 2 rule(s) compile.
+
+  1. local-fast-test-scope — notify exec (For quick local validation, do not directly invoke pytest selections for slow, integration, e2e, network, serial, or mcp_only tests; use scripts/run_tests_fast.sh or a pytest command that excludes those markers.)
+  2. generated-fn-direct-catch — kill exec/write (This statement-local revision catches the observed false-negative setup action from the RQ1 trace evidence.)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)

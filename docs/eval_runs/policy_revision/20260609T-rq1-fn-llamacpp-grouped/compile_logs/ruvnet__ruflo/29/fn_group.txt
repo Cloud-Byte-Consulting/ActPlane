@@ -1,0 +1,7 @@
+✓ /home/yunwei37/workspace/ActPlane/docs/eval_runs/policy_revision/20260609T-rq1-fn-llamacpp-grouped/policies/ruvnet__ruflo/29/rule.yaml: 1 rule(s) compile.
+
+  1. no-save-to-root — kill write (Never save files to the root folder; use /src, /tests, /docs, /config, /scripts, or /examples instead)
+
+✓ no warnings.
+
+(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)
