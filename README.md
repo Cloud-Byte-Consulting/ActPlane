@@ -1,4 +1,6 @@
-# ActPlane: eBPF-Based Policy Engine for AI Agent Harnesses
+# ActPlane: eBPF-Based IFC Policy Engine for AI Agent Harnesses
+
+> WIP
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
