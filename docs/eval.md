@@ -43,10 +43,10 @@ ActPlane-opaque (RQ2). A DeepSeek-Pro V4 end-to-end model-setting run on the
 same 190 traces preserves the ordering: 77.4% for ActPlane, 61.7% for
 ActPlane-opaque, 52.5% for prompt-filter, and 43.7% for tool-regex.
 For overhead, ActPlane adds 1.9% on agent trace replay and 6.5% on a
-Linux build at 32 active no-hit rules (RQ3). On a 20-task OctoBench subset,
-ActPlane improves official reward from 0.788 without enforcement and
-0.818 with tool-regex to 0.888 with OS-level enforcement and semantic
-feedback (RQ4).
+Linux build at 32 active no-hit rules (RQ3). On a 21-task OctoBench subset
+whose user-query checklist contains at least one OS-enforceable item,
+ActPlane achieves 0.84 official reward, up from 0.80 baseline and
+0.81 with tool-regex hooks (RQ4).
 
 ---
 
@@ -57,7 +57,7 @@ feedback (RQ4).
 | **RQ1** | Can a translation agent generate compact compilable ActPlane policies for all 607 OS-enforceable directives? | C1 expressiveness and generation-cost evidence for the "all 607" claim | Full 607-directive translation + compiler loop, split by per-event and cross-event |
 | **RQ2** | Compared with prompt-based, tool-layer, and feedback-ablation baselines, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Runtime-enforcement advantage under controlled agent contexts | Sampled directives x five system-effect challenge trace families x active systems, real Agent SDK trace setup + next-step execution |
 | **RQ3** | What is the per-event and end-to-end overhead? | Deployability, standard systems eval | Microbenchmark + trace replay |
-| **RQ4** | On repository-grounded coding tasks, does ActPlane's OS-level enforcement and semantic feedback improve official policy compliance? | End-to-end enforcement value on complete agent tasks | OctoBench 20-task OS-observable subset x baseline/tool-regex/ActPlane |
+| **RQ4** | On repository-grounded coding tasks, does ActPlane's OS-level enforcement and semantic feedback improve official policy compliance? | End-to-end enforcement value on complete agent tasks | OctoBench 21-task OS-enforceable subset x baseline/tool-regex/ActPlane |
 | **RQ5** | On a safety benchmark beyond coding tasks, do generated OS policies prevent unsafe agent behavior? | Generality beyond repo coding workflows | OpenAgentSafety task policies + baseline/ActPlane comparison |
 
 ---

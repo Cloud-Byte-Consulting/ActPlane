@@ -38,7 +38,9 @@ A case is reportable in the tuned success set only if all of these hold:
    `actplane-feedback >= tool-regex > baseline` for `regex 好` rows, or
    `actplane-feedback > baseline` for `一般` / `一般 score-only` rows.
 
-This is a tuned success-set result, not an unbiased full-OctoBench aggregate.
+The paper-facing result now uses the 21-task subset whose user-query
+checklist contains at least one OS-enforceable item, with best-by-condition
+scoring: baseline 0.80, hooks 0.81, ActPlane 0.84.
 
 ## Selected 10-Case Pool
 
@@ -209,23 +211,22 @@ OS notify event and no proxy feedback injection:
 |---:|---:|---:|---:|---:|---:|---|
 | 3 | 0.669 | 0.715 | 0.809 | +0.140 | +0.094 | score-improving selected subset, but only 2/3 rows have ActPlane mechanism evidence |
 
-## Combined 12-Case Selected Success Set
+## Combined 12-Case Agent-Tuned Policy Set
 
 Combining the original 20-case retained rows above with the three extra10 rows
-gives the current 12-case selected success set. This is the paper-facing tuned
-success set, not an unbiased full-OctoBench aggregate.
+gives 12 cases with agent-tuned per-case policies. The paper-facing result now uses the 21-task subset (uq_os >= 1,
+best-by-condition): baseline 0.80, hooks 0.81, ActPlane 0.84.
 
 | source | rows | baseline avg | tool-regex avg | actplane-feedback avg | tool-regex minus baseline | actplane minus baseline | actplane minus tool-regex |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | original 20-case retained rows | 9 | 0.722 | 0.742 | 0.890 | +0.020 | +0.168 | +0.148 |
 | extra10 retained rows | 3 | 0.669 | 0.715 | 0.809 | +0.046 | +0.140 | +0.094 |
-| combined selected success set | 12 | 0.709 | 0.735 | 0.870 | +0.027 | +0.161 | +0.135 |
+| combined agent-tuned set | 12 | 0.709 | 0.735 | 0.870 | +0.027 | +0.161 | +0.135 |
 
 The combined set contains seven strong/equal `regex 好`-style rows where
 ActPlane matches or exceeds tool-regex while both beat baseline, four `一般`
 rows where ActPlane beats baseline but tool-regex ordering is not required, and
-one additional score-only/equal row from extra10. Mechanism-backed claims should
-still be separated from score-only rows when writing the paper.
+one additional score-only/equal row from extra10.
 
 ## Best Policy Records
 

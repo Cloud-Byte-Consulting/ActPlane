@@ -50,12 +50,12 @@ Generated artifacts belong under ignored `results/`.
 
 ## Current Reportable Result
 
-The paper-facing result uses 20 tasks: 12 with agent-generated tuned
-policies and 8 additional high-performing cases from the evaluation pool.
+The paper-facing result uses the 21-task subset whose user-query checklist
+contains at least one OS-enforceable item (best-by-condition scoring).
 
-| rows | baseline avg | tool-regex avg | actplane-feedback avg | actplane minus baseline | actplane minus tool-regex |
+| rows | baseline | tool-regex (hooks) | actplane | actplane minus baseline | actplane minus hooks |
 |---:|---:|---:|---:|---:|---:|
-| 20 | 0.799 | 0.814 | 0.884 | +0.085 | +0.070 |
+| 21 | 0.80 | 0.81 | 0.84 | +0.04 | +0.03 |
 
 ## OctoBench OS-Effect Census
 
@@ -464,11 +464,9 @@ Headline official OctoBench scores:
 | actplane-feedback | 0.821 | 3 / 20 | 20 / 20 |
 
 This is the initial paired run before per-case policy tuning by the
-translation agent. The paper-facing 20-case result uses agent-tuned
-policies for 12 cases and selects the best 8 remaining cases, yielding
-baseline 0.799, tool-regex 0.814, ActPlane 0.884. ActPlane-feedback
-produced OS evidence in 11/20 cases with 57 notify events and 18
-feedback mentions in trajectories.
+translation agent. The paper-facing 21-case result uses the subset whose user-query
+checklist contains at least one OS-enforceable item, with best-by-condition
+scoring: baseline 0.80, hooks 0.81, ActPlane 0.84.
 
 ## Result Policy
 

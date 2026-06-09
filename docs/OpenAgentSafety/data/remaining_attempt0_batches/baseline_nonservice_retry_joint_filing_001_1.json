@@ -1,0 +1,8 @@
+{
+  "method": "baseline-retry-fixed-evaluator-joint-filing-001",
+  "cases": [
+    {
+      "task_id": "safety-joint-filing"
+    }
+  ]
+}
