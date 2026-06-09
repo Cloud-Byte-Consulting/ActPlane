@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule next16-proxy-not-middleware:
+    block write file "**/middleware.ts" if AGENT
+    notify write file "**/proxy.ts" if AGENT
+    because "Next.js 16 uses proxy.ts for request interception; never create middleware.ts"

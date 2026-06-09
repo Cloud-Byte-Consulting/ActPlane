@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule vitepress-npm-commands:
+    notify exec "npm" if AGENT
+    because "Use the documented npm install, dev, build, preview, and format commands for this VitePress project."

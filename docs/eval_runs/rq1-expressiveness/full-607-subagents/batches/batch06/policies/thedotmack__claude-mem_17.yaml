@@ -1,0 +1,14 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source PKG = file "package.json"
+  source PKG = file "**/package.json"
+  source PKG = file "package-lock.json"
+  source PKG = file "**/package-lock.json"
+  
+  rule daily-dependency-maintenance:
+    notify exec "npm" "outdated" if AGENT
+    notify exec "npm" "install" if AGENT
+    notify exec "npm" "audit" if AGENT
+    block exec "git" "commit" if PKG unless after exec "npm" since write "package.json" or write "**/package.json" or write "package-lock.json" or write "**/package-lock.json"
+    because "Daily maintenance checks all package manifests, upgrades every dependency to latest including majors, runs npm audit fix, runs build-and-sync and tests, fixes breakage, and commits package files."

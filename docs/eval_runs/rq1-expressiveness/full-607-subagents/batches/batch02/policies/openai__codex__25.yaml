@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule do-not-kill-rust-commands:
+    block exec "kill" if AGENT
+    block exec "pkill" if AGENT
+    because "Rust commands can be slow due to locks; be patient and never kill them by PID."

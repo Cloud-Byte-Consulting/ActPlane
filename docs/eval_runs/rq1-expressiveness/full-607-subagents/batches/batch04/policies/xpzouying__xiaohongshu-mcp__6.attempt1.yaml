@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule no-push-without-consent:
+    block exec "git" "push" if AGENT
+    because "do not push to the remote before user approval"

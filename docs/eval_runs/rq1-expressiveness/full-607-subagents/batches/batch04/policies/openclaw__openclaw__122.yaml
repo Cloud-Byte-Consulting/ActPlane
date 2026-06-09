@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule ship-it-sequence:
+    block exec "git" "push" if AGENT unless after exec "git" since write "src/**" or write "ui/**" or write "extensions/**"
+    because "ship it means changelog if needed, commit intended changes, pull --rebase, then push"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule no-webfetch-direct:
+    block connect endpoint "*" if AGENT
+    because "WebFetch is blocked; use ctx_fetch_and_index and then ctx_search"

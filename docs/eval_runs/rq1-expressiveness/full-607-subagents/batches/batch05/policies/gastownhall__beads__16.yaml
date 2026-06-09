@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule default-test-command:
+    notify exec "go" "test" if AGENT
+    notify exec "make" "test" if AGENT
+    because "default local tests are make test or ./scripts/test.sh"

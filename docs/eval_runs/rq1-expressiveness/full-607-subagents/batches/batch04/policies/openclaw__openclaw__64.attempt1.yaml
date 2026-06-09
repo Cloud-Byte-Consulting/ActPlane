@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule prompt-snapshot-linux-node:
+    notify write file "**/snapshot/**" if AGENT
+    notify write file "**/*.snap" if AGENT
+    because "prompt snapshot CI truth is Linux Node 24; reproduce or generate in Linux when macOS drifts"

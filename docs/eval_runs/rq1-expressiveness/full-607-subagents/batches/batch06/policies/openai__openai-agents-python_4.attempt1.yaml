@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule openai-knowledge-docs:
+    notify write file "src/agents/models/**" if AGENT
+    notify write file "src/agents/realtime/**" if AGENT
+    notify write file "docs/**" if AGENT
+    notify connect endpoint "api.openai.com" if AGENT
+    because "For OpenAI API, platform, MCP, Realtime, model, auth, rate limit, Agents SDK, or ChatGPT Apps SDK work, use openai-knowledge for authoritative docs."

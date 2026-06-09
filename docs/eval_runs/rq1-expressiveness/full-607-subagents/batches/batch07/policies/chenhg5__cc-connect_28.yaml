@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source CODE = file "**/*.go"
+  
+  rule bugfix-regression-test:
+    notify exec "git" "commit" if CODE unless after exec "go" since write "**/*.go"
+    because "Bug fixes should include a regression test before commit."

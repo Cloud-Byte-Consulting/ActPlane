@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule ship-issue-close-sequence:
+    notify exec "git" "push" if AGENT
+    notify exec "gh" "close" if AGENT
+    because "ship that fixes an issue requires proof comment plus commit link after push, then close the issue"

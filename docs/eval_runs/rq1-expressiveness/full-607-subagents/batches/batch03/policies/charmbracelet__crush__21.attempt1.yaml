@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule format-task:
+    notify exec "task" "fmt" if AGENT
+    notify exec "gofumpt" if AGENT
+    because "Use task fmt or gofumpt -w . for formatting."

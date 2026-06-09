@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule coverage-before-commit:
+    notify exec "git" "commit" if AGENT unless after exec "pytest" since write "**/*.py" or write "tests/**"
+    because "Add maximum practical test coverage, preferably live smoke coverage, before committing changes."

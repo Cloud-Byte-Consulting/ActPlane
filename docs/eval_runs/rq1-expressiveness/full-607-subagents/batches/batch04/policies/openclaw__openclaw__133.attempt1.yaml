@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule real-device-first:
+    notify exec "emulator" if AGENT
+    notify exec "xcrun" "simctl" if AGENT
+    because "before simulator or emulator testing, check real iOS or Android devices"

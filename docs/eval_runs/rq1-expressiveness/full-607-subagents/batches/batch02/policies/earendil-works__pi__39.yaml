@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-force-push:
+    kill exec "git" "--force" if AGENT
+    kill exec "git" "-f" if AGENT
+    because "Never force push."

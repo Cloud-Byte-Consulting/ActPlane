@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule pnpm-frozen-lockfile:
+    notify exec "pnpm" "install" if AGENT
+    because "In CI, automation, and container builds, use pnpm install --frozen-lockfile; never run bare pnpm install there."

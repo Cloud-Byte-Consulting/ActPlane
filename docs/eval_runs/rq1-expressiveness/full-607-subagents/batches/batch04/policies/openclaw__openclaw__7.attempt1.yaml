@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SECRET = file "**/.env"
+  source SECRET = file "**/credentials/**"
+  source SECRET = file "**/secrets/**"
+
+  rule no-secret-output:
+    block write file "stdio:stdout" if SECRET
+    block write file "stdio:stderr" if SECRET
+    notify connect endpoint "*" if AGENT
+    because "live verify when feasible, and never print secrets"

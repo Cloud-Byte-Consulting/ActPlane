@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule pr-dev-merge-commits:
+    notify exec "gh" "merge" if AGENT
+    because "PRs into dev must use merge commits."

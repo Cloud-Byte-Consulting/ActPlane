@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule query-graph-relationships:
+    notify exec "rg" if AGENT
+    notify exec "grep" if AGENT
+    because "For relationships, use query_graph with callers_of, callees_of, imports_of, or tests_for."

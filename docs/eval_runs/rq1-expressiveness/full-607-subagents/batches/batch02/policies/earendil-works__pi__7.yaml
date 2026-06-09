@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule read-full-before-wide-edit:
+    notify write file "packages/**" if AGENT unless after exec "cat"
+    notify write file "scripts/**" if AGENT unless after exec "cat"
+    because "Read files in full before wide-ranging changes or before editing files you have not fully inspected."

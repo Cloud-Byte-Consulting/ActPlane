@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule main-restart-dev-server:
+    notify write file "apps/x/apps/main/src/**" if AGENT
+    because "main process changes do not hot reload; restart the dev server"

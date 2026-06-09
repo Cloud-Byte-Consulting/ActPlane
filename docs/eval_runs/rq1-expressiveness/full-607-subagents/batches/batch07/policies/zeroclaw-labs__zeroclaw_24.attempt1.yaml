@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-bypass-failing-checks:
+    notify exec "git" "commit" if AGENT
+    notify exec "git" "push" if AGENT
+    because "Do not bypass failing checks without explicit explanation."

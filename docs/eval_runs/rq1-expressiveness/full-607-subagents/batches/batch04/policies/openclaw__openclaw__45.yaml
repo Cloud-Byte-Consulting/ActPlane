@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule no-raw-vitest:
+    block exec "vitest" if AGENT
+    notify exec "pnpm" "test" if AGENT
+    because "normal checkout tests use pnpm test variants; never run raw vitest"

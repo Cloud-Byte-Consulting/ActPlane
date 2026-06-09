@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule lockfile-commit-env:
+    notify exec "git" "commit" if AGENT
+    because "Lockfile commits are blocked unless PI_ALLOW_LOCKFILE_CHANGE=1; do not bypass unless the user wants the lockfile committed."

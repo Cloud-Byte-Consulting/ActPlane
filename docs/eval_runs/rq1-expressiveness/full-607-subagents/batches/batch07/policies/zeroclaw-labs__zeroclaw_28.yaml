@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-sensitive-test-doc-data:
+    notify write file "tests/**" if AGENT
+    notify write file "docs/**" if AGENT
+    notify write file "examples/**" if AGENT
+    because "Do not include personal identity or sensitive information in tests, examples, docs, or commits."

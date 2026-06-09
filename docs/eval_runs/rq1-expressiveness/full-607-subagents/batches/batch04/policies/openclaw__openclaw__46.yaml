@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule codex-test-wrapper:
+    block exec "pnpm" "test" if AGENT
+    notify exec "node" "scripts/run-vitest.mjs" if AGENT
+    because "in Codex worktrees or linked/sparse checkouts avoid direct pnpm test; use node scripts/run-vitest.mjs or Crabbox/Testbox"

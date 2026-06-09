@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule dead-code-e2e-first:
+    block exec "git" "commit" if AGENT unless after exec "run_tests.sh" since write "**/*.py"
+    because "Before wiring unused code into a live path, E2E test the real import and resolution chain against a temp HERMES_HOME."

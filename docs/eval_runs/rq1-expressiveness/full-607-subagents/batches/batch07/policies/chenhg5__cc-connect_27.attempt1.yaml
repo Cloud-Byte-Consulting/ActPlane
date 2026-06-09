@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source CODE = file "**/*.go"
+  
+  rule feature-unit-tests:
+    notify exec "git" "commit" if CODE unless after exec "go" since write "**/*.go"
+    because "All new features must include unit tests before commit."

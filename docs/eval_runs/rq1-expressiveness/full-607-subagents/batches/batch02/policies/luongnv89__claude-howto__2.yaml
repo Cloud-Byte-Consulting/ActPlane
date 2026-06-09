@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule quality-gate-before-commit:
+    block exec "git" "commit" if AGENT unless after exec "pre-commit" since write "**/*.md" or write "scripts/**"
+    notify exec "uv" "scripts/build_epub.py" if AGENT
+    because "Run pre-commit, tests, EPUB build, ruff, mypy, and bandit as applicable; all checks must pass."

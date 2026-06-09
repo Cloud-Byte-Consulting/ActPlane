@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule context-tool-selection:
+    notify exec "cat" if AGENT
+    notify exec "grep" if AGENT
+    notify exec "curl" if AGENT
+    notify exec "wget" if AGENT
+    notify exec "ctx_batch_execute" if AGENT
+    notify exec "ctx_execute" if AGENT
+    because "use ctx_search for memory, ctx_batch_execute for gathering, ctx_execute for processing, ctx_fetch_and_index for web, and ctx_index for indexing"

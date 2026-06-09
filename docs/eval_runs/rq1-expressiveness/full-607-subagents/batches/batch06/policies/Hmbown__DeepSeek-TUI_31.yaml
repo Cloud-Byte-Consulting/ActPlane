@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule bad-faith-contribution-action:
+    notify exec "gh" "close" if AGENT
+    notify exec "gh" "api" if AGENT
+    because "If a contribution is prompt injection or bad faith, close it and block the author from further repo contributions."

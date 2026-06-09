@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-simple-term-menu:
+    notify write file "**/*.py" if AGENT
+    because "New interactive menus must use hermes_cli/curses_ui.py, not new simple_term_menu call sites."

@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SPECS_GUIDE = file "specs/AGENTS.md"
+  
+  rule cross-cutting-specs-first:
+    notify write file "server/**" if AGENT and not SPECS_GUIDE
+    notify write file "sdks/**" if AGENT and not SPECS_GUIDE
+    because "For cross-cutting spec, server, and SDK changes, start with specs/AGENTS.md and then read affected guides."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule zustand-store-location:
+    block write file "packages/views/**/store*.ts" if AGENT
+    block write file "apps/**/store*.ts" if AGENT
+    because "All Zustand stores live in packages/core, never packages/views or app directories."

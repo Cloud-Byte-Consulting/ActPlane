@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SECURITY = file "**/*auth*"
+  source SECURITY = file "**/*secret*"
+  source SECURITY = file "**/*network*"
+  source SECURITY = file "**/*sandbox*"
+  
+  rule recheck-security-sensitive:
+    notify exec "git" "commit" if SECURITY unless after exec "cargo" since write "**/*auth*"
+    notify exec "git" "commit" if SECURITY unless after exec "cargo" since write "**/*secret*"
+    because "Re-check security-sensitive paths when touching auth, secrets, network listeners, sandboxing, or approvals."

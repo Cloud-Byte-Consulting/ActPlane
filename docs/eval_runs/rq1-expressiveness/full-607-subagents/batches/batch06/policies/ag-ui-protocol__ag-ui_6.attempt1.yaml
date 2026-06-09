@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule nx-workspace-for-graph-errors:
+    notify exec "nx" if AGENT
+    notify write file "nx.json" if AGENT
+    notify write file "**/project.json" if AGENT
+    because "For Nx configuration or project graph errors, use nx_workspace to inspect errors."

@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source RUST = file "**/*.rs"
+  
+  rule docs-with-behavior:
+    notify exec "git" "commit" if RUST
+    notify write file "src/**" if AGENT
+    because "If behavior changes, update the relevant docs or specs in the same branch."

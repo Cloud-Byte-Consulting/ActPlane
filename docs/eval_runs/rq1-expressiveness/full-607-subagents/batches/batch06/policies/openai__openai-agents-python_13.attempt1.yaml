@@ -1,0 +1,11 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source DOCS = file "docs/**"
+  source DOCS = file "examples/**"
+  
+  rule docs-release-coordination:
+    notify write file "docs/**" if AGENT
+    notify write file "examples/**" if AGENT
+    notify exec "git" "commit" if DOCS unless after exec "make" since write "docs/**" or write "examples/**"
+    because "Coordinate SDK behavior changes and live-site docs; delay or split docs that describe unreleased behavior."

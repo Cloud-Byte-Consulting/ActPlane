@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-heavy-deps:
+    notify write file "Cargo.toml" if AGENT
+    notify write file "Cargo.lock" if AGENT
+    because "Do not add heavy dependencies for minor convenience."

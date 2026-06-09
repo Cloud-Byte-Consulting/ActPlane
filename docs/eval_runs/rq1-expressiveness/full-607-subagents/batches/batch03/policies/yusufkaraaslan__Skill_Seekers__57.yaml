@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule python-precommit-checklist:
+    block exec "git" "commit" if AGENT unless after exec "ruff" since write "src/**" or write "tests/**"
+    block exec "git" "commit" if AGENT unless after exec "pytest" since write "src/**" or write "tests/**"
+    because "Before committing, run ruff check, ruff format --check, and pytest tests -v -x."

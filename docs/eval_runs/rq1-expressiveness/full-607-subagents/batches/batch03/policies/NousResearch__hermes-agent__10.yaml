@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule slash-command-files:
+    notify write file "hermes_cli/commands.py" if AGENT
+    notify write file "hermes_cli/cli.py" if AGENT
+    notify write file "gateway/run.py" if AGENT
+    because "Slash command work needs the registry entry, CLI handler, optional gateway handler, and save_config_value for persistent settings."

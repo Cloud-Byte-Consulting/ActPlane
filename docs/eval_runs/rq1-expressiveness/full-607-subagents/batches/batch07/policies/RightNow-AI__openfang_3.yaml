@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source API = file "src/**"
+  source API = file "crates/**"
+  source API = file "static/**"
+  
+  rule live-integration-after-wiring:
+    notify exec "git" "commit" if API unless after exec "curl" since write "src/**" or write "crates/**" or write "static/**"
+    because "After new endpoints, features, or wiring changes, run live integration tests, not unit tests alone."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule architecture-overview-tools:
+    notify exec "rg" if AGENT
+    notify exec "grep" if AGENT
+    because "For architecture questions, use get_architecture_overview plus list_communities."

@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-squash-or-rebase-merge:
+    kill exec "gh" "--squash" if AGENT
+    kill exec "gh" "--rebase" if AGENT
+    kill exec "git" "rebase" if AGENT
+    because "Never squash merge or rebase merge PRs in this repository."

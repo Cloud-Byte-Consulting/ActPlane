@@ -1,0 +1,88 @@
+{
+  "batches": [
+    {
+      "batch": "batch01",
+      "compiled": 87,
+      "duplicates": 0,
+      "expected": 87,
+      "extra": 0,
+      "failed": 0,
+      "missing": 0,
+      "results": 87
+    },
+    {
+      "batch": "batch02",
+      "compiled": 87,
+      "duplicates": 0,
+      "expected": 87,
+      "extra": 0,
+      "failed": 0,
+      "missing": 0,
+      "results": 87
+    },
+    {
+      "batch": "batch03",
+      "compiled": 87,
+      "duplicates": 0,
+      "expected": 87,
+      "extra": 0,
+      "failed": 0,
+      "missing": 0,
+      "results": 87
+    },
+    {
+      "batch": "batch04",
+      "compiled": 87,
+      "duplicates": 0,
+      "expected": 87,
+      "extra": 0,
+      "failed": 0,
+      "missing": 0,
+      "results": 87
+    },
+    {
+      "batch": "batch05",
+      "compiled": 87,
+      "duplicates": 0,
+      "expected": 87,
+      "extra": 0,
+      "failed": 0,
+      "missing": 0,
+      "results": 87
+    },
+    {
+      "batch": "batch06",
+      "compiled": 86,
+      "duplicates": 0,
+      "expected": 86,
+      "extra": 0,
+      "failed": 0,
+      "missing": 0,
+      "results": 86
+    },
+    {
+      "batch": "batch07",
+      "compiled": 86,
+      "duplicates": 0,
+      "expected": 86,
+      "extra": 0,
+      "failed": 0,
+      "missing": 0,
+      "results": 86
+    }
+  ],
+  "by_enforceability": {
+    "cross_event": 215,
+    "per_event": 392
+  },
+  "compiled": 607,
+  "compiled_by_enforceability": {
+    "cross_event": 215,
+    "per_event": 392
+  },
+  "expected_total": 607,
+  "failed": 0,
+  "problems": [],
+  "total_results": 607,
+  "valid": true
+}

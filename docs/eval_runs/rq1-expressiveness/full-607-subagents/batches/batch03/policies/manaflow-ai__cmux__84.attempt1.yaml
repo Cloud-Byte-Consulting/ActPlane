@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule pretag-guard-before-tag:
+    block exec "git" "tag" if AGENT unless after exec "release-pretag-guard.sh" since write "**"
+    because "Run scripts/release-pretag-guard.sh before creating a release tag, and bump version if the guard fails."

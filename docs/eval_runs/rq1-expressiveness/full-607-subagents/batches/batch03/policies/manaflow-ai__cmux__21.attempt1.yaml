@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule cloud-vm-backend-boundary:
+    block write file "**/rivet/**" if AGENT
+    notify write file "web/**" if AGENT
+    notify write file "packages/**" if AGENT
+    because "Cloud VM backend logic must stay in Vercel route handlers and Effect services backed by Postgres."

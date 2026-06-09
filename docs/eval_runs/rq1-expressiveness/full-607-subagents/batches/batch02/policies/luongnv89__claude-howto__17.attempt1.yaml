@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule module-page-workflow:
+    notify write file "README.md" if AGENT
+    notify write file "LEARNING-ROADMAP.md" if AGENT
+    because "When adding a module page, create README and templates first, then update the root index and roadmap if order or timing changes."

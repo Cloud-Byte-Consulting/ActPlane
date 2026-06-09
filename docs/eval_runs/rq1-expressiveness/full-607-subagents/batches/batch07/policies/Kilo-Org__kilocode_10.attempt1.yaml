@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule opencode-package-tests:
+    notify exec "bun" "test" if AGENT
+    because "Run bun test from packages/opencode, not from the repository root."

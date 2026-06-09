@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule install-python-314:
+    notify exec "uv" "python" if AGENT
+    because "Install Python 3.14.0 stable with uv python install 3.14.0 and ensure uv is new enough."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule tagged-debug-helper:
+    kill exec "cmux-cli" if AGENT
+    notify exec "cmux-debug-cli.sh" if AGENT
+    because "For tagged Debug dogfood, set CMUX_TAG and use scripts/cmux-debug-cli.sh instead of /tmp/cmux-cli."

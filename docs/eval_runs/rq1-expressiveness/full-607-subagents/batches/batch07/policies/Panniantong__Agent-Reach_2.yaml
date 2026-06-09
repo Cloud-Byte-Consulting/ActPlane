@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule documented-agent-reach-commands:
+    notify exec "pip" "install" if AGENT
+    notify exec "pytest" if AGENT
+    notify exec "bash" "test.sh" if AGENT
+    notify exec "python" "agent_reach.cli" if AGENT
+    because "Use the documented install, pytest, integration, doctor, and install commands."

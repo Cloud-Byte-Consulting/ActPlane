@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule nemoclaw-quick-reference:
+    notify exec "npm" if AGENT
+    notify exec "make" if AGENT
+    notify exec "uv" if AGENT
+    notify exec "npx" if AGENT
+    because "Use the documented quick-reference commands for install, build, tests, lint, hooks, typecheck, formatting, docs, and docs-live."

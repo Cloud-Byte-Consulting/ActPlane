@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule work-complete-after-push:
+    notify exec "git" "push" if AGENT
+    notify exec "git" "status" if AGENT
+    because "Work is not complete until git push succeeds and status shows up to date with origin."

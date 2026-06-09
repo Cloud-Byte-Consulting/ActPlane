@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule npm-format-only:
+    block exec "prettier" if AGENT
+    block exec "eslint" if AGENT
+    because "Use npm run format for formatting and lint feedback."

@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source ARCH = file ".agents/skills/adk-architecture/SKILL.md"
+  source AGENT = exec "**"
+  
+  rule use-adk-architecture-skill:
+    notify write file "src/**" if AGENT and not ARCH
+    notify write file "google/adk/**" if AGENT and not ARCH
+    because "Use the adk-architecture skill before architecture, event flow, state management, core component, or public API work."

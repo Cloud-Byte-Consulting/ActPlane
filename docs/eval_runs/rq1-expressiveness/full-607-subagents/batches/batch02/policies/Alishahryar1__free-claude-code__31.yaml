@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule propagate-updates:
+    notify exec "git" "commit" if AGENT unless after exec "pytest" since write "**/*.py" or write "tests/**"
+    because "Changes often affect multiple files; propagate related updates correctly and verify before commit."

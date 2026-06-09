@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-root-npx-vitest:
+    block exec "npx" "vitest" if AGENT
+    because "Do not run npx vitest from the project root; use the package-specific vitest config."

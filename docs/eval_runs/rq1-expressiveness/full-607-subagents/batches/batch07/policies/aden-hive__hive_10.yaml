@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-git-stash:
+    kill exec "git" "stash" if AGENT
+    because "Do not create, apply, or drop git stash entries unless explicitly requested."

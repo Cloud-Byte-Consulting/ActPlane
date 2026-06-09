@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule minor-version-bump:
+    notify exec "bump-version.sh" if AGENT
+    notify write file "package.json" if AGENT
+    notify write file "Info.plist" if AGENT
+    because "For updates, bump the minor version unless explicitly asked otherwise."

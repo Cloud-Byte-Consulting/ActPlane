@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule user-owned-contract-files:
+    block write file "task_plan.md" if AGENT
+    block write file "DESIGN.md" if AGENT
+    because "Do not edit task_plan.md or DESIGN.md directly; they are user-owned contracts."

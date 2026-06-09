@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule complete-migration-before-commit:
+    notify exec "git" "commit" if AGENT unless after exec "pytest" since write "**/*.py" or write "tests/**"
+    because "Complete migrations in one change, update imports, remove obsolete shims unless a public interface requires them, and test before commit."

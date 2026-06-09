@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule animation-customization:
+    block write file "**/animations.json" if AGENT unless after exec "customize-animations"
+    notify exec "customize-animations" if AGENT
+    because "only create animations.json or tune object animations when customization was requested"

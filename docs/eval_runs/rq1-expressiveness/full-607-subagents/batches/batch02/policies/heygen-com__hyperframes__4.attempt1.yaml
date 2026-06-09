@@ -1,0 +1,11 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule oxlint-oxfmt-only:
+    block exec "eslint" if AGENT
+    block exec "prettier" if AGENT
+    block exec "biome" if AGENT
+    block exec "git" "commit" if AGENT unless after exec "oxlint" since write "**/*.ts" or write "**/*.html"
+    block exec "git" "commit" if AGENT unless after exec "oxfmt" since write "**/*.ts" or write "**/*.html"
+    because "Use oxlint and oxfmt, not eslint, prettier, or biome, and lint and format changed files before committing."

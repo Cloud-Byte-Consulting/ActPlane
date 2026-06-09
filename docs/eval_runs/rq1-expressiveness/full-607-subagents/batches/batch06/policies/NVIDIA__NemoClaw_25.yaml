@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule docs-skills-release-prep:
+    notify write file "docs/**" if AGENT
+    block write file ".agents/skills/nemoclaw-user-*/**" if AGENT unless lineage-includes exec "nemoclaw-contributor-update-docs"
+    notify exec "nemoclaw-contributor-update-docs" if AGENT
+    because "Normal docs changes include source docs only; generated user skills are updated during release prep via nemoclaw-contributor-update-docs."

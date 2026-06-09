@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source API = file "src/agents/**"
+  
+  rule positional-compat-regression:
+    notify write file "src/agents/**" if AGENT
+    notify write file "tests/**" if AGENT
+    block exec "git" "commit" if API unless after exec "pytest" since write "src/agents/**"
+    because "If public API reordering is unavoidable, add a compatibility layer and regression tests for the old positional call pattern."

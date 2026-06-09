@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-bulk-git-add:
+    block exec "git" "-A" if AGENT
+    block exec "git" "." if AGENT
+    because "Stage explicit paths; never use git add -A or git add dot."

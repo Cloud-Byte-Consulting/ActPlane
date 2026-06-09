@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule source-of-truth-preedit:
+    notify write file "src/**" if AGENT
+    notify write file "crates/**/src/**" if AGENT
+    notify write file "**/*config*" if AGENT
+    because "Before adding fields or config entries, state whether this is the source of truth or a duplicate, then resolve from the canonical source."

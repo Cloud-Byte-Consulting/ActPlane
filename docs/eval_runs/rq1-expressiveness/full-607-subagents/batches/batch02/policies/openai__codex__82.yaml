@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule app-server-docs-on-api-change:
+    notify write file "codex-rs/app-server-protocol/src/protocol/**" if AGENT
+    notify write file "codex-rs/app-server/README.md" if AGENT
+    because "When API behavior changes, update app-server docs and examples, at minimum app-server/README.md."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule visual-review-explicit-only:
+    notify exec "visual-review" if AGENT
+    because "run visual-review only after an explicit per-page visual review request, never automatically"

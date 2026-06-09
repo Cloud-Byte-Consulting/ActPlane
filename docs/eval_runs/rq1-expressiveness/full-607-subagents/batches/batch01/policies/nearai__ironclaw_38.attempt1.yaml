@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source PARITY = file "FEATURE_PARITY.md"
+  
+  rule feature-parity-status:
+    notify write file "src/**" if AGENT and not PARITY
+    notify write file "crates/**" if AGENT and not PARITY
+    because "If implementation status changes for a tracked feature, update FEATURE_PARITY.md in the same branch."

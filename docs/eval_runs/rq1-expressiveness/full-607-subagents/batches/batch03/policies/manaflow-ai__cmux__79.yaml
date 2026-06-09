@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule python-socket-tagged-only:
+    kill exec "open" if AGENT
+    notify exec "python" "pytest" if AGENT
+    because "For python socket tests, never launch an untagged app; use a tagged socket via CMUX_SOCKET_PATH."

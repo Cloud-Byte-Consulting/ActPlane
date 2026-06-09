@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule tests-no-real-hermes-home:
+    block write file "/home/*/.hermes/**" if AGENT
+    block write file "/root/.hermes/**" if AGENT
+    because "Tests must not write to real ~/.hermes; use the isolated HERMES_HOME/profile fixture pattern."

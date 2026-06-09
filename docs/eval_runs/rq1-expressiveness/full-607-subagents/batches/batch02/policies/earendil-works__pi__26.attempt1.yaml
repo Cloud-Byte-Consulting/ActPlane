@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule dep-changes-reviewed:
+    notify write file "package.json" if AGENT
+    notify write file "package-lock.json" if AGENT
+    because "Treat npm dependency and lockfile changes as reviewed code and keep direct external deps pinned exactly."

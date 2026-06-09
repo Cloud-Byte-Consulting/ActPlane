@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule cargo-run-deepseek-source:
+    notify exec "cargo" "run" if AGENT
+    because "Run from source with cargo run --bin deepseek or cargo run -p deepseek-tui-cli."

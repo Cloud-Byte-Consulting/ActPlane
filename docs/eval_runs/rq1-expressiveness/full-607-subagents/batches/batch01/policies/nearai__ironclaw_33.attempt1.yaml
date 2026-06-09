@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule core-tool-rust-built-in:
+    notify write file "src/tools/**" if AGENT
+    notify write file "src/agent/**" if AGENT
+    because "Use built-in Rust tools for core internal capabilities tightly coupled to the runtime."

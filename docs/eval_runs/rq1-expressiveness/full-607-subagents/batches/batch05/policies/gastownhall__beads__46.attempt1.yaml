@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule no-duplicate-tracking:
+    block write file "**/TODO*.md" if AGENT
+    block exec "gh" "issue" if AGENT
+    notify exec "bd" if AGENT
+    because "do not duplicate tracking systems; keep work in bd"

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source CONTRIBUTING = file "CONTRIBUTING.md"
+
+  rule read-contributing-before-prs:
+    notify exec "gh" "pr" if AGENT and not CONTRIBUTING
+    because "read CONTRIBUTING.md before handling external PRs"

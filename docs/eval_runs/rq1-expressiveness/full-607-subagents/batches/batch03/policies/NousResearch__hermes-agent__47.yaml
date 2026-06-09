@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule stale-squash-merge:
+    notify exec "git" "merge" if AGENT
+    notify exec "git" "diff" if AGENT
+    because "Before squash merging, update with origin main and verify the final diff for unexpected deletions."

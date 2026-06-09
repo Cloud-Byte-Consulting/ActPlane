@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule new-sandbox-provider:
+    notify write file "agent/integrations/**" if AGENT
+    notify write file "agent/utils/sandbox.py" if AGENT
+    block exec "git" "commit" if AGENT unless after exec "pytest" since write "agent/integrations/**" or write "agent/utils/sandbox.py"
+    because "new sandbox providers must be added under agent/integrations and wired into SANDBOX_FACTORIES"

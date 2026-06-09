@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule runtime-node-cli-policy:
+    kill exec "bun" "-g" if AGENT
+    notify write file "Dockerfile" if AGENT
+    notify write file "container/**/Dockerfile" if AGENT
+    because "Runtime Node CLIs belong in the Dockerfile pnpm global install block with exact-version ARGs; do not use bun install -g."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule bun-typecheck-only:
+    block exec "tsc" if AGENT
+    notify exec "bun" "typecheck" if AGENT
+    because "run bun typecheck from package directories; never call tsc directly"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule bugfix-skill-before-edits:
+    notify write file "packages/**" if AGENT unless after exec "bugfix"
+    because "Use the bugfix skill for reproduce-first fixing, verification, tests, and code review."

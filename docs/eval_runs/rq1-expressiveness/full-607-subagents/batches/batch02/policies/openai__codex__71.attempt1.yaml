@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule align-rust-ts-renames:
+    notify exec "git" "commit" if AGENT unless after exec "just" since write "codex-rs/app-server-protocol/src/protocol/**" or write "codex-rs/app-server-protocol/schema/typescript/**"
+    because "Keep Rust serde renames and matching TypeScript ts renames aligned."

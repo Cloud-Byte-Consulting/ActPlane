@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule confirm-working-directory:
+    notify exec "pwd" if AGENT
+    notify exec "git" "branch" if AGENT
+    because "Confirm the working directory and intended branch before starting work."

@@ -1,0 +1,14 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SUBSYS_SPEC = file "CLAUDE.md"
+  source SUBSYS_SPEC = file "src/**/CLAUDE.md"
+  source SUBSYS_SPEC = file "src/**/README.md"
+  source SUBSYS_SPEC = file "src/NETWORK_SECURITY.md"
+  source SUBSYS_SPEC = file "tests/e2e/CLAUDE.md"
+  
+  rule read-subsystem-spec:
+    notify write file "src/**" if AGENT and not SUBSYS_SPEC
+    notify write file "crates/**" if AGENT and not SUBSYS_SPEC
+    notify write file "tests/e2e/**" if AGENT and not SUBSYS_SPEC
+    because "Read the relevant subsystem spec before changing complex areas and treat repo specs as authoritative."

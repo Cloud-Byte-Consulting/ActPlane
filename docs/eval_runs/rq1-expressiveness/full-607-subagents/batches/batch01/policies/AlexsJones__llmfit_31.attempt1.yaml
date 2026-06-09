@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule dependency-review:
+    notify write file "Cargo.toml" if AGENT
+    notify write file "Cargo.lock" if AGENT
+    because "Prefer well-maintained crates with minimal transitive dependencies."

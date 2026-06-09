@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule main-rebase-no-merge:
+    block exec "git" "merge" if AGENT
+    notify exec "git" "push" if AGENT
+    because "main needs no merge commits and should be rebased on origin/main before push without chasing moving main repeatedly"

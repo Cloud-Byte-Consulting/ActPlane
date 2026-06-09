@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule npm-outdated-all-manifests:
+    notify exec "npm" "outdated" if AGENT
+    because "Check root and nested package.json files such as plugin and openclaw for outdated dependencies via npm outdated."

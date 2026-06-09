@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-inline-bash-scripts:
+    block exec "bash" "-c" if AGENT
+    block exec "sh" "-c" if AGENT
+    because "For ad-hoc scripts, write a temp file, run and edit it, then remove it; do not embed multi-line scripts in bash commands."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule gh-body-file:
+    block exec "gh" "--body" if AGENT
+    because "for GitHub comments with backticks, dollar signs, or shell snippets, use a heredoc or body file, not inline double-quoted --body"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule regen-hf-models:
+    block write file "data/hf_models.json" if AGENT unless lineage-includes exec "python*"
+    because "Do not manually edit data/hf_models.json; run python3 scripts/scrape_hf_models.py."

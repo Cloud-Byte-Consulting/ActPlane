@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule config-contract-alignment:
+    block exec "git" "commit" if AGENT unless after exec "pnpm" since write "src/**/config/**" or write "docs/**" or write "test/**"
+    because "config contract changes need exported types, schema/help, metadata, baselines, docs, and raw migration or doctor-only compat"

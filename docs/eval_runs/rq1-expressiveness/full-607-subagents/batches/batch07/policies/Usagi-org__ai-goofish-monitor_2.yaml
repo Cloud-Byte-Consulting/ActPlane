@@ -1,0 +1,11 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule documented-local-commands:
+    notify exec "python" "src.app" if AGENT
+    notify exec "uvicorn" "src.app:app" if AGENT
+    notify exec "python" "spider_v2.py" if AGENT
+    notify exec "npm" if AGENT
+    notify exec "docker" "compose" if AGENT
+    because "Use the documented backend, spider, frontend, start.sh, and Docker commands for local development."

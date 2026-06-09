@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule codex-check-wrapper:
+    block exec "pnpm" "check" if AGENT
+    notify exec "node" "scripts/crabbox-wrapper.mjs" if AGENT
+    because "in Codex worktrees or linked/sparse checkouts avoid direct pnpm check; run checks inside Testbox via crabbox-wrapper"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule test-file-before-commit:
+    block exec "git" "commit" if AGENT unless after exec "test.sh" since write "**/*.test.ts" or write "packages/**/test/**"
+    because "After creating or modifying a test file, run it and iterate until it passes before committing."

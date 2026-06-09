@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule dependency-approval-required:
+    block write file "pyproject.toml" if AGENT
+    block write file "uv.lock" if AGENT
+    block write file "requirements*.txt" if AGENT
+    because "Dependency updates, overrides, vendoring, or version bumps require explicit approval."

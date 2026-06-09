@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule gh-pr-merge-command:
+    notify exec "gh" "merge" if AGENT
+    because "Use gh pr merge <number> --merge --delete-branch after CI, review-work, and Cubic pass."

@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SECRET = file "**/.env"
+  source SECRET = file "**/*secret*"
+  
+  rule no-secret-commits:
+    block exec "git" "commit" if SECRET
+    block write file "**/.env" if AGENT
+    because "Never commit secrets or .env files."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule agent-runner-bun-tests:
+    notify write file "container/agent-runner/src/**" if AGENT
+    notify exec "vitest" if AGENT
+    because "Tests under container/agent-runner/src must import from bun:test, not vitest."

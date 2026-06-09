@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule shared-behavior-path:
+    notify write file "*.swift" if AGENT
+    notify write file "web/**" if AGENT
+    because "Implement shared behavior through one action or model path across shortcuts, menus, CLI, settings, and debug surfaces."

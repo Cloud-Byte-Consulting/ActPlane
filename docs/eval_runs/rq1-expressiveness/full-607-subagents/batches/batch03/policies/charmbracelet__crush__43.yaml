@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source UI_GUIDE = file "internal/ui/AGENTS.md"
+  
+  rule read-ui-guide:
+    block write file "internal/ui/**" if AGENT and not UI_GUIDE
+    because "Read internal/ui/AGENTS.md before working on the TUI."

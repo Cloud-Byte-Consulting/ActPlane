@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule release-binary-after-build:
+    notify exec "**/target/release/deepseek" if AGENT unless after exec "cargo" since write "crates/**" or write "Cargo.toml" or write "Cargo.lock"
+    because "After cargo build --release, use ./target/release/deepseek as the local dev shorthand."

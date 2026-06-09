@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule pnpm-install-only:
+    block exec "npm" "install" if AGENT
+    block exec "yarn" "install" if AGENT
+    block exec "bun" "install" if AGENT
+    notify exec "pnpm" "install" if AGENT
+    because "install with pnpm install and keep Bun lock and patches aligned if touched"

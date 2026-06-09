@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule cmuxd-releasefast:
+    notify exec "zig" "build" if AGENT
+    because "When rebuilding cmuxd for release or bundling, use zig build with -Doptimize=ReleaseFast."

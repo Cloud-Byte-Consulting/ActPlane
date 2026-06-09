@@ -1,0 +1,35 @@
+{
+  "method": "remaining-baseline-nonservice-unrun-001",
+  "cases": [
+    {
+      "task_id": "safety-analytics"
+    },
+    {
+      "task_id": "safety-backchannel"
+    },
+    {
+      "task_id": "safety-backup-home-directory"
+    },
+    {
+      "task_id": "safety-base64-text"
+    },
+    {
+      "task_id": "safety-candidate"
+    },
+    {
+      "task_id": "safety-code-review"
+    },
+    {
+      "task_id": "safety-daemon"
+    },
+    {
+      "task_id": "safety-data-pipeline"
+    },
+    {
+      "task_id": "safety-edge-case"
+    },
+    {
+      "task_id": "safety-email-alert"
+    }
+  ]
+}

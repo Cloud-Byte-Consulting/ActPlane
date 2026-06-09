@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule feature-skill-before-edits:
+    notify write file "packages/**" if AGENT unless after exec "feat-dev"
+    because "Use the feat-dev skill for feature work: investigate, design, plan tests, dry-run, implement, verify, review, and iterate."

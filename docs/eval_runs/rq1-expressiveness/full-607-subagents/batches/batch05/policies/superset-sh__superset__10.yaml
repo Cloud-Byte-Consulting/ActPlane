@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule prefer-gh-cli:
+    notify exec "git" if AGENT
+    notify exec "gh" if AGENT
+    because "prefer gh CLI over raw git for PRs, issues, checkout, and related GitHub operations where possible"

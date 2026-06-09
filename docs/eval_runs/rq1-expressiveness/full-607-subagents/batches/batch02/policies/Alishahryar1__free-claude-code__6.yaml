@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule read-env-example:
+    notify open file ".env.example" if AGENT
+    because "Read .env.example for the environment variables used by this project."

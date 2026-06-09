@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule global-styles-location:
+    block write file "*.css" if AGENT unless target "src/renderer/styles/**"
+    block write file "*.scss" if AGENT unless target "src/renderer/styles/**"
+    because "Global styles belong only in src/renderer/styles."

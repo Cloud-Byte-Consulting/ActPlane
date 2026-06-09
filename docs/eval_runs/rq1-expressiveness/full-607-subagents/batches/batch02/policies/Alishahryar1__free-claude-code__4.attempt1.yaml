@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-global-python:
+    block exec "python" if AGENT
+    block exec "python3" if AGENT
+    because "Use uv run to run Python files instead of the global python command."

@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule use-gh-for-github:
+    block exec "curl" "api.github.com" if AGENT
+    block exec "wget" "api.github.com" if AGENT
+    notify exec "gh" if AGENT
+    because "Use the gh CLI for GitHub issues, PRs, comments, checks, releases, and API calls."

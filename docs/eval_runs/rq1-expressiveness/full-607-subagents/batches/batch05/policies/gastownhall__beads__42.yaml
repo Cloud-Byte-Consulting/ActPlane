@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule discovered-from-links:
+    notify exec "bd" "create" if AGENT
+    because "link discovered work with discovered-from dependencies"

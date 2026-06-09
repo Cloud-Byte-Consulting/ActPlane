@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-format-functional-mix:
+    notify exec "git" "commit" if AGENT
+    because "Do not mix massive formatting-only changes with functional changes."

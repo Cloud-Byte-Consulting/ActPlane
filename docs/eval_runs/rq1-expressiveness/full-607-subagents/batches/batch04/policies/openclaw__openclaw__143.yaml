@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule run-doctor-for-migration:
+    notify exec "openclaw" "doctor" if AGENT
+    because "for rebrand, migration, or config warnings run openclaw doctor"

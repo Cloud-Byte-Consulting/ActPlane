@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule no-unexpected-delete:
+    notify unlink file "**" if AGENT
+    because "do not delete or rename unexpected files; ask if blocking, else ignore"

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule semantic-search-before-grep:
+    notify exec "rg" if AGENT
+    notify exec "grep" if AGENT
+    because "For code exploration, use semantic_search_nodes or query_graph before Grep."

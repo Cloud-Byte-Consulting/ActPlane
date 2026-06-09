@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule feature-work-on-branch:
+    notify exec "git" "commit" if AGENT
+    because "all feature changes should be developed on a branch"

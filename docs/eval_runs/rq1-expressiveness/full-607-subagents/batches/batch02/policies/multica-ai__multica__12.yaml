@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule documented-commands:
+    notify exec "make" if AGENT
+    notify exec "pnpm" if AGENT
+    because "Use make dev, pnpm typecheck, pnpm test, make test, and make check as documented."

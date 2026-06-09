@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule headless-browser-cookies-login:
+    notify exec "notebooklm" "login" if AGENT
+    because "In headless environments where Playwright login is impractical, use notebooklm login --browser-cookies <browser> and install notebooklm-py[cookies] if needed."

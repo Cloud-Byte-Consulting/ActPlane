@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule release-smoke-before-publish:
+    block exec "npm" "release:patch" if AGENT unless after exec "pi" since write "**/CHANGELOG.md" or write "packages/**"
+    block exec "npm" "release:minor" if AGENT unless after exec "pi" since write "**/CHANGELOG.md" or write "packages/**"
+    notify exec "npm" "release:local" if AGENT
+    because "Before release, audit changelogs, smoke test the local release from /tmp, brief WebAuthn, wait for ready, and never rerun a failed version bump."

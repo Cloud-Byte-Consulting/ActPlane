@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule agent-runner-deps-use-bun:
+    notify write file "container/agent-runner/package.json" if AGENT
+    notify exec "pnpm" "install" if AGENT
+    because "For container/agent-runner runtime deps, edit package.json, run bun install there, and commit bun.lock; it is not a pnpm workspace."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule rust-just-workflow:
+    block exec "cargo" "test" if AGENT
+    block exec "git" "commit" if AGENT unless after exec "just" since write "codex-rs/**/*.rs"
+    because "After Rust code changes, run just fmt, use just test rather than cargo test, scope tests and fix, and do not re-run tests after fix or fmt."

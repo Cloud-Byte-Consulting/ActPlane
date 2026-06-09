@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule codex-no-local-pnpm-gates:
+    block exec "pnpm" "test" if AGENT
+    block exec "pnpm" "check" if AGENT
+    block exec "pnpm" "crabbox:run" if AGENT
+    block exec "scripts/committer" if AGENT
+    because "in Codex worktrees avoid direct pnpm test/check/crabbox:run and scripts/committer; prefer node wrappers and Crabbox/Testbox"

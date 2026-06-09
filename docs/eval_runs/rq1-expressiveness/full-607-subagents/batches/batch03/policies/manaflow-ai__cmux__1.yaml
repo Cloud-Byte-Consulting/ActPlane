@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule initial-setup-script:
+    notify exec "setup.sh" if AGENT
+    because "Run scripts/setup.sh to initialize submodules and build GhosttyKit."

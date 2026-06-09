@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule noninteractive-file-commands:
+    notify exec "cp" if AGENT
+    notify exec "mv" if AGENT
+    notify exec "rm" if AGENT
+    because "Always use non-interactive flags for file operations so aliased cp, mv, or rm cannot hang on prompts."

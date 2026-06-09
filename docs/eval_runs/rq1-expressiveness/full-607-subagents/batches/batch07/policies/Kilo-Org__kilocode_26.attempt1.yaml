@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule extension-settings-location:
+    notify write file ".vscode/settings.json" if AGENT
+    notify write file "packages/kilo-vscode/**" if AGENT
+    because "Extension-specific settings belong in Kilo extension settings unless intentionally VS Code-wide."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule single-test-via-npm:
+    block exec "vitest" if AGENT
+    block exec "jest" if AGENT
+    because "Run a single test through npm run test path-to-test.ts."

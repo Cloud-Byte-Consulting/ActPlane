@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source CODE = file "src/**"
+  source CODE = file "tests/**"
+  
+  rule pytest-relevant-before-pr:
+    notify exec "git" "commit" if CODE unless after exec "pytest" since write "src/**" or write "tests/**"
+    because "Run relevant pytest checks and add focused tests for new logic before PR."

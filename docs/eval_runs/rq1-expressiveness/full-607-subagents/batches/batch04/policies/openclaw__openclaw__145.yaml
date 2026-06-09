@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule local-agents-ignore:
+    block write file ".gitignore" if AGENT
+    block write file "**/.gitignore" if AGENT
+    notify write file ".git/info/exclude" if AGENT
+    because "local-only .agents ignores belong in .git/info/exclude, not repo .gitignore"

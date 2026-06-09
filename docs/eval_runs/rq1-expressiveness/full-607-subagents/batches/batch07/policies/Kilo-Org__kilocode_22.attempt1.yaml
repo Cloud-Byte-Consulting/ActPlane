@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-root-bun-test:
+    notify exec "bun" "test" if AGENT
+    because "Never run root bun test; use package-level tests such as packages/opencode instead."

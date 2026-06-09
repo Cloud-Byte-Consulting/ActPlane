@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule go-build-commands:
+    notify exec "go" "build" if AGENT
+    notify exec "go" "run" if AGENT
+    because "Use go build . or go run . for build verification."

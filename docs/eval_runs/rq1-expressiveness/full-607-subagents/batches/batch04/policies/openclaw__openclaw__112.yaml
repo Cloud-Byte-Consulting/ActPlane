@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule codex-harness-doc-refresh:
+    block exec "git" "commit" if AGENT unless after exec "codex" since write "extensions/codex/package.json" or write "docs/plugins/codex-harness.md"
+    because "Codex harness upgrades must refresh docs/plugins/codex-harness.md from the new harness model/list snapshot"

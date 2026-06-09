@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule never-open-untagged:
+    kill exec "open" if AGENT
+    because "Never open an untagged cmux DEV app from DerivedData."

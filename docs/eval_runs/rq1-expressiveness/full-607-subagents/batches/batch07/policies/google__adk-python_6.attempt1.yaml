@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source SAMPLE = file ".agents/skills/adk-sample-creator/SKILL.md"
+  source AGENT = exec "**"
+  
+  rule use-adk-sample-skill:
+    notify write file "contributing/**" if AGENT and not SAMPLE
+    notify write file "samples/**" if AGENT and not SAMPLE
+    because "Use the adk-sample-creator skill when creating samples or adding examples under contributing."

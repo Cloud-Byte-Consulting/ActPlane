@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule npm-ignore-scripts:
+    notify exec "npm" "install" if AGENT
+    notify exec "npm" "ci" if AGENT
+    because "Use npm install or npm ci with --ignore-scripts; do not run lifecycle scripts unless the user asks."

@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule protected-dev-contract-files:
+    block unlink file "docs/book/src/contributing/pr-review-protocol.md" if AGENT
+    block unlink file "docs/book/src/maintainers/changelog-generation.md" if AGENT
+    block unlink file "docs/book/src/maintainers/reviewer-playbook.md" if AGENT
+    block unlink file "docs/book/src/maintainers/pr-workflow.md" if AGENT
+    block unlink file "docs/book/src/contributing/privacy.md" if AGENT
+    block unlink file "docs/book/src/foundations/fnd-00*.md" if AGENT
+    because "Do not move or delete dev-operational contract files without updating consuming skills and AGENTS.md."

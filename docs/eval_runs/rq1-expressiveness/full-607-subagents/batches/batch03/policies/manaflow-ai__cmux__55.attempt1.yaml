@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule submodule-push-before-parent:
+    notify exec "git" "commit" if AGENT
+    notify exec "git" "push" if AGENT
+    because "Push submodule commits to the remote main branch before committing the updated parent pointer."

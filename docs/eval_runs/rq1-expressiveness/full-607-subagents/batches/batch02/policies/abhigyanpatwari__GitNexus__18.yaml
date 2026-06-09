@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule prefer-gitnexus-context:
+    notify exec "rg" if AGENT unless after exec "gitnexus_context"
+    notify exec "grep" if AGENT unless after exec "gitnexus_context"
+    because "Use gitnexus_context for full symbol context including callers, callees, and flows."

@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule align-visible-behavior:
+    notify write file "specs/**" if AGENT
+    notify write file "server/**" if AGENT
+    notify write file "sdks/**" if AGENT
+    notify write file "docs/**" if AGENT
+    because "Keep specs, implementation, SDKs, docs, examples, config, and CLI behavior aligned for user-visible changes."

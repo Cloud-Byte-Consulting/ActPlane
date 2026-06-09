@@ -1,0 +1,13 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source PY = file "libraries/python/**"
+  source TS = file "libraries/typescript/**"
+  
+  rule post-implementation-checklist:
+    block exec "git" "commit" if PY unless after exec "pytest" since write "libraries/python/**"
+    block exec "git" "commit" if TS unless after exec "pnpm" since write "libraries/typescript/**"
+    notify write file "docs/**" if AGENT
+    notify write file "examples/**" if AGENT
+    notify exec "gh" "pr" if AGENT
+    because "After implementation, run tests, check docs and examples, and prepare a PR description from the template."

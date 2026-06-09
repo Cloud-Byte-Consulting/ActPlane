@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-direct-bun-publish:
+    kill exec "bun" "publish" if AGENT
+    because "Never run bun publish directly; use the GitHub Actions workflow."

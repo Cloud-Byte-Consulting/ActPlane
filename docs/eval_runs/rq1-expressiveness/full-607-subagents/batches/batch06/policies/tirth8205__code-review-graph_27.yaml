@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule graph-workflow-tools:
+    notify exec "git" "diff" if AGENT
+    notify exec "rg" if AGENT
+    because "Use detect_changes, get_affected_flows, and query_graph pattern=tests_for as part of the graph workflow."

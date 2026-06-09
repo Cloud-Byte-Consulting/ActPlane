@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule direct-pytest-minimums:
+    notify exec "pytest" if AGENT
+    notify exec "python" "pytest" if AGENT
+    block exec "git" "push" if AGENT unless after exec "run_tests.sh" since write "tests/**"
+    because "If direct pytest is unavoidable, activate the venv and still run the full wrapper suite before pushing."

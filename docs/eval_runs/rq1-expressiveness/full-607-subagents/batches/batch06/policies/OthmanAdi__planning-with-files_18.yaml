@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule clawhub-upload-after-release:
+    notify exec "gh" "release" if AGENT
+    notify open file "clawhub-upload/SKILL.md" if AGENT
+    notify connect endpoint "clawhub.io" if AGENT
+    because "After every release, manually upload clawhub-upload/SKILL.md at clawhub.io."

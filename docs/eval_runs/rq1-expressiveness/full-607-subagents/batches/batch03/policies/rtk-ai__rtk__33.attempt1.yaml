@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule filter-performance-check:
+    block exec "git" "commit" if AGENT unless after exec "hyperfine" since write "src/**"
+    because "For filter changes, run the before and after hyperfine checks and confirm target/release/rtk stays under the threshold."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule broad-proof-remote:
+    notify exec "pnpm" "test" if AGENT
+    notify exec "docker" if AGENT
+    because "full suites, broad gates, Docker, package, E2E, live, cross-OS, or Mac-heavy proof belongs in Crabbox/Testbox"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-displaylink-loop:
+    notify write file "*.swift" if AGENT
+    because "Do not add app-level display links or manual ghostty_surface_draw loops; rely on Ghostty wakeups and renderer."

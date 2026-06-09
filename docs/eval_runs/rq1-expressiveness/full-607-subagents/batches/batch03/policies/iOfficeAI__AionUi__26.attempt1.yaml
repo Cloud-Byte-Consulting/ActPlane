@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule dev-code-quality:
+    notify write file "src/**" if AGENT
+    notify write file "*.ts" if AGENT
+    notify write file "*.tsx" if AGENT
+    because "During development, run bun run lint:fix, bun run format, and bunx tsc --noEmit as you edit."

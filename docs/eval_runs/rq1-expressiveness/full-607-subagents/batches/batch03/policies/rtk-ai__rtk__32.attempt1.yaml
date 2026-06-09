@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule fix-build-failures:
+    notify exec "cargo" "build" if AGENT
+    because "If the build fails, fix it immediately before continuing to the next task."

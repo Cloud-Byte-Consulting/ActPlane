@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule copied-assets-required:
+    notify write file "src/db/schema.sql" if AGENT
+    notify write file "src/extraction/wasm/**" if AGENT
+    block exec "git" "commit" if AGENT unless after exec "npm" since write "src/db/schema.sql" or write "src/extraction/wasm/**" or write "dist/**"
+    because "new SQL or grammar wasm must be copied into dist by copy-assets before shipping"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule pbxproj-test-wiring:
+    block exec "git" "commit" if AGENT unless after exec "lint-pbxproj-test-wiring.sh" since write "cmuxTests/**"
+    because "Wire new cmuxTests Swift files into the Xcode project and run the pbxproj test wiring lint before committing."

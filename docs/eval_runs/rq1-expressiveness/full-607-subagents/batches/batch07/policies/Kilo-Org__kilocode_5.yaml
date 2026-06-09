@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule current-workdir-only:
+    notify write file "**" if AGENT
+    because "Make changes only in the current working directory, never in the main checkout of a worktree."

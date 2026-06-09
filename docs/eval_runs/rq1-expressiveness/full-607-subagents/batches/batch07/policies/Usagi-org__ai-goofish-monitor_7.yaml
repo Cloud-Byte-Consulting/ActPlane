@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source SECRET = file ".env"
+  source SECRET = file "state.json"
+  source SECRET = file "**/*cookie*"
+  
+  rule no-real-secrets-commit:
+    block exec "git" "commit" if SECRET
+    notify write file ".env" if SECRET
+    because "Do not commit real credentials or cookies such as .env or state.json; change default production auth."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule pr-merge-proof:
+    block exec "gh" "merge" if AGENT unless after exec "pnpm" since write "src/**" or write "ui/**" or write "extensions/**"
+    because "before merge, post exact local commands, CI or Testbox run IDs, before/after proof, and known proof gaps"

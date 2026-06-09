@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule no-contributor-changelog:
+    block write file "CHANGELOG.md" if AGENT
+    because "contributor PR authors should not edit CHANGELOG.md; maintainer or AI adds entries during landing"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule clippy-zero-tolerance:
+    block exec "git" "commit" if AGENT unless after exec "clippy-driver" since write "*.rs"
+    because "Fix all clippy warnings before moving on."

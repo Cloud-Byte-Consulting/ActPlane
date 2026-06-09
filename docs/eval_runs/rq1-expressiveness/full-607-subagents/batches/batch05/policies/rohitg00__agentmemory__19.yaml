@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule tests-before-pr:
+    block exec "gh" "pr" if AGENT unless after exec "npm" since write "**"
+    block exec "git" "push" if AGENT unless after exec "npm" since write "**"
+    because "all npm tests must pass before opening a PR or pushing"

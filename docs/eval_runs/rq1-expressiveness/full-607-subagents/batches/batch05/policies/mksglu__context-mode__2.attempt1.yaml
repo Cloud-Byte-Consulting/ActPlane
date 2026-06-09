@@ -1,0 +1,11 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule think-in-code:
+    notify exec "cat" if AGENT
+    notify exec "sed" if AGENT
+    notify exec "grep" if AGENT
+    notify exec "jq" if AGENT
+    notify exec "ctx_execute" if AGENT
+    because "for analyze, count, filter, compare, search, parse, or transform tasks, write JavaScript code through ctx_execute and print only the answer"

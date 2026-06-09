@@ -1,0 +1,13 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SECRET = file "**/.env"
+  source SECRET = file "**/*secret*"
+  source SECRET = file "**/*credential*"
+  
+  rule pr-requirements-checks:
+    block exec "git" "commit" if SECRET
+    block exec "git" "push" if AGENT unless after exec "make" since write "src/**" or write "nemoclaw/**" or write "docs/**"
+    block exec "git" "push" if AGENT unless after exec "npm" since write "src/**" or write "nemoclaw/**" or write "docs/**"
+    notify exec "gh" "pr" if AGENT
+    because "PRs need a feature branch from main, make check and npm test, the PR template, docs for user-facing changes, no committed secrets, and fewer than ten open PRs."

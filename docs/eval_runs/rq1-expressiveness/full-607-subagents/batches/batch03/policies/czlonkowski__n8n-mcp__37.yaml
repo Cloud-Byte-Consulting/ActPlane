@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule subagents-no-git-publish:
+    kill exec "git" "commit" if AGENT
+    kill exec "git" "push" if AGENT
+    because "Sub-agents must not commit or push; the primary agent handles publishing."

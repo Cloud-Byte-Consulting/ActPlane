@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SCRAPER = file "scripts/scrape_hf_models.py"
+  
+  rule add-model-db:
+    notify write file "scripts/scrape_hf_models.py" if AGENT
+    block write file "data/hf_models.json" if AGENT unless lineage-includes exec "python*"
+    notify exec "git" "commit" if SCRAPER unless after exec "cargo" since write "scripts/scrape_hf_models.py"
+    because "After model DB changes, run the scraper, verify data/hf_models.json, and run cargo build."

@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule prechange-repo-checks:
+    block write file "src/**" if AGENT unless after exec "make"
+    block write file "src/**" if AGENT unless after exec "npm"
+    block write file "nemoclaw/**" if AGENT unless after exec "make"
+    block write file "nemoclaw/**" if AGENT unless after exec "npm"
+    because "Before making repo changes, read CONTRIBUTING.md, run make check, and confirm npm test passes."

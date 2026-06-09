@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule pr-refs-gh-not-web:
+    notify exec "gh" "pr" if AGENT
+    notify exec "gh" "api" if AGENT
+    notify exec "gitcrawl" if AGENT
+    because "use gh pr view/diff or gh api for PR refs, prefer gitcrawl for maintainer discovery, and verify live with gh before mutation"

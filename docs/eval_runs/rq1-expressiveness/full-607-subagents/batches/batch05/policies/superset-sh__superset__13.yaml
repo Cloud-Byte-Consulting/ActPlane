@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule mastra-upstream-deps:
+    notify write file "package.json" if AGENT
+    notify write file "bun.lock*" if AGENT
+    block write file "patches/**" if AGENT
+    because "use published upstream mastracode and @mastra packages; avoid fork tarballs or custom patch steps unless requested"

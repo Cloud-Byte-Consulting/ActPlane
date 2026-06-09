@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule main-dependency-add:
+    notify exec "pnpm" "add" if AGENT
+    block exec "npm" "install" if AGENT
+    because "add main-process dependencies from apps/x/apps/main with pnpm add, then import in source for esbuild bundling"

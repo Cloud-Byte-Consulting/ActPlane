@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule build-and-smoke-test:
+    notify exec "npm" "ci" if AGENT
+    notify exec "npm" "build" if AGENT
+    notify exec "node" if AGENT
+    because "build with npm ci, npm run build, and smoke-test dist/index.js with sample stdin"

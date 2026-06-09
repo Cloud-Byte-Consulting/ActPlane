@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule gofmt-after-go-edits:
+    block exec "git" "commit" if AGENT unless after exec "gofmt" since write "**/*.go"
+    because "format Go source files after every modification"

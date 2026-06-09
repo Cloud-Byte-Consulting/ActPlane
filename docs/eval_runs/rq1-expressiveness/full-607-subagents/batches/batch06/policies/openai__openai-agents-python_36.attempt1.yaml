@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source TYPED = file "src/agents/**"
+  
+  rule make-typecheck-required:
+    notify exec "make" "typecheck" if AGENT
+    block exec "git" "commit" if TYPED unless after exec "make" since write "src/agents/**"
+    because "Type hints must pass make typecheck."

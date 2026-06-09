@@ -1,0 +1,13 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source VERIFY = file "src/agents/**"
+  source VERIFY = file "tests/**"
+  source VERIFY = file "examples/**"
+  source VERIFY = file "pyproject.toml"
+  source VERIFY = file "Makefile"
+  
+  rule code-change-verification:
+    block exec "git" "commit" if VERIFY unless after exec "make" since write "src/agents/**" or write "tests/**" or write "examples/**" or write "pyproject.toml" or write "Makefile"
+    notify exec "make" if AGENT
+    because "Run code-change-verification before marking runtime, test, example, build, or test-configuration changes complete; docs-only repo-meta changes may skip unless requested."

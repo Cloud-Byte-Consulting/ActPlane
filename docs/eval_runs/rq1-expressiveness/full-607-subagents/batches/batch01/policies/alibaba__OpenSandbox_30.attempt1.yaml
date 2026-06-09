@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule generated-output-not-only-fix:
+    notify write file "**/generated/**" if AGENT
+    notify write file "**/*_pb2.py" if AGENT
+    because "Do not edit generated output as the only fix; update the source of truth too."

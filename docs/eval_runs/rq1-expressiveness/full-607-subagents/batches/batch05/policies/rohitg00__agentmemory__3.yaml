@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule rest-endpoint-consistency:
+    notify write file "src/triggers/api.ts" if AGENT
+    notify write file "src/index.ts" if AGENT
+    notify write file "README.md" if AGENT
+    block exec "git" "commit" if AGENT unless after exec "npm" since write "src/triggers/api.ts" or write "src/index.ts" or write "README.md"
+    because "adding REST endpoints requires API registration, index log count, and README endpoint counts"

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule keep-numbered-curriculum:
+    notify write file "0*-*/**" if AGENT
+    block unlink file "0*-*/**" if AGENT
+    because "Do not reorganize the 01- through 10- module numbering; the order is the curriculum."

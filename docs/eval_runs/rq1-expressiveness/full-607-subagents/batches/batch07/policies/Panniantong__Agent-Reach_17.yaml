@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule xhs-cookie-editor-only:
+    notify exec "python" "login" if AGENT
+    notify write file "config/**" if AGENT
+    because "For XHS login, use Cookie-Editor browser export only; QR login can hang."

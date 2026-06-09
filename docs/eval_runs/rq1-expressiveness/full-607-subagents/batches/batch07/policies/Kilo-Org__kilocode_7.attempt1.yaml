@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule dev-with-help-params:
+    notify exec "bun" "dev" if AGENT
+    because "For dev with params, use bun dev -- help."

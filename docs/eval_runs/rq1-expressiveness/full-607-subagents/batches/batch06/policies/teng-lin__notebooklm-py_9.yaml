@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule notebooklm-profile-isolation:
+    notify exec "notebooklm" if AGENT
+    because "For concurrent runs, set NOTEBOOKLM_PROFILE=agent-<id> so each agent gets an isolated profile; use NOTEBOOKLM_HOME=/tmp/agent-<id> only when separate home directories are required."

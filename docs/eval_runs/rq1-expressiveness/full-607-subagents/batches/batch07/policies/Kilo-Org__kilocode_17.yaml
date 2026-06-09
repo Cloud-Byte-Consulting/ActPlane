@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule opencode-annotation-check:
+    notify write file "packages/opencode/src/**" if AGENT unless target "packages/opencode/src/kilocode/**"
+    notify write file "packages/opencode/test/**" if AGENT unless target "packages/opencode/test/kilocode/**"
+    because "Shared opencode changes need kilocode_change annotations; kilocode-named paths are exempt."

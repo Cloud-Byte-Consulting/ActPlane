@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule shrinkwrap-regen:
+    block write file "packages/coding-agent/npm-shrinkwrap.json" if AGENT unless after exec "node"
+    because "Regenerate coding-agent shrinkwrap with node scripts/generate-coding-agent-shrinkwrap.mjs and review lifecycle-script allowlists."

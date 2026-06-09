@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule retry-push:
+    notify exec "git" "push" if AGENT
+    because "if push fails, resolve the cause and retry until it succeeds"

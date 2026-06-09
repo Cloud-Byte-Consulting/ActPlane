@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-destructive-git:
+    kill exec "git" "reset" if AGENT
+    kill exec "git" "clean" if AGENT
+    kill exec "git" "stash" if AGENT
+    kill exec "git" "-A" if AGENT
+    kill exec "git" "." if AGENT
+    kill exec "git" "--no-verify" if AGENT
+    because "Never run destructive git operations or bypass checks: reset hard, checkout dot, clean, stash, bulk add, or commit no-verify."

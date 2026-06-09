@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule stable-rust-only:
+    kill exec "cargo" "+nightly" if AGENT
+    kill exec "rustup" "nightly" if AGENT
+    notify write file "**/*.rs" if AGENT
+    block exec "git" "commit" if AGENT unless after exec "cargo" since write "**/*.rs" or write "Cargo.toml" or write "Cargo.lock"
+    because "Stay on stable Rust, do not add feature attributes or nightly-only syntax, and run cargo build before PR work."

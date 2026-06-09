@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule statusline-setup:
+    notify write file "**/.claude/settings.json" if AGENT
+    notify write file "**/plugin.json" if AGENT
+    notify exec "claude-hud:setup" if AGENT
+    because "configure StatusLine through /claude-hud:setup in settings.json; statusLine is not valid in plugin.json"

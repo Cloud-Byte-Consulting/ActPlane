@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule refresh-package-lock:
+    notify write file "package.json" if AGENT
+    notify write file "package-lock.json" if AGENT
+    because "When dependency metadata changes, refresh package-lock.json with npm install --package-lock-only --ignore-scripts."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule graph-registration:
+    notify write file "langgraph.json" if AGENT
+    because "new graphs must be registered under graphs in langgraph.json"

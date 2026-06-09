@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule preserve-security-guarantees:
+    notify write file "**/*auth*" if AGENT
+    notify write file "**/*cors*" if AGENT
+    notify write file "**/*secret*" if AGENT
+    notify write file "**/*rate*" if AGENT
+    because "Do not weaken auth, CORS, body limits, rate limits, allowlists, or secret-handling guarantees."

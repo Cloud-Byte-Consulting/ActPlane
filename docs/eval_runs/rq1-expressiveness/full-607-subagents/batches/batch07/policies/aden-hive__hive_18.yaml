@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule formatting-followup-same-commit:
+    notify exec "git" "commit" if AGENT
+    notify exec "git" "push" if AGENT
+    because "If commit or push was already requested, include formatting-only follow-up changes in the same commit when practical."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule bazel-lock-update-after-deps:
+    block exec "git" "commit" if AGENT unless after exec "just" since write "Cargo.toml" or write "Cargo.lock"
+    because "After Rust dependency changes, run just bazel-lock-update from the repo root and include MODULE.bazel.lock."

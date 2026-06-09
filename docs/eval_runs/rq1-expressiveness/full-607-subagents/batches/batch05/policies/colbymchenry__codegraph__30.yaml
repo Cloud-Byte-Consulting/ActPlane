@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule installer-tests-required:
+    block exec "git" "commit" if AGENT unless after exec "npm" since write "src/installer/**" or write "__tests__/installer-targets.test.ts"
+    notify write file "src/installer/**" if AGENT
+    because "installer changes need matching coverage in __tests__/installer-targets.test.ts"

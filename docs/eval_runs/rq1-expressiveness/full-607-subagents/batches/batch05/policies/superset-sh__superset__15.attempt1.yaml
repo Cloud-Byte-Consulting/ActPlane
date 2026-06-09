@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule lint-before-push:
+    block exec "git" "push" if AGENT unless after exec "bun" since write "**"
+    notify exec "bun" "lint:fix" if AGENT
+    notify exec "bun" "lint" if AGENT
+    because "fix Biome warnings with bun run lint:fix and verify bun run lint exits zero before git push"

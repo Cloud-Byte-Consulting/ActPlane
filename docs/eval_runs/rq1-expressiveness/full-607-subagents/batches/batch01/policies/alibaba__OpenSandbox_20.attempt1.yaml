@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source KUBE = file "kubernetes/**"
+  
+  rule kubernetes-output-alignment:
+    notify exec "git" "commit" if KUBE unless after exec "helm" since write "kubernetes/**"
+    notify exec "git" "commit" if KUBE unless after exec "kustomize" since write "kubernetes/**"
+    because "For CRD or Kubernetes public behavior changes, verify generated manifests, deployment output, integration, and docs."

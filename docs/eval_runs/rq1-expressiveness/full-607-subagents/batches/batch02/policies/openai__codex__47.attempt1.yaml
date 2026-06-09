@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule snapshots-for-ui-text:
+    block exec "git" "commit" if AGENT unless after exec "cargo" since write "codex-rs/tui/**"
+    notify exec "cargo" "insta" if AGENT
+    because "For intentional UI or text output changes, generate, inspect, and intentionally accept pending snapshots."

@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source BEHAVIOR = file "src/agents/**"
+  
+  rule tests-docs-new-behavior:
+    notify write file "tests/**" if AGENT
+    notify write file "docs/**" if AGENT
+    block exec "git" "commit" if BEHAVIOR unless after exec "pytest" since write "src/agents/**"
+    because "Add tests for new behavior when feasible and update documentation for user-facing changes."

@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source LOCAL = file "src/agents/**"
+  source LOCAL = file "tests/**"
+  source LOCAL = file "examples/**"
+  source LOCAL = file "pyproject.toml"
+  
+  rule mandatory-local-run-order:
+    notify exec "make" if AGENT
+    block exec "git" "commit" if LOCAL unless after exec "make" since write "src/agents/**" or write "tests/**" or write "examples/**" or write "pyproject.toml"
+    because "When code-change-verification applies, run make format, make lint, make typecheck, and make tests in order."

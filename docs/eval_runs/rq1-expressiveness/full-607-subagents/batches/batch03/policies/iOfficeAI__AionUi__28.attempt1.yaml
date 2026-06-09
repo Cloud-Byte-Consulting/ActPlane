@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule i18n-validation:
+    block exec "gh" "pr" if AGENT unless after exec "bun" since write "src/renderer/**" or write "locales/**" or write "src/common/config/i18n/**"
+    block exec "gh" "pr" if AGENT unless after exec "node" since write "src/renderer/**" or write "locales/**" or write "src/common/config/i18n/**"
+    because "If renderer, locale, or i18n config files changed, run bun run i18n:types and node scripts/check-i18n.js before opening a PR."

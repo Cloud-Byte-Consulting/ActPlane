@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source HOST = file "src/**"
+  source RUNNER = file "container/agent-runner/src/**"
+  
+  rule nanoclaw-dev-checks:
+    notify exec "git" "commit" if HOST unless after exec "pnpm" since write "src/**"
+    notify exec "git" "commit" if RUNNER unless after exec "bun" since write "container/agent-runner/src/**"
+    because "Run commands directly and use the documented pnpm, build, container, bun test, and typecheck flows for touched areas."

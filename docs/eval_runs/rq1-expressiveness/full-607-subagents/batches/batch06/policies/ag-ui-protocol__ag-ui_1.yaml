@@ -1,0 +1,13 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule prefer-nx-tasks:
+    block exec "jest" if AGENT
+    block exec "vitest" if AGENT
+    block exec "eslint" if AGENT
+    block exec "tsc" if AGENT
+    block exec "npm" "test" if AGENT
+    block exec "pnpm" "test" if AGENT
+    notify exec "nx" if AGENT
+    because "Run build, lint, test, e2e, and related tasks through nx run, nx run-many, or nx affected instead of underlying tooling."

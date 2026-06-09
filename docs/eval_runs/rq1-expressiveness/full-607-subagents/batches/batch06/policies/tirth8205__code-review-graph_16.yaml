@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule never-stop-before-push:
+    notify exec "git" "push" if AGENT
+    because "Never stop before pushing; local-only work is stranded."

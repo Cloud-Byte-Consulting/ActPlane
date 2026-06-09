@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-commit-or-push:
+    block exec "git" "commit" if AGENT
+    block exec "git" "push" if AGENT
+    because "Do not commit or push without an explicit user request."

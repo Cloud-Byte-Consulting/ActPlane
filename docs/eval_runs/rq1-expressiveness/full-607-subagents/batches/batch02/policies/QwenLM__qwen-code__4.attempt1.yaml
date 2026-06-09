@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule package-dir-tests:
+    notify exec "vitest" if AGENT
+    notify exec "npx" "vitest" if AGENT
+    because "Run tests from the specific package directory, not from the project root."

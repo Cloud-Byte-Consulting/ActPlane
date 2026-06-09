@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule extension-dev-command:
+    notify exec "bun" "extension" if AGENT
+    because "Use bun run extension for the VS Code extension; pass --no-build when intentionally skipping build."

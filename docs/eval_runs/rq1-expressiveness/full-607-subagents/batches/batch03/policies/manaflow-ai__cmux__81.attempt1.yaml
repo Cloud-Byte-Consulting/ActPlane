@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule ghostty-submodule-workflow:
+    notify write file "ghostty/**" if AGENT
+    notify exec "git" "commit" if AGENT
+    notify exec "git" "push" if AGENT
+    because "Ghostty changes must be committed in the submodule, pushed to the manaflow fork, documented, then the parent pointer updated."

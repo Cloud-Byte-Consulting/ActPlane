@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule prefer-gitnexus-query:
+    notify exec "rg" if AGENT unless after exec "gitnexus_query"
+    notify exec "grep" if AGENT unless after exec "gitnexus_query"
+    because "When exploring unfamiliar code, use gitnexus_query instead of grepping for execution flows."

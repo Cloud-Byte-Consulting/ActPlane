@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SECRETS = file ".env"
+  source SECRETS = file "**/.env"
+  
+  rule no-api-key-commit:
+    block exec "git" "commit" if AGENT and SECRETS
+    because "Never commit API keys; use the named environment variables instead."

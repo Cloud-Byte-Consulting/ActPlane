@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule new-llm-provider-checklist:
+    notify write file "backend/pkg/providers/**" if AGENT
+    notify write file "pkg/providers/**" if AGENT
+    notify write file "pkg/server/models/providers.go" if AGENT
+    notify write file "pkg/config/config.go" if AGENT
+    notify write file "backend/migrations/sql/**" if AGENT
+    notify write file "frontend/src/components/icons/**" if AGENT
+    because "A new LLM provider needs provider implementation, registration, validation, config, migration, icon, and schema/frontend updates."

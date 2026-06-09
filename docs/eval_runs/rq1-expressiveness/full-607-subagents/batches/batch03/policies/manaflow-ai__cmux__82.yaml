@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule release-command-flow:
+    notify exec "git" "tag" if AGENT
+    notify exec "bump-version.sh" if AGENT
+    because "Use the release command to bump version, update changelog, run guards, tag, and push."

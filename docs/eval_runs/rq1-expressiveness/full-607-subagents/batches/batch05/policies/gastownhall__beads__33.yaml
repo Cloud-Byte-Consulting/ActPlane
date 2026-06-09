@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule bd-create-json:
+    notify exec "bd" "create" if AGENT
+    because "create issues with bd create using --json, proper priority, dependencies, and stdin for special descriptions"

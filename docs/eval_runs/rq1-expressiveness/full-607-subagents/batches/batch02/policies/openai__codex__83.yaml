@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule schema-fixtures-after-api-shape:
+    block exec "git" "commit" if AGENT unless after exec "just" since write "codex-rs/app-server-protocol/src/protocol/**"
+    because "Regenerate app-server schema fixtures with just write-app-server-schema, including experimental fixtures when affected."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule cleanup-old-tags:
+    notify exec "reload.sh" if AGENT
+    notify exec "open" if AGENT
+    because "Before launching a new tagged run, quit old tagged apps and remove their sockets and derived data."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule subagent-returns-progress:
+    block write file "task_plan.md" if AGENT
+    notify write file "progress.md" if AGENT
+    because "Do not log subagent returns into task_plan.md; use progress.md."

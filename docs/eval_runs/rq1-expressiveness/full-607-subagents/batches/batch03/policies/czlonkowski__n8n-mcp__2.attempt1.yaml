@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SECRET = file "**/.env"
+  source SECRET = file ".env"
+  
+  rule no-public-secrets:
+    block exec "git" "commit" if AGENT and SECRET
+    notify write file "CLAUDE.md" if AGENT
+    because "Do not add API keys, credentials, private URLs, or internal details to the public repo guidance."

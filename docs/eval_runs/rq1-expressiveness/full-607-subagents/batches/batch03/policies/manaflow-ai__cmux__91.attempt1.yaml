@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule changelog-update:
+    notify write file "CHANGELOG.md" if AGENT
+    notify exec "git" "commit" if AGENT
+    because "Update CHANGELOG.md because the docs changelog renders from it."

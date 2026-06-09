@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-commit-without-checks:
+    block exec "git" "commit" if AGENT unless after exec "cargo" since write "*.rs"
+    because "Never commit code until the required checks have passed."

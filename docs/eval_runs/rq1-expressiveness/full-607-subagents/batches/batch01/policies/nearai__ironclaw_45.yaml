@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule avoid-churn-generated-edits:
+    notify write file "**/generated/**" if AGENT
+    notify write file "**/*_pb.rs" if AGENT
+    because "Avoid unrelated file churn and generated-file edits unless required."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule autoreview-before-commit:
+    block exec "git" "commit" if AGENT unless after exec "autoreview" since write "src/**" or write "ui/**" or write "extensions/**"
+    because "pre-land or pre-commit code changes need autoreview until no accepted actionable findings remain unless exempt"

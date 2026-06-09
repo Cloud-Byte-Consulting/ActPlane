@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source CODE = file "**/*.ts"
+  
+  rule gbrain-before-shipping:
+    block exec "git" "push" if CODE unless after exec "bun" since write "**/*.ts"
+    notify exec "gh" "pr" if AGENT
+    because "Before shipping, run bun run ci:local or ci:local:diff and use the /ship skill, not a manual path."

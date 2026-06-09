@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule new-middleware-wiring:
+    notify write file "agent/middleware/**" if AGENT
+    notify write file "agent/middleware/__init__.py" if AGENT
+    notify write file "server.py" if AGENT
+    block exec "git" "commit" if AGENT unless after exec "pytest" since write "agent/middleware/**" or write "server.py"
+    because "new middleware must be exported and added to get_agent middleware in the correct order"

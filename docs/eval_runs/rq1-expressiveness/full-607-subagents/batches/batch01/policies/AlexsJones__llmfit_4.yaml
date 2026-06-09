@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule cargo-build-run:
+    notify exec "make" if AGENT
+    because "Build with cargo build and run with cargo run."

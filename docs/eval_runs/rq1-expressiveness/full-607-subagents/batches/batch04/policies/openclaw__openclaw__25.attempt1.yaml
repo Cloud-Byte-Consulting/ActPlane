@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule doctor-fix-migrations:
+    block write file "src/**/migration" if AGENT
+    block write file "src/**/startup" if AGENT
+    notify exec "openclaw" "doctor" if AGENT
+    because "legacy config repair belongs in openclaw doctor --fix, not startup or load-time core migrations"

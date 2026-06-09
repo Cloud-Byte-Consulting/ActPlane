@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-direct-generated-models:
+    block write file "packages/ai/src/models.generated.ts" if AGENT
+    because "Do not modify models.generated.ts directly; update packages/ai/scripts/generate-models.ts instead."

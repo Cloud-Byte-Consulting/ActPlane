@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source LIVE_DOC = file "apps/x/LIVE_NOTE.md"
+  source ANALYTICS_DOC = file "apps/x/ANALYTICS.md"
+
+  rule feature-doc-read-first:
+    block write file "apps/x/**" if AGENT and not LIVE_DOC and not ANALYTICS_DOC
+    because "read the relevant feature deep-dive doc before changing that feature area"

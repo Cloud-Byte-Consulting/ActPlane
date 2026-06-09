@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule one-squashed-commit:
+    notify exec "git" "merge" if AGENT
+    notify exec "git" "commit" if AGENT
+    because "Use one squashed commit per release or PR merge."

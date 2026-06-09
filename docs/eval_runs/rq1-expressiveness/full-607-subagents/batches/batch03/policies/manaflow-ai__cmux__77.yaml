@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule e2e-via-gh-workflow:
+    kill exec "xcodebuild" "test" if AGENT
+    kill exec "pytest" if AGENT
+    notify exec "gh" "workflow" if AGENT
+    because "Trigger E2E and UI tests with gh workflow run test-e2e.yml."

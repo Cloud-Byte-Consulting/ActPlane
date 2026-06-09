@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule ask-before-writing:
+    notify write file "**" if AGENT
+    because "ask May I write this to the filepath before using Write or Edit tools"

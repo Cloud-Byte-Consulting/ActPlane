@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source DRAFT = file "src/agents/**"
+  source DRAFT = file "tests/**"
+  source DRAFT = file "examples/**"
+  source DRAFT = file "pyproject.toml"
+  
+  rule pr-draft-summary-handoff:
+    notify exec "git" "commit" if DRAFT
+    notify exec "gh" "pr" if DRAFT
+    because "For moderate-or-larger code changes, invoke pr-draft-summary in the final handoff unless the documented skip cases apply."

@@ -1,0 +1,126 @@
+{
+  "coverage": {
+    "all": {
+      "compile_rate": 1.0,
+      "compiled": 607,
+      "total": 607
+    },
+    "cross_event": {
+      "compile_rate": 1.0,
+      "compiled": 215,
+      "total": 215
+    },
+    "per_event": {
+      "compile_rate": 1.0,
+      "compiled": 392,
+      "total": 392
+    }
+  },
+  "retry": {
+    "failure_reasons": {},
+    "mean_attempts_all": 1.0032948929159802,
+    "mean_attempts_compiled": 1.0032948929159802,
+    "retry_rate": 0.0032948929159802307,
+    "total_with_retry": 2
+  },
+  "rule_complexity": {
+    "cross_event": {
+      "attempts": {
+        "max": 1.0,
+        "mean": 1.0,
+        "min": 1.0,
+        "n": 215,
+        "p50": 1.0,
+        "p90": 1.0,
+        "p95": 1.0
+      },
+      "binary_size": {
+        "max": 63496.0,
+        "mean": 63496.0,
+        "min": 63496.0,
+        "n": 215,
+        "p50": 63496.0,
+        "p90": 63496.0,
+        "p95": 63496.0
+      },
+      "dsl_tokens": {
+        "max": 233.0,
+        "mean": 86.73953488372094,
+        "min": 35.0,
+        "n": 215,
+        "p50": 78.0,
+        "p90": 134.6,
+        "p95": 152.29999999999998
+      }
+    },
+    "per_event": {
+      "attempts": {
+        "max": 2.0,
+        "mean": 1.0051020408163265,
+        "min": 1.0,
+        "n": 392,
+        "p50": 1.0,
+        "p90": 1.0,
+        "p95": 1.0
+      },
+      "binary_size": {
+        "max": 63496.0,
+        "mean": 63496.0,
+        "min": 63496.0,
+        "n": 392,
+        "p50": 63496.0,
+        "p90": 63496.0,
+        "p95": 63496.0
+      },
+      "dsl_tokens": {
+        "max": 403.0,
+        "mean": 62.140306122448976,
+        "min": 34.0,
+        "n": 392,
+        "p50": 59.0,
+        "p90": 81.0,
+        "p95": 94.34999999999997
+      }
+    }
+  },
+  "run_dir": "docs/eval_runs/rq1-expressiveness/full-607-subagents",
+  "token_cost": {
+    "compression_ratio_dsl_over_nl": {
+      "max": 19.444444444444443,
+      "mean": 2.3407865107350183,
+      "min": 0.12264150943396226,
+      "n": 607,
+      "p50": 2.0,
+      "p90": 4.5,
+      "p95": 5.415384615384613
+    },
+    "dsl_tokens_compiled": {
+      "max": 403.0,
+      "mean": 70.85337726523888,
+      "min": 34.0,
+      "n": 607,
+      "p50": 65.0,
+      "p90": 102.0,
+      "p95": 121.69999999999993
+    },
+    "nl_tokens": {
+      "max": 636.0,
+      "mean": 54.05436573311368,
+      "min": 5.0,
+      "n": 607,
+      "p50": 33.0,
+      "p90": 109.79999999999995,
+      "p95": 170.69999999999993
+    },
+    "translator_total_tokens": {
+      "max": null,
+      "mean": null,
+      "min": null,
+      "n": 0,
+      "p50": null,
+      "p90": null,
+      "p95": null
+    }
+  },
+  "tokenizer": "tiktoken:cl100k_base"
+}

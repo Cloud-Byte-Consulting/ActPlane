@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule structured-debugging:
+    notify exec "rg" if AGENT unless after exec "structured-debugging"
+    notify exec "grep" if AGENT unless after exec "structured-debugging"
+    because "For hard bugs that need more than a quick glance, use the structured-debugging skill."

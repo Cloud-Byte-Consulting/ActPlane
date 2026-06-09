@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule mcp-learning-workflow:
+    notify write file "**" if AGENT unless lineage-includes exec "memory_search"
+    notify exec "git" "commit" if AGENT unless lineage-includes exec "memory_store"
+    because "Learn with memory_search, coordinate with swarm_init, execute directly, then remember with memory_store."

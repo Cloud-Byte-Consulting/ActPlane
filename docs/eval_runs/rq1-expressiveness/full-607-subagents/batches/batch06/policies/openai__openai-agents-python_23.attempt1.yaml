@@ -1,0 +1,11 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source STREAM = file "src/agents/run_internal/run_loop.py"
+  source STREAM = file "src/agents/stream_events.py"
+  
+  rule streaming-path-alignment:
+    notify write file "src/agents/run_internal/run_loop.py" if AGENT
+    notify write file "src/agents/stream_events.py" if AGENT
+    block exec "git" "commit" if STREAM unless after exec "pytest" since write "src/agents/run_internal/run_loop.py" or write "src/agents/stream_events.py"
+    because "Keep streaming and non-streaming run_loop behavior aligned, and reflect new streaming item types in stream_events.py."

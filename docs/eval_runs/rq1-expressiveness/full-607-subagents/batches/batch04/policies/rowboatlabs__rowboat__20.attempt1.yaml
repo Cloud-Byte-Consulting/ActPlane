@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule renderer-hot-reload:
+    notify write file "apps/x/apps/renderer/src/**" if AGENT
+    because "renderer source changes hot reload automatically in dev mode"

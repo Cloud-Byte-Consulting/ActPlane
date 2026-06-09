@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule oxfmt-not-prettier:
+    block exec "prettier" if AGENT
+    notify exec "pnpm" "format" if AGENT
+    notify exec "scripts/run-oxlint.mjs" if AGENT
+    because "format with oxfmt and repo wrappers, not Prettier"

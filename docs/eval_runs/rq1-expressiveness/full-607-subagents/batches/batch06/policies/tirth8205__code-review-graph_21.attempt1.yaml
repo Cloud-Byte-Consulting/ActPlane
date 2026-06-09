@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule impact-radius-before-import-tracing:
+    notify exec "rg" if AGENT
+    notify exec "grep" if AGENT
+    because "For impact analysis, use get_impact_radius instead of manually tracing imports."

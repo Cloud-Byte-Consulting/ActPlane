@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule bd-quick-reference:
+    notify exec "bd" if AGENT
+    because "Use bd ready, bd show, bd update --claim, and bd close for task workflow."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule verify-compilation:
+    block exec "git" "commit" if AGENT unless after exec "npm" since write "apps/x/**"
+    because "verify compilation with cd apps/x && npm run deps && npm run lint"

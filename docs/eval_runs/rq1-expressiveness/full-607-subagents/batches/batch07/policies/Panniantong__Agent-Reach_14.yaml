@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-direct-main-push:
+    notify exec "git" "push" if AGENT
+    notify exec "git" "commit" if AGENT
+    because "Work on a new branch, open a PR to main, and never push directly to main."

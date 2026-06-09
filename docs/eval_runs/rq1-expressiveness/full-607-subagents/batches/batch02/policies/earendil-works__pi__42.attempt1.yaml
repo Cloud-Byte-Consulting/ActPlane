@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule gh-comment-body-file:
+    block exec "gh" "--body" if AGENT
+    notify exec "gh" "--body-file" if AGENT
+    because "Write issue or PR comments to a temp file and post with gh comment --body-file, never multi-line markdown through --body."

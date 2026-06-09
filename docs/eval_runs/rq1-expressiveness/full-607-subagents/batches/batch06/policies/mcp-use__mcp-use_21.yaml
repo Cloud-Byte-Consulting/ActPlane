@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule feature-approval-required:
+    notify write file "libraries/**" if AGENT
+    notify write file "docs/**" if AGENT
+    because "Do not implement features without explicit approval."

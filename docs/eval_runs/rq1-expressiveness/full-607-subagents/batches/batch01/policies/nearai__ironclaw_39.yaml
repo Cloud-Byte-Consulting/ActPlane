@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source PARITY = file "FEATURE_PARITY.md"
+  
+  rule check-feature-parity-before-pr:
+    block exec "gh" "pr" if AGENT and not PARITY
+    because "Check FEATURE_PARITY.md for needed status updates before opening a PR that changes feature behavior."

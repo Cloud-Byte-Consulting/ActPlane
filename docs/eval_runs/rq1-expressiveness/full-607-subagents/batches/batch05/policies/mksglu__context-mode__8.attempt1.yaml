@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule grep-sandbox:
+    notify exec "grep" if AGENT
+    because "grep may flood context; run it through ctx_execute shell sandbox"

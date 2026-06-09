@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule new-platform-checklist:
+    notify write file "platform/**" if AGENT
+    notify write file "cmd/cc-connect/**" if AGENT
+    because "A new platform needs platform implementation, core registration in init, config, docs, tests, and i18n."

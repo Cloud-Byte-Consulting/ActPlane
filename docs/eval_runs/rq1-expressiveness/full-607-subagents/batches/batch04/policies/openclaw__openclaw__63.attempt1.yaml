@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule metadata-diff-check:
+    block exec "git" "commit" if AGENT unless after exec "git" since write "docs/**" or write ".github/**"
+    because "docs/changelog-only and CI/workflow metadata-only changes need git diff --check plus relevant sanity"

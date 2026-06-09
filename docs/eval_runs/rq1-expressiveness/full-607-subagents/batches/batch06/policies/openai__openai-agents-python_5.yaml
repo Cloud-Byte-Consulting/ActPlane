@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule implementation-strategy-boundaries:
+    notify write file "src/agents/**" if AGENT
+    notify write file "pyproject.toml" if AGENT
+    notify write file "docs/**" if AGENT
+    because "Before changing runtime code, exported APIs, external configuration, persisted schemas, wire protocols, or user-facing behavior, use implementation-strategy to decide compatibility boundaries and implementation shape."

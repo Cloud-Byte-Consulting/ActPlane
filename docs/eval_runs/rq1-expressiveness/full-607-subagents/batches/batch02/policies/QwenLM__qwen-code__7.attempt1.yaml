@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-npm-filter-tests:
+    block exec "npm" "--filter=..." if AGENT
+    block exec "npm" "--filter" if AGENT
+    because "Do not use npm run test with --filter; it does not filter and runs the full suite."

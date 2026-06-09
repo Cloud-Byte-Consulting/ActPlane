@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule upgrade-packages-latest:
+    notify exec "npm" "install" if AGENT
+    notify exec "npx" "npm-check-updates" if AGENT
+    because "Upgrade every package to latest, including major versions, using npm install <pkg>@latest or npm-check-updates plus npm install."

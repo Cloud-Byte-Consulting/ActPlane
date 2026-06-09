@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule tsgo-only:
+    block exec "tsc" if AGENT
+    block exec "pnpm" "typecheck" if AGENT
+    block exec "pnpm" "check:types" if AGENT
+    notify exec "pnpm" "tsgo" if AGENT
+    because "typecheck with tsgo lanes only; never add tsc --noEmit, typecheck, or check:types"

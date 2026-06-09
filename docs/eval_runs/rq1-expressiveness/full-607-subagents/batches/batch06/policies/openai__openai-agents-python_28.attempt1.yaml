@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule schema-version-summaries:
+    notify write file "src/agents/run_state.py" if AGENT
+    because "When bumping CURRENT_SCHEMA_VERSION, add or update the matching SCHEMA_VERSION_SUMMARIES entry with a short historical note."

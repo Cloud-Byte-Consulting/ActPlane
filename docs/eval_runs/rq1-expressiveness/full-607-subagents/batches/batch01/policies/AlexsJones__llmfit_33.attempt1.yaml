@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule tui-stack-only:
+    notify write file "Cargo.toml" if AGENT
+    notify write file "Cargo.lock" if AGENT
+    because "Use ratatui plus crossterm for the TUI stack; do not mix in termion or ncurses."

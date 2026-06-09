@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule stable-rust-only:
+    kill exec "cargo" "+nightly" if AGENT
+    kill exec "rustup" "nightly" if AGENT
+    because "Use the stable Rust toolchain only; nightly features are not required."

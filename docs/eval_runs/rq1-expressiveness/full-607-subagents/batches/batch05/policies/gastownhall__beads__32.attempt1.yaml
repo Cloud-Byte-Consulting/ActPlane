@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule check-ready-work:
+    notify write file "**" if AGENT unless after exec "bd"
+    notify exec "bd" "ready" if AGENT
+    because "check ready work with bd ready --json before starting"

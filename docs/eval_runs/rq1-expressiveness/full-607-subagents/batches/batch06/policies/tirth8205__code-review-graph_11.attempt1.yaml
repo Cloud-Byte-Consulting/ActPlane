@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule bd-task-tracking-only:
+    notify exec "bd" if AGENT
+    block write file "TODO.md" if AGENT
+    block write file "**/TODO.md" if AGENT
+    because "Use bd for all task tracking; do not use TodoWrite, TaskCreate, or markdown TODO lists."

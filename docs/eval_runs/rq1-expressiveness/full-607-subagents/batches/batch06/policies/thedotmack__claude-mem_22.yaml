@@ -1,0 +1,11 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source PKG = file "package.json"
+  source PKG = file "**/package.json"
+  source PKG = file "package-lock.json"
+  source PKG = file "**/package-lock.json"
+  
+  rule commit-package-manifests:
+    notify exec "git" "commit" if PKG
+    because "Commit the updated package.json and package-lock.json files after maintenance."

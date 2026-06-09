@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SPEC = file "specs/**"
+  
+  rule regenerate-derived-outputs:
+    notify exec "git" "commit" if SPEC unless after exec "make" since write "specs/**"
+    notify write file "specs/**" if AGENT
+    because "Regenerate derived outputs when the source-of-truth file changes."

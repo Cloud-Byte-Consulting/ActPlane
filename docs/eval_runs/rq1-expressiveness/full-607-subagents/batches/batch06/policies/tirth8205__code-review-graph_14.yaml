@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule session-completion-push:
+    notify exec "git" "pull" if AGENT
+    notify exec "bd" "dolt" if AGENT
+    notify exec "git" "push" if AGENT
+    notify exec "git" "status" if AGENT
+    because "When ending a session, file follow-up issues, run quality gates if code changed, update issue status, git pull --rebase, bd dolt push, git push, verify up-to-date status, clean up, and hand off context."

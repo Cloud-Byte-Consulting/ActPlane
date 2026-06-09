@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule cleanup-test-build-files:
+    notify write file "build/**" if AGENT
+    notify write file "**/*.tmp" if AGENT
+    notify write file "**/test-script*" if AGENT
+    because "delete unnecessary scripts and build intermediates produced during testing"

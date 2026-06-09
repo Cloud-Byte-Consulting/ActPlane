@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-branch-switch:
+    kill exec "git" "checkout" if AGENT
+    kill exec "git" "switch" if AGENT
+    because "Do not switch branches or check out a different branch unless explicitly requested."

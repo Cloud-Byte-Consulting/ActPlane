@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule shared-mcp-config:
+    notify write file ".mcp.json" if AGENT
+    block write file ".cursor/mcp.json" if AGENT
+    notify write file ".codex/config.toml" if AGENT
+    notify write file "opencode.json" if AGENT
+    because "keep shared MCP servers in .mcp.json, link Cursor config to it, and mirror for Codex and OpenCode"

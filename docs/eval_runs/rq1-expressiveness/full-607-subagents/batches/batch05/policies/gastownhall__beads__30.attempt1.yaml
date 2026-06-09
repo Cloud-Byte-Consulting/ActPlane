@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule bd-only-tracking:
+    block write file "**/TODO*.md" if AGENT
+    block exec "gh" "issue" if AGENT
+    notify exec "bd" if AGENT
+    because "use bd for all issue tracking, not markdown TODOs or other trackers"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule feature-tests-required:
+    block exec "git" "commit" if AGENT unless after exec "pytest" since write "Server/src/**" or write "MCPForUnity/**"
+    because "features need tests before commit"

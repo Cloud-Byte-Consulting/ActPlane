@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule workflow-before-commit:
+    notify exec "git" "commit" if AGENT unless after exec "typecheck" since write "packages/**" or write ".qwen/**"
+    because "For non-trivial or behavioral work, create design and E2E plans, dry-run when needed, run build and typecheck, then review."

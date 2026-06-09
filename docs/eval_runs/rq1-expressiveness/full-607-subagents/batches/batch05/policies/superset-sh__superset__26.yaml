@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule neon-branch-for-migrations:
+    block exec "drizzle-kit" if AGENT unless after exec "neon" since write "packages/db/src/schema/**"
+    block exec "bunx" "drizzle-kit" if AGENT unless after exec "neon" since write "packages/db/src/schema/**"
+    notify write file ".env*" if AGENT
+    because "DB migrations require a fresh neon branch and root env files pointed at that branch"

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SPECS_GUIDE = file "specs/AGENTS.md"
+  
+  rule specs-guide-routing:
+    notify write file "specs/**" if AGENT and not SPECS_GUIDE
+    because "Read specs/AGENTS.md before API contract, schema, or example changes."

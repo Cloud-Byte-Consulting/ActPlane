@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source CONTRIBUTING = file "CONTRIBUTING.md"
+  
+  rule contributing-before-pr:
+    block exec "gh" "pr" if AGENT and not CONTRIBUTING
+    notify write file "skills/**" if AGENT and not CONTRIBUTING
+    because "Read CONTRIBUTING.md before creating a PR, adding a skill, or preparing a contribution."

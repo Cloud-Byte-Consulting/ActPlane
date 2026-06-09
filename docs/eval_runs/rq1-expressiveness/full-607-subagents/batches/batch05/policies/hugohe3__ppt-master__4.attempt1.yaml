@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule topic-research-needed:
+    notify exec "topic-research" if AGENT
+    notify write file "projects/**" if AGENT unless after exec "topic-research"
+    because "topic-only PPT requests need the topic-research workflow before Step 1"

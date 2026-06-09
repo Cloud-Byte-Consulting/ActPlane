@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule shortcut-policy:
+    notify write file "KeyboardShortcutSettings" if AGENT
+    notify write file "cmux.json" if AGENT
+    notify write file "docs/**" if AGENT
+    because "New cmux-owned shortcuts must be in settings, persisted in cmux.json, and documented."

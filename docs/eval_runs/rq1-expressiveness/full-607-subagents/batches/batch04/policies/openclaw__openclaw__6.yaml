@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule dependency-contract-proof:
+    block exec "git" "commit" if AGENT unless after exec "rg" since write "src/**" or write "packages/**"
+    because "dependency-backed behavior requires reading upstream docs, source, or types first; no API, default, error, or timing guesses"

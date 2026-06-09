@@ -1,0 +1,13 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source SENSITIVE = file "**/.env"
+  source SENSITIVE = file "**/credentials/**"
+  source SENSITIVE = file "**/live/**"
+  source SENSITIVE = file "**/*.mp4"
+
+  rule no-sensitive-commit:
+    block exec "git" "commit" if SENSITIVE
+    block write file "**/.env" if AGENT
+    block write file "**/*.mp4" if AGENT
+    because "never commit real phone numbers, videos, credentials, or live config"

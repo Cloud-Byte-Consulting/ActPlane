@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule push-without-discarding-work:
+    kill exec "git" "reset" if AGENT
+    kill exec "git" "clean" if AGENT
+    notify exec "git" "push" if AGENT
+    because "Before push, integrate with git pull --rebase if needed and never discard in-progress work."

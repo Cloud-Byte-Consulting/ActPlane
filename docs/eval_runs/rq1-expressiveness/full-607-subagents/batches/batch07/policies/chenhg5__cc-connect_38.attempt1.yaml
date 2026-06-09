@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source CODE = file "**/*.go"
+  source I18N = file "i18n/**"
+  
+  rule precommit-checklist:
+    notify exec "git" "commit" if CODE unless after exec "go" since write "**/*.go"
+    notify write file "core/*.go" if CODE
+    notify exec "git" "commit" if I18N
+    because "Before commit, run go build, go test, avoid new hardcoded platform or agent names in core, and complete i18n."

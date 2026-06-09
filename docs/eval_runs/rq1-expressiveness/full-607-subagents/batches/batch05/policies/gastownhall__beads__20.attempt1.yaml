@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule noninteractive-file-ops:
+    notify exec "cp" if AGENT
+    notify exec "mv" if AGENT
+    notify exec "rm" if AGENT
+    because "use non-interactive flags such as cp -f, mv -f, rm -f, rm -rf, and cp -rf"

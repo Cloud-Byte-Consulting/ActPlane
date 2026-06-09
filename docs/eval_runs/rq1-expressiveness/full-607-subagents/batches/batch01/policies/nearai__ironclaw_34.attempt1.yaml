@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule sandboxed-extensions-wasm:
+    notify write file "src/tools/**" if AGENT
+    notify write file "src/channels/**" if AGENT
+    because "Use WASM tools or WASM channels for sandboxed extensions and plugin-style integrations."

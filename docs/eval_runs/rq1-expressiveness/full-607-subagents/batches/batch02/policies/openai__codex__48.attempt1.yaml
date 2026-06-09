@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule install-cargo-insta:
+    notify exec "cargo" "install" if AGENT
+    because "If cargo-insta is missing, install it with cargo install --locked cargo-insta."

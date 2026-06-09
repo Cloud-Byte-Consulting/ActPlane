@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule commit-push-meaning:
+    notify exec "git" "commit" if AGENT
+    notify exec "git" "push" if AGENT
+    because "commit means your changes only; commit all means grouped chunks; push may pull --rebase first"

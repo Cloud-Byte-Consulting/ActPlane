@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-commit-without-request:
+    block exec "git" "commit" if AGENT
+    because "Never commit unless explicitly requested."

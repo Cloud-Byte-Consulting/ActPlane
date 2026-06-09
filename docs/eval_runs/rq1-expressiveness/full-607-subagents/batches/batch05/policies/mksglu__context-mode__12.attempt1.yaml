@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule output-files-only:
+    notify write file "**" if AGENT
+    because "write artifacts to files and return the file path with a one-line description; do not inline artifacts"

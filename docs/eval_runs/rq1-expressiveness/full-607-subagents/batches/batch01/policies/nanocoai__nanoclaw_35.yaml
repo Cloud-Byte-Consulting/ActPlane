@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule container-entrypoint-policy:
+    notify write file "Dockerfile" if AGENT
+    notify write file "src/container-runner.ts" if AGENT
+    kill exec "tsc" if AGENT
+    because "Keep the dynamic spawn as exec bun and do not reintroduce a tsc build step or /app/dist dependency."

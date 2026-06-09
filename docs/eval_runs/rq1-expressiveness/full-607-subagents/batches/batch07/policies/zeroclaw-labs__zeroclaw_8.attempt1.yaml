@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source CODE = file "src/**"
+  source CODE = file "crates/**"
+  
+  rule full-prepr-validation:
+    notify exec "git" "push" if CODE unless after exec "ci.sh" since write "src/**" or write "crates/**"
+    because "For full pre-PR validation, run ./dev/ci.sh all."

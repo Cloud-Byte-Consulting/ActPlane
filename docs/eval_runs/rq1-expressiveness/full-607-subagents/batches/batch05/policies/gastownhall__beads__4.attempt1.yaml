@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source CHARTER = file "docs/PROJECT_CHARTER.md"
+
+  rule read-project-charter:
+    notify write file "**" if AGENT and not CHARTER
+    because "read docs/PROJECT_CHARTER.md before adding new feature surface area"

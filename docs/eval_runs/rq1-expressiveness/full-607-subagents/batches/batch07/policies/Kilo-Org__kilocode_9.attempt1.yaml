@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule typecheck-tsgo-java:
+    notify exec "bun" "typecheck" if AGENT unless lineage-includes exec "java"
+    kill exec "tsc" if AGENT
+    because "Typecheck uses bun turbo typecheck with tsgo; check Java 21 before running it."

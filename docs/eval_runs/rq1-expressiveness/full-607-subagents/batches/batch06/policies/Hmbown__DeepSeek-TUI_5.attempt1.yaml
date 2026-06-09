@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule cargo-fmt-command:
+    notify exec "cargo" "fmt" if AGENT
+    because "Format with cargo fmt --all."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule coverage-script:
+    notify exec "npm" "run" if AGENT
+    because "Use npm run test:coverage when checking coverage."

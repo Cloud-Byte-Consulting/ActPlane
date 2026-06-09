@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule shipped-config-cgo-tests:
+    notify exec "go" "test" if AGENT
+    because "for shipped-config package or test scoped runs use CGO_ENABLED=1 go test -tags gms_pure_go ./cmd/bd/..."

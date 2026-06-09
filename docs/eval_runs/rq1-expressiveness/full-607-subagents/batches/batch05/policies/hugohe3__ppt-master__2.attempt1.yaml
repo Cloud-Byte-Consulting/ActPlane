@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source PPTSKILL = file "skills/ppt-master/SKILL.md"
+
+  rule read-ppt-skill:
+    notify write file "**" if AGENT and not PPTSKILL
+    because "read skills/ppt-master/SKILL.md before PPT generation tasks or repo modification"

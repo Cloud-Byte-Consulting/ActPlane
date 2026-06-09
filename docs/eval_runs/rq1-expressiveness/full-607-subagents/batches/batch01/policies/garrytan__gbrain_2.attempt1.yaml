@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule gbrain-install-protocol:
+    notify exec "gbrain" "init" if AGENT
+    notify exec "gbrain" "post-upgrade" if AGENT
+    because "After gbrain init or post-upgrade, relay the search-mode cost matrix and confirm the user's choice before continuing."

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule install-insforge-sdk:
+    notify exec "npm" "install" if AGENT
+    because "Install the SDK with npm install @insforge/sdk@latest."

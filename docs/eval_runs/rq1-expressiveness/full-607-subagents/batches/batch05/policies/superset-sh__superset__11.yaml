@@ -1,0 +1,11 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule shared-agent-sources:
+    notify write file ".agents/commands/**" if AGENT
+    notify write file ".agents/skills/**" if AGENT
+    block write file ".claude/commands/**" if AGENT
+    block write file ".cursor/commands/**" if AGENT
+    block write file ".claude/skills/**" if AGENT
+    because "command and skill definitions live in .agents; Claude and Cursor command and skill paths should be symlinks"

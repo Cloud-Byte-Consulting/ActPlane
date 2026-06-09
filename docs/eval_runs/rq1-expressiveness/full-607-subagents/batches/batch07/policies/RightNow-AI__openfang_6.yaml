@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule do-not-touch-openfang-cli:
+    block write file "**/openfang-cli/**" if AGENT
+    because "Do not touch openfang-cli; the user is actively building the interactive CLI."

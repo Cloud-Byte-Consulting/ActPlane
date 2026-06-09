@@ -1,0 +1,12 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule gitnexus-scope:
+    block open file "**/.env" if AGENT
+    block open file "**/secrets/**" if AGENT
+    notify exec "npm" if AGENT
+    notify exec "npx" if AGENT
+    notify exec "node" if AGENT
+    notify exec "uv" if AGENT
+    because "Stay within the documented read, write, and execution scope; real env files and secrets are off limits."

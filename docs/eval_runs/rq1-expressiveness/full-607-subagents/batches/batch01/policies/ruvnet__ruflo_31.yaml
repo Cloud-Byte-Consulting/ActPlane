@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule read-before-edit:
+    notify write file "**" if AGENT
+    because "Always read a file before editing it."

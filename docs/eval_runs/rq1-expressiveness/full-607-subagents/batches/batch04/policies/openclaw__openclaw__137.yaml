@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule mac-permission-signing:
+    block exec "**" "--no-sign" if AGENT
+    block exec "**" "SIGN_IDENTITY=-" if AGENT
+    because "Mac app permission testing needs a stable signed app path; no --no-sign, SIGN_IDENTITY=-, or raw debug binary"

@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule apt-get-assume-yes:
+    notify exec "apt-get" if AGENT
+    because "Use apt-get -y for non-interactive apt-get commands."

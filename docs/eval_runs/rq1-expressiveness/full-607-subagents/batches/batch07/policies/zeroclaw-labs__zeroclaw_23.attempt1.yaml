@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule no-unrelated-modules:
+    notify write file "**" if AGENT
+    because "Do not modify unrelated modules while here."

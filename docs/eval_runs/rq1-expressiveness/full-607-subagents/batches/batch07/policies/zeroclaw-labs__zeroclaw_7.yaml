@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule documented-cargo-checks:
+    notify exec "cargo" "fmt" if AGENT
+    notify exec "cargo" "clippy" if AGENT
+    notify exec "cargo" "test" if AGENT
+    because "Use the documented cargo fmt check, cargo clippy with warnings denied, and cargo test commands."

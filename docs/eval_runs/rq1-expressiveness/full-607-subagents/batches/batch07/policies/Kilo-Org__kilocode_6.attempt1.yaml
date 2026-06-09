@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule documented-dev-command:
+    notify exec "bun" "dev" if AGENT
+    notify exec "bun" "src/index.ts" if AGENT
+    because "Use the documented dev commands from root or packages/opencode."

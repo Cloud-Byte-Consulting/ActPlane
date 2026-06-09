@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source CONTRIB = file "CONTRIBUTING.md"
+  
+  rule release-checklist-first:
+    block exec "gh" "workflow" if AGENT and not CONTRIB
+    block exec "gh" "release" if AGENT and not CONTRIB
+    notify exec "gh" "workflow" if CONTRIB
+    because "Read CONTRIBUTING.md and share draft release notes before publishing or triggering release workflow."

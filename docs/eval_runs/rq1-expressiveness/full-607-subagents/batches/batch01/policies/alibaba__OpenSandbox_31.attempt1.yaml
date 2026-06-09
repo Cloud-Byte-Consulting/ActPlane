@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule keep-change-scoped:
+    notify write file "components/**" if AGENT
+    notify write file "server/**" if AGENT
+    notify write file "sdks/**" if AGENT
+    because "Avoid mixing unrelated component work into the same change."

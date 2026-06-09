@@ -1,0 +1,15 @@
+{
+  "batch_path": "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch01",
+  "compiled_count": 87,
+  "failed_count": 0,
+  "input_count": 87,
+  "paths_written": [
+    "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch01/results.jsonl",
+    "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch01/summary.json",
+    "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch01/summary.md",
+    "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch01/policies/",
+    "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch01/bins/",
+    "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch01/compile_logs/"
+  ],
+  "retry_count": 0
+}

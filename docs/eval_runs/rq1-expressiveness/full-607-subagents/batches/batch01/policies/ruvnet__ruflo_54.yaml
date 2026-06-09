@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule learning-memory-tools:
+    notify write file "**" if AGENT unless lineage-includes exec "memory_search"
+    notify exec "git" "commit" if AGENT unless lineage-includes exec "memory_store"
+    because "Use memory_search before tasks, memory_store after success, and the memory tools for learning patterns."

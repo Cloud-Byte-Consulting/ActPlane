@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source CODE = file "agent_reach/**"
+  source CODE = file "tests/**"
+  
+  rule pytest-before-commit:
+    notify exec "git" "commit" if CODE unless after exec "pytest" since write "agent_reach/**" or write "tests/**"
+    because "Run pytest tests/ -v before committing; all tests must pass."

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule live-preview-workflow:
+    notify exec "live-preview" if AGENT
+    notify write file "projects/**" if AGENT unless after exec "live-preview"
+    because "when live preview or slide element selection is requested, run the live-preview workflow"

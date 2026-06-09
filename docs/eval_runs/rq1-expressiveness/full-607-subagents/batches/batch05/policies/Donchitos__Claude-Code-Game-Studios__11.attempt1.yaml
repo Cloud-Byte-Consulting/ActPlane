@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule no-commit-without-instruction:
+    block exec "git" "commit" if AGENT
+    because "do not commit unless the user explicitly instructs it"

@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-find-replace-rename:
+    block exec "sed" if AGENT unless after exec "gitnexus_rename"
+    block exec "perl" if AGENT unless after exec "gitnexus_rename"
+    because "Never rename symbols with find-and-replace; use gitnexus_rename."

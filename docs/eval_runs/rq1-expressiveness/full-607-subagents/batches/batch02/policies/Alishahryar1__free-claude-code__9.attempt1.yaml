@@ -1,0 +1,9 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule check-order:
+    notify exec "ty" if AGENT unless after exec "ruff"
+    notify exec "pytest" if AGENT unless after exec "ty"
+    block exec "git" "commit" if AGENT unless after exec "pytest" since write "**/*.py" or write "tests/**"
+    because "Run uv run ruff format, ruff check, ty check, then pytest before committing."

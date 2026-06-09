@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule db-trait-first:
+    notify write file "src/db/**" if AGENT
+    notify write file "crates/**/db/**" if AGENT
+    because "Add DB operations to the shared DB trait first, then implement both backends."

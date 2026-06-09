@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule changelog-on-landing:
+    notify exec "git" "push" if AGENT
+    notify write file "CHANGELOG.md" if AGENT
+    because "PR landings or fixes need changelog unless pure test or internal; do not raise missing changelog as a review finding"

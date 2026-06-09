@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  source APP_GUIDE = file "apps/ccusage/CLAUDE.md"
+  source DOCS_GUIDE = file "docs/CLAUDE.md"
+  
+  rule nearest-package-claude:
+    notify write file "apps/ccusage/**" if AGENT and not APP_GUIDE
+    notify write file "docs/**" if AGENT and not DOCS_GUIDE
+    because "Check the nearest package-specific CLAUDE.md before editing package code."

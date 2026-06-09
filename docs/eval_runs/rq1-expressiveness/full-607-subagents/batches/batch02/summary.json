@@ -1,0 +1,15 @@
+{
+  "batch_path": "docs/eval_runs/rq1-expressiveness/full-607-subagents/batches/batch02",
+  "compiled_count": 87,
+  "failed_count": 0,
+  "input_count": 87,
+  "paths_written": {
+    "bins": "bins/",
+    "compile_logs": "compile_logs/",
+    "policies": "policies/",
+    "results": "results.jsonl",
+    "summary_json": "summary.json",
+    "summary_md": "summary.md"
+  },
+  "retry_count": 0
+}

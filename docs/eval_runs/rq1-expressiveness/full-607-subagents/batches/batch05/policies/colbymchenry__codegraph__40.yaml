@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule windows-validation-vm:
+    block exec "prlctl" "exec" if AGENT
+    notify exec "git" "commit" if AGENT unless after exec "ssh" since write "**"
+    because "Windows-specific work must be validated on the real Windows VM over SSH"

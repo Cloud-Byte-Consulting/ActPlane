@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule commit-scope:
+    notify exec "git" "commit" if AGENT
+    because "When asked to commit, commit only your changes; commit all means grouped chunks of everything."

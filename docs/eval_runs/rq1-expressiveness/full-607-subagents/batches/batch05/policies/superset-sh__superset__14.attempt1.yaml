@@ -1,0 +1,10 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+
+  rule plan-doc-placement:
+    block write file "apps/*/*_PLAN.md" if AGENT
+    block write file "apps/*/src/**/*_PLAN.md" if AGENT
+    block write file "src/**/*_PLAN.md" if AGENT
+    notify write file "plans/**" if AGENT
+    because "plans go in plans or app-scoped plans, shipped plans in plans/done, and architecture docs in app docs"

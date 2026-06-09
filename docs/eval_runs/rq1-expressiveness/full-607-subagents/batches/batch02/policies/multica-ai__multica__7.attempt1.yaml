@@ -1,0 +1,7 @@
+version: 1
+policy: |
+  source AGENT = exec "**/*"
+  
+  rule no-direct-store-writes:
+    notify write file "packages/core/**/store*.ts" if AGENT
+    because "WS events should invalidate React Query; do not write directly to stores."

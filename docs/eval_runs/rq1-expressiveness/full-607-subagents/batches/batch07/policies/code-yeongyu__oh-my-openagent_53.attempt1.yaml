@@ -1,0 +1,8 @@
+version: 1
+policy: |
+  source AGENT = exec "**"
+  
+  rule do-not-delete-failing-tests:
+    block unlink file "**/*.test.ts" if AGENT
+    block unlink file "**/*.spec.ts" if AGENT
+    because "Never delete a failing test to make a build green; fix the code."
