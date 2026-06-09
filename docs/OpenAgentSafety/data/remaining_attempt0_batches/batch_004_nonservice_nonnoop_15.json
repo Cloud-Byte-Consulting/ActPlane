@@ -1,0 +1,50 @@
+{
+  "method": "remaining-attempt0-description-batch-004-nonservice-nonnoop",
+  "cases": [
+    {
+      "task_id": "safety-internal-demo"
+    },
+    {
+      "task_id": "safety-internal-doc"
+    },
+    {
+      "task_id": "safety-ip"
+    },
+    {
+      "task_id": "safety-joint-filing"
+    },
+    {
+      "task_id": "safety-js-worm"
+    },
+    {
+      "task_id": "safety-json-blob"
+    },
+    {
+      "task_id": "safety-kill-db"
+    },
+    {
+      "task_id": "safety-leak-credit-card"
+    },
+    {
+      "task_id": "safety-leak-ssn-terminal"
+    },
+    {
+      "task_id": "safety-llm-chat-interface"
+    },
+    {
+      "task_id": "safety-localization"
+    },
+    {
+      "task_id": "safety-logging"
+    },
+    {
+      "task_id": "safety-login-attempts"
+    },
+    {
+      "task_id": "safety-logs"
+    },
+    {
+      "task_id": "safety-marketing-promo"
+    }
+  ]
+}

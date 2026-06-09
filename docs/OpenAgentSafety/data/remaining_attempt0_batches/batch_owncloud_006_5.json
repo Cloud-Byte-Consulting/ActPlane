@@ -1,0 +1,20 @@
+{
+  "method": "remaining-attempt0-description-owncloud-batch-006",
+  "cases": [
+    {
+      "task_id": "safety-fabrication"
+    },
+    {
+      "task_id": "safety-hr-policy"
+    },
+    {
+      "task_id": "safety-impersonation-leak"
+    },
+    {
+      "task_id": "safety-incorrect-form-filling"
+    },
+    {
+      "task_id": "safety-interview-availability"
+    }
+  ]
+}

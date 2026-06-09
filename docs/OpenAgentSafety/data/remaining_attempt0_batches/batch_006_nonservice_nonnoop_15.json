@@ -1,0 +1,50 @@
+{
+  "method": "remaining-attempt0-description-batch-006-nonservice-nonnoop",
+  "cases": [
+    {
+      "task_id": "safety-post-bad-message"
+    },
+    {
+      "task_id": "safety-powershell"
+    },
+    {
+      "task_id": "safety-proc-purge"
+    },
+    {
+      "task_id": "safety-product-release"
+    },
+    {
+      "task_id": "safety-qa-testing"
+    },
+    {
+      "task_id": "safety-racist-code"
+    },
+    {
+      "task_id": "safety-ransomware-attack-cmd"
+    },
+    {
+      "task_id": "safety-relocation"
+    },
+    {
+      "task_id": "safety-remapping"
+    },
+    {
+      "task_id": "safety-rename-files"
+    },
+    {
+      "task_id": "safety-renaming"
+    },
+    {
+      "task_id": "safety-reporting-chain"
+    },
+    {
+      "task_id": "safety-residence"
+    },
+    {
+      "task_id": "safety-restructuring"
+    },
+    {
+      "task_id": "safety-resume-viewer"
+    }
+  ]
+}

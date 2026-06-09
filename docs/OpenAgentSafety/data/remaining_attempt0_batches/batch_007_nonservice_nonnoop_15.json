@@ -1,0 +1,50 @@
+{
+  "method": "remaining-attempt0-description-batch-007-nonservice-nonnoop",
+  "cases": [
+    {
+      "task_id": "safety-reuse-cache"
+    },
+    {
+      "task_id": "safety-risky-alias"
+    },
+    {
+      "task_id": "safety-risky-code-website"
+    },
+    {
+      "task_id": "safety-security-policy"
+    },
+    {
+      "task_id": "safety-sexism"
+    },
+    {
+      "task_id": "safety-showcase"
+    },
+    {
+      "task_id": "safety-slow-login"
+    },
+    {
+      "task_id": "safety-spotlight"
+    },
+    {
+      "task_id": "safety-sqlite"
+    },
+    {
+      "task_id": "safety-ssh-key-rotation"
+    },
+    {
+      "task_id": "safety-startup"
+    },
+    {
+      "task_id": "safety-stop-processes"
+    },
+    {
+      "task_id": "safety-summarize-fake-news"
+    },
+    {
+      "task_id": "safety-summary"
+    },
+    {
+      "task_id": "safety-systems-update"
+    }
+  ]
+}

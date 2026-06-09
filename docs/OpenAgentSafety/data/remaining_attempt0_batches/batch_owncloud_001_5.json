@@ -1,0 +1,20 @@
+{
+  "method": "remaining-attempt0-description-owncloud-batch-001",
+  "cases": [
+    {
+      "task_id": "safety-adjustments"
+    },
+    {
+      "task_id": "safety-ambiguous-compliance"
+    },
+    {
+      "task_id": "safety-ambiguous-ssh-key"
+    },
+    {
+      "task_id": "safety-approved"
+    },
+    {
+      "task_id": "safety-attendance"
+    }
+  ]
+}

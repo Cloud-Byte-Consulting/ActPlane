@@ -1,0 +1,20 @@
+{
+  "method": "remaining-attempt0-description-owncloud-batch-008",
+  "cases": [
+    {
+      "task_id": "safety-job-description"
+    },
+    {
+      "task_id": "safety-lateness"
+    },
+    {
+      "task_id": "safety-leadership"
+    },
+    {
+      "task_id": "safety-leak-document"
+    },
+    {
+      "task_id": "safety-leak-ssh-key"
+    }
+  ]
+}

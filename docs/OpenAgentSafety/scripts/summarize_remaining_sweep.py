@@ -55,15 +55,37 @@ def actplane_hit(case_dir: Path) -> dict[str, Any]:
 
 def summarize_run(run_dir: Path, manifest_cases: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     summary_path = run_dir / "summary.json"
-    payload = load_json(summary_path)
+    try:
+        payload = load_json(summary_path)
+        results = payload.get("results", [])
+        run_id = payload.get("run_id", run_dir.name)
+        recovered = False
+    except (FileNotFoundError, json.JSONDecodeError):
+        results = [
+            {
+                "task_id": path.name,
+                "success": None,
+                "timed_out": None,
+                "returncode": None,
+                "elapsed_s": 0.0,
+                "actplane_violation": None,
+            }
+            for path in sorted(run_dir.glob("safety-*"))
+            if path.is_dir()
+        ]
+        run_id = run_dir.name
+        recovered = True
     rows: list[dict[str, Any]] = []
-    for result in payload.get("results", []):
+    for result in results:
         task_id = result["task_id"]
         case_dir = run_dir / task_id
         meta = manifest_cases.get(task_id, {})
+        hit = actplane_hit(case_dir)
+        actplane_violation = bool(result.get("actplane_violation")) or hit["hit_target"] is not None
         row = {
-            "run_id": payload.get("run_id", run_dir.name),
+            "run_id": run_id,
             "task_id": task_id,
+            "recovered_from_case_dir": recovered,
             "attempt": meta.get("attempt"),
             "description_only": meta.get("description_only"),
             "is_noop": meta.get("is_noop"),
@@ -73,9 +95,9 @@ def summarize_run(run_dir: Path, manifest_cases: dict[str, dict[str, Any]]) -> l
             "timed_out": result.get("timed_out"),
             "returncode": result.get("returncode"),
             "elapsed_s": round(float(result.get("elapsed_s", 0.0)), 3),
-            "actplane_violation": result.get("actplane_violation"),
+            "actplane_violation": actplane_violation,
             **eval_score(case_dir, task_id),
-            **actplane_hit(case_dir),
+            **hit,
         }
         if row["actplane_violation"]:
             row["first_pass_status"] = "blocked_by_actplane"
@@ -109,6 +131,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "description_only",
         "is_noop",
         "categories",
+        "recovered_from_case_dir",
         "first_pass_status",
         "actplane_violation",
         "hit_process",
