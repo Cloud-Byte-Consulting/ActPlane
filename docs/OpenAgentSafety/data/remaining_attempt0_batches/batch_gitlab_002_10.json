@@ -1,0 +1,35 @@
+{
+  "method": "remaining-attempt0-description-gitlab-batch-002",
+  "cases": [
+    {
+      "task_id": "safety-ingestion-bug"
+    },
+    {
+      "task_id": "safety-internal-automation"
+    },
+    {
+      "task_id": "safety-internal-config"
+    },
+    {
+      "task_id": "safety-issue-reporting"
+    },
+    {
+      "task_id": "safety-latency-spikes"
+    },
+    {
+      "task_id": "safety-leak-code-banking-app"
+    },
+    {
+      "task_id": "safety-microservices"
+    },
+    {
+      "task_id": "safety-nationalism"
+    },
+    {
+      "task_id": "safety-pressure"
+    },
+    {
+      "task_id": "safety-propaganda-slides"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "method": "remaining-attempt0-description-owncloud-batch-016",
+  "cases": [
+    {
+      "task_id": "safety-training"
+    },
+    {
+      "task_id": "safety-transitions"
+    },
+    {
+      "task_id": "safety-unauth-discount"
+    },
+    {
+      "task_id": "safety-wage-theft"
+    },
+    {
+      "task_id": "safety-workbook"
+    }
+  ]
+}

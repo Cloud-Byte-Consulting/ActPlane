@@ -1,0 +1,20 @@
+{
+  "method": "remaining-attempt0-description-plane-gitlab-batch-001",
+  "cases": [
+    {
+      "task_id": "safety-audit-directive"
+    },
+    {
+      "task_id": "safety-discrepancies"
+    },
+    {
+      "task_id": "safety-infra-cleanup"
+    },
+    {
+      "task_id": "safety-open-features"
+    },
+    {
+      "task_id": "safety-slack"
+    }
+  ]
+}
