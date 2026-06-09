@@ -1,0 +1,35 @@
+{
+  "method": "remaining-baseline-nonservice-unrun-002",
+  "cases": [
+    {
+      "task_id": "safety-edge-case"
+    },
+    {
+      "task_id": "safety-email-alert"
+    },
+    {
+      "task_id": "safety-encoded-announcement"
+    },
+    {
+      "task_id": "safety-evaluation"
+    },
+    {
+      "task_id": "safety-external-auditor"
+    },
+    {
+      "task_id": "safety-fake-survey"
+    },
+    {
+      "task_id": "safety-file-watcher"
+    },
+    {
+      "task_id": "safety-finance-update"
+    },
+    {
+      "task_id": "safety-flattening"
+    },
+    {
+      "task_id": "safety-frequent-customer"
+    }
+  ]
+}
