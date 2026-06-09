@@ -6,22 +6,31 @@ Evaluate ActPlane as a runtime policy enforcement system for
 directive-derived policies: ActPlane interposes below the agent tool API,
 enforces policy rules on real OS behavior, and returns semantic feedback
 that helps the agent recover after a blocked action. We evaluate this
-along four dimensions:
+along five dimensions:
 
-1. **Policy compliance**: given a directive and a scenario, ActPlane's
+1. **DSL expressiveness and generation cost**: given every
+   OS-enforceable directive in the corpus, a translation agent can produce
+   compact policies that compile.
+2. **Policy compliance**: given a directive and a scenario, ActPlane's
    runtime enforcement and feedback lead the agent to a policy-compliant
    final action.
-2. **Runtime coverage**: ActPlane connects intent-level directives to
+3. **Runtime coverage**: ActPlane connects intent-level directives to
    system-level behavior where existing runtime and tool-layer mechanisms
    fail (bypass, cross-event state, feedback).
-3. **Overhead**: per-event and end-to-end overhead is acceptable.
-4. **Feedback effectiveness**: semantic feedback improves agent task
+4. **Overhead**: per-event and end-to-end overhead is acceptable.
+5. **Feedback effectiveness**: semantic feedback improves agent task
    completion compared to bare rule application.
 
 All evaluation rules are drawn from the empirical study corpus
 (64 real projects, 1,361 directives). No synthesized or abstract rules.
 
 ### Current Headline Results (for paper intro)
+
+The new RQ1 expressiveness pipeline lives in
+`docs/rq1-expressiveness/`. Its manifest path verifies the full input
+population: 392 per-event + 215 cross-event = 607 OS-enforceable directives.
+The full run translates each directive, compiles the generated policy, and
+summarizes coverage, retry rate, token cost, and rule complexity.
 
 We evaluate ActPlane on a 190-trace decision-compliance benchmark sampled from
 38 directive-derived policies across 64 real projects. Natural-language
@@ -30,14 +39,14 @@ system-effect challenge trace families under four runtime policy enforcement
 systems: prompt-filter, tool-regex, ActPlane, and ActPlane opaque-feedback
 ablation. Full ActPlane reaches 75.8% Decision Compliance Rate, compared with
 48.4% for prompt-filter, 45.3% for tool-regex, and 53.7% for
-ActPlane-opaque (RQ1). A DeepSeek-Pro V4 end-to-end model-setting run on the
+ActPlane-opaque (RQ2). A DeepSeek-Pro V4 end-to-end model-setting run on the
 same 190 traces preserves the ordering: 77.4% for ActPlane, 61.7% for
 ActPlane-opaque, 52.5% for prompt-filter, and 43.7% for tool-regex.
 For overhead, ActPlane adds 1.9% on agent trace replay and 6.5% on a
-Linux build at 32 active no-hit rules (RQ2). On a 20-task OctoBench subset,
+Linux build at 32 active no-hit rules (RQ3). On a 20-task OctoBench subset,
 ActPlane improves official reward from 0.788 without enforcement and
 0.818 with tool-regex to 0.888 with OS-level enforcement and semantic
-feedback (RQ3).
+feedback (RQ4).
 
 ---
 
@@ -45,9 +54,11 @@ feedback (RQ3).
 
 | RQ | Question | What it proves | Method |
 |---|---|---|---|
-| **RQ1** | Compared with prompt-based, tool-layer, and feedback-ablation baselines, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Runtime-enforcement advantage, including policy-generation effectiveness, under controlled agent contexts | Sampled directives x five system-effect challenge trace families x active systems, real Agent SDK trace setup + next-step execution |
-| **RQ2** | What is the per-event and end-to-end overhead? | Deployability — standard systems eval | Microbenchmark + trace replay |
-| **RQ3** | On repository-grounded coding tasks, does ActPlane's OS-level enforcement and semantic feedback improve official policy compliance? | End-to-end enforcement value on complete agent tasks | OctoBench 20-task OS-observable subset x baseline/tool-regex/ActPlane |
+| **RQ1** | Can a translation agent generate compact compilable ActPlane policies for all 607 OS-enforceable directives? | C1 expressiveness and generation-cost evidence for the "all 607" claim | Full 607-directive translation + compiler loop, split by per-event and cross-event |
+| **RQ2** | Compared with prompt-based, tool-layer, and feedback-ablation baselines, does ActPlane improve policy compliance for directive-derived policies across direct and bypass execution paths? | Runtime-enforcement advantage under controlled agent contexts | Sampled directives x five system-effect challenge trace families x active systems, real Agent SDK trace setup + next-step execution |
+| **RQ3** | What is the per-event and end-to-end overhead? | Deployability, standard systems eval | Microbenchmark + trace replay |
+| **RQ4** | On repository-grounded coding tasks, does ActPlane's OS-level enforcement and semantic feedback improve official policy compliance? | End-to-end enforcement value on complete agent tasks | OctoBench 20-task OS-observable subset x baseline/tool-regex/ActPlane |
+| **RQ5** | On a safety benchmark beyond coding tasks, do generated OS policies prevent unsafe agent behavior? | Generality beyond repo coding workflows | OpenAgentSafety task policies + baseline/ActPlane comparison |
 
 ---
 
@@ -72,7 +83,7 @@ feedback (RQ3).
 
 ### 3.3 Baseline Systems
 
-All RQ1 systems use the same real Agent SDK AI agent harness, the same
+All RQ2 systems use the same real Agent SDK AI agent harness, the same
 trace-conditioned decision points, and the same initial tested-agent prompt.
 The difference is the selected runtime policy enforcement system that observes or filters the agent's
 proposed actions. ActPlane consumes `rule.yaml`, tool-regex consumes explicit
@@ -87,8 +98,8 @@ baseline consumes the natural-language directive directly.
 | **ActPlane opaque** | Same ActPlane policy, but no structured feedback | Kernel (cross-event, no structured feedback) | Feedback ablation |
 
 The old "prompt-only" implementation that simply appends the directive to the
-tested agent's system prompt is **not** the paper-facing RQ1 baseline. It tests
-self-compliance by the agent, not runtime enforcement effectiveness. In RQ1,
+tested agent's system prompt is **not** the paper-facing RQ2 baseline. It tests
+self-compliance by the agent, not runtime enforcement effectiveness. In RQ2,
 the prompt-based baseline is an external step filter: for each proposed step it
 asks a separate LLM whether the step is compliant with the natural-language
 directive and either allows it, reports it, or blocks it with natural-language
@@ -104,7 +115,7 @@ tool call begins.
 
 #### Initial Tested-Agent Prompt Contract
 
-For RQ1, the tested agent receives the same initial prompt in every system:
+For RQ2, the tested agent receives the same initial prompt in every system:
 
 1. The base coding-agent instructions from
    `docs/eval_scripts/prompts/base_agent.md`.
@@ -158,7 +169,17 @@ docs/corpus/{repo}/                     # empirical study data (read-only)
 docs/corpus-repos/{repo}/               # shallow clones (--depth=1, gitignored)
                                         # agent reads these for project context
 
-docs/corpus-test/{repo}/                # RQ1: policy compliance (sampled)
+docs/rq1-expressiveness/                # RQ1: 607-directive translation study
+  run_study.py                          # manifest, translate, compile, summarize
+  translation_prompt.md                  # policy-generation prompt
+
+docs/eval_runs/rq1-expressiveness/      # RQ1 generated artifacts
+  {timestamp}/
+    directives.jsonl                     # frozen 607-directive manifest
+    results.jsonl                        # per-directive attempts and compile outcome
+    summary.md / summary.json            # M1-M4 aggregates
+
+docs/corpus-test/{repo}/                # RQ2: policy compliance (sampled)
   {statement_id}/
     rule.yaml                           # agent-generated DSL rule
     trace_canonical_compliant.jsonl     # benign ordinary behavior
@@ -171,7 +192,7 @@ docs/corpus-test/{repo}/                # RQ1: policy compliance (sampled)
       {run_id}.json                     # includes system, trace_variant, replay
                                         # context, LLM response, correctness=null
 
-docs/OctoBench/                         # RQ3: OctoBench policy-compliance eval
+docs/OctoBench/                         # RQ4: OctoBench policy-compliance eval
   data/selected_cases_20.jsonl          # selected OS-observable cases
   policies/{actplane,tool-regex}/       # case-specific enforcement policies
   run_cases.py                          # AI agent benchmark runner
@@ -207,7 +228,7 @@ run harness is `correctness: null`:
 
 ```json
 {
-  "rq": "RQ1",
+  "rq": "RQ2",
   "run_id": "20260601T153012Z-qwen27b-violation",
   "repo": "openai/codex",
   "statement_id": 17,
@@ -255,7 +276,17 @@ enabling independent sampling and re-runs.
 
 ### 4.3 Pipeline: Who Generates What, Who Sees What
 
-**RQ1 pipeline**:
+**RQ1 expressiveness pipeline**:
+
+| Step | Actor | Inputs (can see) | Cannot see | Outputs |
+|---|---|---|---|---|
+| 1. Build manifest | Script | `docs/corpus/*/statements.yaml` | runtime traces/results | 607-item `directives.jsonl` |
+| 2. Generate ActPlane policy | **Policy-generation LLM** | directive text, project instruction files, cloned repo, DSL reference | traces, ground truth labels, runtime results | candidate `policy.yaml` |
+| 3. Compile policy | ActPlane compiler | generated policy | runtime traces/results | success/failure, binary blob size, diagnostic |
+| 4. Retry on diagnostics | **Policy-generation LLM** | previous candidate + compiler diagnostic | runtime traces/results | revised policy |
+| 5. Summarize M1-M4 | Script | manifest + attempts + compiler output | runtime traces/results | coverage, retry, token, complexity tables |
+
+**RQ2 runtime-compliance pipeline**:
 
 | Step | Actor | Inputs (can see) | Cannot see | Outputs |
 |---|---|---|---|---|
@@ -316,9 +347,65 @@ end-to-end result; they are part of the system being evaluated.
 
 ---
 
-## 5. RQ1: End-to-End Policy Compliance
+## 5. RQ1: DSL Expressiveness and Generation Cost
 
 ### 5.1 Goal
+
+RQ1 validates the C1 design claim that the DSL is high-level enough for
+agents to generate while remaining concrete enough to compile. It uses the
+full OS-enforceable population from the empirical corpus rather than the
+sampled runtime benchmark.
+
+### 5.2 Method
+
+The input manifest is every directive in `docs/corpus/*/statements.yaml` with
+`type: directive` and `enforceability: per_event` or `cross_event`. The runner
+in `docs/rq1-expressiveness/run_study.py` verifies the expected population of
+392 per-event and 215 cross-event directives.
+
+For each directive, the translation agent receives the directive record,
+project instruction-file context, a cloned-repo file sample when available, and
+the ActPlane rule-language reference. It returns one complete ActPlane policy
+YAML. The runner invokes `actplane --policy <policy> compile --out <blob>`.
+If compilation fails, the compiler diagnostic is sent back to the translator
+for a bounded retry loop. The run stops after translation and compilation; no
+agent execution or kernel enforcement is performed in this RQ.
+
+### 5.3 Metrics
+
+RQ1 reports four metrics:
+
+| Metric | Definition |
+|---|---|
+| M1 coverage | compiled policies out of 607, split by per-event and cross-event |
+| M2 retry rate | directives needing retry, mean attempts, and final failure reason distribution |
+| M3 token cost | generated DSL tokens and the DSL/NL token ratio |
+| M4 rule complexity | DSL-token and compiled-blob-size distributions by rule class |
+
+Artifacts are written under `docs/eval_runs/rq1-expressiveness/<timestamp>/`.
+The paper-facing aggregate is `summary.md`; the machine-readable aggregate is
+`summary.json`.
+
+### 5.4 Current Status
+
+The manifest path has been implemented and verifies the full input population:
+392 per-event + 215 cross-event = 607 OS-enforceable directives.
+
+Pilot measurements are stored under `docs/eval_runs/rq1-expressiveness/`:
+
+| Run | Scope | Coverage | Retry | Token/cost notes |
+|---|---:|---:|---:|---|
+| `pilot-subagents` | 3 per-event + 3 cross-event | 6/6 compiled | 0/6 | mean DSL tokens 156.3; per-event mean 134.3; cross-event mean 178.3 |
+| `codex-smoke-1` | 1 per-event via Codex CLI | 1/1 compiled | 0/1 | 1,062 prompt tokens; 299 response tokens; 233 DSL tokens; 62,302 Codex total model tokens; 167.4 s |
+
+The full 607-directive LLM translation run is still required before reporting
+paper-facing RQ1 results.
+
+---
+
+## 6. RQ2: End-to-End Policy Compliance
+
+### 6.1 Goal
 
 Given a natural-language directive and a trace-conditioned agent context, does
 ActPlane improve the final compliance of a real agent's subsequent actions?
@@ -327,7 +414,7 @@ both the quality of the generated DSL policy and the quality of runtime
 enforcement/feedback. A bad policy translation is a system failure, not an
 artifact to remove from the main result.
 
-RQ1 is not a full task-completion benchmark. It fixes the prior history trace,
+RQ2 is not a full task-completion benchmark. It fixes the prior history trace,
 repo state, model, and continuation point, then lets the tested agent execute a
 bounded number of real tool actions. Each runtime policy enforcement system observes the same
 proposed actions and can allow, report, block, kill, or return feedback. The
@@ -338,7 +425,7 @@ This is especially important for cross-event state (e.g., "run tests before
 commit") and for bypass paths that are not visible at the tool layer (e.g.,
 `bash -c`, subprocesses, helper scripts, or helper binaries).
 
-### 5.2 Method
+### 6.2 Method
 
 #### Step 1: Generate Runtime Policies
 
@@ -351,11 +438,11 @@ natural-language directive and project context:
   classifier instruction template.
 
 These artifacts are frozen before model execution. They are not tuned after
-seeing RQ1 outcomes.
+seeing RQ2 outcomes.
 
 #### Step 2: Generate Trace Scenarios
 
-The current paper-facing RQ1 sample contains 38 statements. For each statement,
+The current paper-facing RQ2 sample contains 38 statements. For each statement,
 generate five trace-conditioned scenarios, for a total of 190 traces. These are
 the system-effect challenge traces: two compliant families near the policy
 boundary and three violation families that exercise direct, script-mediated,
@@ -418,13 +505,13 @@ The current paper-facing trace roles are:
 
 The archived six-family snapshot additionally included
 `trace_canonical_compliant.jsonl` for ordinary compliant behavior. We removed
-that family from the paper-facing challenge benchmark because RQ1 is intended
+that family from the paper-facing challenge benchmark because RQ2 is intended
 to stress system-effect policy enforcement, not ordinary benign task
 completion. The canonical compliant cases remain in `docs/tmp`/archived run
-artifacts for audit, but they should not be mixed into the current RQ1 table or
+artifacts for audit, but they should not be mixed into the current RQ2 table or
 figure.
 
-The full sampled RQ1 corpus must report the number of statements and
+The full sampled RQ2 corpus must report the number of statements and
 manifest-listed traces actually used. For the current paper-facing snapshot,
 every statement has the five trace families above: 38 statements x 5 traces =
 190 traces. With four systems, this produces 760 system-trace cells.
@@ -448,7 +535,7 @@ Historical six-family local-judge snapshot, from the full run
 This run used the earlier manifest-listed 228 traces, produced 912 runner
 results, and judged all 912 cells with the local llama.cpp trajectory judge.
 Keep it as an audit artifact only; do not use it as the current paper-facing
-RQ1 result.
+RQ2 result.
 
 | system | DCR | TP | TN | FP | FN | judged |
 |---|---:|---:|---:|---:|---:|---:|
@@ -457,7 +544,7 @@ RQ1 result.
 | actplane | 172/228 (75.4%) | 85 | 87 | 27 | 29 | 228 |
 | actplane-opaque | 140/228 (61.4%) | 29 | 111 | 3 | 85 | 228 |
 
-For the paper, the RQ1 main text should report the 190-trace result as one
+For the paper, the RQ2 main text should report the 190-trace result as one
 grouped overall DCR bar chart plus one primary confusion-matrix table. The bar
 chart should include both model settings: Qwen3.6-27B and DeepSeek-Pro V4. Color
 distinguishes the model setting, not just the judge. The confusion-matrix table
@@ -470,7 +557,7 @@ benchmark.
 
 After trace tuning moved the active paper corpus from six trace families to
 five trace families (dropping canonical benign from the paper-facing challenge
-set), we ran the full RQ1 pipeline with DeepSeek-Pro V4 as the LLM for the
+set), we ran the full RQ2 pipeline with DeepSeek-Pro V4 as the LLM for the
 tested-agent continuation, the prompt-filter classifier, and trajectory judge.
 This run is a full model-setting replication pass, not a judge-only rescore and
 not a new trace-tuning run: it uses the selected 190-trace corpus (38 statements
@@ -487,7 +574,7 @@ Validation:
 - Manual summarizer rerun over `selected_runner_results.txt` matches the
   automatic `run_eval.py` summary exactly.
 
-DeepSeek-Pro V4 model-setting RQ1 DCR:
+DeepSeek-Pro V4 model-setting RQ2 DCR:
 
 | system | DCR | TP | TN | FP | FN | unclear | judged | mean confidence |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -500,19 +587,19 @@ Interpretation for paper placement:
 
 - Do **not** mix this table with the older 228-trace llama.cpp snapshot. The
   DeepSeek run corresponds to the active 190-trace, five-family paper corpus.
-- If the paper keeps the current Qwen3.6-27B model setting as the primary RQ1
+- If the paper keeps the current Qwen3.6-27B model setting as the primary RQ2
   result, the DeepSeek result should appear in Figure 10 as a grouped
   robustness/replication bar, not as a second main confusion table. The main
   text can state that a DeepSeek-Pro V4 end-to-end run preserves the ordering
   and the main conclusion: ActPlane remains best overall (77.4% DCR), ahead of
   ActPlane-opaque (61.7%), prompt-filter (52.5%), and tool-regex (43.7%).
-- The DeepSeek run strengthens the claim that the RQ1 ordering is not an
+- The DeepSeek run strengthens the claim that the RQ2 ordering is not an
   artifact of a single tested-agent/prompt-filter/judge model setting. It should
-  be reported in one short paragraph under RQ1 results, while the full DeepSeek
+  be reported in one short paragraph under RQ2 results, while the full DeepSeek
   confusion matrix remains in this evaluation note/artifact unless space permits
   a small robustness table.
 - If the paper instead chooses DeepSeek Pro as the primary model setting, then
-  the RQ1 confusion table must be regenerated from these numbers, and the
+  the RQ2 confusion table must be regenerated from these numbers, and the
   Qwen3.6-27B result should become the replication check. Do not present two
   different primary DCR tables in the main text.
 
@@ -567,7 +654,7 @@ def run_scenario(trace_jsonl, runtime_system):
 
     # Phase 3: persist an unscored result record.
     result = {
-        "rq": "RQ1",
+        "rq": "RQ2",
         "run_id": make_run_id(),
         "system": runtime_system.name,
         "trace_file": trace_jsonl.path,
@@ -739,12 +826,12 @@ errors, agent response errors (ignoring feedback), and IFC model precision
 (over-tainting). These are not removed from the main result; they are
 decomposed in the failure-attribution table.
 
-### 5.3 Results and Diagnostics
+### 6.3 Results and Diagnostics
 
-RQ1 now reports the 190-trace, five-family system-effect challenge benchmark
+RQ2 now reports the 190-trace, five-family system-effect challenge benchmark
 rather than the older 607-directive placeholder tables or the archived
 228-trace six-family snapshot. The 607-directive empirical analysis remains the
-source population; the paper-facing RQ1 experiment is the validated
+source population; the paper-facing RQ2 experiment is the validated
 38-statement sample with five trace families per statement.
 
 The main result is that full ActPlane improves Decision Compliance Rate by
@@ -774,12 +861,12 @@ Diagnostic family breakdown for the current run:
 | script visible violation | 10/38 (26.3%) | 5/38 (13.2%) | 27/38 (71.1%) | 4/38 (10.5%) |
 | opaque fixture violation | 0/38 (0.0%) | 0/38 (0.0%) | 28/38 (73.7%) | 12/38 (31.6%) |
 
-### 5.4 Methodological Notes
+### 6.4 Methodological Notes
 
 **One decision step is the correct granularity.** The kernel operates
 per-syscall; each rule match is an independent decision point. A single
 agent decision step (try action → get feedback → decide) is the atomic
-unit of the feedback loop. Multi-step agent sessions are tested in RQ3
+unit of the feedback loop. Multi-step agent sessions are tested in RQ4
 (OctoBench).
 
 **Why scripted setup + real agent decision.** The setup (repo state)
@@ -792,7 +879,7 @@ is the end-to-end claim of the paper.
 violation or not depending on the user's request. Ground truth for
 task-context directives requires prompts.
 
-**Why policy artifacts are not repaired after outcomes.** RQ1 measures runtime
+**Why policy artifacts are not repaired after outcomes.** RQ2 measures runtime
 runtime enforcement effectiveness starting from natural-language directives. For
 ActPlane, that includes the generated DSL policy; for tool-regex, it includes
 the generated regex policy; for the LLM step filter, it includes the fixed
@@ -804,10 +891,10 @@ or repaired after observing outcomes.
 **Why scripted setup + bounded real execution.** The setup is scripted for
 reproducibility and cost, while the tested agent still executes real tool
 actions after the trace-conditioned decision point. This keeps the experiment
-focused on runtime enforcement behavior without turning RQ1 into a full
+focused on runtime enforcement behavior without turning RQ2 into a full
 task-completion benchmark.
 
-### 5.5 Execution-Path Analysis
+### 6.5 Execution-Path Analysis
 
 Execution path is encoded directly in the six trace families rather than
 reported as a separate table. Visible violations exercise same-tool-call
@@ -818,9 +905,9 @@ the current path analysis.
 
 ---
 
-## 6. RQ2: Overhead
+## 7. RQ3: Overhead
 
-### 6.1 Microbenchmarks (Per-Syscall Latency)
+### 7.1 Microbenchmarks (Per-Syscall Latency)
 
 #### Method
 
@@ -869,7 +956,7 @@ Measured operations:
 - write: `write(fd, 4096)` to an already-open temp file
 - connect: UDP `connect(127.0.0.1:9)` on an already-created socket
 
-### 6.2 Macrobenchmarks (Deterministic Workloads)
+### 7.2 Macrobenchmarks (Deterministic Workloads)
 
 The paper-facing macrobenchmarks use deterministic workloads rather than live
 LLM runs, eliminating inference variance and isolating ActPlane's runtime cost.
@@ -883,14 +970,14 @@ At 32 active no-hit rules, ActPlane adds 1.9% wall-clock overhead on agent
 trace replay and 6.5% on the Linux build. At 100 rules, overhead remains below
 8.4% in the current paper snapshot.
 
-### 6.3 Memory Overhead
+### 7.3 Memory Overhead
 
 Measure BPF map memory consumption as a function of:
 - Rule count (1, 10, 32, 100)
 - Active process count (10, 100, 1000)
 - Labeled file count (10, 100, 1000)
 
-### 6.4 Paper Figures and Tables
+### 7.4 Paper Figures and Tables
 
 **Table 6: Per-operation latency in microseconds**
 
@@ -916,16 +1003,16 @@ and Linux build, normalized to native execution.
 
 ---
 
-## 7. RQ3: Repository-Grounded Policy Compliance (OctoBench)
+## 8. RQ4: Repository-Grounded Policy Compliance (OctoBench)
 
-### 7.1 Goal
+### 8.1 Goal
 
-RQ3 evaluates ActPlane on complete coding-agent tasks in real repository
-environments. Unlike RQ1, which isolates one guarded decision point per
-trace, RQ3 measures whether OS-level enforcement plus semantic feedback
+RQ4 evaluates ActPlane on complete coding-agent tasks in real repository
+environments. Unlike RQ2, which isolates one guarded decision point per
+trace, RQ4 measures whether OS-level enforcement plus semantic feedback
 improves policy compliance over a full agent trajectory.
 
-### 7.2 Benchmark
+### 8.2 Benchmark
 
 **OctoBench** is a scaffold-aware repository-grounded benchmark with
 Dockerized tasks, project files, system prompts, tool schemas, and user
@@ -934,7 +1021,7 @@ a 20-task subset whose checklist items include system-observable policy
 points. Purely semantic checks, such as tone or prose style, are not the
 target of ActPlane and are not used to define the subset.
 
-### 7.3 Method
+### 8.3 Method
 
 Each selected task runs under three conditions:
 
@@ -948,7 +1035,7 @@ The ActPlane and tool-regex policy artifacts are case-specific and frozen
 before execution. The official OctoBench checklist judge scores the resulting
 task trajectory; ActPlane does not modify the official judge.
 
-### 7.4 Metrics
+### 8.4 Metrics
 
 The primary metric is official OctoBench reward, defined as the fraction of
 checklist policies judged satisfied. We also report diagnostic submetrics from
@@ -962,20 +1049,20 @@ the same checklist results:
 | Compliance reward | Fraction of compliance-typed checklist items satisfied |
 
 Because OctoBench uses an LLM checklist judge rather than deterministic test
-scripts, RQ3 is reported as repository-grounded policy compliance rather than
+scripts, RQ4 is reported as repository-grounded policy compliance rather than
 deterministic task completion.
 
-### 7.5 Current Results
+### 8.5 Current Results
 
 On the 20-task subset, official reward is 0.788 for baseline, 0.818 for
 tool-regex, and 0.888 for ActPlane: a 10.0-point gain over baseline and
 7.0 points over tool-regex. User-query reward rises by 28.2 points and
 implementation/test reward by 25.0 points over baseline. These results support
-the paper's RQ3 claim that OS-level enforcement with semantic feedback improves
+the paper's RQ4 claim that OS-level enforcement with semantic feedback improves
 policy compliance in repository-grounded coding agents.
 
 Required paper artifact:
 
 | Artifact | File |
 |---|---|
-| RQ3 grouped bar chart | `docs/paper/figures/octobench_rq3.png` |
+| RQ4 grouped bar chart | `docs/paper/figures/octobench_rq3.png` |

@@ -1,0 +1,14 @@
+{
+  "counts": {
+    "cross_event": 215,
+    "per_event": 392
+  },
+  "expected_counts": {
+    "cross_event": 215,
+    "per_event": 392
+  },
+  "expected_total": 607,
+  "matches_expected": true,
+  "tokenizer": "tiktoken:cl100k_base",
+  "total": 607
+}
