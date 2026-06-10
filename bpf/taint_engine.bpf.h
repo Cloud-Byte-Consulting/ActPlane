@@ -643,6 +643,12 @@ static int te_update_cb(__u32 i, void *vc)
 		match = taint_match(u.match, c->target, u.target);
 	if (!match)
 		return 0;
+	/* For exec updates with an arg constraint, also check argv tokens. */
+	if (u.op == TOP_EXEC && u.arg[0] != '\0') {
+		struct te_argslots *a = te_argslots_buf();
+		if (!a || !taint_arg_match(a->slots, u.arg))
+			return 0;
+	}
 	c->add |= u.add;
 	c->del |= u.del;
 	c->gates |= u.gates;
@@ -707,9 +713,9 @@ static __always_inline void te_read(pid_t pid, struct file_id *fid, const char *
 		te_copy_file_prov_to_proc(pid, fid, file_labels);
 	if (src_labels)
 		te_record_proc_prov_mask(pid, src_labels, TOP_OPEN, path, 0);
-	if (u.invals) {
+	if (u.gates || u.invals) {
 		pid_t r = te_root(pid);
-		te_stamp(r, te_tick(r), 0, u.invals);
+		te_stamp(r, te_tick(r), u.gates, u.invals);
 	}
 }
 /* write: file absorbs proc labels; stamp `since write` invalidators (this is
@@ -723,12 +729,12 @@ static __always_inline void te_write_flow(pid_t pid, struct file_id *fid, const 
 	struct te_update_ctx u = { .op = TOP_WRITE, .target = path };
 	te_collect_updates(&u);
 	__u64 pl = te_labels(pid);
-	if (!u.invals && !pl)
+	if (!u.gates && !u.invals && !pl)
 		return;
 	pid_t r = te_root(pid);
 	__u32 ep = te_tick(r);
-	if (u.invals)
-		te_stamp(r, ep, 0, u.invals);
+	if (u.gates || u.invals)
+		te_stamp(r, ep, u.gates, u.invals);
 	if (pl) {
 		struct file_state *fs = bpf_map_lookup_elem(&ts_file, fid);
 		if (fs) {

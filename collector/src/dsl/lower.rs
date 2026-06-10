@@ -42,6 +42,7 @@ struct CUpdate {
     op: u8,
     m: u8,
     target: [u8; PAT],
+    arg: [u8; ARG],
     add: u64,
     del: u64,
     gates: u64,
@@ -291,9 +292,9 @@ struct Ctx {
     labels: HashMap<String, u64>,
     next_label: u32,
     updates: Vec<CUpdate>,
-    gate_bits: HashMap<(u8, String), (u64, u32)>,
+    gate_bits: HashMap<(u8, u8, String), (u64, u32)>,
     next_gate: u32,
-    inval_slots: HashMap<(u8, u8, String), u32>,
+    inval_slots: HashMap<(u8, u8, String, String), u32>,
     next_inval: u32,
 }
 impl Ctx {
@@ -304,6 +305,7 @@ impl Ctx {
                 && u.ipv4 == spec.ipv4
                 && u.ipv4_mask == spec.ipv4_mask
                 && pat_eq(&u.target, spec.target)
+                && arg_eq(&u.arg, spec.arg)
             {
                 u.add |= spec.add;
                 u.del |= spec.del;
@@ -323,6 +325,7 @@ impl Ctx {
             op: spec.op,
             m: spec.m,
             target: [0; PAT],
+            arg: [0; ARG],
             add: spec.add,
             del: spec.del,
             gates: spec.gates,
@@ -331,6 +334,9 @@ impl Ctx {
             ipv4_mask: spec.ipv4_mask,
         };
         set_pat(&mut u.target, spec.target);
+        if !spec.arg.is_empty() {
+            set_pat(&mut u.arg, spec.arg);
+        }
         self.updates.push(u);
         Ok(())
     }
@@ -349,9 +355,14 @@ impl Ctx {
     }
     /// Returns (gate bit, gate slot index). The index is what the engine uses to
     /// look up the gate's epoch for staleness; the bit is the v1 latching mask.
-    fn gate_bit(&mut self, exec_pat: &str) -> Result<(u64, u32), String> {
-        let (m, lit) = lower_exec(exec_pat);
-        let key = (m, lit.clone());
+    fn gate_bit(&mut self, gate_op: Op, pat: &str) -> Result<(u64, u32), String> {
+        let (low_op, m, lit) = match gate_op {
+            Op::Exec => { let (m, l) = lower_exec(pat); (OP_EXEC, m, l) }
+            Op::Read | Op::Open => { let (m, l) = lower_path(pat); (OP_OPEN, m, l) }
+            Op::Write | Op::Unlink => { let (m, l) = lower_path(pat); (OP_WRITE, m, l) }
+            other => return Err(format!("`after {}` is not supported as a gate (use exec/read/write)", op_name(other))),
+        };
+        let key = (low_op, m, lit.clone());
         if let Some(b) = self.gate_bits.get(&key) {
             return Ok(*b);
         }
@@ -362,9 +373,10 @@ impl Ctx {
         let b = 1u64 << idx;
         self.next_gate += 1;
         self.add_update(UpdateSpec {
-            op: OP_EXEC,
+            op: low_op,
             m,
             target: &lit,
+            arg: "",
             add: 0,
             del: 0,
             gates: b,
@@ -378,13 +390,14 @@ impl Ctx {
     /// Allocate (or reuse) a `since` invalidator slot, returning its bit in the
     /// rule's `since_mask`. `op` is the lowered taint_op; the pattern is matched
     /// like a sink target (exec on comm, others on path).
-    fn inval_slot(&mut self, op: u8, kind: Kind, pat: &str) -> Result<u64, String> {
+    fn inval_slot(&mut self, op: u8, kind: Kind, pat: &str, arg: Option<&str>) -> Result<u64, String> {
         let (m, lit) = if op == OP_EXEC {
             lower_exec(pat)
         } else {
             lower_target(op, kind, pat)
         };
-        let key = (op, m, lit.clone());
+        let arg_s = arg.unwrap_or("");
+        let key = (op, m, lit.clone(), arg_s.to_string());
         if let Some(i) = self.inval_slots.get(&key) {
             return Ok(1u64 << *i);
         }
@@ -398,6 +411,7 @@ impl Ctx {
             op,
             m,
             target: &lit,
+            arg: arg_s,
             add: 0,
             del: 0,
             gates: 0,
@@ -414,6 +428,7 @@ struct UpdateSpec<'a> {
     op: u8,
     m: u8,
     target: &'a str,
+    arg: &'a str,
     add: u64,
     del: u64,
     gates: u64,
@@ -426,6 +441,14 @@ fn pat_eq(buf: &[u8; PAT], s: &str) -> bool {
     let mut pat = [0u8; PAT];
     set_pat(&mut pat, s);
     *buf == pat
+}
+
+fn arg_eq(buf: &[u8; ARG], s: &str) -> bool {
+    let mut a = [0u8; ARG];
+    let b = s.as_bytes();
+    let n = b.len().min(ARG);
+    a[..n].copy_from_slice(&b[..n]);
+    *buf == a
 }
 
 /// expr -> disjunction of (req_mask, forbid_mask)
@@ -480,11 +503,11 @@ fn op_lowers(op: Op) -> Result<&'static [u8], String> {
 /// read/write/exec can invalidate a gate.
 fn inval_op(op: Op) -> Result<u8, String> {
     match op {
-        Op::Read => Ok(OP_OPEN),
-        Op::Write => Ok(OP_WRITE),
+        Op::Read | Op::Open => Ok(OP_OPEN),
+        Op::Write | Op::Unlink => Ok(OP_WRITE),
         Op::Exec => Ok(OP_EXEC),
         other => Err(format!(
-            "`since {}` is not a valid invalidator (use read/write/exec)",
+            "`since {}` is not a valid invalidator (use exec/read/write/open/unlink)",
             op_name(other)
         )),
     }
@@ -597,6 +620,7 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
             op,
             m,
             target: &lit,
+            arg: "",
             add: bit,
             del: 0,
             gates: 0,
@@ -612,6 +636,7 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
             op: OP_EXEC,
             m,
             target: &lit,
+            arg: "",
             add: if x.endorse { bit } else { 0 },
             del: if x.endorse { 0 } else { bit },
             gates: 0,
@@ -668,17 +693,17 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
                     }
                     Some(Cond::LineageIncludes { exec }) => {
                         ck = C_LINEAGE;
-                        let (b, _idx) = ctx.gate_bit(exec)?;
+                        let (b, _idx) = ctx.gate_bit(Op::Exec, exec)?;
                         gate = b;
                     }
-                    Some(Cond::After { exec, since }) => {
+                    Some(Cond::After { gate_op, gate_pattern, since }) => {
                         ck = C_AFTER;
-                        let (b, idx) = ctx.gate_bit(exec)?;
+                        let (b, idx) = ctx.gate_bit(*gate_op, gate_pattern)?;
                         gate = b;
                         gate_idx = idx;
-                        for (op, pat) in since {
+                        for (op, pat, arg) in since {
                             let iop = inval_op(*op)?;
-                            since_mask |= ctx.inval_slot(iop, cl.target.kind, pat)?;
+                            since_mask |= ctx.inval_slot(iop, cl.target.kind, pat, arg.as_deref())?;
                         }
                     }
                 }

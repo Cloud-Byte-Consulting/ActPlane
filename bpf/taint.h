@@ -111,6 +111,7 @@ struct taint_update {
 	unsigned char op;    /* enum taint_op */
 	unsigned char match; /* enum taint_match for target; connect uses ipv4/mask */
 	char target[TAINT_PAT_LEN];
+	char arg[TAINT_ARG_LEN]; /* exec positional arg, "" = ignore */
 	unsigned long long add;
 	unsigned long long del;
 	unsigned long long gates;

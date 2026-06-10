@@ -52,12 +52,13 @@ pub enum Cond {
     LineageIncludes {
         exec: String,
     },
-    /// `after exec X [since EV ("or" EV)*]`. Each EV is an (op, pattern) event
+    /// `after OP X [since EV ("or" EV)*]`. Each EV is an (op, pattern, arg) event
     /// whose later occurrence makes the X gate stale. `since` empty = v1
     /// latching semantics (gate fired ever).
     After {
-        exec: String,
-        since: Vec<(Op, String)>,
+        gate_op: Op,
+        gate_pattern: String,
+        since: Vec<(Op, String, Option<String>)>,
     },
 }
 

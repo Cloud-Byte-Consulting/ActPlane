@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./collector/target/release/actplane feedback-hook"
+            "command": "actplane feedback-hook"
           }
         ]
       }

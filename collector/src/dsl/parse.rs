@@ -187,15 +187,20 @@ impl P {
                 })
             }
             "after" => {
-                self.eat("exec")?;
-                let exec = self.string()?;
+                let gate_op = P::op(&self.word()?)?;
+                let gate_pattern = self.string()?;
                 let mut since = Vec::new();
                 if self.is_word("since") {
                     self.next();
                     loop {
                         let op = P::op(&self.word()?)?;
                         let pat = self.string()?;
-                        since.push((op, pat));
+                        let arg = if matches!(self.peek(), Some(Tok::Str(_))) {
+                            Some(self.string()?)
+                        } else {
+                            None
+                        };
+                        since.push((op, pat, arg));
                         if self.is_word("or") {
                             self.next();
                         } else {
@@ -203,7 +208,7 @@ impl P {
                         }
                     }
                 }
-                Ok(Cond::After { exec, since })
+                Ok(Cond::After { gate_op, gate_pattern, since })
             }
             _ => Err(format!("unknown unless cond '{}'", w)),
         }
