@@ -48,12 +48,14 @@ struct CUpdate {
     op: u8,
     m: u8,
     target: [u8; PAT],
+    arg: [u8; ARG],
     add: u64,
     del: u64,
     gates: u64,
     invals: u64,
     ipv4: u32,
     ipv4_mask: u32,
+    gate_exit_code: i32,
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -751,6 +753,7 @@ mod tests {
             b"stdio:stdout".as_slice(),
             b"ts_updates".as_slice(),
             b"ts_rules".as_slice(),
+            b"ts_exit_gates".as_slice(),
         ] {
             assert!(
                 b.windows(name.len()).any(|w| w == name),

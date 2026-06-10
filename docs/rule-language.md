@@ -94,7 +94,7 @@ rule NAME:
 - `COND` (optional) relaxes the rule:
   - `target PAT` — only when the object also matches PAT (positive scope), or `target not PAT` (allow-listed region).
   - `lineage-includes exec G` — **mandatory mediation**: allowed iff an ancestor (incl. self) exec'd `G`.
-  - `after exec G [since EV…]` — **temporal**: allowed iff `exec G` happened earlier in this process's lineage. Plain `after` is *latching* (satisfied once `G` ever ran). The optional `since EV…` tail makes the gate go **stale** when a later invalidating event `EV` occurs (§1.9).
+  - `after exec G [exits N] [since EV…]` — **temporal**: allowed iff `exec G` happened earlier in this process's lineage. With `exits N`, the gate opens only after the matching process exits normally with status `N`. Plain `after` is *latching* (satisfied once `G` ever ran). The optional `since EV…` tail makes the gate go **stale** when a later invalidating event `EV` occurs (§1.9).
 
 **Rule match**: event `op(s, o)` matches clause `EFFECT op pat if Φ unless cond` iff
 `match(o, pat) ∧ Φ(σ(s)) ∧ ¬cond(s, o, history)`.
@@ -120,8 +120,9 @@ last build. The `since` tail gives a gate that exact behavior — it **goes stal
 when its inputs change again, and nothing more.
 
 ```
-after exec "**/pytest"                       # ran pytest ever  → permanently OK
-after exec "**/pytest" since write "src/**"  # ran pytest since I last edited src
+after exec "**/pytest"                               # ran pytest ever  → permanently OK
+after exec "**/pytest" exits 0                       # pytest exited successfully
+after exec "**/pytest" exits 0 since write "src/**"  # successful pytest since last src edit
 ```
 
 `since Y` resets the gate whenever a `Y`-event happens later in the same lineage.
@@ -210,7 +211,7 @@ expr        := term (("and"|"or") term)*
 term        := ["not"] IDENT | "true"
 cond        := "target" ["not"] PATTERN
              | "lineage-includes" "exec" PATTERN
-             | "after" "exec" PATTERN [ "since" event_pat ("or" event_pat)* ]
+             | "after" "exec" PATTERN [ "exits" EXIT_CODE ] [ "since" event_pat ("or" event_pat)* ]
 event_pat   := ("write"|"read"|"exec") PATTERN
 PATTERN, STRING := quoted string
 ```
@@ -221,10 +222,12 @@ argument (e.g. `exec "git" "push"` requires token `push` in argv). For exec
 targets, a pattern without `/` is treated as basename matching: `exec "git"` is
 equivalent to `exec "**/git"`.
 
-The `since EV…` tail on `after` is the staleness primitive defined in §1.9:
-`after exec "**/pytest" since write "src/**"` means "tests must have run *after*
-your last edit to src". `EV` may be a `write`/`read`/`exec` pattern; multiple
-invalidators are joined with `or`.
+The `exits N` qualifier on `after exec` makes the gate open on process exit
+rather than at exec time, and only for normal exit status `N`. The `since EV…`
+tail on `after` is the staleness primitive defined in §1.9:
+`after exec "**/pytest" exits 0 since write "src/**"` means "tests must have
+passed after your last edit to src". `EV` may be a `write`/`read`/`exec` pattern;
+multiple invalidators are joined with `or`.
 
 The effect is compiled into the kernel ABI and is the source of truth for what
 happens on a match. `because` stays Rust-side and shapes the corrective-feedback

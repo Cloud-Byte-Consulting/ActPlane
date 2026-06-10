@@ -74,6 +74,7 @@
  * of invalidators that reset a given rule fits one u64 mask (since_mask). */
 #define MAX_TAINT_INVALS  64
 #define TAINT_LABEL_NONE  0ULL
+#define TAINT_GATE_IMMEDIATE (-1)
 
 enum taint_match {
 	TAINT_MATCH_EXACT    = 0,
@@ -118,6 +119,7 @@ struct taint_update {
 	unsigned long long invals;
 	unsigned int ipv4;
 	unsigned int ipv4_mask;
+	int gate_exit_code;       /* TAINT_GATE_IMMEDIATE or 0..255 = stamp on matching exit */
 };
 
 struct taint_rule {

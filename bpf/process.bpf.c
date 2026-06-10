@@ -758,9 +758,13 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 {
 	u64 id = bpf_get_current_pid_tgid();
 	pid_t pid = id >> 32;
+	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+	int exit_code = BPF_CORE_READ(task, exit_code);
+
+	(void)ctx;
 	if (pid != (u32)id)
 		return 0;
-	te_exit(pid);
+	te_exit(pid, exit_code);
 	return 0;
 }
 

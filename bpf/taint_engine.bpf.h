@@ -268,6 +268,19 @@ struct {
 	__type(value, struct te_argslots);
 } ts_argslots SEC(".maps");
 
+struct te_exit_gate_pending {
+	__u64 gates;
+	__u32 epoch;
+	__u32 _pad;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 16384);
+	__type(key, pid_t);
+	__type(value, struct te_exit_gate_pending);
+} ts_exit_gates SEC(".maps");
+
 static __always_inline struct te_argslots *te_argslots_buf(void)
 {
 	__u32 k = 0;
@@ -619,6 +632,7 @@ struct te_update_ctx {
 	__u64 add;
 	__u64 del;
 	__u64 gates;
+	__u64 exit_gates;
 	__u64 invals;
 };
 
@@ -651,7 +665,10 @@ static int te_update_cb(__u32 i, void *vc)
 	}
 	c->add |= u.add;
 	c->del |= u.del;
-	c->gates |= u.gates;
+	if (u.gate_exit_code == TAINT_GATE_IMMEDIATE)
+		c->gates |= u.gates;
+	else
+		c->exit_gates |= u.gates;
 	c->invals |= u.invals;
 	return 0;
 }
@@ -678,9 +695,22 @@ static __noinline void te_exec_update(pid_t pid, const char *comm)
 	bpf_map_update_elem(&ts_proc, &pid, &ns, BPF_ANY);
 	if (c.add)
 		te_record_proc_prov_mask(pid, c.add, TOP_EXEC, comm, 0);
-	if (c.gates || c.invals) {
+	if (c.gates || c.exit_gates || c.invals) {
 		pid_t r = te_root(pid);
-		te_stamp(r, te_tick(r), c.gates, c.invals);
+		__u32 ep = te_tick(r);
+		if (c.gates || c.invals)
+			te_stamp(r, ep, c.gates, c.invals);
+		if (c.exit_gates) {
+			struct te_exit_gate_pending pending = {
+				.gates = c.exit_gates,
+				.epoch = ep,
+			};
+			bpf_map_update_elem(&ts_exit_gates, &pid, &pending, BPF_ANY);
+		} else {
+			bpf_map_delete_elem(&ts_exit_gates, &pid);
+		}
+	} else {
+		bpf_map_delete_elem(&ts_exit_gates, &pid);
 	}
 }
 
@@ -853,8 +883,62 @@ static __noinline int te_check_labels(struct te_rule_eval *e)
 	return c.best_rule;
 }
 
-static __always_inline void te_exit(pid_t pid)
+static __always_inline int te_exit_status_matches(int raw_status, int expected)
 {
+	if (expected < 0 || expected > 255)
+		return 0;
+	if (raw_status & 0x7f)
+		return 0;
+	return (((unsigned int)raw_status >> 8) & 0xff) == (unsigned int)expected;
+}
+
+struct te_exit_gate_ctx {
+	__u64 pending;
+	int raw_status;
+	__u64 gates;
+};
+
+static int te_exit_gate_cb(__u32 i, void *vc)
+{
+	struct te_exit_gate_ctx *c = vc;
+
+	if (i >= MAX_TAINT_UPDATES)
+		return 1;
+	struct taint_update *up = bpf_map_lookup_elem(&ts_updates, &i);
+	if (!up)
+		return 1;
+	struct taint_update u = *up;
+	__u64 matched = c->pending & u.gates;
+	if (!matched || u.gate_exit_code == TAINT_GATE_IMMEDIATE)
+		return 0;
+	if (te_exit_status_matches(c->raw_status, u.gate_exit_code))
+		c->gates |= matched;
+	return 0;
+}
+
+static __noinline __u64 te_exit_gate_hits(__u64 pending, int raw_status)
+{
+	struct te_exit_gate_ctx c = {
+		.pending = pending,
+		.raw_status = raw_status,
+		.gates = 0,
+	};
+
+	bpf_loop(te_count(1), te_exit_gate_cb, &c, 0);
+	return c.gates;
+}
+
+static __always_inline void te_exit(pid_t pid, int raw_status)
+{
+	struct te_exit_gate_pending *pending = bpf_map_lookup_elem(&ts_exit_gates, &pid);
+	if (pending && pending->gates) {
+		__u64 gates = te_exit_gate_hits(pending->gates, raw_status);
+		if (gates) {
+			pid_t r = te_root(pid);
+			te_stamp(r, pending->epoch, gates, 0);
+		}
+	}
+	bpf_map_delete_elem(&ts_exit_gates, &pid);
 	bpf_map_delete_elem(&ts_proc, &pid);
 	bpf_map_delete_elem(&ts_root, &pid);
 	cap_exit(pid);

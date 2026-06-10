@@ -189,6 +189,19 @@ impl P {
             "after" => {
                 let gate_op = P::op(&self.word()?)?;
                 let gate_pattern = self.string()?;
+                let gate_exit = if self.is_word("exits") {
+                    self.next();
+                    if gate_op != Op::Exec {
+                        return Err("`exits` is only valid on `after exec` gates".into());
+                    }
+                    let raw = self.word()?;
+                    let code: u8 = raw
+                        .parse()
+                        .map_err(|_| format!("expected exit code 0..255, got '{raw}'"))?;
+                    Some(code)
+                } else {
+                    None
+                };
                 let mut since = Vec::new();
                 if self.is_word("since") {
                     self.next();
@@ -208,7 +221,12 @@ impl P {
                         }
                     }
                 }
-                Ok(Cond::After { gate_op, gate_pattern, since })
+                Ok(Cond::After {
+                    gate_op,
+                    gate_pattern,
+                    gate_exit,
+                    since,
+                })
             }
             _ => Err(format!("unknown unless cond '{}'", w)),
         }

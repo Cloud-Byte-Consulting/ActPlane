@@ -117,6 +117,16 @@ mod tests {
     }
 
     #[test]
+    fn e5_test_before_commit_requires_successful_exit() {
+        ok(r#"
+            source AGENT = exec "**/codex"
+            rule test-before-commit:
+              block exec "git" "commit" if AGENT unless after exec "**/pytest" exits 0
+              because "run tests successfully before committing"
+        "#);
+    }
+
+    #[test]
     fn e5p_test_before_commit_since() {
         // v2 staleness: editing src after the gate makes the prior pytest stale.
         let c = ok(r#"
@@ -184,6 +194,14 @@ mod tests {
     fn since_bad_invalidator_op_is_rejected() {
         assert!(compile_str(
             "rule r:\n  block exec \"git\" if A unless after exec \"**/pytest\" since connect \"*\"\n  because \"x\"\n"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn exits_is_only_valid_for_exec_gates() {
+        assert!(compile_str(
+            "rule r:\n  block exec \"git\" if A unless after read \"src/**\" exits 0\n  because \"x\"\n"
         )
         .is_err());
     }

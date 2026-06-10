@@ -35,6 +35,7 @@ const C_TARGET: u8 = 3;
 const EFFECT_NOTIFY: u8 = 0;
 const EFFECT_BLOCK: u8 = 1;
 const EFFECT_KILL: u8 = 2;
+const GATE_IMMEDIATE: i32 = -1;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -49,6 +50,7 @@ struct CUpdate {
     invals: u64,
     ipv4: u32,
     ipv4_mask: u32,
+    gate_exit_code: i32,
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -292,7 +294,7 @@ struct Ctx {
     labels: HashMap<String, u64>,
     next_label: u32,
     updates: Vec<CUpdate>,
-    gate_bits: HashMap<(u8, u8, String), (u64, u32)>,
+    gate_bits: HashMap<(u8, u8, String, Option<u8>), (u64, u32)>,
     next_gate: u32,
     inval_slots: HashMap<(u8, u8, String, String), u32>,
     next_inval: u32,
@@ -304,6 +306,7 @@ impl Ctx {
                 && u.m == spec.m
                 && u.ipv4 == spec.ipv4
                 && u.ipv4_mask == spec.ipv4_mask
+                && u.gate_exit_code == spec.gate_exit_code
                 && pat_eq(&u.target, spec.target)
                 && arg_eq(&u.arg, spec.arg)
             {
@@ -332,6 +335,7 @@ impl Ctx {
             invals: spec.invals,
             ipv4: spec.ipv4,
             ipv4_mask: spec.ipv4_mask,
+            gate_exit_code: spec.gate_exit_code,
         };
         set_pat(&mut u.target, spec.target);
         if !spec.arg.is_empty() {
@@ -355,14 +359,22 @@ impl Ctx {
     }
     /// Returns (gate bit, gate slot index). The index is what the engine uses to
     /// look up the gate's epoch for staleness; the bit is the v1 latching mask.
-    fn gate_bit(&mut self, gate_op: Op, pat: &str) -> Result<(u64, u32), String> {
+    fn gate_bit(
+        &mut self,
+        gate_op: Op,
+        pat: &str,
+        gate_exit: Option<u8>,
+    ) -> Result<(u64, u32), String> {
         let (low_op, m, lit) = match gate_op {
             Op::Exec => { let (m, l) = lower_exec(pat); (OP_EXEC, m, l) }
             Op::Read | Op::Open => { let (m, l) = lower_path(pat); (OP_OPEN, m, l) }
             Op::Write | Op::Unlink => { let (m, l) = lower_path(pat); (OP_WRITE, m, l) }
             other => return Err(format!("`after {}` is not supported as a gate (use exec/read/write)", op_name(other))),
         };
-        let key = (low_op, m, lit.clone());
+        if gate_exit.is_some() && low_op != OP_EXEC {
+            return Err("`exits` is only valid on `after exec` gates".into());
+        }
+        let key = (low_op, m, lit.clone(), gate_exit);
         if let Some(b) = self.gate_bits.get(&key) {
             return Ok(*b);
         }
@@ -383,6 +395,7 @@ impl Ctx {
             invals: 0,
             ipv4: 0,
             ipv4_mask: 0,
+            gate_exit_code: gate_exit.map(i32::from).unwrap_or(GATE_IMMEDIATE),
         })?;
         self.gate_bits.insert(key, (b, idx));
         Ok((b, idx))
@@ -418,6 +431,7 @@ impl Ctx {
             invals: bit,
             ipv4: 0,
             ipv4_mask: 0,
+            gate_exit_code: GATE_IMMEDIATE,
         })?;
         self.inval_slots.insert(key, idx);
         Ok(bit)
@@ -435,6 +449,7 @@ struct UpdateSpec<'a> {
     invals: u64,
     ipv4: u32,
     ipv4_mask: u32,
+    gate_exit_code: i32,
 }
 
 fn pat_eq(buf: &[u8; PAT], s: &str) -> bool {
@@ -627,6 +642,7 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
             invals: 0,
             ipv4,
             ipv4_mask,
+            gate_exit_code: GATE_IMMEDIATE,
         })?;
     }
     for x in &pol.xforms {
@@ -643,6 +659,7 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
             invals: 0,
             ipv4: 0,
             ipv4_mask: 0,
+            gate_exit_code: GATE_IMMEDIATE,
         })?;
     }
     for (rid, rule) in pol.rules.iter().enumerate() {
@@ -693,12 +710,17 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
                     }
                     Some(Cond::LineageIncludes { exec }) => {
                         ck = C_LINEAGE;
-                        let (b, _idx) = ctx.gate_bit(Op::Exec, exec)?;
+                        let (b, _idx) = ctx.gate_bit(Op::Exec, exec, None)?;
                         gate = b;
                     }
-                    Some(Cond::After { gate_op, gate_pattern, since }) => {
+                    Some(Cond::After {
+                        gate_op,
+                        gate_pattern,
+                        gate_exit,
+                        since,
+                    }) => {
                         ck = C_AFTER;
-                        let (b, idx) = ctx.gate_bit(*gate_op, gate_pattern)?;
+                        let (b, idx) = ctx.gate_bit(*gate_op, gate_pattern, *gate_exit)?;
                         gate = b;
                         gate_idx = idx;
                         for (op, pat, arg) in since {
