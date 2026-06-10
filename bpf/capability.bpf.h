@@ -7,9 +7,9 @@
  * Minimal runtime admission path for policy deltas.
  *
  * User space can enqueue cap_delta_request records into cap_req. The kernel
- * drains them from normal enforcement hooks, checks only masks/scope/target,
- * and applies accepted monotonic deltas to cap_state. No DSL/YAML/roles live
- * here.
+ * drains them from a dedicated getpid tracepoint tick, checks only
+ * masks/scope/target, and applies accepted monotonic deltas to cap_state. No
+ * DSL/YAML/roles live here.
  */
 
 #define AUTH_TARGET_SELF  (1ULL << 0)
@@ -19,6 +19,7 @@
 #define AUTH_ADD_LABEL       (1ULL << 1)
 #define AUTH_REQUIRE_GATE    (1ULL << 2)
 #define AUTH_NARROW_SCOPE    (1ULL << 3)
+#define AUTH_BIND_RULE       (1ULL << 4)
 
 #define CAP_STAT_ACCEPT 0
 #define CAP_STAT_REJECT 1
@@ -79,19 +80,29 @@ static __always_inline void cap_count(__u32 slot)
 		(*v)++;
 }
 
-static __always_inline __u64 cap_required_mask(const struct cap_delta_request *r)
+static __always_inline __u64
+cap_required_mask_fields(__u64 required_mask, __u64 add_restrict_mask,
+			 __u64 add_label_mask, __u64 add_gate_mask,
+			 __u32 new_scope_id)
 {
-	__u64 mask = r->required_mask;
+	__u64 mask = required_mask;
 
-	if (r->add_restrict_mask)
+	if (add_restrict_mask)
 		mask |= AUTH_ADD_RESTRICTION;
-	if (r->add_label_mask)
+	if (add_label_mask)
 		mask |= AUTH_ADD_LABEL;
-	if (r->add_gate_mask)
+	if (add_gate_mask)
 		mask |= AUTH_REQUIRE_GATE;
-	if (r->new_scope_id)
+	if (new_scope_id)
 		mask |= AUTH_NARROW_SCOPE;
 	return mask;
+}
+
+static __always_inline __u64 cap_required_mask(const struct cap_delta_request *r)
+{
+	return cap_required_mask_fields(r->required_mask, r->add_restrict_mask,
+					r->add_label_mask, r->add_gate_mask,
+					r->new_scope_id);
 }
 
 static __always_inline int cap_scope_subset(__u32 new_scope, __u32 old_scope)
@@ -115,25 +126,48 @@ cap_target_mask(__u32 caller, __u32 target, const struct cap_state *dst)
 	return mask;
 }
 
-static __always_inline int cap_apply_request(const struct cap_delta_request *r)
+static __always_inline int
+cap_check_fields(pid_t caller_pid, __u32 target_id, __u32 new_scope_id,
+		 __u64 required_mask, __u64 add_restrict_mask,
+		 __u64 add_label_mask, __u64 add_gate_mask)
 {
-	__u32 *caller = bpf_map_lookup_elem(&cap_task, &r->caller_pid);
+	__u32 *caller = bpf_map_lookup_elem(&cap_task, &caller_pid);
 	if (!caller)
 		return -1;
 
 	struct cap_state *src = bpf_map_lookup_elem(&cap_state, caller);
-	struct cap_state *dst = bpf_map_lookup_elem(&cap_state, &r->target_id);
+	struct cap_state *dst = bpf_map_lookup_elem(&cap_state, &target_id);
 	if (!src || !dst)
 		return -1;
 
-	__u64 target_mask = cap_target_mask(*caller, r->target_id, dst);
+	__u64 target_mask = cap_target_mask(*caller, target_id, dst);
 	if (!(target_mask & src->target_mask))
 		return -1;
-	if (cap_required_mask(r) & ~src->authority_mask)
+	if (cap_required_mask_fields(required_mask, add_restrict_mask,
+				     add_label_mask, add_gate_mask,
+				     new_scope_id) & ~src->authority_mask)
 		return -1;
-	if (r->add_label_mask & ~src->label_mask)
+	if (add_label_mask & ~src->label_mask)
 		return -1;
-	if (!cap_scope_subset(r->new_scope_id, dst->scope_id))
+	if (!cap_scope_subset(new_scope_id, dst->scope_id))
+		return -1;
+	return 0;
+}
+
+static __always_inline int cap_check_request(const struct cap_delta_request *r)
+{
+	return cap_check_fields(r->caller_pid, r->target_id, r->new_scope_id,
+				r->required_mask, r->add_restrict_mask,
+				r->add_label_mask, r->add_gate_mask);
+}
+
+static __always_inline int cap_apply_request(const struct cap_delta_request *r)
+{
+	if (cap_check_request(r) != 0)
+		return -1;
+
+	struct cap_state *dst = bpf_map_lookup_elem(&cap_state, &r->target_id);
+	if (!dst)
 		return -1;
 
 	struct cap_state next = *dst;
@@ -164,6 +198,8 @@ static __always_inline int cap_apply_request(const struct cap_delta_request *r)
 #define CAP_REQ_RELOAD_UPDATE  (-1)
 #define CAP_REQ_RELOAD_RULE    (-2)
 #define CAP_REQ_RELOAD_COUNTS  (-3)
+#define CAP_REQ_APPEND_UPDATE  (-4)
+#define CAP_REQ_APPEND_RULE    (-5)
 
 struct cap_reload_update {
 	__s32 tag;
@@ -184,9 +220,81 @@ struct cap_reload_counts {
 	__u32 _pad;
 };
 
+struct cap_append_update {
+	__s32 tag;
+	pid_t caller_pid;
+	__u32 target_id;
+	__u32 new_scope_id;
+	__u64 required_mask;
+	struct taint_update entry;
+};
+
+struct cap_append_rule {
+	__s32 tag;
+	pid_t caller_pid;
+	__u32 target_id;
+	__u32 new_scope_id;
+	__u64 required_mask;
+	struct taint_rule entry;
+};
+
 struct cap_drain_ctx {
 	pid_t current_pid;
 };
+
+static __always_inline int
+cap_append_update_admit(const struct cap_append_update *r, pid_t current_pid)
+{
+	if (r->caller_pid != current_pid)
+		return -1;
+	if (r->entry.del)
+		return -1;
+
+	return cap_check_fields(r->caller_pid, r->target_id, r->new_scope_id,
+				r->required_mask, 0, r->entry.add,
+				r->entry.gates | r->entry.invals);
+}
+
+static __always_inline int
+cap_append_rule_admit(const struct cap_append_rule *r, pid_t current_pid)
+{
+	if (r->caller_pid != current_pid)
+		return -1;
+
+	return cap_check_fields(r->caller_pid, r->target_id, r->new_scope_id,
+				r->required_mask | AUTH_BIND_RULE,
+				0, 0, 0);
+}
+
+static __always_inline int cap_append_update_entry(const struct taint_update *entry)
+{
+	__u32 slot = 1;
+	__u32 *count = bpf_map_lookup_elem(&ts_counts, &slot);
+	if (!count || *count >= MAX_TAINT_UPDATES)
+		return -1;
+
+	__u32 idx = *count;
+	if (bpf_map_update_elem(&ts_updates, &idx, entry, BPF_ANY) != 0)
+		return -1;
+	idx++;
+	bpf_map_update_elem(&ts_counts, &slot, &idx, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int cap_append_rule_entry(const struct taint_rule *entry)
+{
+	__u32 slot = 0;
+	__u32 *count = bpf_map_lookup_elem(&ts_counts, &slot);
+	if (!count || *count >= MAX_TAINT_RULES)
+		return -1;
+
+	__u32 idx = *count;
+	if (bpf_map_update_elem(&ts_rules, &idx, entry, BPF_ANY) != 0)
+		return -1;
+	idx++;
+	bpf_map_update_elem(&ts_counts, &slot, &idx, BPF_ANY);
+	return 0;
+}
 
 static long cap_request_cb(struct bpf_dynptr *dynptr, void *data)
 {
@@ -231,6 +339,30 @@ static long cap_request_cb(struct bpf_dynptr *dynptr, void *data)
 		__u32 nr = r->n_rules, nu = r->n_updates;
 		bpf_map_update_elem(&ts_counts, &slot0, &nr, BPF_ANY);
 		bpf_map_update_elem(&ts_counts, &slot1, &nu, BPF_ANY);
+		cap_count(CAP_STAT_ACCEPT);
+		return 0;
+	}
+	if (*tag == CAP_REQ_APPEND_UPDATE) {
+		const struct cap_append_update *r =
+			bpf_dynptr_data(dynptr, 0, sizeof(*r));
+		struct cap_drain_ctx *ctx = data;
+		if (!r || cap_append_update_admit(r, ctx->current_pid) != 0 ||
+		    cap_append_update_entry(&r->entry) != 0) {
+			cap_count(CAP_STAT_REJECT);
+			return 0;
+		}
+		cap_count(CAP_STAT_ACCEPT);
+		return 0;
+	}
+	if (*tag == CAP_REQ_APPEND_RULE) {
+		const struct cap_append_rule *r =
+			bpf_dynptr_data(dynptr, 0, sizeof(*r));
+		struct cap_drain_ctx *ctx = data;
+		if (!r || cap_append_rule_admit(r, ctx->current_pid) != 0 ||
+		    cap_append_rule_entry(&r->entry) != 0) {
+			cap_count(CAP_STAT_REJECT);
+			return 0;
+		}
 		cap_count(CAP_STAT_ACCEPT);
 		return 0;
 	}

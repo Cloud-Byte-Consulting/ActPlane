@@ -10,6 +10,7 @@ pub const AUTH_ADD_RESTRICTION: u64 = 1 << 0;
 pub const AUTH_ADD_LABEL: u64 = 1 << 1;
 pub const AUTH_REQUIRE_GATE: u64 = 1 << 2;
 pub const AUTH_NARROW_SCOPE: u64 = 1 << 3;
+pub const AUTH_BIND_RULE: u64 = 1 << 4;
 
 pub const STAT_ACCEPT: u32 = 0;
 pub const STAT_REJECT: u32 = 1;
@@ -109,7 +110,10 @@ mod tests {
     #[test]
     fn admits_monotonic_child_delta() {
         let src = CapState {
-            authority_mask: AUTH_ADD_RESTRICTION | AUTH_ADD_LABEL | AUTH_NARROW_SCOPE,
+            authority_mask: AUTH_ADD_RESTRICTION
+                | AUTH_ADD_LABEL
+                | AUTH_NARROW_SCOPE
+                | AUTH_BIND_RULE,
             target_mask: TARGET_CHILD,
             label_mask: 0b0100,
             ..CapState::default()
@@ -125,7 +129,10 @@ mod tests {
             &mut dst,
             TARGET_CHILD,
             DeltaRequest {
-                required_mask: AUTH_ADD_RESTRICTION | AUTH_ADD_LABEL | AUTH_NARROW_SCOPE,
+                required_mask: AUTH_ADD_RESTRICTION
+                    | AUTH_ADD_LABEL
+                    | AUTH_NARROW_SCOPE
+                    | AUTH_BIND_RULE,
                 add_restrict_mask: 0b1000,
                 add_label_mask: 0b0100,
                 new_scope_id: 2,

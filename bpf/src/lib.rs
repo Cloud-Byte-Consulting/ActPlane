@@ -20,7 +20,9 @@ use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
 
 pub mod capability;
-use capability::{CapState, DeltaRequest};
+use capability::{
+    CapState, DeltaRequest, AUTH_BIND_RULE, AUTH_NARROW_SCOPE, TARGET_CHILD, TARGET_SELF,
+};
 
 // ---- prebuilt eBPF object, 8-byte aligned for aya's ELF parser ----
 #[repr(align(8))]
@@ -389,6 +391,8 @@ impl Loader {
             CapState {
                 scope_id: 1,
                 labels: label,
+                authority_mask: AUTH_BIND_RULE | AUTH_NARROW_SCOPE,
+                target_mask: TARGET_SELF | TARGET_CHILD,
                 ..CapState::default()
             },
         )?;
@@ -538,6 +542,8 @@ fn populate_rule_map(bpf: &mut Ebpf, cfg: &CConfig) -> io::Result<()> {
 const CAP_REQ_RELOAD_UPDATE: i32 = -1;
 const CAP_REQ_RELOAD_RULE: i32 = -2;
 const CAP_REQ_RELOAD_COUNTS: i32 = -3;
+const CAP_REQ_APPEND_UPDATE: i32 = -4;
+const CAP_REQ_APPEND_RULE: i32 = -5;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -562,6 +568,28 @@ struct ReloadCounts {
     n_rules: u32,
     n_updates: u32,
     _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct AppendUpdate {
+    tag: i32,
+    caller_pid: i32,
+    target_id: u32,
+    new_scope_id: u32,
+    required_mask: u64,
+    entry: CUpdate,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct AppendRule {
+    tag: i32,
+    caller_pid: i32,
+    target_id: u32,
+    new_scope_id: u32,
+    required_mask: u64,
+    entry: CRule,
 }
 
 /// A handle for hot-reloading policy rules into a running eBPF engine.
@@ -653,6 +681,77 @@ impl ReloadHandle {
             n_updates: cfg.n_updates,
             _pad: 0,
         })?;
+
+        Ok(())
+    }
+
+    /// Append a precompiled policy delta through the kernel-admitted runtime path.
+    ///
+    /// Unlike `reload_policy`, this does not replace existing rules. Each update
+    /// and rule is admitted by the BPF capability checker using the submitting
+    /// pid's bound state. Updates that delete labels are rejected because a
+    /// runtime self-policy delta must not declassify inherited state.
+    pub fn append_policy_delta(
+        &self,
+        caller_pid: i32,
+        target_id: u32,
+        delta_blob: &[u8],
+    ) -> io::Result<()> {
+        self.append_policy_delta_with_rule_id_base(caller_pid, target_id, 0, delta_blob)
+    }
+
+    /// Same as `append_policy_delta`, but offsets appended rule ids before
+    /// submission so userspace metadata can remain aligned with kernel events.
+    pub fn append_policy_delta_with_rule_id_base(
+        &self,
+        caller_pid: i32,
+        target_id: u32,
+        rule_id_base: u32,
+        delta_blob: &[u8],
+    ) -> io::Result<()> {
+        if caller_pid <= 0 || target_id == 0 {
+            return Err(err("caller_pid and target_id must both be set"));
+        }
+        if delta_blob.len() != std::mem::size_of::<CConfig>() {
+            return Err(err(format!(
+                "delta config size mismatch: got {}, expected {}",
+                delta_blob.len(),
+                std::mem::size_of::<CConfig>()
+            )));
+        }
+        let cfg: Box<CConfig> =
+            Box::new(unsafe { std::ptr::read_unaligned(delta_blob.as_ptr() as *const CConfig) });
+        validate_config(&cfg)?;
+
+        for i in 0..cfg.n_updates {
+            let entry = cfg.updates[i as usize];
+            if entry.del != 0 {
+                return Err(err(format!(
+                    "runtime policy delta update[{i}] deletes labels; declassification is not allowed"
+                )));
+            }
+            self.submit(&AppendUpdate {
+                tag: CAP_REQ_APPEND_UPDATE,
+                caller_pid,
+                target_id,
+                new_scope_id: 0,
+                required_mask: 0,
+                entry,
+            })?;
+        }
+
+        for i in 0..cfg.n_rules {
+            let mut entry = cfg.rules[i as usize];
+            entry.rule_id = entry.rule_id.saturating_add(rule_id_base);
+            self.submit(&AppendRule {
+                tag: CAP_REQ_APPEND_RULE,
+                caller_pid,
+                target_id,
+                new_scope_id: 0,
+                required_mask: AUTH_BIND_RULE,
+                entry,
+            })?;
+        }
 
         Ok(())
     }
@@ -774,5 +873,200 @@ mod tests {
             8 + std::mem::size_of::<CRule>()
         );
         assert_eq!(std::mem::size_of::<ReloadCounts>(), 16);
+        assert_eq!(
+            std::mem::size_of::<AppendUpdate>(),
+            24 + std::mem::size_of::<CUpdate>()
+        );
+        assert_eq!(
+            std::mem::size_of::<AppendRule>(),
+            24 + std::mem::size_of::<CRule>()
+        );
+    }
+
+    fn set_cstr<const N: usize>(dst: &mut [u8; N], s: &str) {
+        let bytes = s.as_bytes();
+        let n = bytes.len().min(N.saturating_sub(1));
+        dst[..n].copy_from_slice(&bytes[..n]);
+    }
+
+    fn config_blob(cfg: &CConfig) -> Vec<u8> {
+        unsafe {
+            std::slice::from_raw_parts(
+                cfg as *const CConfig as *const u8,
+                std::mem::size_of::<CConfig>(),
+            )
+            .to_vec()
+        }
+    }
+
+    fn empty_config_blob() -> Vec<u8> {
+        let cfg: CConfig = unsafe { std::mem::zeroed() };
+        config_blob(&cfg)
+    }
+
+    fn notify_exec_config_blob(name: &str) -> Vec<u8> {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_EXEC;
+        cfg.rules[0].m = 0; // TAINT_MATCH_EXACT
+        cfg.rules[0].effect = 0; // notify
+        cfg.rules[0].rule_id = 0;
+        set_cstr(&mut cfg.rules[0].target, name);
+        config_blob(&cfg)
+    }
+
+    fn percentile(sorted: &[std::time::Duration], pct: f64) -> std::time::Duration {
+        assert!(!sorted.is_empty());
+        let idx = ((sorted.len() - 1) as f64 * pct).round() as usize;
+        sorted[idx.min(sorted.len() - 1)]
+    }
+
+    fn summarize_durations(name: &str, durs: &[std::time::Duration]) {
+        let mut sorted = durs.to_vec();
+        sorted.sort_unstable();
+        let total_ns: u128 = durs.iter().map(|d| d.as_nanos()).sum();
+        let mean_us = total_ns as f64 / durs.len() as f64 / 1000.0;
+        println!(
+            "{name}: n={} mean={:.2}us p50={:.2}us p90={:.2}us p99={:.2}us min={:.2}us max={:.2}us",
+            durs.len(),
+            mean_us,
+            percentile(&sorted, 0.50).as_secs_f64() * 1_000_000.0,
+            percentile(&sorted, 0.90).as_secs_f64() * 1_000_000.0,
+            percentile(&sorted, 0.99).as_secs_f64() * 1_000_000.0,
+            sorted[0].as_secs_f64() * 1_000_000.0,
+            sorted[sorted.len() - 1].as_secs_f64() * 1_000_000.0,
+        );
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
+    fn reload_policy_latency_smoke() {
+        let empty = empty_config_blob();
+        let policy_a = notify_exec_config_blob("aprl_a");
+        let policy_b = notify_exec_config_blob("aprl_b");
+        let policy_hit = notify_exec_config_blob("aprlhit");
+
+        let mut loader = Loader::load(&empty).expect("load eBPF engine");
+        let handle = loader.reload_handle().expect("reload handle");
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send((std::time::Instant::now(), v));
+            })
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        for i in 0..10 {
+            let blob = if i % 2 == 0 { &policy_a } else { &policy_b };
+            handle.reload_policy(blob).expect("warm reload");
+        }
+
+        let mut reload_durs = Vec::new();
+        for i in 0..200 {
+            let blob = if i % 2 == 0 { &policy_a } else { &policy_b };
+            let start = std::time::Instant::now();
+            handle.reload_policy(blob).expect("measured reload");
+            reload_durs.push(start.elapsed());
+        }
+
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-reload-bench-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("aprlhit");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let mut effect_durs = Vec::new();
+        let mut reload_only_durs = Vec::new();
+        for _ in 0..50 {
+            let start = std::time::Instant::now();
+            handle
+                .reload_policy(&policy_hit)
+                .expect("reload hit policy");
+            reload_only_durs.push(start.elapsed());
+            let status = std::process::Command::new(&hit_path)
+                .status()
+                .expect("run matching executable");
+            assert!(status.success());
+            let (event_at, v) = rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("violation after reload");
+            assert!(v.target.ends_with("aprlhit"), "target was {}", v.target);
+            effect_durs.push(event_at.duration_since(start));
+        }
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        println!("reload path: 1 rule, 0 updates, counts quiesce + rule + counts activate");
+        summarize_durations("reload_policy_submit_to_drain", &reload_durs);
+        summarize_durations("reload_policy_before_effect_samples", &reload_only_durs);
+        summarize_durations("reload_to_observed_exec_violation", &effect_durs);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
+    fn append_policy_delta_admits_self_rule_smoke() {
+        let empty = empty_config_blob();
+        let policy = notify_exec_config_blob("aprladd");
+        let caller_pid = std::process::id() as i32;
+        let target_id = 42;
+
+        let mut loader = Loader::load(&empty).expect("load eBPF engine");
+        loader
+            .bind_state(
+                caller_pid,
+                target_id,
+                CapState {
+                    scope_id: 1,
+                    authority_mask: AUTH_BIND_RULE,
+                    target_mask: TARGET_SELF,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind caller domain");
+        let handle = loader.reload_handle().expect("reload handle");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        handle
+            .append_policy_delta(caller_pid, target_id, &policy)
+            .expect("append admitted rule");
+
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-append-smoke-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("aprladd");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+        let status = std::process::Command::new(&hit_path)
+            .status()
+            .expect("run matching executable");
+        assert!(status.success());
+
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("violation from appended rule");
+        assert!(v.target.ends_with("aprladd"), "target was {}", v.target);
+        assert_eq!(v.rule_id, 0);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

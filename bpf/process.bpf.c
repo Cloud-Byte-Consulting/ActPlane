@@ -78,6 +78,16 @@ const volatile unsigned int enforce_mode = 0;
 
 #include "channel.bpf.h"
 
+struct te_event {
+	pid_t pid;
+	__u32 obj_kind;
+	__u32 access;
+	__u32 mode;
+	const char *target;
+	const char *display;
+	__u32 ip;
+};
+
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 256 * 1024);
@@ -277,16 +287,6 @@ static __always_inline int bprm_filename(struct linux_binprm *bprm, char *path,
 	return -1;
 }
 
-struct te_event {
-	pid_t pid;
-	__u32 obj_kind;
-	__u32 access;
-	__u32 mode;
-	const char *target;
-	const char *display;
-	__u32 ip;
-};
-
 static __always_inline __u32 te_access_from_open_flags(unsigned int flags)
 {
 	int acc = flags & O_ACCMODE;
@@ -434,9 +434,6 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 	int rid = -1;
 	int candidate = -1;
 
-	cap_drain_current();
-	labels = te_labels(ev->pid);
-
 	if (ev->obj_kind == TE_OBJ_FILE && (ev->access & TE_ACCESS_READ))
 		labels |= te_file_labels(fid, ev->target);
 	if (ev->obj_kind == TE_OBJ_ENDPOINT && (ev->access & TE_ACCESS_CONNECT))
@@ -523,12 +520,75 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 	return 0;
 }
 
+static __always_inline int te_handle_file_event(pid_t pid, const char *target,
+						struct file_id *fid, __u32 access,
+						__u32 mode)
+{
+	__u64 labels = te_labels(pid);
+	struct te_rule_eval eval = {};
+	__u32 effect = TEFFECT_NOTIFY;
+	__u32 action = TE_MODE_NOTIFY;
+	__u64 matched_req = 0;
+	int rid = -1;
+	int candidate = -1;
+
+	if (access & TE_ACCESS_READ)
+		labels |= te_file_labels(fid, target);
+
+	eval.pid = pid;
+	eval.labels = labels;
+	eval.effect = TEFFECT_BLOCK;
+	eval.effect_mask = te_supported_effects(mode);
+	eval.target = target;
+	if (access & TE_ACCESS_READ) {
+		eval.op = TOP_OPEN;
+		candidate = te_check_labels(&eval);
+		if (te_better_match(candidate, eval.effect, rid, effect)) {
+			rid = candidate;
+			effect = eval.effect;
+			matched_req = eval.matched_req;
+		}
+	}
+	if (access & TE_ACCESS_WRITE) {
+		eval.effect = TEFFECT_BLOCK;
+		eval.op = TOP_WRITE;
+		candidate = te_check_labels(&eval);
+		if (te_better_match(candidate, eval.effect, rid, effect)) {
+			rid = candidate;
+			effect = eval.effect;
+			matched_req = eval.matched_req;
+		}
+	}
+
+	if (rid >= 0) {
+		action = te_effect_mode(mode, effect);
+		if (action != TE_MODE_UNSUPPORTED)
+			emit_violation(pid, rid, target, 0, matched_req,
+				       action == TE_MODE_BLOCK ||
+					       (action == TE_MODE_KILL && mode == TE_MODE_BLOCK),
+				       action == TE_MODE_KILL, effect);
+		if (action == TE_MODE_BLOCK)
+			return -EPERM;
+		if (action == TE_MODE_KILL) {
+			bpf_send_signal(SIGKILL);
+			if (mode == TE_MODE_BLOCK)
+				return -EPERM;
+		}
+	}
+
+	if (access & TE_ACCESS_READ)
+		te_read(pid, fid, target);
+	if (access & TE_ACCESS_WRITE)
+		te_write_flow(pid, fid, target);
+	return 0;
+}
+
 static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 					  const void *b, __u32 access,
 					  __u32 mode)
 {
 	struct file_scratch *scratch = file_scratch_buf();
-	struct te_event ev = {};
+	pid_t pid;
 
 	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
 	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
@@ -542,12 +602,8 @@ static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 		return 0;
 	te_resolve_file_id(ref_kind, a, b, scratch->path, &scratch->fid);
 
-	ev.pid = bpf_get_current_pid_tgid() >> 32;
-	ev.obj_kind = TE_OBJ_FILE;
-	ev.access = access;
-	ev.mode = mode;
-	ev.target = scratch->path;
-	return te_handle_event(&ev, &scratch->fid);
+	pid = bpf_get_current_pid_tgid() >> 32;
+	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
 }
 
 static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
@@ -579,7 +635,7 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 static __always_inline int te_handle_channel(int fd, __u32 access, __u32 mode)
 {
 	struct file_scratch *scratch = file_scratch_buf();
-	struct te_event ev = {};
+	pid_t pid;
 
 	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
 	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
@@ -591,12 +647,8 @@ static __always_inline int te_handle_channel(int fd, __u32 access, __u32 mode)
 		return 0;
 
 	scratch->fid.ino = te_fnv1a(scratch->path);
-	ev.pid = bpf_get_current_pid_tgid() >> 32;
-	ev.obj_kind = TE_OBJ_FILE;
-	ev.access = access;
-	ev.mode = mode;
-	ev.target = scratch->path;
-	return te_handle_event(&ev, &scratch->fid);
+	pid = bpf_get_current_pid_tgid() >> 32;
+	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
 }
 
 static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
