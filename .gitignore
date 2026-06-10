@@ -39,6 +39,7 @@ docs/corpus-test/openagentsafety_llama/**/workspace/
 # reports, and compact summaries; ignore generated benchmark artifacts.
 docs/OctoBench/__pycache__/
 docs/OctoBench/results/
+docs/OctoBench/results-backup/
 docs/OctoBench/logs/
 docs/OctoBench/*.log
 docs/OctoBench/mini-vela/results/

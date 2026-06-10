@@ -30,6 +30,10 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1] / "OctoBench"
 RESULTS = BASE / "results"
+RESULT_ROOTS = [
+    RESULTS,
+    BASE / "results-backup" / "non-21-20260610" / "docs_OctoBench_results",
+]
 CASE_FILES = [
     BASE / "data" / "selected_cases_20.jsonl",
     BASE / "data" / "selected_cases_extra10.jsonl",
@@ -98,18 +102,24 @@ def count_strict_os(case):
 
 
 def load_scores():
-    score_files = sorted(glob.glob(
-        str(RESULTS / "**" / "scores_llama_judge.json"), recursive=True))
     best = defaultdict(lambda: defaultdict(lambda: {'reward': -1, 'cats': {}}))
     run_counts = defaultdict(lambda: defaultdict(int))
 
-    for sf in score_files:
+    score_files = []
+    for root in RESULT_ROOTS:
+        if root.exists():
+            score_files.extend((root, Path(sf)) for sf in glob.glob(
+                str(root / "**" / "scores_llama_judge.json"),
+                recursive=True,
+            ))
+
+    for root, sf in sorted(score_files, key=lambda item: str(item[1])):
         with open(sf) as f:
             try:
                 d = json.load(f)
             except Exception:
                 continue
-        rel = str(Path(sf).relative_to(RESULTS))
+        rel = str(sf.relative_to(root))
         parts = rel.split("/")
         cd = parts[0]
         if cd in ("extra10", "tuned"):

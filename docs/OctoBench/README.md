@@ -52,6 +52,9 @@ Generated artifacts belong under ignored `results/`.
 
 The paper-facing result uses the 21-task subset whose user-query checklist
 contains at least one OS-enforceable item (best-by-condition scoring).
+The exact task ids are in `data/selected_cases_21.ids`, the full task
+records are in `data/selected_cases_21.jsonl`, and the computation script is
+`../temp/compute_octobench_rq4.py`.
 
 | rows | baseline | tool-regex (hooks) | actplane | actplane minus baseline | actplane minus hooks |
 |---:|---:|---:|---:|---:|---:|
