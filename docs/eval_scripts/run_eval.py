@@ -60,10 +60,11 @@ class EvalConfig:
 
 CONFIGS = {
     "prompt-filter": EvalConfig(("prompt-filter",), "prompt-filter"),
-    "baseline": EvalConfig(("prompt-filter", "tool-regex"), "baseline"),
+    "tool-ifc": EvalConfig(("tool-ifc",), "tool-ifc"),
+    "baseline": EvalConfig(("prompt-filter", "tool-regex", "tool-ifc"), "baseline"),
     "actplane-only": EvalConfig(("actplane",), "actplane-only"),
     "actplane": EvalConfig(("actplane", "actplane-opaque"), "actplane"),
-    "full": EvalConfig(("prompt-filter", "tool-regex", "actplane", "actplane-opaque"), "full"),
+    "full": EvalConfig(("prompt-filter", "tool-regex", "tool-ifc", "actplane", "actplane-opaque"), "full"),
 }
 
 

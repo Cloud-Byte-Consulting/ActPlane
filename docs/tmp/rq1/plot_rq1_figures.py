@@ -10,10 +10,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-SYSTEM_ORDER = ["prompt-filter", "tool-regex", "actplane-opaque", "actplane"]
+SYSTEM_ORDER = ["prompt-filter", "tool-regex", "tool-ifc", "actplane-opaque", "actplane"]
 SYSTEM_LABELS = {
     "prompt-filter": "Prompt-filter",
     "tool-regex": "Tool-regex",
+    "tool-ifc": "FIDES",
     "actplane-opaque": "AgPlane\nopaque",
     "actplane": "AgPlane",
 }
@@ -27,13 +28,14 @@ FAMILY_ORDER = [
 FAMILY_LABELS = {
     "allowed_effect_compliant": "Allowed-effect\ncompliant",
     "lookalike_compliant": "Lookalike\ncompliant",
-    "visible_violation": "Visible\nviolation",
-    "script_visible_violation": "Script-visible\nviolation",
-    "opaque_fixture_violation": "Opaque-fixture\nviolation",
+    "visible_violation": "Direct\nviolation",
+    "script_visible_violation": "Script\nviolation",
+    "opaque_fixture_violation": "Hidden\nviolation",
 }
 CONFUSION_LABELS = ("TP", "TN", "FP", "FN", "unclear")
 SCORED_LABELS = ("TP", "TN", "FP", "FN")
 DEEPSEEK_JUDGE_DIR = "trajectory_judges_deepseek_deepseek_v4_pro_guardrail_response"
+QWEN_JUDGE_DIR = "trajectory_judges_llama_cpp_guardrail_response"
 
 
 def family(trace_file: str) -> str:
@@ -61,25 +63,22 @@ def load_rows(path: Path) -> list[dict]:
     return rows
 
 
-def load_deepseek_rows(run_dir: Path) -> list[dict]:
-    selected_file = run_dir / "selected_runner_results.txt"
-    selected_sources = set()
-    if selected_file.exists():
-        selected_sources = {
-            line.strip()
-            for line in selected_file.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        }
-
+def load_selected_judged_rows(selected_file: Path, judge_dir: str) -> list[dict]:
     rows = []
-    for judge_path in run_dir.rglob(f"{DEEPSEEK_JUDGE_DIR}/*.judge.json"):
+    missing = []
+    for line in selected_file.read_text(encoding="utf-8").splitlines():
+        source = line.strip()
+        if not source:
+            continue
+        source_path = Path(source)
+        judge_path = source_path.parent / judge_dir / f"{source_path.stem}.judge.json"
+        if not judge_path.exists():
+            missing.append(str(judge_path))
+            continue
         data = json.loads(judge_path.read_text(encoding="utf-8"))
         judgment = data.get("judgment") or {}
         label = judgment.get("confusion_label")
         if label not in CONFUSION_LABELS:
-            continue
-        source = str(data.get("source_result") or "")
-        if selected_sources and source not in selected_sources:
             continue
         rows.append(
             {
@@ -92,6 +91,11 @@ def load_deepseek_rows(run_dir: Path) -> list[dict]:
                 "run_id": str(data.get("source_run_id") or ""),
                 "source": source,
             }
+        )
+    if missing:
+        sample = "\n".join(missing[:5])
+        raise FileNotFoundError(
+            f"{len(missing)} selected results are missing {judge_dir} judges. First missing:\n{sample}"
         )
     return rows
 
@@ -149,7 +153,7 @@ def plot_bar(primary_rows: list[dict], replication_rows: list[dict], out: Path) 
     ax.tick_params(axis="y", labelsize=14)
     ax.grid(axis="y", color="#d9d9d9", linewidth=0.8)
     ax.set_axisbelow(True)
-    ax.legend(frameon=False, loc="upper left", ncols=2, fontsize=13)
+    ax.legend(frameon=False, loc="upper left", ncols=2, fontsize=15)
     for spine in ("top", "right"):
         ax.spines[spine].set_visible(False)
     for bars, values in ((primary_bars, primary_values), (replication_bars, replication_values)):
@@ -218,17 +222,28 @@ def main() -> int:
         type=Path,
         default=Path("docs/eval_runs/full/deepseek_rq1_20260607T193612Z_v4_pro"),
     )
+    parser.add_argument(
+        "--qwen-run",
+        type=Path,
+        default=Path("docs/eval_runs/full/20260607_current_full_after_trace_harness_fix"),
+    )
     parser.add_argument("--out-dir", type=Path, default=Path("docs/papers/figures"))
     parser.add_argument("--bar-only", action="store_true")
     args = parser.parse_args()
     rows = load_rows(args.selected)
-    deepseek_rows = load_deepseek_rows(args.deepseek_run)
+    qwen_fides_rows = load_selected_judged_rows(
+        args.qwen_run / "selected_runner_results.txt", QWEN_JUDGE_DIR
+    )
+    primary_rows = rows + qwen_fides_rows
+    deepseek_rows = load_selected_judged_rows(
+        args.deepseek_run / "selected_runner_results.txt", DEEPSEEK_JUDGE_DIR
+    )
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    print_summary("Qwen3.6-27B end-to-end run", rows)
+    print_summary("Qwen3.6-27B end-to-end run", primary_rows)
     print_summary("DeepSeek-Pro V4 end-to-end run", deepseek_rows)
-    plot_bar(rows, deepseek_rows, args.out_dir / "rq1_dcr_bar.pdf")
+    plot_bar(primary_rows, deepseek_rows, args.out_dir / "rq1_dcr_bar.pdf")
     if not args.bar_only:
-        plot_family(rows, args.out_dir / "rq1_family_breakdown.pdf")
+        plot_family(primary_rows, args.out_dir / "rq1_family_breakdown.pdf")
     return 0
 
 

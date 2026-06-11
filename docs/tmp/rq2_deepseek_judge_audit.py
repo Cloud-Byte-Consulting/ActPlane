@@ -22,7 +22,7 @@ JUDGE_GLOB = "**/trajectory_judges*/*.judge.json"
 OUT_JSONL = ROOT / "docs/tmp/rq2_deepseek_judge_audit_corrections.jsonl"
 OUT_REPORT = ROOT / "docs/tmp/rq2_deepseek_judge_audit_report.md"
 
-SYSTEMS = ["prompt-filter", "tool-regex", "actplane", "actplane-opaque"]
+SYSTEM_ORDER = ["prompt-filter", "tool-regex", "tool-ifc", "actplane", "actplane-opaque"]
 LABELS = ["TP", "TN", "FP", "FN", "unclear"]
 VIOLATION_TRACES = {
     "trace_visible_violation.jsonl",
@@ -187,7 +187,7 @@ def table(summary: dict[str, Counter[str]]) -> str:
         "| system | DCR | TP | TN | FP | FN | unclear | judged |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for system in SYSTEMS:
+    for system in ordered_systems(summary):
         counts = summary.get(system, Counter())
         correct, scored, rate = dcr(counts)
         judged = sum(counts.values())
@@ -197,6 +197,13 @@ def table(summary: dict[str, Counter[str]]) -> str:
             f"{counts['FN']} | {counts['unclear']} | {judged} |"
         )
     return "\n".join(lines)
+
+
+def ordered_systems(summary: dict[str, Any]) -> list[str]:
+    present = set(summary)
+    ordered = [system for system in SYSTEM_ORDER if system in present]
+    ordered.extend(sorted(present - set(SYSTEM_ORDER)))
+    return ordered
 
 
 def write_corrections(rows: list[Row]) -> list[Row]:
@@ -283,7 +290,7 @@ def write_report(rows: list[Row], changed: list[Row]) -> None:
     lines.append("")
     lines.append("| system | scope unclear to TP | scope unclear to FN | TP without signal to FN |")
     lines.append("|---|---:|---:|---:|")
-    for system in SYSTEMS:
+    for system in ordered_systems(by_system_reason):
         counts = by_system_reason.get(system, Counter())
         lines.append(
             f"| {system} | "

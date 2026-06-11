@@ -8,9 +8,9 @@ python3 docs/eval_scripts/run_eval.py --config full
 ```
 
 `full` is a configuration inside `run_eval.py`. It runs `prompt-filter`,
-`tool-regex`, `actplane`, and `actplane-opaque`, then judges trajectories and
-prints the final Decision Compliance Rate. Do not report intermediate
-validation or runtime diagnostics as paper results.
+`tool-regex`, FIDES (`tool-ifc`), `actplane`, and `actplane-opaque`, then judges
+trajectories and prints the final Decision Compliance Rate. Do not report
+intermediate validation or runtime diagnostics as paper results.
 
 Do not invoke the runner, judge, summarizer, Docker wrapper, or validator
 helpers directly for reported experiments. They are internal `run_eval.py`
@@ -32,6 +32,7 @@ build the minimal Docker COW image
 start local llama.cpp for the source agent
 run prompt-filter in Docker
 run tool-regex in Docker
+run FIDES/tool-ifc in Docker
 run actplane in Docker
 run actplane-opaque in Docker
 restart local llama.cpp in JSON judge mode
@@ -86,6 +87,7 @@ System outputs are written under:
 ```text
 docs/eval_runs/full/<timestamp>/prompt-filter/
 docs/eval_runs/full/<timestamp>/tool-regex/
+docs/eval_runs/full/<timestamp>/tool-ifc/
 docs/eval_runs/full/<timestamp>/actplane/
 docs/eval_runs/full/<timestamp>/actplane-opaque/
 ```
@@ -187,9 +189,9 @@ themselves.
 
 The main case-audit judge receives the ground-truth trace label, the full
 replayed trace, relevant `.eval-fixtures` contents, and the observed runtime
-trajectory for one tested system. It does not receive generated `rule.yaml` or
-`baselines/tool-regex.yaml`, because policy translation errors are part of the
-system under test.
+trajectory for one tested system. It does not receive policy artifacts such as
+`rule.yaml` or `baselines/tool-regex.yaml`, because policy translation and
+enforcement errors are part of the system under test.
 
 Runner result JSON stores `trace_records_snapshot` and
 `fixture_files_snapshot`; the judge requires those snapshots. Legacy runner
@@ -257,6 +259,8 @@ calls in trace artifacts.
 - `prompt-filter`: an external prompt-based step filter judges proposed tool actions from the natural-language directive.
 - `tool-regex`: checks explicit Agent SDK tool inputs using per-case
   `baselines/tool-regex.yaml`.
+- FIDES (`tool-ifc`): lowers the same ActPlane `rule.yaml` into a
+  tool-boundary IFC monitor over visible Bash/Read/Write/Edit actions.
 - `actplane`: OS/syscall-layer ActPlane enforcement with structured feedback.
 - `actplane-opaque`: same ActPlane enforcement, but without structured feedback
   to the agent.
@@ -274,9 +278,9 @@ feedback.
 The available configs are:
 
 ```text
-baseline: prompt-filter, tool-regex
+baseline: prompt-filter, tool-regex, FIDES/tool-ifc
 actplane: actplane, actplane-opaque
-full: prompt-filter, tool-regex, actplane, actplane-opaque
+full: prompt-filter, tool-regex, FIDES/tool-ifc, actplane, actplane-opaque
 ```
 
 It uses local llama.cpp for both the tested agent and trajectory judge by
@@ -299,6 +303,9 @@ trace_opaque_fixture_violation.jsonl
 ```
 
 The runner does not translate ActPlane DSL into a tool-regex policy at runtime.
+FIDES/tool-ifc is separate: it reads `rule.yaml` directly and maintains labels,
+file labels, lineage gates, and `after ... since ...` epochs only across
+tool-visible events.
 
 Tool-regex policies are raw string regex policies. `pattern` is a Python
 regular expression evaluated with `re.search(..., IGNORECASE | MULTILINE)`.
@@ -310,6 +317,12 @@ matched against the normalized tool path string. Optional `arg`,
 not run `shlex`, split shell tokens, lower ActPlane DSL, inspect generated
 script contents beyond the explicit tool input string, or observe runtime
 subprocess/syscall effects.
+
+FIDES/tool-ifc policies use ActPlane glob syntax from `rule.yaml`, with exec basename
+matching and shell-token matching over visible `Bash.command` strings. They can
+track visible reads, writes, direct command gates, and stale gates across tool
+calls, but they still cannot see subprocesses or filesystem effects hidden
+inside repo scripts or pre-session fixtures.
 
 The legacy `trace_compliant.jsonl` / `trace_violation.jsonl` files are outside
 the current manifest scope.
@@ -432,6 +445,7 @@ These scripts are implementation helpers used by `run_eval.py`:
 - `summarize_agent_sdk_results.py` — computes the final decision-compliance table from judge
   files.
 - `tool_regex_baseline.py` — implementation of the explicit tool-layer baseline.
+- `tool_ifc_baseline.py` — implementation of the FIDES/tool-level IFC baseline.
 - `Dockerfile.agent-sdk` and `docker_eval_entrypoint.sh` — Docker image and
   entrypoint.
 

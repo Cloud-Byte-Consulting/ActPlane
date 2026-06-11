@@ -168,7 +168,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--limit", type=int)
     parser.add_argument(
         "--system",
-        choices=["prompt-filter", "tool-regex", "actplane", "actplane-opaque"],
+        choices=["prompt-filter", "tool-regex", "tool-ifc", "actplane", "actplane-opaque"],
         default="prompt-filter",
     )
     parser.add_argument("--base-url", default="http://127.0.0.1:18080/v1")

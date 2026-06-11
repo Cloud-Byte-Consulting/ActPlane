@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT_JSONL = ROOT / "docs/tmp/rq2_llm_judge_extra_sample.jsonl"
 OUT_REPORT = ROOT / "docs/tmp/rq2_llm_judge_extra_sample_report.md"
 
-SYSTEMS = ["prompt-filter", "tool-regex", "actplane", "actplane-opaque"]
+SYSTEMS = ["prompt-filter", "tool-regex", "tool-ifc", "actplane", "actplane-opaque"]
 LABELS = ["TP", "TN", "FP", "FN"]
 VIOLATION_TRACES = {
     "trace_visible_violation.jsonl",

@@ -50,6 +50,10 @@ from tool_regex_baseline import (
     ToolRegexPolicy,
     format_tool_policy_feedback,
 )
+from tool_ifc_baseline import (
+    ToolIfcPolicy,
+    format_tool_ifc_feedback,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ACTPLANE = ROOT / "target" / "release" / "actplane"
@@ -116,7 +120,7 @@ class EvalContext:
     workdir: Path = field(default_factory=lambda: Path("."))
     feedback_file: Path | None = None
     prompt_filter: PromptFilterPolicy | None = None
-    tool_policy: ToolRegexPolicy | None = None
+    tool_policy: ToolRegexPolicy | ToolIfcPolicy | None = None
     deliver_feedback: bool = True
     tool_log: list[dict[str, Any]] = field(default_factory=list)
     setup_feedbacks: list[str] = field(default_factory=list)
@@ -166,6 +170,8 @@ def record_tool_policy_after(
 def format_policy_feedback(event: ToolPolicyEvent) -> str:
     if event.rule_id == "prompt-filter":
         return format_prompt_filter_feedback(event)
+    if event.rule_id.startswith("tool-ifc:"):
+        return format_tool_ifc_feedback(event)
     return format_tool_policy_feedback(event)
 
 
@@ -1341,7 +1347,11 @@ async def run_scenario_inner(
         )
 
     tool_policy_file = statement_dir / TOOL_REGEX_POLICY
-    tool_policy = ToolRegexPolicy.from_policy_file(tool_policy_file) if system == "tool-regex" else None
+    tool_policy: ToolRegexPolicy | ToolIfcPolicy | None = None
+    if system == "tool-regex":
+        tool_policy = ToolRegexPolicy.from_policy_file(tool_policy_file)
+    elif system == "tool-ifc":
+        tool_policy = ToolIfcPolicy.from_rule_yaml(rule_path)
     ctx = EvalContext(
         workdir=workdir,
         feedback_file=fb_path,
@@ -1491,7 +1501,7 @@ def score_scenario(
     recovery_tools = [t for t in ctx.tool_log if t.get("phase") == "recovery"]
     final_text = str(final_output or "").strip()
     recovery_attempted = bool(recovery_tools) or bool(final_text)
-    enforcement_system = system in {"prompt-filter", "tool-regex", "actplane", "actplane-opaque"}
+    enforcement_system = system in {"prompt-filter", "tool-regex", "tool-ifc", "actplane", "actplane-opaque"}
     setup_visible = bool(ctx.setup_visible_intervention)
     overblocked = (not scenario_violation) and setup_fired
     blocked_expected_violation = scenario_violation and setup_visible
@@ -1740,7 +1750,11 @@ def run_one_scenario(spec_and_args):
         r.setdefault("rule_file", str(rule))
         r.setdefault(
             "tool_policy_file",
-            str(sd / TOOL_REGEX_POLICY) if args.system == "tool-regex" else None,
+            str(sd / TOOL_REGEX_POLICY)
+            if args.system == "tool-regex"
+            else str(rule)
+            if args.system == "tool-ifc"
+            else None,
         )
         r.setdefault(
             "prompt_filter_template",
@@ -1806,7 +1820,7 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("--limit", type=int, default=None)
     p.add_argument(
         "--system",
-        choices=["prompt-filter", "tool-regex", "actplane", "actplane-opaque"],
+        choices=["prompt-filter", "tool-regex", "tool-ifc", "actplane", "actplane-opaque"],
         default="actplane",
     )
     p.add_argument("--actplane", type=Path, default=DEFAULT_ACTPLANE)

@@ -49,7 +49,7 @@ pub(crate) fn check_policy(cli: &Cli) -> Result<i32> {
     {
         warns.push(
             "`block` rules need BPF-LSM (not active here: /sys/kernel/security/lsm has no `bpf`); \
-             those rules will report (notify) but not deny. Use `kill` instead to terminate."
+             those rules will not fire in tracepoint mode. Use `kill` if harness-level termination is acceptable."
                 .into(),
         );
     }
@@ -163,7 +163,7 @@ pub(crate) fn doctor(cli: &Cli) -> Result<i32> {
         );
     } else {
         println!(
-            "⚠ BPF-LSM: not active; `block` rules will report but not deny ({})",
+            "⚠ BPF-LSM: not active; `block` rules will not fire ({})",
             lsm.trim()
         );
     }

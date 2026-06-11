@@ -6,10 +6,10 @@
 
 > **Status: implemented as a BPF-LSM enforcement backend with tracepoint observation.**
 > - **Compiler** `collector/src/dsl/` (parse → lower to the kernel ABI `struct taint_config`): bit allocation, boolean→`req`/`forbid` masks via DNF, glob→exact/prefix/suffix/any lowering, IPv4→net/mask, gates, declassify/endorse, and the `since` staleness clause (§1.9). Unit tests cover E1–E13 compile + effect coverage.
-> - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, the `since` epoch engine (§1.9), object identity by `(dev,inode)` (§1.10), process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec, file access/mutation, and connect blocking when `bpf` LSM is active; otherwise tracepoints support `notify` reporting and explicit `kill` termination. `block` is LSM-only. Matching predicates have 30 unit tests (`test_taint.c`).
+> - **Kernel engine** `bpf/taint.h` + `taint_engine.bpf.h` + `process.bpf.c`: object+subject sources, boolean masks, declassify/endorse, lineage/after/target conditions, the `since` epoch engine (§1.9), object identity by `(dev,inode)` (§1.10), process+file+endpoint data-flow propagation (fork/exec/read/write/connect), exact/prefix/suffix/any matching, numeric IPv4 connect. It uses LSM hooks for exec identity, file open/read/write, and connect blocking when `bpf` LSM is active; otherwise tracepoints support `notify` reporting and explicit `kill` termination. `block` is LSM-only. Matching predicates have 30 unit tests (`test_taint.c`).
 > - **Loader** `bpf/process.c` installs the compiled config, checks BPF LSM availability, and reports only `TAINT_VIOLATION` with `effect`, `blocked`, and `killed` fields.
 >
-> Current limitations: Positional argument predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `notify` reports and `kill` terminates the matching task after exec in tracepoint mode. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4. File identity uses real `(dev,inode)` in LSM mode and falls back to `(0, fnv1a(path))` in tracepoint mode (§1.10). The eager per-gate consumption set (Layer B, §1.10) is the remaining precision step and is deliberately deferred. The corrective-feedback loop is wired up through `actplane run`: rule matches the eBPF/LSM enforcer produces are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
+> Current limitations: Positional argument predicates are handled after exec unless an argv cache is added before `bprm_check_security`; `block` on such predicates is unsupported because `block` belongs to LSM pre-op hooks, while `notify` reports and `kill` terminates the matching task after exec in tracepoint mode. Current pre-op `block` coverage is exec identity without an argv token, file open/read/write/create/truncate, and IPv4 connect. `unlink`/`rename` are observed by tracepoint handlers in non-LSM mode, but their LSM path hooks are not wired for blocking yet; do not use `block unlink` for security claims. `recv` is parsed and lowered for the model, but no live receive hook currently enforces it. Endpoint host globs require userspace DNS/SNI support because kernel connect matching is numeric IPv4. File identity uses real `(dev,inode)` in LSM mode and falls back to `(0, fnv1a(path))` in tracepoint mode (§1.10). The eager per-gate consumption set (Layer B, §1.10) is the remaining precision step and is deliberately deferred. The corrective-feedback loop is wired up through `actplane run`: rule matches the eBPF/LSM enforcer produces are formatted into `.actplane/last-violation.txt`, and the agent hook forwards that payload (see [`feedback-design.md`](feedback-design.md), [`../script/agent-feedback.md`](../script/agent-feedback.md)); the agent eval across the four conditions (C1–C4) remains.
 
 ### Enforcement Semantics
 
@@ -17,6 +17,9 @@ ActPlane uses **harness-level enforcement**. A matched action is enforced if it
 does not complete as a useful agent action and the agent receives corrective
 feedback:
 
+- `notify`, `block`, and `kill` do not take separate arguments. They are clause
+  effects. The rest of the clause supplies the operation pattern:
+  `EFFECT OP TARGET [optional exec argv token]`.
 - `block`: a BPF-LSM hook denies the operation before the kernel commits it
   (`-EPERM`). This is security-style pre-operation blocking. Without BPF LSM,
   `block` is unsupported and tracepoints do not evaluate it.
@@ -84,12 +87,16 @@ A blunt "tainted ⇒ deny" is unusable (everything taints, all false-positives).
 ### 1.7 Sinks (the rules)
 ```
 rule NAME:
-  EFFECT OP TARGET-PAT [ARGS…] if Φ [unless COND]
+  EFFECT OP-PATTERN if Φ [unless COND]
   because "..."
 ```
 - `EFFECT` is the action verb that starts each clause: `notify`, `block`, or `kill`.
-- `OP` ∈ the operations above; `TARGET-PAT` matches the object.
-- `ARGS` (optional): additional quoted strings after the target pattern are positional arguments (e.g. `exec "git" "commit"` matches git with argv containing "commit").
+- `OP-PATTERN` is the operation plus its target pattern: `exec PAT [ARG]`,
+  `open file PAT`, `read file PAT`, `write file PAT`, `unlink file PAT`,
+  `connect endpoint PAT`, or `recv endpoint PAT`.
+- `ARG` is optional and is a single quoted argv token for `exec` clauses
+  (e.g. `exec "git" "commit"` matches git with an argv token `commit`).
+  This is not a separate argument to `block` or `kill`.
 - `Φ` is a boolean over labels of the **subject**: `L`, `not L`, `Φ and Φ`, `Φ or Φ`, `true`.
 - `COND` (optional) relaxes the rule:
   - `target PAT` — only when the object also matches PAT (positive scope), or `target not PAT` (allow-listed region).
@@ -100,11 +107,16 @@ rule NAME:
 `match(o, pat) ∧ Φ(σ(s)) ∧ ¬cond(s, o, history)`.
 Each clause declares its own effect:
 
-- `block` (default): deny at the BPF-LSM hook. It is unsupported in tracepoint mode.
+- `block`: deny at the BPF-LSM hook. It is unsupported in tracepoint mode.
 - `notify`: report only; the operation proceeds.
 - `kill`: send `SIGKILL` to the matching task. With BPF-LSM active, the hook also denies the triggering operation when the rule is evaluated before commit; from tracepoints it is harness-level termination, not pre-op blocking.
 
 If multiple clauses/rules match the same event, the kernel chooses the strongest effect: `kill > block > notify`.
+
+For executable identity policies such as `block exec "git"`, `block` is a
+pre-operation denial when BPF-LSM is active. For argv-sensitive exec policies
+such as `git commit` or `git push`, prefer `kill exec "git" "commit"` or
+`kill exec "git" "push"` until argv is available to the pre-op LSM hook.
 
 **Implicit basename matching**: if an exec target pattern contains no `/`, it is treated as a basename match. `exec "git"` is equivalent to `exec "**/git"` — it matches `/usr/bin/git`, `/opt/bin/git`, etc. Patterns containing `/` (like `exec "/usr/bin/git"` or `exec "**/deploy*"`) are used as-is.
 
@@ -202,25 +214,27 @@ policy      := decl*
 decl        := source_decl | sink_decl | xform_decl
 source_decl := "source" IDENT "=" node_kind PATTERN          # node_kind: file|endpoint|exec
 sink_decl   := "rule" IDENT ":" clause+ ["because" STRING]
-clause      := EFFECT OP target [STRING] ["if" expr] ["unless" cond]
-EFFECT      := "block" | "notify" | "kill"                    # default: block
+clause      := EFFECT op_pattern ["if" expr] ["unless" cond]
+EFFECT      := "block" | "notify" | "kill"                    # required
 xform_decl  := ("declassify"|"endorse") IDENT "by" "exec" PATTERN
 OP          := "exec"|"read"|"write"|"unlink"|"connect"|"recv"|"open"
-target      := ("file"|"endpoint"|"exec") PATTERN
+op_pattern  := "exec" PATTERN [ARG]
+             | ("read"|"write"|"unlink"|"open") "file" PATTERN
+             | ("connect"|"recv") "endpoint" PATTERN
 expr        := term (("and"|"or") term)*
 term        := ["not"] IDENT | "true"
 cond        := "target" ["not"] PATTERN
              | "lineage-includes" "exec" PATTERN
              | "after" "exec" PATTERN [ "exits" EXIT_CODE ] [ "since" event_pat ("or" event_pat)* ]
 event_pat   := ("write"|"read"|"exec") PATTERN
-PATTERN, STRING := quoted string
+PATTERN, ARG, STRING := quoted string
 ```
 Each clause starts with the action verb (`notify`, `block`, or `kill`) — there is
 no separate `deny` keyword or `effect` line. `open` matches file-open operations
-(the kernel's `TOP_OPEN` hook). An optional quoted string after the target pattern is a positional
-argument (e.g. `exec "git" "push"` requires token `push` in argv). For exec
-targets, a pattern without `/` is treated as basename matching: `exec "git"` is
-equivalent to `exec "**/git"`.
+(the kernel's `TOP_OPEN` hook). An optional quoted string after an exec target
+pattern is a single argv-token predicate (e.g. `exec "git" "push"` requires token
+`push` in argv). For exec targets, a pattern without `/` is treated as basename
+matching: `exec "git"` is equivalent to `exec "**/git"`.
 
 The `exits N` qualifier on `after exec` makes the gate open on process exit
 rather than at exec time, and only for normal exit status `N`. The `since EV…`
@@ -258,7 +272,7 @@ declassify SECRET by exec "**/redact"
 source UNTRUST = endpoint "*"
 source UNTRUST = file "**/downloads/**"
 rule no-injected-priv:
-  block exec "git" "push"  if UNTRUST and not REVIEWED
+  kill  exec "git" "push"  if UNTRUST and not REVIEWED
   block exec "**/deploy*"  if UNTRUST and not REVIEWED
   because "privileged action is derived from untrusted task input; needs review"
 endorse REVIEWED by exec "**/human-approve"
@@ -273,12 +287,11 @@ rule mediate-proddb:
 ```
 
 ### E4 — Workspace policy (lineage-scoped writes)
-**Scenario**: the agent should only modify files in its task workspace, but via `bash` it writes or deletes outside. **Why**: keep a fallible agent inside its task boundary without relying on a container boundary.
+**Scenario**: the agent should only write files in its task workspace, but via `bash` it writes outside. **Why**: keep a fallible agent inside its task boundary without relying on a container boundary.
 ```
 source AGENT = exec "**/codex"
 rule confine-writes:
   block write  file "/**"  if AGENT  unless target "/work/**"
-  block unlink file "/**"  if AGENT  unless target "/work/**"
   because "agent may only modify its workspace /work/**"
 ```
 
@@ -287,7 +300,7 @@ rule confine-writes:
 ```
 source AGENT = exec "**/codex"
 rule test-before-commit:
-  block exec "git" "commit"
+  kill exec "git" "commit"
     if AGENT  unless after exec "**/pytest" since write "src/**" or write "tests/**"
   because "tests are stale — you edited code after the last passing run; re-run the test suite, then commit"
 ```
@@ -340,12 +353,12 @@ rule customer-data-egress:
 ```
 
 ### E11 — Destructive op requires a fresh confirmation gate
-**Scenario**: the agent attempts `git push --force` or deletes under `/data` without a confirmation step. **Why**: gate irreversible actions behind an explicit confirmation the harness can observe. A latching `after exec "**/confirm"` would arm one confirm to authorize every later force-push; `since exec "git"` makes confirmation single-shot — any later `git` invocation makes the confirm stale again (§1.9).
+**Scenario**: the agent attempts `git push --force` or overwrites under `/data` without a confirmation step. **Why**: gate irreversible actions behind an explicit confirmation the harness can observe. A latching `after exec "**/confirm"` would arm one confirm to authorize every later force-push; `since exec "git"` makes confirmation single-shot — any later `git` invocation makes the confirm stale again (§1.9).
 ```
 source AGENT = exec "**/codex"
 rule confirm-destructive:
   kill exec "git" "--force"  if AGENT  unless after exec "**/confirm" since exec "git"
-  kill unlink file "/data/**"        if AGENT  unless after exec "**/confirm"
+  kill write file "/data/**"         if AGENT  unless after exec "**/confirm"
   because "each force-push needs a fresh confirm; a stale confirm doesn't count"
 ```
 
@@ -355,7 +368,7 @@ rule confirm-destructive:
 source TASK_A = exec "**/task-a"
 source TASK_B = exec "**/task-b"
 rule no-cross-task-commit:
-  block exec "git" "commit"  if TASK_A and TASK_B
+  kill exec "git" "commit"  if TASK_A and TASK_B
   because "a commit must not mix data from task A and task B"
 ```
 

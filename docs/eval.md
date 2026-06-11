@@ -35,13 +35,14 @@ summarizes coverage, retry rate, token cost, and rule complexity.
 We evaluate ActPlane on a 190-trace decision-compliance benchmark sampled from
 38 directive-derived policies across 64 real projects. Natural-language
 directives are translated into runtime policies, then evaluated across five
-system-effect challenge trace families under four runtime policy enforcement
-systems: prompt-filter, tool-regex, ActPlane, and ActPlane opaque-feedback
-ablation. Full ActPlane reaches 75.8% Decision Compliance Rate, compared with
-48.4% for prompt-filter, 45.3% for tool-regex, and 53.7% for
-ActPlane-opaque (RQ2). A DeepSeek-Pro V4 end-to-end model-setting run on the
-same 190 traces preserves the ordering: 77.4% for ActPlane, 61.7% for
-ActPlane-opaque, 52.5% for prompt-filter, and 43.7% for tool-regex.
+system-effect challenge trace families under five runtime policy enforcement
+systems: prompt-filter, tool-regex, FIDES, ActPlane opaque-feedback ablation,
+and ActPlane. Full ActPlane reaches 75.8% Decision Compliance Rate, compared
+with 48.4% for prompt-filter, 45.3% for tool-regex, 48.9% for FIDES, and
+53.7% for ActPlane-opaque (RQ2). A DeepSeek-Pro V4 end-to-end model-setting
+run on the same 190 traces preserves the ordering: 77.4% for ActPlane, 61.7%
+for ActPlane-opaque, 52.5% for prompt-filter, 46.0% for FIDES, and 43.7% for
+tool-regex.
 For overhead, ActPlane adds 1.9% on agent trace replay and 6.5% on a
 Linux build at 32 active no-hit rules (RQ3). On a 21-task OctoBench subset
 whose user-query checklist contains at least one OS-enforceable item,
@@ -94,6 +95,7 @@ baseline consumes the natural-language directive directly.
 |---|---|---|---|
 | **LLM step filter** | Separate LLM classifier before each proposed tool action | Prompt/runtime | Prompt-based runtime enforcement over natural-language directives |
 | **Tool-regex** | Explicit regex policy over Agent SDK tool inputs | Tool call | Tool-layer runtime check |
+| **FIDES** | Tool-level labeled information-flow checks over Agent SDK tool inputs and outputs | Tool call | Tool-level IFC baseline |
 | **ActPlane** | Agent-generated DSL policy enforced by ActPlane | Kernel (cross-event + feedback) | This system |
 | **ActPlane opaque** | Same ActPlane policy, but no structured feedback | Kernel (cross-event, no structured feedback) | Feedback ablation |
 
@@ -527,6 +529,7 @@ judging. The runner prints the metric as
 |---|---:|---:|---:|---:|---:|---:|
 | prompt-filter | 92/190 (48.4%) | 44 | 48 | 28 | 70 | 190 |
 | tool-regex | 86/190 (45.3%) | 38 | 48 | 28 | 76 | 190 |
+| FIDES | 93/190 (48.9%) | 41 | 52 | 24 | 73 | 190 |
 | actplane | 144/190 (75.8%) | 86 | 58 | 18 | 28 | 190 |
 | actplane-opaque | 102/190 (53.7%) | 27 | 75 | 1 | 87 | 190 |
 
@@ -561,16 +564,16 @@ set), we ran the full RQ2 pipeline with DeepSeek-Pro V4 as the LLM for the
 tested-agent continuation, the prompt-filter classifier, and trajectory judge.
 This run is a full model-setting replication pass, not a judge-only rescore and
 not a new trace-tuning run: it uses the selected 190-trace corpus (38 statements
-x 5 trace families) and the same four runtime policy enforcement systems, for
-760 selected system-trace cells.
+x 5 trace families) and the same five runtime policy enforcement systems, for
+950 selected system-trace cells.
 
 Run artifact:
 `docs/eval_runs/full/deepseek_rq1_20260607T193612Z_v4_pro`.
 
 Validation:
-- `selected_runner_results.txt`: 760 rows.
-- DeepSeek judge files: 760/760.
-- `run.log`: `Done: wrote 760/760 judge files; failed=0`.
+- `selected_runner_results.txt`: 950 rows.
+- DeepSeek judge files: 950/950.
+- `run.log`: `Done: wrote 950/950 judge files; failed=0`.
 - Manual summarizer rerun over `selected_runner_results.txt` matches the
   automatic `run_eval.py` summary exactly.
 
@@ -580,6 +583,7 @@ DeepSeek-Pro V4 model-setting RQ2 DCR:
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | prompt-filter | 93/177 (52.5%) | 22 | 71 | 5 | 79 | 13 | 190 | 0.967 |
 | tool-regex | 80/183 (43.7%) | 32 | 48 | 28 | 75 | 7 | 190 | 0.963 |
+| FIDES | 87/189 (46.0%) | 38 | 49 | 27 | 75 | 1 | 190 | 0.969 |
 | actplane | 144/186 (77.4%) | 82 | 62 | 14 | 28 | 4 | 190 | 0.966 |
 | actplane-opaque | 108/175 (61.7%) | 34 | 74 | 1 | 66 | 15 | 190 | 0.956 |
 
@@ -592,7 +596,8 @@ Interpretation for paper placement:
   robustness/replication bar, not as a second main confusion table. The main
   text can state that a DeepSeek-Pro V4 end-to-end run preserves the ordering
   and the main conclusion: ActPlane remains best overall (77.4% DCR), ahead of
-  ActPlane-opaque (61.7%), prompt-filter (52.5%), and tool-regex (43.7%).
+  ActPlane-opaque (61.7%), prompt-filter (52.5%), FIDES (46.0%), and
+  tool-regex (43.7%).
 - The DeepSeek run strengthens the claim that the RQ2 ordering is not an
   artifact of a single tested-agent/prompt-filter/judge model setting. It should
   be reported in one short paragraph under RQ2 results, while the full DeepSeek
@@ -836,11 +841,12 @@ source population; the paper-facing RQ2 experiment is the validated
 
 The main result is that full ActPlane improves Decision Compliance Rate by
 27.4 percentage points over prompt-filter and 30.5 percentage points over
-tool-regex under the primary Qwen3.6-27B model setting. The largest effect is on
-violation recall: ActPlane has 28 FNs, compared with 70 for prompt-filter and
-76 for tool-regex. ActPlane also has fewer benign false positives than the
-baselines, but this margin is modest: 18 FPs, compared with 28 for both
-prompt-filter and tool-regex. The remaining ActPlane FPs are mostly
+tool-regex, and by 26.9 points over FIDES, under the primary Qwen3.6-27B model
+setting. The largest effect is on violation recall: ActPlane has 28 FNs,
+compared with 70 for prompt-filter, 76 for tool-regex, and 73 for FIDES.
+ActPlane also has fewer benign false positives than the non-ablation baselines,
+but this margin is modest: 18 FPs, compared with 28 for prompt-filter,
+28 for tool-regex, and 24 for FIDES. The remaining ActPlane FPs are mostly
 generated-policy or harness-policy precision issues rather than trace
 invalidity.
 
@@ -853,13 +859,13 @@ large FN reduction, yielding the best overall score.
 
 Diagnostic family breakdown for the current run:
 
-| trace family | prompt-filter | tool-regex | actplane | actplane-opaque |
-|---|---:|---:|---:|---:|
-| allowed-effect compliant | 24/38 (63.2%) | 22/38 (57.9%) | 28/38 (73.7%) | 37/38 (97.4%) |
-| lookalike compliant | 24/38 (63.2%) | 26/38 (68.4%) | 30/38 (78.9%) | 38/38 (100.0%) |
-| visible violation | 34/38 (89.5%) | 33/38 (86.8%) | 31/38 (81.6%) | 11/38 (28.9%) |
-| script visible violation | 10/38 (26.3%) | 5/38 (13.2%) | 27/38 (71.1%) | 4/38 (10.5%) |
-| opaque fixture violation | 0/38 (0.0%) | 0/38 (0.0%) | 28/38 (73.7%) | 12/38 (31.6%) |
+| trace family | prompt-filter | tool-regex | FIDES | actplane | actplane-opaque |
+|---|---:|---:|---:|---:|---:|
+| allowed-effect compliant | 24/38 (63.2%) | 22/38 (57.9%) | 25/38 (65.8%) | 28/38 (73.7%) | 37/38 (97.4%) |
+| lookalike compliant | 24/38 (63.2%) | 26/38 (68.4%) | 27/38 (71.1%) | 30/38 (78.9%) | 38/38 (100.0%) |
+| visible violation | 34/38 (89.5%) | 33/38 (86.8%) | 34/38 (89.5%) | 31/38 (81.6%) | 11/38 (28.9%) |
+| script visible violation | 10/38 (26.3%) | 5/38 (13.2%) | 7/38 (18.4%) | 27/38 (71.1%) | 4/38 (10.5%) |
+| opaque fixture violation | 0/38 (0.0%) | 0/38 (0.0%) | 0/38 (0.0%) | 28/38 (73.7%) | 12/38 (31.6%) |
 
 ### 6.4 Methodological Notes
 

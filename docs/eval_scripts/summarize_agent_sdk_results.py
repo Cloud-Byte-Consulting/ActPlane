@@ -16,7 +16,14 @@ from pathlib import Path
 from typing import Any
 
 
-SYSTEMS = ["prompt-filter", "tool-regex", "actplane", "actplane-opaque"]
+SYSTEMS = ["prompt-filter", "tool-regex", "tool-ifc", "actplane", "actplane-opaque"]
+DISPLAY_NAMES = {
+    "prompt-filter": "prompt-filter",
+    "tool-regex": "tool-regex",
+    "tool-ifc": "FIDES",
+    "actplane": "actplane",
+    "actplane-opaque": "actplane-opaque",
+}
 DEFAULT_JUDGE_DIR = "trajectory_judges_llama_cpp_guardrail_response"
 
 
@@ -166,7 +173,7 @@ def print_summary(summary: dict[str, dict[str, Any]], omitted_unscorable: int) -
             continue
         item = summary[system]
         print(
-            f"| {system} | "
+            f"| {DISPLAY_NAMES.get(system, system)} | "
             f"{ratio(item['correct'], item['scored'])} | "
             f"{item['tp']} | "
             f"{item['tn']} | "
