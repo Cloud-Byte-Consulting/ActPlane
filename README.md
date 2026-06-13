@@ -6,17 +6,7 @@
 
 **Runtime `observability` and `enforcement` for AI agent harnesses and sandboxing: declare information-flow policies in a compact DSL, ActPlane enforces them at the kernel level.**
 
-ActPlane sits below the tool layer, so a rule holds information-flow constraints
-across every process, file access, and network connection the agent touches, no
-matter what tool, subprocess, or script it uses to get there. 
-
-Each rule sets its own mode: **notify** (observe and notify agent), **block**
-(stop the action before it commits), or **kill** (terminate the process). In
-every mode the rule match's reason is fed back to the agent as a reminder, so it
-can self-correct instead of just hitting a wall. Agents can write and validate
- their own rules (`actplane check`).
-
-Prompt constraints and model guardrails are probabilistic. ActPlane is deterministic.
+Prompt constraints and model guardrails are probabilistic. ActPlane is deterministic. Tool call check cannot see system behavior.
 
 **What you can express:**
 
