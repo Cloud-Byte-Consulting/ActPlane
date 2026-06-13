@@ -225,8 +225,10 @@ expr        := term (("and"|"or") term)*
 term        := ["not"] IDENT | "true"
 cond        := "target" ["not"] PATTERN
              | "lineage-includes" "exec" PATTERN
-             | "after" "exec" PATTERN [ "exits" EXIT_CODE ] [ "since" event_pat ("or" event_pat)* ]
-event_pat   := ("write"|"read"|"exec") PATTERN
+             | "after" gate_event [ "exits" EXIT_CODE ] [ "since" since_event ("or" since_event)* ]
+gate_event  := ("exec"|"read"|"write"|"open"|"unlink") PATTERN
+since_event := ("exec" PATTERN [ARG])
+             | (("read"|"write"|"open"|"unlink") PATTERN)
 PATTERN, ARG, STRING := quoted string
 ```
 Each clause starts with the action verb (`notify`, `block`, or `kill`) — there is
@@ -236,12 +238,17 @@ pattern is a single argv-token predicate (e.g. `exec "git" "push"` requires toke
 `push` in argv). For exec targets, a pattern without `/` is treated as basename
 matching: `exec "git"` is equivalent to `exec "**/git"`.
 
-The `exits N` qualifier on `after exec` makes the gate open on process exit
-rather than at exec time, and only for normal exit status `N`. The `since EV…`
-tail on `after` is the staleness primitive defined in §1.9:
+`declassify` and `endorse` are label transforms. `declassify L by exec G`
+removes label `L` when the process runs gate `G`; `endorse L by exec G` adds
+label `L` when the process runs gate `G`. A common pattern is to label external
+input as `UNTRUST`, then `endorse REVIEWED by exec "**/human-approve"` so later
+rules can require `REVIEWED`.
+
+The `exits N` qualifier is only valid on `after exec`; it makes the gate open on
+process exit rather than at exec time, and only for normal exit status `N`. The
+`since EV…` tail on `after` is the staleness primitive defined in §1.9:
 `after exec "**/pytest" exits 0 since write "src/**"` means "tests must have
-passed after your last edit to src". `EV` may be a `write`/`read`/`exec` pattern;
-multiple invalidators are joined with `or`.
+passed after your last edit to src". Multiple invalidators are joined with `or`.
 
 The effect is compiled into the kernel ABI and is the source of truth for what
 happens on a match. `because` stays Rust-side and shapes the corrective-feedback

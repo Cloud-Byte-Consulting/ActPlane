@@ -160,8 +160,15 @@ codex exec --dangerously-bypass-approvals-and-sandbox "<prompt>"
 
 ## Paper Writing Rules
 
-- **No em-dashes (`---`)** in paper text. Use commas, semicolons, parentheses, or
+- **No em-dashes (`---`)** in paper text. Use commas, parentheses, or
   restructure the sentence. Table cells using `---` for "not applicable" are OK.
+- **Avoid semicolons** joining independent clauses. Use periods to start new
+  sentences, commas with conjunctions (", and", ", but"), or causal connectors
+  ("because", "so", "since"). Semicolons are OK inside parenthetical lists.
+- **Write academic prose, not notes.** Use causal connectors and flowing
+  sentences, not short declarative statements strung together. Introduce
+  concepts with concrete examples before abstract definitions. Every design
+  decision needs its "why" stated before its "what".
 
 ## Common Issues
 
