@@ -6,7 +6,7 @@
 
 **Runtime `observability` and `enforcement` for AI agent harnesses and sandboxing: declare information-flow policies in a compact DSL, ActPlane enforces them at the kernel level.**
 
-Prompt constraints and model guardrails are probabilistic. ActPlane is deterministic. Tool call check cannot see system behavior.
+Prompt constraints and model guardrails are probabilistic. ActPlane is deterministic. Tool call check cannot see indirect system behavior, e.g. a sh script.
 
 **What you can express:**
 
