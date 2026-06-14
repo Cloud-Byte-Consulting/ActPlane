@@ -583,6 +583,46 @@ static __always_inline int te_handle_file_event(pid_t pid, const char *target,
 	return 0;
 }
 
+/*
+ * S_IFMT and file type constants from <linux/stat.h>.
+ * vmlinux.h (BTF-generated) does not export these preprocessor macros,
+ * so we define the raw values here.
+ */
+#define TE_S_IFMT   0170000
+#define TE_S_IFREG  0100000
+#define TE_S_IFDIR  0040000
+
+/* Returns true if the inode mode indicates a regular file or directory —
+ * the only file types that participate in IFC taint propagation. Character
+ * devices (/dev/null, /dev/zero, /dev/pts/*), block devices, pipes, and
+ * sockets are excluded: they are shared kernel objects where write/read
+ * does not imply meaningful data storage/retrieval across processes. */
+static __always_inline int te_is_regular_or_dir(const void *a, const void *b,
+						__u32 ref_kind)
+{
+	struct inode *inode = NULL;
+	umode_t i_mode;
+
+	switch (ref_kind) {
+	case TE_REF_FILE:
+		inode = BPF_CORE_READ((struct file *)a, f_inode);
+		break;
+	case TE_REF_PATH:
+		inode = BPF_CORE_READ((const struct path *)a, dentry, d_inode);
+		break;
+	case TE_REF_PATH_DENTRY:
+		inode = BPF_CORE_READ((struct dentry *)b, d_inode);
+		break;
+	default:
+		return 1; /* TE_REF_USER_PATH: no inode, assume regular */
+	}
+	if (!inode)
+		return 1; /* defensive: if we can't read, don't skip */
+	i_mode = BPF_CORE_READ(inode, i_mode);
+	return (i_mode & TE_S_IFMT) == TE_S_IFREG ||
+	       (i_mode & TE_S_IFMT) == TE_S_IFDIR;
+}
+
 static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 					  const void *b, __u32 access,
 					  __u32 mode)
@@ -601,6 +641,10 @@ static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 	if (te_resolve_file_ref(ref_kind, a, b, scratch->path, sizeof(scratch->path)) < 0)
 		return 0;
 	te_resolve_file_id(ref_kind, a, b, scratch->path, &scratch->fid);
+
+	/* Skip taint for non-regular files (chardev, blockdev, pipe, socket) */
+	if (!te_is_regular_or_dir(a, b, ref_kind))
+		return 0;
 
 	pid = bpf_get_current_pid_tgid() >> 32;
 	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
