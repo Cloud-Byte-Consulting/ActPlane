@@ -525,6 +525,14 @@ Current state:
   serialized per `ReloadHandle`, prechecks capacity and authority for the whole
   delta before submitting any entry, and restores the previous counts and target
   domain policy mask if an unexpected mid-append failure occurs.
+- Runtime reload and append feature-gate rejections now return actionable
+  diagnostics instead of a bare missing-feature list. The error identifies the
+  missing hook or matcher class, states that reload/delta cannot attach new
+  hooks after load, points standalone file-flow users to
+  `ACTPLANE_RESERVE_FILE_FLOW=1`, points broad future-delta deployments to
+  `ACTPLANE_HOOK_PROFILE=full`, clarifies that MCP/watch/child-run already
+  reserve file-flow, and distinguishes hook-budget fixes from matcher classes
+  that must appear in the initial policy.
 - Feedback lookup is rule-context based: appended local rules carry their own
   label-name map, which avoids misnaming same-numbered labels reused by a
   sibling domain.
@@ -578,8 +586,9 @@ Missing:
   self-restriction.
 - Feature-gated reload means a running object cannot be expanded to new
   verifier-heavy matcher classes or sink classes without restart. This is safe,
-  because it rejects unsupported deltas, but it is not yet a smooth product
-  experience.
+  because it rejects unsupported deltas with actionable diagnostics, but it
+  still does not automatically restart with a richer hook profile or select
+  prebuilt variants for common policy classes.
 
 Minimum fix:
 
@@ -587,9 +596,9 @@ Minimum fix:
   verify feedback metadata for the appended rule.
 - Decide whether stronger deployments need signed approval tokens or external
   ticket verification beyond the current static allowlist admission gate.
-- Surface feature-gate rejections as actionable feedback, and either restart
-  with a richer feature set or provide prebuilt BPF variants for common policy
-  classes.
+- Add an operator-approved restart path with a richer hook profile or provide
+  prebuilt BPF variants for common policy classes after a feature-gate
+  rejection.
 - Reserve whole-policy reload for trusted supervisor/admin contexts.
 
 ### P0: Hook Coverage Is Incomplete For Security Claims
@@ -819,12 +828,18 @@ Current state:
   source/test/manifest layout, selects matching built-in templates, fills
   declared parameters, writes a candidate flat YAML policy, and writes the same
   review artifact. It remains a review aid and does not apply the policy.
-- `actplane rollout --out FILE --observe-policy-out FILE` produces a
-  human-readable observe-first rollout plan for the selected policy/domain and
-  can write a flattened notify-only policy. The plan reports host/backend
-  support, per-clause observe-stage guidance, promotion guidance for
-  block/kill/notify clauses, and static warnings that should be resolved before
-  promotion.
+- `actplane rollout --out FILE --observe-policy-out FILE --events FILE`
+  produces a human-readable observe-first rollout plan for the selected
+  policy/domain and can write a flattened notify-only policy. The plan reports
+  host/backend support, per-clause observe-stage guidance, promotion guidance
+  for block/kill/notify clauses, static warnings that should be resolved before
+  promotion, and optional event-backed guidance from observe-mode
+  `actplane.violation.v1` JSONL logs. The event-backed guidance summarizes
+  per-clause event counts, action/domain distributions, and target samples, and
+  remains conservative: only `notify`/`report` observe events whose rule
+  metadata still matches the selected policy clause are accepted, observed
+  matches require classification before promotion, and zero observed matches
+  are only a candidate after workload coverage review.
 - The repository contains evaluation-time policy corpora and generated policies.
 
 Missing:
@@ -839,9 +854,10 @@ Missing:
   rules, or organization-specific release workflows.
 - No interactive natural-language guided workflow that lets a user approve,
   reject, or edit each generated choice before writing artifacts.
-- Rollout planning is still static. It does not yet ingest observed event
-  volume, false-positive annotations, or audit history to automatically rank
-  promotion candidates after an observe period.
+- Rollout planning can ingest observe-mode event volume, but it does not yet
+  ingest explicit false-positive annotations or broader audit history, and it
+  does not automatically edit policies or rank promotion candidates across
+  multiple observe windows.
 
 Minimum fix:
 
@@ -849,8 +865,9 @@ Minimum fix:
   instruction parsing and user confirmation/editing before writing artifacts.
 - Extend the template catalog and parameters for branch names, dependency
   managers, and protected release workflows.
-- Add an event-backed promotion workflow that reads observe-mode audit logs and
-  recommends which clauses are safe to promote from notify to block/kill.
+- Add false-positive annotation input and multi-window audit history so rollout
+  can rank promotion candidates across observe periods rather than only
+  summarizing the supplied event log.
 
 ### P1: Audit And Feedback Need Structured State
 
@@ -939,13 +956,14 @@ Verified in this snapshot:
   including the concurrent two-engine child-domain delta isolation test.
 - `ACTPLANE_REBUILD_BPF=1 cargo test --locked -p ebpf-ifc-engine --lib
   object_is_aligned_elf`: passed and refreshed `bpf/prebuilt/process.bpf.o`.
-- `cargo test --locked -p ebpf-ifc-engine --lib`: 14 tests passed, 43 live eBPF
+- `cargo test --locked -p ebpf-ifc-engine --lib`: 15 tests passed, 43 live eBPF
   tests ignored. The added non-live tests cover the
   minimal/default attach budget, rejection of file deltas when the engine was
   not started with a file-flow hook budget, rejection of block deltas when the
   matching LSM hook budget was not reserved, argv-token `block exec` not
   reserving the pre-exec bprm hook, ordinary file-flow not reserving LSM file
-  hooks by default, and the 128-rule `cap_policy` mask boundary bits.
+  hooks by default, actionable diagnostics for path-matcher feature-gate
+  rejections, and the 128-rule `cap_policy` mask boundary bits.
 - `sudo -E cargo test --locked -p ebpf-ifc-engine --lib
   append_policy_delta_admits_domain_local_declassify_smoke -- --ignored
   --nocapture --test-threads=1`: passed. The test first verifies that a

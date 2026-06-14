@@ -1138,6 +1138,10 @@ fn validate_supported_features(cfg: &CConfig, supported: u32, context: &str) -> 
     if missing == 0 {
         return Ok(());
     }
+    Err(err(feature_gate_error(context, needed, supported, missing)))
+}
+
+fn feature_gate_error(context: &str, needed: u32, supported: u32, missing: u32) -> String {
     let mut names = Vec::new();
     if missing & FEAT_PATH_CONTAINS != 0 {
         names.push("path contains matches");
@@ -1169,10 +1173,41 @@ fn validate_supported_features(cfg: &CConfig, supported: u32, context: &str) -> 
     if missing & FEAT_BLOCK_CONNECT != 0 {
         names.push("connect block hooks");
     }
-    Err(err(format!(
-        "{context} requires features not enabled when the eBPF engine was loaded: {}",
-        names.join(", ")
-    )))
+    let mut hints = Vec::new();
+    hints.push(
+        "runtime reload/delta cannot attach new hooks or enable new matcher classes after load; restart the engine with the needed budget",
+    );
+    if missing
+        & (FEAT_FILE_FLOW
+            | FEAT_CONNECT
+            | FEAT_RECV
+            | FEAT_BLOCK_EXEC
+            | FEAT_BLOCK_FILE
+            | FEAT_BLOCK_CONNECT)
+        != 0
+    {
+        hints.push(
+            "for broad future deltas, start with ACTPLANE_HOOK_PROFILE=full; standalone file-flow users may set ACTPLANE_RESERVE_FILE_FLOW=1, and MCP/watch/child-run already reserve file-flow",
+        );
+    }
+    if missing & (FEAT_OPEN_RULES | FEAT_WRITE_RULES | FEAT_PATH_CONTAINS | FEAT_PATH_SUFFIX) != 0 {
+        hints.push(
+            "file sink rule classes and path contains/suffix matcher classes must appear in the initial policy; hook-profile reservation does not enable them by itself",
+        );
+    }
+    if missing & (FEAT_BLOCK_EXEC | FEAT_BLOCK_FILE | FEAT_BLOCK_CONNECT) != 0 {
+        hints.push(
+            "block deltas require matching BPF-LSM hooks reserved at startup and an active bpf LSM; argv-token block exec is not a pre-exec block",
+        );
+    }
+    if missing & (FEAT_CONNECT | FEAT_RECV) != 0 {
+        hints.push("network deltas require network hook budget at startup");
+    }
+    format!(
+        "{context} requires features not enabled when the eBPF engine was loaded: {}. {}. needed=0x{needed:x}, supported=0x{supported:x}, missing=0x{missing:x}",
+        names.join(", "),
+        hints.join("; ")
+    )
 }
 
 pub struct Loader {
@@ -2335,6 +2370,15 @@ mod tests {
             err.to_string().contains("file source or sink hooks"),
             "{err}"
         );
+        assert!(
+            err.to_string().contains("ACTPLANE_RESERVE_FILE_FLOW=1"),
+            "{err}"
+        );
+        assert!(
+            err.to_string()
+                .contains("MCP/watch/child-run already reserve file-flow"),
+            "{err}"
+        );
         validate_supported_features(&cfg, FEAT_FILE_FLOW, "runtime policy delta")
             .expect("file-flow budget admits file source");
     }
@@ -2349,8 +2393,33 @@ mod tests {
         let err = validate_supported_features(&cfg, 0, "runtime policy delta")
             .expect_err("block exec should require bprm hook budget");
         assert!(err.to_string().contains("exec block hooks"), "{err}");
+        assert!(
+            err.to_string()
+                .contains("block deltas require matching BPF-LSM hooks"),
+            "{err}"
+        );
+        assert!(
+            err.to_string()
+                .contains("runtime reload/delta cannot attach new hooks"),
+            "{err}"
+        );
         validate_supported_features(&cfg, FEAT_BLOCK_EXEC, "runtime policy delta")
             .expect("block exec budget admits block exec rule");
+    }
+
+    #[test]
+    fn path_matcher_delta_error_explains_initial_policy_requirement() {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_OPEN;
+        cfg.rules[0].m = M_CONTAINS;
+
+        let err = validate_supported_features(&cfg, FEAT_FILE_FLOW, "runtime policy delta")
+            .expect_err("path contains should require initial matcher support");
+        let text = err.to_string();
+        assert!(text.contains("path contains matches"), "{text}");
+        assert!(text.contains("must appear in the initial policy"), "{text}");
+        assert!(text.contains("missing=0x"), "{text}");
     }
 
     #[test]

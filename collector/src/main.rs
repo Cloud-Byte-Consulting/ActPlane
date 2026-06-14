@@ -45,6 +45,8 @@ type Result<T> = std::result::Result<T, AnyError>;
       actplane templates generate --policy-out /tmp/actplane-candidate.yaml --review-out /tmp/actplane-candidate-review.txt\n\n  \
       # plan observe-first rollout for the selected policy\n  \
       actplane --policy actplane.yaml rollout --out docs/actplane-rollout.txt --observe-policy-out /tmp/actplane-observe.yaml\n\n  \
+      # after an observe run, include event logs for promotion guidance\n  \
+      actplane --policy actplane.yaml rollout --events .actplane/events.jsonl\n\n  \
       # apply a one-line policy around a command (needs sudo for the eBPF load)\n  \
       sudo -E actplane --rule 'source COMMAND = exec \"**\"\n                       rule no-git-branch:\n                         kill exec \"git\" \"branch\" if COMMAND\n                         because \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
@@ -199,6 +201,9 @@ struct RolloutArgs {
     /// Write a notify-only observe-first YAML policy for the selected policy/domain.
     #[arg(long, value_name = "FILE")]
     observe_policy_out: Option<PathBuf>,
+    /// Read observe-mode violation JSONL events and include event-backed promotion guidance.
+    #[arg(long = "events", value_name = "FILE")]
+    events: Vec<PathBuf>,
     /// Overwrite existing rollout output files.
     #[arg(short, long)]
     force: bool,
@@ -492,7 +497,7 @@ async fn main() -> Result<()> {
 }
 
 fn rollout_command(args: &RolloutArgs, cli: &Cli) -> Result<i32> {
-    let artifacts = doctor::render_rollout_artifacts(cli)?;
+    let artifacts = doctor::render_rollout_artifacts(cli, &args.events)?;
     match (&args.out, &args.observe_policy_out) {
         (Some(plan_path), Some(observe_path)) => {
             write_pair_output_files(

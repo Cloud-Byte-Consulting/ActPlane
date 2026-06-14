@@ -60,9 +60,11 @@ can be overridden with repeated `--set key=value` flags; `templates list --json`
 shows the available keys and defaults. `templates generate` scans project
 instructions and common manifests to emit a deterministic candidate policy plus
 the same review artifact; it is a review aid, not an automatic rollout.
-`rollout` produces an observe-first plan and can emit a notify-only policy for
-measuring rule matches before promoting selected clauses back to `block` or
-`kill`.
+`rollout` produces an observe-first plan, can emit a notify-only policy for
+measuring rule matches, and can read observe-mode event logs with `--events` to
+add conservative per-clause promotion guidance before selected clauses move
+back to `block` or `kill`. Add `--events .actplane/events.jsonl` after an
+observe run has produced event logs.
 
 When a rule matches, ActPlane kills the action and tells the agent why:
 

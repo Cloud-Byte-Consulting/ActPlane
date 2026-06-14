@@ -482,6 +482,145 @@ rule argv-block:
 }
 
 #[test]
+fn rollout_uses_observe_event_log_for_promotion_guidance() {
+    let tmp = tempfile::tempdir().unwrap();
+    let events = tmp.path().join("events.jsonl");
+    let event = serde_json::json!({
+        "schema": "actplane.violation.v1",
+        "event": "taint_violation",
+        "rule": {
+            "name": "no-network",
+            "effect": "notify",
+            "clause_op": "connect",
+            "clause_source_index": 0,
+            "target_kind": "endpoint",
+            "target_pattern": "*",
+            "target_arg": null,
+            "clause_text": "  notify connect endpoint \"*\" if AGENT unless target \"127.\""
+        },
+        "action": "report",
+        "effect": "notify",
+        "target": "8.8.8.8",
+        "domain_id": 42
+    });
+    let non_observe = serde_json::json!({
+        "schema": "actplane.violation.v1",
+        "event": "taint_violation",
+        "rule": {
+            "name": "no-network",
+            "effect": "block",
+            "clause_op": "connect",
+            "clause_source_index": 0,
+            "target_kind": "endpoint",
+            "target_pattern": "*",
+            "target_arg": null
+        },
+        "action": "block",
+        "effect": "block",
+        "target": "1.1.1.1"
+    });
+    let stale_condition = serde_json::json!({
+        "schema": "actplane.violation.v1",
+        "event": "taint_violation",
+        "rule": {
+            "name": "no-network",
+            "effect": "notify",
+            "clause_op": "connect",
+            "clause_source_index": 0,
+            "target_kind": "endpoint",
+            "target_pattern": "*",
+            "target_arg": null,
+            "clause_text": "  notify connect endpoint \"*\" if AGENT unless target \"10.\""
+        },
+        "action": "report",
+        "effect": "notify",
+        "target": "10.0.0.1"
+    });
+    fs::write(
+        &events,
+        format!("{event}\n{non_observe}\n{stale_condition}\n"),
+    )
+    .unwrap();
+
+    let policy = r#"
+source AGENT = exec "**"
+
+rule no-network:
+  block connect endpoint "*" if AGENT unless target "127."
+  because "network rollout"
+
+rule no-branch:
+  kill exec "git" "branch" if AGENT
+  because "branch rollout"
+"#;
+    let output = run(&[
+        "--rule",
+        policy,
+        "rollout",
+        "--events",
+        events.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("observe evidence:"));
+    assert!(stdout.contains("parsed violation events: 1"));
+    assert!(stdout.contains("ignored non-violation or malformed lines: 2"));
+    assert!(stdout.contains("ignored non-observe event action=block effect=block"));
+    assert!(stdout.contains("ignored stale event for rule `no-network` clause 1"));
+    assert!(stdout.contains("rule no-network"));
+    assert!(stdout.contains("observed events: 1; actions=report=1; domains=42=1; targets=8.8.8.8"));
+    assert!(
+        stdout.contains("observed 1 matching event(s); keep notify until examples are classified")
+    );
+    assert!(stdout.contains("rule no-branch"));
+    assert!(stdout.contains("observed events: 0 in supplied logs"));
+}
+
+#[test]
+fn rollout_event_guidance_for_kill_clause_does_not_talk_about_block() {
+    let tmp = tempfile::tempdir().unwrap();
+    let events = tmp.path().join("events.jsonl");
+    let event = serde_json::json!({
+        "schema": "actplane.violation.v1",
+        "event": "taint_violation",
+        "rule": {
+            "name": "no-branch",
+            "effect": "notify",
+            "clause_op": "exec",
+            "clause_source_index": 0,
+            "target_kind": "exec",
+            "target_pattern": "**/git",
+            "target_arg": "branch",
+            "clause_text": "  notify exec \"**/git\" \"branch\" if AGENT"
+        },
+        "action": "report",
+        "effect": "notify",
+        "target": "git",
+        "domain_id": 7
+    });
+    fs::write(&events, format!("{event}\n")).unwrap();
+
+    let policy = r#"
+source AGENT = exec "**"
+
+rule no-branch:
+  kill exec "git" "branch" if AGENT
+  because "branch rollout"
+"#;
+    let output = run(&[
+        "--rule",
+        policy,
+        "rollout",
+        "--events",
+        events.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("promote to kill only if every observed class should terminate"));
+    assert!(!stdout.contains("do not promote to block"));
+}
+
+#[test]
 fn templates_list_and_json_expose_catalog() {
     let output = run(&["templates", "list"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));

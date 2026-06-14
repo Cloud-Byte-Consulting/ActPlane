@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -179,7 +180,10 @@ pub(crate) struct RolloutArtifacts {
     pub(crate) observe_policy_yaml: String,
 }
 
-pub(crate) fn render_rollout_artifacts(cli: &Cli) -> Result<RolloutArtifacts> {
+pub(crate) fn render_rollout_artifacts(
+    cli: &Cli,
+    event_paths: &[PathBuf],
+) -> Result<RolloutArtifacts> {
     let loaded = load_policy(cli)?;
     let resolved = resolve_policy(&loaded, cli.domain.as_deref())?;
     let where_ = loaded
@@ -194,6 +198,7 @@ pub(crate) fn render_rollout_artifacts(cli: &Cli) -> Result<RolloutArtifacts> {
     let active_lsms = active_lsms().unwrap_or_default();
     let force_tracepoint = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT").is_some();
     let lsm_bpf = lsm_list_has_bpf(&active_lsms) && !force_tracepoint;
+    let evidence = load_rollout_evidence(event_paths, &parsed)?;
     Ok(RolloutArtifacts {
         plan: render_rollout_plan(
             &where_,
@@ -203,9 +208,36 @@ pub(crate) fn render_rollout_artifacts(cli: &Cli) -> Result<RolloutArtifacts> {
             &active_lsms,
             lsm_bpf,
             force_tracepoint,
+            &evidence,
         ),
         observe_policy_yaml: render_observe_policy_yaml(&where_, &resolved, &parsed),
     })
+}
+
+#[derive(Default)]
+struct RolloutEvidence {
+    paths: Vec<PathBuf>,
+    total_events: usize,
+    ignored_lines: usize,
+    warnings: Vec<String>,
+    clauses: BTreeMap<(String, usize), ClauseObservation>,
+}
+
+#[derive(Default)]
+struct ClauseObservation {
+    count: usize,
+    actions: BTreeMap<String, usize>,
+    targets: Vec<String>,
+    domains: BTreeMap<String, usize>,
+}
+
+struct ClauseEventSignature {
+    clause_op: &'static str,
+    target_kind: &'static str,
+    target_pattern: String,
+    target_arg: Option<String>,
+    clause_text: String,
+    clause_hash: String,
 }
 
 fn render_rollout_plan(
@@ -216,6 +248,7 @@ fn render_rollout_plan(
     active_lsms: &str,
     lsm_bpf: bool,
     force_tracepoint: bool,
+    evidence: &RolloutEvidence,
 ) -> String {
     let mut out = String::new();
     writeln!(&mut out, "ActPlane rollout plan").unwrap();
@@ -272,6 +305,7 @@ fn render_rollout_plan(
         )
         .unwrap();
     }
+    append_rollout_evidence_summary(&mut out, evidence);
 
     writeln!(&mut out, "\nrecommended rollout sequence:").unwrap();
     writeln!(
@@ -337,9 +371,18 @@ fn render_rollout_plan(
             for warning in clause_condition_warnings(clause) {
                 writeln!(&mut out, "       condition warning: {}", warning.message).unwrap();
             }
+            let observation = evidence
+                .clauses
+                .get(&(rule.name.clone(), clause.source_index));
+            append_clause_observation(&mut out, evidence, observation);
             let (stage, promote, risk) = rollout_recommendation(clause, &current, &block);
             writeln!(&mut out, "       observe stage: {}", stage).unwrap();
             writeln!(&mut out, "       promotion: {}", promote).unwrap();
+            if let Some(note) =
+                event_backed_promotion_note(evidence, observation, clause.effect, block.supported)
+            {
+                writeln!(&mut out, "       event-backed promotion: {}", note).unwrap();
+            }
             writeln!(&mut out, "       residual risk: {}", risk).unwrap();
         }
     }
@@ -352,6 +395,324 @@ fn render_rollout_plan(
         }
     }
     out
+}
+
+fn load_rollout_evidence(paths: &[PathBuf], parsed: &Policy) -> Result<RolloutEvidence> {
+    let mut evidence = RolloutEvidence {
+        paths: paths.to_vec(),
+        ..RolloutEvidence::default()
+    };
+    let signatures = rollout_clause_signatures(parsed);
+    for path in paths {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("reading rollout event log {}: {}", path.display(), e))?;
+        for (line_idx, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let value: Value = match serde_json::from_str(trimmed) {
+                Ok(value) => value,
+                Err(e) => {
+                    evidence.ignored_lines += 1;
+                    push_evidence_warning(
+                        &mut evidence,
+                        format!("{}:{} is not JSON: {}", path.display(), line_idx + 1, e),
+                    );
+                    continue;
+                }
+            };
+            if value.get("schema").and_then(Value::as_str) != Some("actplane.violation.v1")
+                || value.get("event").and_then(Value::as_str) != Some("taint_violation")
+            {
+                evidence.ignored_lines += 1;
+                continue;
+            }
+            let action = value
+                .get("action")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let effect = value
+                .get("effect")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            if action != "report" || effect != "notify" {
+                evidence.ignored_lines += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} ignored non-observe event action={} effect={}",
+                        path.display(),
+                        line_idx + 1,
+                        action,
+                        effect
+                    ),
+                );
+                continue;
+            }
+            let Some(rule) = value
+                .get("rule")
+                .and_then(|rule| rule.get("name"))
+                .and_then(Value::as_str)
+            else {
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} violation event has no rule.name; it cannot be matched to a clause",
+                        path.display(),
+                        line_idx + 1
+                    ),
+                );
+                continue;
+            };
+            let Some(clause_index) = value
+                .get("rule")
+                .and_then(|rule| rule.get("clause_source_index"))
+                .and_then(Value::as_u64)
+                .and_then(|idx| usize::try_from(idx).ok())
+            else {
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} violation event for rule `{}` has no clause_source_index",
+                        path.display(),
+                        line_idx + 1,
+                        rule
+                    ),
+                );
+                continue;
+            };
+            let Some(signature) = signatures.get(&(rule.to_string(), clause_index)) else {
+                evidence.ignored_lines += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} ignored event for rule `{}` clause {}; no matching clause exists in the selected policy",
+                        path.display(),
+                        line_idx + 1,
+                        rule,
+                        clause_index + 1
+                    ),
+                );
+                continue;
+            };
+            if !event_rule_matches_signature(&value, signature) {
+                evidence.ignored_lines += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} ignored stale event for rule `{}` clause {}; rule metadata does not match the selected policy",
+                        path.display(),
+                        line_idx + 1,
+                        rule,
+                        clause_index + 1
+                    ),
+                );
+                continue;
+            }
+            evidence.total_events += 1;
+            let observation = evidence
+                .clauses
+                .entry((rule.to_string(), clause_index))
+                .or_default();
+            observation.count += 1;
+            *observation.actions.entry(action.to_string()).or_default() += 1;
+            if let Some(target) = value.get("target").and_then(Value::as_str)
+                && !target.is_empty()
+                && observation.targets.len() < 5
+                && !observation
+                    .targets
+                    .iter()
+                    .any(|existing| existing == target)
+            {
+                observation.targets.push(target.to_string());
+            }
+            if let Some(domain_id) = value.get("domain_id").and_then(Value::as_u64) {
+                *observation
+                    .domains
+                    .entry(domain_id.to_string())
+                    .or_default() += 1;
+            }
+        }
+    }
+    Ok(evidence)
+}
+
+fn rollout_clause_signatures(policy: &Policy) -> BTreeMap<(String, usize), ClauseEventSignature> {
+    let mut out = BTreeMap::new();
+    for rule in &policy.rules {
+        for clause in &rule.clauses {
+            out.insert(
+                (rule.name.clone(), clause.source_index),
+                ClauseEventSignature {
+                    clause_op: op_name(clause.op),
+                    target_kind: kind_name(clause.target.kind),
+                    target_pattern: clause.target.pattern.clone(),
+                    target_arg: clause.target.arg.clone(),
+                    clause_text: format!("  {}", render_observe_clause(clause)),
+                    clause_hash: crate::audit::policy_hash(&format!(
+                        "  {}",
+                        render_observe_clause(clause)
+                    )),
+                },
+            );
+        }
+    }
+    out
+}
+
+fn event_rule_matches_signature(value: &Value, signature: &ClauseEventSignature) -> bool {
+    let Some(rule) = value.get("rule") else {
+        return false;
+    };
+    if rule.get("effect").and_then(Value::as_str) != Some("notify") {
+        return false;
+    }
+    if rule.get("clause_op").and_then(Value::as_str) != Some(signature.clause_op) {
+        return false;
+    }
+    if rule.get("target_kind").and_then(Value::as_str) != Some(signature.target_kind) {
+        return false;
+    }
+    if rule.get("target_pattern").and_then(Value::as_str) != Some(signature.target_pattern.as_str())
+    {
+        return false;
+    }
+    rule.get("target_arg").and_then(Value::as_str) == signature.target_arg.as_deref()
+        && event_clause_identity_matches(rule, signature)
+}
+
+fn event_clause_identity_matches(rule: &Value, signature: &ClauseEventSignature) -> bool {
+    if let Some(hash) = rule.get("clause_hash").and_then(Value::as_str) {
+        return hash == signature.clause_hash;
+    }
+    if let Some(text) = rule.get("clause_text").and_then(Value::as_str) {
+        return text == signature.clause_text;
+    }
+    false
+}
+
+fn push_evidence_warning(evidence: &mut RolloutEvidence, warning: String) {
+    if evidence.warnings.len() < 8 {
+        evidence.warnings.push(warning);
+    } else if evidence.warnings.len() == 8 {
+        evidence
+            .warnings
+            .push("additional rollout event-log warnings omitted".into());
+    }
+}
+
+fn append_rollout_evidence_summary(out: &mut String, evidence: &RolloutEvidence) {
+    writeln!(out, "\nobserve evidence:").unwrap();
+    if evidence.paths.is_empty() {
+        writeln!(
+            out,
+            "  - no event log supplied; pass --events .actplane/events.jsonl after an observe run for event-backed promotion guidance"
+        )
+        .unwrap();
+        return;
+    }
+    for path in &evidence.paths {
+        writeln!(out, "  - event log: {}", path.display()).unwrap();
+    }
+    writeln!(
+        out,
+        "  - parsed violation events: {}",
+        evidence.total_events
+    )
+    .unwrap();
+    if evidence.ignored_lines > 0 {
+        writeln!(
+            out,
+            "  - ignored non-violation or malformed lines: {}",
+            evidence.ignored_lines
+        )
+        .unwrap();
+    }
+    for warning in &evidence.warnings {
+        writeln!(out, "  - warning: {}", warning).unwrap();
+    }
+}
+
+fn append_clause_observation(
+    out: &mut String,
+    evidence: &RolloutEvidence,
+    observation: Option<&ClauseObservation>,
+) {
+    if evidence.paths.is_empty() {
+        return;
+    }
+    match observation {
+        Some(observation) => {
+            writeln!(
+                out,
+                "       observed events: {}; actions={}; domains={}; targets={}",
+                observation.count,
+                format_count_map(&observation.actions),
+                format_count_map(&observation.domains),
+                format_sample_list(&observation.targets)
+            )
+            .unwrap();
+        }
+        None => {
+            writeln!(out, "       observed events: 0 in supplied logs").unwrap();
+        }
+    }
+}
+
+fn event_backed_promotion_note(
+    evidence: &RolloutEvidence,
+    observation: Option<&ClauseObservation>,
+    effect: Effect,
+    block_supported: bool,
+) -> Option<String> {
+    if evidence.paths.is_empty() {
+        return None;
+    }
+    if effect == Effect::Kill {
+        return match observation {
+            Some(observation) if observation.count > 0 => Some(format!(
+                "observed {} matching event(s); keep notify until examples are classified, and promote to kill only if every observed class should terminate the task",
+                observation.count
+            )),
+            _ => Some(
+                "0 matching events in supplied logs; candidate for limited kill promotion only after workload coverage and severity review"
+                    .into(),
+            ),
+        };
+    }
+    if !block_supported {
+        return Some(
+            "do not promote to block from these logs alone; backend support is insufficient".into(),
+        );
+    }
+    match observation {
+        Some(observation) if observation.count > 0 => Some(format!(
+            "observed {} matching event(s); keep notify until examples are classified, and promote only if every observed class is unwanted",
+            observation.count
+        )),
+        _ => Some(
+            "0 matching events in supplied logs; candidate for limited promotion only after workload coverage review"
+                .into(),
+        ),
+    }
+}
+
+fn format_count_map(map: &BTreeMap<String, usize>) -> String {
+    if map.is_empty() {
+        return "none".into();
+    }
+    map.iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn format_sample_list(values: &[String]) -> String {
+    if values.is_empty() {
+        return "none".into();
+    }
+    values.join(",")
 }
 
 fn rollout_recommendation(
