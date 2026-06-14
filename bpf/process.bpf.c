@@ -10,11 +10,13 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include "process.h"
-#include "taint_engine.bpf.h"
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
 
 const volatile unsigned int enforce_mode = 0;
+const volatile unsigned int policy_features = 0;
+
+#include "taint_engine.bpf.h"
 
 #ifndef EPERM
 #define EPERM 1
@@ -147,6 +149,7 @@ static __always_inline struct file_scratch *file_scratch_buf(void)
 
 /* The one and only output channel. */
 static __always_inline void fill_violation_provenance(struct event *v, pid_t pid,
+						      __u32 domain_id,
 						      __u64 matched_req)
 {
 	v->matched_label = 0;
@@ -163,7 +166,7 @@ static __always_inline void fill_violation_provenance(struct event *v, pid_t pid
 			continue;
 		if (!v->matched_label)
 			v->matched_label = bit;
-		struct te_prov *p = te_lookup_proc_prov(pid, bit);
+		struct te_prov *p = te_lookup_proc_prov(pid, domain_id, bit);
 		if (!p)
 			continue;
 		v->prov_label = p->label;
@@ -180,6 +183,7 @@ static __always_inline void fill_violation_provenance(struct event *v, pid_t pid
 
 static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 					   const char *target, u32 conn_ip,
+					   __u32 domain_id,
 					   __u64 matched_req,
 					   unsigned int blocked,
 					   unsigned int killed,
@@ -198,8 +202,8 @@ static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 	v->timestamp_ns = bpf_ktime_get_ns();
 	v->taint_rule_id = rule_id;
 	v->conn_ip = conn_ip;
-	v->taint_label = te_labels(pid);
-	fill_violation_provenance(v, pid, matched_req);
+	v->taint_label = te_labels_for_domain(pid, domain_id);
+	fill_violation_provenance(v, pid, domain_id, matched_req);
 	bpf_get_current_comm(&v->comm, sizeof(v->comm));
 	v->filename[0] = '\0';
 	if (target)
@@ -329,9 +333,7 @@ static __always_inline __u32 te_effect_mode(__u32 backend_mode, __u32 effect)
 static __always_inline __u32 te_supported_effects(__u32 backend_mode)
 {
 	if (backend_mode == TE_MODE_BLOCK)
-		return (1U << TEFFECT_NOTIFY) |
-		       (1U << TEFFECT_BLOCK) |
-		       (1U << TEFFECT_KILL);
+		return (1U << TEFFECT_BLOCK);
 	return (1U << TEFFECT_NOTIFY) | (1U << TEFFECT_KILL);
 }
 
@@ -340,6 +342,54 @@ static __always_inline int te_better_match(int candidate_rule, __u32 candidate_e
 {
 	return candidate_rule >= 0 &&
 	       (current_rule < 0 || candidate_effect > current_effect);
+}
+
+static __always_inline __u64 te_event_labels_for_domain(pid_t pid, __u32 domain_id,
+							struct file_id *fid,
+							__u32 access,
+							unsigned int op,
+							__u32 ip)
+{
+	__u64 labels = te_labels_for_domain(pid, domain_id);
+
+	if (fid && (access & TE_ACCESS_READ))
+		labels |= te_file_stored_labels_domain(fid, pid, domain_id);
+	if (op == TOP_CONNECT)
+		labels |= te_update_add_connect_domain(ip, pid, domain_id);
+	return labels;
+}
+
+static __always_inline void te_eval_op_domains(struct te_rule_eval *eval,
+					       pid_t pid,
+					       struct file_id *fid,
+					       __u32 access,
+					       unsigned int op,
+					       __u32 ip,
+					       int *best_rule,
+					       __u32 *best_effect,
+					       __u64 *matched_req,
+					       __u32 *matched_domain_id)
+{
+	int candidate;
+
+	for (int i = 0; i < CAP_DOMAIN_DEPTH; i++) {
+		__u32 domain_id = te_domain_for_depth(pid, i);
+		if (i > 0 && !domain_id)
+			break;
+		eval->op = op;
+		eval->rule_domain_id = domain_id;
+		eval->labels = te_event_labels_for_domain(pid, domain_id, fid,
+							  access, op, ip);
+		eval->effect = TEFFECT_BLOCK;
+		candidate = te_check_labels(eval);
+		if (te_better_match(candidate, eval->effect,
+				    *best_rule, *best_effect)) {
+			*best_rule = candidate;
+			*best_effect = eval->effect;
+			*matched_req = eval->matched_req;
+			*matched_domain_id = eval->matched_domain_id;
+		}
+	}
 }
 
 static __always_inline int te_resolve_file_ref(__u32 ref_kind, const void *a,
@@ -425,65 +475,50 @@ static __always_inline int te_resolve_sockaddr(__u32 ref_kind, const void *addr,
  * the connect/exec programs (obj_kind is a compile-time constant per caller). */
 static __always_inline int te_handle_event(struct te_event *ev, struct file_id *fid)
 {
-	__u64 labels = te_labels(ev->pid);
+	if (!te_pid_active(ev->pid))
+		return 0;
 	struct te_rule_eval eval = {};
 	const char *display = ev->display ? ev->display : ev->target;
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action = TE_MODE_NOTIFY;
 	__u64 matched_req = 0;
+	__u32 matched_domain_id = 0;
+	__u32 current_domain_id = cap_domain_for_pid(ev->pid);
 	int rid = -1;
-	int candidate = -1;
-
-	if (ev->obj_kind == TE_OBJ_FILE && (ev->access & TE_ACCESS_READ))
-		labels |= te_file_labels(fid, ev->target);
-	if (ev->obj_kind == TE_OBJ_ENDPOINT && (ev->access & TE_ACCESS_CONNECT))
-		labels |= te_update_add(TOP_CONNECT, 0, ev->ip);
 
 	if (ev->obj_kind == TE_OBJ_EXEC) {
 		eval.pid = ev->pid;
-		eval.labels = labels;
-		eval.effect = TEFFECT_BLOCK;
+		eval.current_domain_id = current_domain_id;
 		eval.effect_mask = te_supported_effects(ev->mode);
-		eval.op = TOP_EXEC;
 		eval.target = ev->target;
-		rid = te_check_labels(&eval);
-		effect = eval.effect;
-		matched_req = eval.matched_req;
+		te_eval_op_domains(&eval, ev->pid, 0, 0, TOP_EXEC, 0,
+				    &rid, &effect, &matched_req,
+				    &matched_domain_id);
 	} else if (ev->obj_kind == TE_OBJ_FILE) {
 		eval.pid = ev->pid;
-		eval.labels = labels;
-		eval.effect = TEFFECT_BLOCK;
+		eval.current_domain_id = current_domain_id;
 		eval.effect_mask = te_supported_effects(ev->mode);
 		eval.target = ev->target;
-		if (ev->access & TE_ACCESS_READ) {
-			eval.op = TOP_OPEN;
-			candidate = te_check_labels(&eval);
-			if (te_better_match(candidate, eval.effect, rid, effect)) {
-				rid = candidate;
-				effect = eval.effect;
-				matched_req = eval.matched_req;
-			}
-		}
-		if (ev->access & TE_ACCESS_WRITE) {
-			eval.effect = TEFFECT_BLOCK;
-			eval.op = TOP_WRITE;
-			candidate = te_check_labels(&eval);
-			if (te_better_match(candidate, eval.effect, rid, effect)) {
-				rid = candidate;
-				effect = eval.effect;
-				matched_req = eval.matched_req;
-			}
-		}
+		eval.fid = fid;
+		eval.include_file_labels = (ev->access & TE_ACCESS_READ) ? 1 : 0;
+		if ((ev->access & TE_ACCESS_READ) &&
+		    (policy_features & TE_POLICY_OPEN_RULES))
+			te_eval_op_domains(&eval, ev->pid, fid, ev->access,
+					    TOP_OPEN, 0, &rid, &effect,
+					    &matched_req, &matched_domain_id);
+		if ((ev->access & TE_ACCESS_WRITE) &&
+		    (policy_features & TE_POLICY_WRITE_RULES))
+			te_eval_op_domains(&eval, ev->pid, fid, ev->access,
+					    TOP_WRITE, 0, &rid, &effect,
+					    &matched_req, &matched_domain_id);
 	} else if (ev->obj_kind == TE_OBJ_ENDPOINT) {
 		eval.pid = ev->pid;
-		eval.labels = labels;
-		eval.effect = TEFFECT_BLOCK;
+		eval.current_domain_id = current_domain_id;
 		eval.effect_mask = te_supported_effects(ev->mode);
-		eval.op = TOP_CONNECT;
 		eval.ip = ev->ip;
-		rid = te_check_labels(&eval);
-		effect = eval.effect;
-		matched_req = eval.matched_req;
+		te_eval_op_domains(&eval, ev->pid, 0, ev->access,
+				    TOP_CONNECT, ev->ip, &rid, &effect,
+				    &matched_req, &matched_domain_id);
 	}
 
 	if (rid >= 0) {
@@ -491,6 +526,7 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 		if (action != TE_MODE_UNSUPPORTED)
 			emit_violation(ev->pid, rid, display,
 				       ev->obj_kind == TE_OBJ_ENDPOINT ? ev->ip : 0,
+				       matched_domain_id,
 				       matched_req,
 				       action == TE_MODE_BLOCK ||
 					       (action == TE_MODE_KILL && ev->mode == TE_MODE_BLOCK),
@@ -510,10 +546,6 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 		if (ev->access & TE_ACCESS_WRITE)
 			te_write_flow(ev->pid, fid, ev->target);
 	} else if (ev->obj_kind == TE_OBJ_ENDPOINT) {
-		__u64 src_labels = te_update_add(TOP_CONNECT, 0, ev->ip);
-		te_add_labels(ev->pid, src_labels);
-		if (src_labels)
-			te_record_proc_prov_mask(ev->pid, src_labels, TOP_CONNECT, 0, ev->ip);
 		te_connect_flow(ev->ip, ev->pid);
 	}
 
@@ -524,46 +556,35 @@ static __always_inline int te_handle_file_event(pid_t pid, const char *target,
 						struct file_id *fid, __u32 access,
 						__u32 mode)
 {
-	__u64 labels = te_labels(pid);
+	if (!te_pid_active(pid))
+		return 0;
 	struct te_rule_eval eval = {};
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action = TE_MODE_NOTIFY;
 	__u64 matched_req = 0;
+	__u32 matched_domain_id = 0;
+	__u32 current_domain_id = cap_domain_for_pid(pid);
 	int rid = -1;
-	int candidate = -1;
-
-	if (access & TE_ACCESS_READ)
-		labels |= te_file_labels(fid, target);
 
 	eval.pid = pid;
-	eval.labels = labels;
-	eval.effect = TEFFECT_BLOCK;
+	eval.current_domain_id = current_domain_id;
 	eval.effect_mask = te_supported_effects(mode);
 	eval.target = target;
-	if (access & TE_ACCESS_READ) {
-		eval.op = TOP_OPEN;
-		candidate = te_check_labels(&eval);
-		if (te_better_match(candidate, eval.effect, rid, effect)) {
-			rid = candidate;
-			effect = eval.effect;
-			matched_req = eval.matched_req;
-		}
-	}
-	if (access & TE_ACCESS_WRITE) {
-		eval.effect = TEFFECT_BLOCK;
-		eval.op = TOP_WRITE;
-		candidate = te_check_labels(&eval);
-		if (te_better_match(candidate, eval.effect, rid, effect)) {
-			rid = candidate;
-			effect = eval.effect;
-			matched_req = eval.matched_req;
-		}
-	}
+	eval.fid = fid;
+	eval.include_file_labels = (access & TE_ACCESS_READ) ? 1 : 0;
+	if ((access & TE_ACCESS_READ) && (policy_features & TE_POLICY_OPEN_RULES))
+		te_eval_op_domains(&eval, pid, fid, access, TOP_OPEN, 0,
+				    &rid, &effect, &matched_req,
+				    &matched_domain_id);
+	if ((access & TE_ACCESS_WRITE) && (policy_features & TE_POLICY_WRITE_RULES))
+		te_eval_op_domains(&eval, pid, fid, access, TOP_WRITE, 0,
+				    &rid, &effect, &matched_req,
+				    &matched_domain_id);
 
 	if (rid >= 0) {
 		action = te_effect_mode(mode, effect);
 		if (action != TE_MODE_UNSUPPORTED)
-			emit_violation(pid, rid, target, 0, matched_req,
+			emit_violation(pid, rid, target, 0, matched_domain_id, matched_req,
 				       action == TE_MODE_BLOCK ||
 					       (action == TE_MODE_KILL && mode == TE_MODE_BLOCK),
 				       action == TE_MODE_KILL, effect);
@@ -630,12 +651,14 @@ static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 	struct file_scratch *scratch = file_scratch_buf();
 	pid_t pid;
 
-	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
-	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
 		return 0;
 	if (!access)
 		return 0;
 	if (!scratch)
+		return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (!te_pid_active(pid))
 		return 0;
 	__builtin_memset(scratch, 0, sizeof(*scratch));
 	if (te_resolve_file_ref(ref_kind, a, b, scratch->path, sizeof(scratch->path)) < 0)
@@ -645,8 +668,6 @@ static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 	/* Skip taint for non-regular files (chardev, blockdev, pipe, socket) */
 	if (!te_is_regular_or_dir(a, b, ref_kind))
 		return 0;
-
-	pid = bpf_get_current_pid_tgid() >> 32;
 	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
 }
 
@@ -657,17 +678,20 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 	char target[TAINT_PAT_LEN] = {};
 	struct te_event ev = {};
 	__u32 ip = 0;
+	pid_t pid;
 
 	(void)b;
-	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
-	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
 		return 0;
 	if (!(access & TE_ACCESS_CONNECT))
+		return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (!te_pid_active(pid))
 		return 0;
 	if (te_resolve_sockaddr(ref_kind, a, &ip) < 0)
 		return 0;
 
-	ev.pid = bpf_get_current_pid_tgid() >> 32;
+	ev.pid = pid;
 	ev.obj_kind = TE_OBJ_ENDPOINT;
 	ev.access = access;
 	ev.mode = mode;
@@ -681,17 +705,18 @@ static __always_inline int te_handle_channel(int fd, __u32 access, __u32 mode)
 	struct file_scratch *scratch = file_scratch_buf();
 	pid_t pid;
 
-	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
-	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
 		return 0;
 	if (!scratch)
+		return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (!te_pid_active(pid))
 		return 0;
 	__builtin_memset(scratch, 0, sizeof(*scratch));
 	if (!chan_fd_target(fd, access, scratch->path, sizeof(scratch->path)))
 		return 0;
 
 	scratch->fid.ino = te_fnv1a(scratch->path);
-	pid = bpf_get_current_pid_tgid() >> 32;
 	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
 }
 
@@ -701,9 +726,12 @@ static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
 	const char *target;
 	const char *shown;
 	struct te_event ev = {};
+	pid_t pid;
 
-	if ((mode == TE_MODE_BLOCK && !enforce_mode) ||
-	    ((mode == TE_MODE_NOTIFY || mode == TE_MODE_KILL) && enforce_mode))
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
+		return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (!te_pid_active(pid))
 		return 0;
 	if (ref_kind == TE_REF_BPRM) {
 		struct exec_scratch *scratch = exec_scratch_buf();
@@ -728,7 +756,7 @@ static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
 		return 0;
 	}
 
-	ev.pid = bpf_get_current_pid_tgid() >> 32;
+	ev.pid = pid;
 	ev.obj_kind = TE_OBJ_EXEC;
 	ev.access = TE_ACCESS_EXEC;
 	ev.mode = mode;
@@ -807,7 +835,9 @@ int BPF_PROG(enforce_socket_connect, struct socket *sock, struct sockaddr *addre
 SEC("tp/sched/sched_process_fork")
 int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 {
-	te_fork(ctx->parent_pid, ctx->child_pid);
+	pid_t parent_tgid = bpf_get_current_pid_tgid() >> 32;
+
+	te_fork(parent_tgid, ctx->child_pid);
 	return 0;
 }
 
@@ -820,6 +850,8 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	unsigned fname_off;
 	int alen = 0;
 
+	if (!te_pid_active(pid))
+		return 0;
 	if (!scratch)
 		return 0;
 	__builtin_memset(scratch, 0, sizeof(*scratch));
@@ -871,8 +903,11 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 static __always_inline int stash_open(const void *path_ptr, unsigned int flags)
 {
 	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
 	struct open_pend p = { .path_ptr = (__u64)path_ptr, .flags = flags };
 
+	if (!te_pid_active(pid))
+		return 0;
 	bpf_map_update_elem(&ts_openpend, &tid, &p, BPF_ANY);
 	return 0;
 }

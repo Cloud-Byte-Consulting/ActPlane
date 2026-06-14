@@ -120,6 +120,8 @@ pub(crate) fn doctor(cli: &Cli) -> Result<i32> {
                     }
                     let feedback = feedback_paths(&loaded);
                     println!("✓ feedback file: {}", feedback.feedback.display());
+                    println!("✓ audit log: {}", feedback.audit.display());
+                    println!("✓ event log: {}", feedback.events.display());
                 }
                 Err(e) => {
                     problems += 1;

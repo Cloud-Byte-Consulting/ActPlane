@@ -10,6 +10,7 @@
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 
+mod audit;
 mod config;
 mod doctor;
 mod dsl;
@@ -36,8 +37,8 @@ type Result<T> = std::result::Result<T, AnyError>;
       actplane mcp --auto-attach-parent\n\n  \
       # just compile/validate a policy (no privileges needed)\n  \
       actplane --policy actplane.yaml compile --out /tmp/policy.bin\n\n  \
-      # watch & report violations system-wide without launching a child\n  \
-      sudo -E actplane --policy actplane.yaml watch\n\n\
+      # attach to the parent agent/shell and report violations without launching a child\n  \
+      actplane --policy actplane.yaml watch\n\n\
     See docs/rule-language.md for the policy language.")]
 pub(crate) struct Cli {
     /// Project policy YAML. Defaults to discovering actplane.yaml upward from cwd.
@@ -127,8 +128,8 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
-            let reload = attach.as_ref().and_then(|a| a.reload_handle());
-            mcp::run_mcp_server_with_reload(reload).await?;
+            let control = attach.as_ref().and_then(|a| a.engine_control());
+            mcp::run_mcp_server_with_control(control).await?;
             drop(attach);
             0
         }

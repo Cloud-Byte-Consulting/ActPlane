@@ -7,11 +7,25 @@ pub mod ast;
 pub mod lower;
 pub mod parse;
 
+use std::collections::HashMap;
+
 pub use lower::{Compiled, RuleMeta, compile};
 
 /// Parse + compile DSL source text to a kernel config blob + reason table.
 pub fn compile_str(src: &str) -> Result<Compiled, String> {
     compile(&parse::parse(src)?)
+}
+
+/// Parse + compile DSL while preserving an existing label-bit dictionary.
+///
+/// Runtime policy deltas use this so a later delta in the same runtime domain
+/// can refer to labels created by an earlier delta without silently changing
+/// their bit positions.
+pub fn compile_str_with_labels(
+    src: &str,
+    existing_labels: &HashMap<String, u64>,
+) -> Result<Compiled, String> {
+    lower::compile_with_labels(&parse::parse(src)?, existing_labels)
 }
 
 #[cfg(test)]
@@ -70,6 +84,25 @@ mod tests {
         "#);
         assert_eq!(c.reasons.len(), 1);
         assert!(c.bytes.len() > 0);
+    }
+
+    #[test]
+    fn compile_with_labels_preserves_runtime_delta_label_bits() {
+        let mut existing = HashMap::new();
+        existing.insert("SECRET".to_string(), 1u64 << 7);
+        let c = compile_str_with_labels(
+            r#"
+            source SECRET = file "**/.env"
+            rule no-secret:
+              notify exec "git" if SECRET and not REVIEWED
+              because "secret data needs review"
+            "#,
+            &existing,
+        )
+        .expect("compile with existing labels");
+
+        assert_eq!(c.labels.get("SECRET"), Some(&(1u64 << 7)));
+        assert_eq!(c.labels.get("REVIEWED"), Some(&1u64));
     }
 
     #[test]

@@ -50,9 +50,11 @@ constraint, and takes a different path to complete the task.
 
 **Requirements:** Linux kernel 5.8+ with BTF (`/sys/kernel/btf/vmlinux`). `run`
 and `watch` load the eBPF engine, so they need root (or `CAP_BPF` +
-`CAP_SYS_ADMIN`); ActPlane drops the target command back to your user. With
-BPF-LSM enabled, rules can `block` before the action commits; otherwise they
-`notify` (report) or `kill`.
+`CAP_SYS_ADMIN`) and can auto-elevate through passwordless sudo. `run` drops the
+target command back to your user. `watch` attaches to the parent agent or shell
+pid before elevation, so prefer `actplane watch` over manually prefixing it with
+`sudo`. With BPF-LSM enabled, rules can `block` before the action commits;
+otherwise they `notify` (report) or `kill`.
 
 ## Why an OS-level harness?
 

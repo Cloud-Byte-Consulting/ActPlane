@@ -120,6 +120,7 @@ struct taint_update {
 	unsigned int ipv4;
 	unsigned int ipv4_mask;
 	int gate_exit_code;       /* TAINT_GATE_IMMEDIATE or 0..255 = stamp on matching exit */
+	unsigned int domain_id;   /* 0 = inherited/global, else cap_state target id */
 };
 
 struct taint_rule {
@@ -145,6 +146,7 @@ struct taint_rule {
 	 * gate; since_mask is the set of invals[] slots (Y) that reset it. When
 	 * since_mask == 0 the rule keeps v1 latching semantics (gate fired ever). */
 	unsigned int gate_idx;
+	unsigned int domain_id;   /* 0 = inherited/global, else cap_state target id */
 	unsigned long long since_mask;
 };
 

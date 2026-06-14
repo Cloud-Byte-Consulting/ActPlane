@@ -51,6 +51,7 @@ struct CUpdate {
     ipv4: u32,
     ipv4_mask: u32,
     gate_exit_code: i32,
+    domain_id: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -73,6 +74,7 @@ struct CRule {
     cond_ipv4: u32,
     cond_ipv4_mask: u32,
     gate_idx: u32,
+    domain_id: u32,
     since_mask: u64,
 }
 #[repr(C)]
@@ -292,7 +294,7 @@ fn lower_ipv4(pat: &str) -> (u32, u32) {
 
 struct Ctx {
     labels: HashMap<String, u64>,
-    next_label: u32,
+    used_labels: u64,
     updates: Vec<CUpdate>,
     gate_bits: HashMap<(u8, u8, String, Option<u8>), (u64, u32)>,
     next_gate: u32,
@@ -336,6 +338,7 @@ impl Ctx {
             ipv4: spec.ipv4,
             ipv4_mask: spec.ipv4_mask,
             gate_exit_code: spec.gate_exit_code,
+            domain_id: 0,
         };
         set_pat(&mut u.target, spec.target);
         if !spec.arg.is_empty() {
@@ -349,11 +352,11 @@ impl Ctx {
         if let Some(b) = self.labels.get(name) {
             return Ok(*b);
         }
-        if self.next_label >= 64 {
-            return Err("too many labels (max 64)".into());
-        }
-        let b = 1u64 << self.next_label;
-        self.next_label += 1;
+        let bit_idx = (0..64)
+            .find(|idx| self.used_labels & (1u64 << idx) == 0)
+            .ok_or_else(|| "too many labels (max 64)".to_string())?;
+        let b = 1u64 << bit_idx;
+        self.used_labels |= b;
         self.labels.insert(name.to_string(), b);
         Ok(b)
     }
@@ -366,10 +369,24 @@ impl Ctx {
         gate_exit: Option<u8>,
     ) -> Result<(u64, u32), String> {
         let (low_op, m, lit) = match gate_op {
-            Op::Exec => { let (m, l) = lower_exec(pat); (OP_EXEC, m, l) }
-            Op::Read | Op::Open => { let (m, l) = lower_path(pat); (OP_OPEN, m, l) }
-            Op::Write | Op::Unlink => { let (m, l) = lower_path(pat); (OP_WRITE, m, l) }
-            other => return Err(format!("`after {}` is not supported as a gate (use exec/read/write)", op_name(other))),
+            Op::Exec => {
+                let (m, l) = lower_exec(pat);
+                (OP_EXEC, m, l)
+            }
+            Op::Read | Op::Open => {
+                let (m, l) = lower_path(pat);
+                (OP_OPEN, m, l)
+            }
+            Op::Write | Op::Unlink => {
+                let (m, l) = lower_path(pat);
+                (OP_WRITE, m, l)
+            }
+            other => {
+                return Err(format!(
+                    "`after {}` is not supported as a gate (use exec/read/write)",
+                    op_name(other)
+                ));
+            }
         };
         if gate_exit.is_some() && low_op != OP_EXEC {
             return Err("`exits` is only valid on `after exec` gates".into());
@@ -403,7 +420,13 @@ impl Ctx {
     /// Allocate (or reuse) a `since` invalidator slot, returning its bit in the
     /// rule's `since_mask`. `op` is the lowered taint_op; the pattern is matched
     /// like a sink target (exec on comm, others on path).
-    fn inval_slot(&mut self, op: u8, kind: Kind, pat: &str, arg: Option<&str>) -> Result<u64, String> {
+    fn inval_slot(
+        &mut self,
+        op: u8,
+        kind: Kind,
+        pat: &str,
+        arg: Option<&str>,
+    ) -> Result<u64, String> {
         let (m, lit) = if op == OP_EXEC {
             lower_exec(pat)
         } else {
@@ -579,6 +602,23 @@ fn collect_label_names(pol: &Policy) -> Vec<String> {
     names.into_iter().collect()
 }
 
+fn validate_label_bindings(labels: &HashMap<String, u64>) -> Result<u64, String> {
+    let mut used = 0u64;
+    for (name, bit) in labels {
+        if name.is_empty() {
+            return Err("label names must not be empty".into());
+        }
+        if *bit == 0 || bit.count_ones() != 1 {
+            return Err(format!("label `{name}` has invalid bit mask 0x{bit:x}"));
+        }
+        if used & *bit != 0 {
+            return Err(format!("label bit 0x{bit:x} is assigned more than once"));
+        }
+        used |= *bit;
+    }
+    Ok(used)
+}
+
 fn collect_expr_labels(expr: &Expr, out: &mut std::collections::BTreeSet<String>) {
     match expr {
         Expr::Label(l) | Expr::Not(l) => {
@@ -593,17 +633,19 @@ fn collect_expr_labels(expr: &Expr, out: &mut std::collections::BTreeSet<String>
 }
 
 pub fn compile(pol: &Policy) -> Result<Compiled, String> {
+    compile_with_labels(pol, &HashMap::new())
+}
+
+pub fn compile_with_labels(
+    pol: &Policy,
+    existing_labels: &HashMap<String, u64>,
+) -> Result<Compiled, String> {
     let sorted_labels = collect_label_names(pol);
-    let mut pre_labels = HashMap::new();
-    for (i, name) in sorted_labels.iter().enumerate() {
-        if i >= 64 {
-            return Err("too many labels (max 64)".into());
-        }
-        pre_labels.insert(name.clone(), 1u64 << i);
-    }
+    let pre_labels = existing_labels.clone();
+    let used_labels = validate_label_bindings(&pre_labels)?;
 
     let mut ctx = Ctx {
-        next_label: sorted_labels.len() as u32,
+        used_labels,
         labels: pre_labels,
         updates: Vec::new(),
         gate_bits: HashMap::new(),
@@ -611,6 +653,9 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
         inval_slots: HashMap::new(),
         next_inval: 0,
     };
+    for name in &sorted_labels {
+        ctx.label_bit(name)?;
+    }
     let mut rules: Vec<CRule> = Vec::new();
     let mut reasons: Vec<String> = Vec::new();
     let mut meta: Vec<RuleMeta> = Vec::new();
@@ -725,7 +770,8 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
                         gate_idx = idx;
                         for (op, pat, arg) in since {
                             let iop = inval_op(*op)?;
-                            since_mask |= ctx.inval_slot(iop, cl.target.kind, pat, arg.as_deref())?;
+                            since_mask |=
+                                ctx.inval_slot(iop, cl.target.kind, pat, arg.as_deref())?;
                         }
                     }
                 }
@@ -749,6 +795,7 @@ pub fn compile(pol: &Policy) -> Result<Compiled, String> {
                         cond_ipv4: cipv4,
                         cond_ipv4_mask: cipv4_mask,
                         gate_idx,
+                        domain_id: 0,
                         since_mask,
                     };
                     set_pat(&mut cr.target, &tlit);

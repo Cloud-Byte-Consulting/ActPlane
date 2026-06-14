@@ -84,15 +84,17 @@ the process.
 
 ```bash
 sudo -E actplane run -- <agent-or-command>
-sudo -E actplane watch
+actplane watch
 ```
 
 `run` launches a command under enforcement, seeds the process tree with the
 runner label, writes feedback to the configured feedback file, and stops when
 the command exits.
 
-`watch` attaches the engine and reports system or project policy matches without
-launching a child command.
+`watch` attaches the engine to the parent agent or shell pid and reports project
+policy matches without launching a child command. It should preserve the parent
+pid before passwordless sudo elevation so the protected process tree remains the
+repo/session boundary.
 
 ### Long-lived integration
 

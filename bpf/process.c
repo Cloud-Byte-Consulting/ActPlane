@@ -97,6 +97,53 @@ static bool config_has_effect(const struct taint_config *cfg, unsigned int effec
 	return false;
 }
 
+static bool config_has_block_op(const struct taint_config *cfg, unsigned int op)
+{
+	for (unsigned int i = 0; i < cfg->n_rules && i < MAX_TAINT_RULES; i++) {
+		if (cfg->rules[i].effect == TEFFECT_BLOCK && cfg->rules[i].op == op)
+			return true;
+	}
+	return false;
+}
+
+static unsigned int path_match_features(unsigned int match)
+{
+	switch (match) {
+	case TAINT_MATCH_CONTAINS: return TE_POLICY_PATH_CONTAINS;
+	case TAINT_MATCH_SUFFIX: return TE_POLICY_PATH_SUFFIX;
+	default: return 0;
+	}
+}
+
+static unsigned int config_features(const struct taint_config *cfg)
+{
+	unsigned int features = 0;
+
+	for (unsigned int i = 0; i < cfg->n_updates && i < MAX_TAINT_UPDATES; i++) {
+		if (cfg->updates[i].op == TOP_OPEN || cfg->updates[i].op == TOP_WRITE)
+			features |= path_match_features(cfg->updates[i].match);
+		if (cfg->updates[i].op == TOP_CONNECT)
+			features |= TE_POLICY_CONNECT;
+	}
+	for (unsigned int i = 0; i < cfg->n_rules && i < MAX_TAINT_RULES; i++) {
+		if (cfg->rules[i].op == TOP_OPEN) {
+			features |= TE_POLICY_OPEN_RULES |
+				    path_match_features(cfg->rules[i].match);
+			if (cfg->rules[i].cond_kind == TCOND_TARGET)
+				features |= path_match_features(cfg->rules[i].cond_match);
+		}
+		if (cfg->rules[i].op == TOP_WRITE) {
+			features |= TE_POLICY_WRITE_RULES |
+				    path_match_features(cfg->rules[i].match);
+			if (cfg->rules[i].cond_kind == TCOND_TARGET)
+				features |= path_match_features(cfg->rules[i].cond_match);
+		}
+		if (cfg->rules[i].op == TOP_CONNECT)
+			features |= TE_POLICY_CONNECT;
+	}
+	return features;
+}
+
 static int validate_config(const struct taint_config *cfg)
 {
 	for (unsigned int i = 0; i < cfg->n_updates && i < MAX_TAINT_UPDATES; i++) {
@@ -179,10 +226,23 @@ struct proc_state_seed {
 	unsigned long long lin_gates;
 };
 
+struct cap_state_seed {
+	unsigned int parent;
+	unsigned int scope_id;
+	unsigned long long labels;
+	unsigned long long authority_mask;
+	unsigned long long target_mask;
+	unsigned long long restrict_mask;
+	unsigned long long gate_mask;
+	unsigned long long label_mask;
+};
+
 static int seed_initial_label(struct process_bpf *skel)
 {
 	struct proc_state_seed state = {};
+	struct cap_state_seed cap = {};
 	pid_t pid = env.seed_pid;
+	unsigned int target_id;
 
 	if (!env.seed_pid && !env.seed_label)
 		return 0;
@@ -198,6 +258,22 @@ static int seed_initial_label(struct process_bpf *skel)
 	}
 	if (bpf_map_update_elem(bpf_map__fd(skel->maps.ts_root), &pid, &pid, BPF_ANY) < 0) {
 		fprintf(stderr, "failed to seed pid %d in ts_root: %s\n", pid, strerror(errno));
+		return -1;
+	}
+	target_id = (unsigned int)pid;
+	cap.scope_id = 1;
+	cap.labels = env.seed_label;
+	cap.authority_mask = (1ULL << 4) | (1ULL << 3); /* bind_rule | narrow_scope */
+	cap.target_mask = (1ULL << 0) | (1ULL << 1);    /* self | child */
+	if (bpf_map_update_elem(bpf_map__fd(skel->maps.cap_task), &pid, &target_id,
+				BPF_ANY) < 0) {
+		fprintf(stderr, "failed to bind pid %d in cap_task: %s\n", pid, strerror(errno));
+		return -1;
+	}
+	if (bpf_map_update_elem(bpf_map__fd(skel->maps.cap_state), &target_id, &cap,
+				BPF_ANY) < 0) {
+		fprintf(stderr, "failed to seed target %u in cap_state: %s\n",
+			target_id, strerror(errno));
 		return -1;
 	}
 	/* ts_sess (gate/staleness state) is created lazily by te_sess_init when the
@@ -237,19 +313,27 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to open BPF skeleton\n");
 		return 1;
 	}
-	if (!enforce) {
+	bool block_exec = config_has_block_op(&cfg, TOP_EXEC);
+	bool block_file = config_has_block_op(&cfg, TOP_OPEN) ||
+			  config_has_block_op(&cfg, TOP_WRITE);
+	bool block_connect = config_has_block_op(&cfg, TOP_CONNECT);
+	unsigned int features = config_features(&cfg);
+	if (!enforce || !block_exec)
 		bpf_program__set_autoload(skel->progs.enforce_bprm_check_security, false);
+	if (!enforce || !block_file) {
 		bpf_program__set_autoload(skel->progs.enforce_file_open, false);
 		bpf_program__set_autoload(skel->progs.enforce_file_permission, false);
 		bpf_program__set_autoload(skel->progs.enforce_file_truncate, false);
 		bpf_program__set_autoload(skel->progs.enforce_path_truncate, false);
 		bpf_program__set_autoload(skel->progs.enforce_path_unlink, false);
 		bpf_program__set_autoload(skel->progs.enforce_path_rename, false);
-		bpf_program__set_autoload(skel->progs.enforce_socket_connect, false);
 	}
+	if (!enforce || !block_connect)
+		bpf_program__set_autoload(skel->progs.enforce_socket_connect, false);
 
 	/* install enforce_mode into rodata before load */
 	skel->rodata->enforce_mode = enforce ? 1 : 0;
+	skel->rodata->policy_features = features;
 	fprintf(stderr, "ActPlane: %u updates, %u rules\n",
 		cfg.n_updates, cfg.n_rules);
 	fprintf(stderr, "ActPlane: %s mode (%s)\n",

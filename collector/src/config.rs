@@ -6,6 +6,8 @@ use crate::{Cli, Result};
 const DEFAULT_POLICY_FILES: &[&str] = &["actplane.yaml", ".actplane/policy.yaml"];
 pub(crate) const DEFAULT_FEEDBACK_FILE: &str = ".actplane/last-violation.txt";
 pub(crate) const DEFAULT_HOOK_STATE_FILE: &str = ".actplane/feedback-hook.state.json";
+pub(crate) const DEFAULT_AUDIT_FILE: &str = ".actplane/audit.jsonl";
+pub(crate) const DEFAULT_EVENTS_FILE: &str = ".actplane/events.jsonl";
 
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +63,8 @@ pub(crate) enum BindingMode {
 #[derive(Debug, Default, serde::Deserialize)]
 struct FeedbackConfig {
     path: Option<PathBuf>,
+    audit: Option<PathBuf>,
+    events: Option<PathBuf>,
 }
 
 pub(crate) struct LoadedPolicy {
@@ -88,6 +92,8 @@ pub(crate) struct ResolvedPolicy {
 pub(crate) struct FeedbackPaths {
     pub(crate) feedback: PathBuf,
     pub(crate) state: PathBuf,
+    pub(crate) audit: PathBuf,
+    pub(crate) events: PathBuf,
 }
 
 pub(crate) fn load_policy(cli: &Cli) -> Result<LoadedPolicy> {
@@ -383,7 +389,36 @@ pub(crate) fn feedback_paths(loaded: &LoadedPolicy) -> FeedbackPaths {
         .parent()
         .map(|p| p.join("feedback-hook.state.json"))
         .unwrap_or_else(|| loaded.root.join(DEFAULT_HOOK_STATE_FILE));
-    FeedbackPaths { feedback, state }
+    let audit = loaded
+        .config
+        .feedback
+        .audit
+        .as_ref()
+        .map(|p| absolutize(p, &loaded.root))
+        .unwrap_or_else(|| {
+            feedback
+                .parent()
+                .map(|p| p.join("audit.jsonl"))
+                .unwrap_or_else(|| loaded.root.join(DEFAULT_AUDIT_FILE))
+        });
+    let events = loaded
+        .config
+        .feedback
+        .events
+        .as_ref()
+        .map(|p| absolutize(p, &loaded.root))
+        .unwrap_or_else(|| {
+            feedback
+                .parent()
+                .map(|p| p.join("events.jsonl"))
+                .unwrap_or_else(|| loaded.root.join(DEFAULT_EVENTS_FILE))
+        });
+    FeedbackPaths {
+        feedback,
+        state,
+        audit,
+        events,
+    }
 }
 
 pub(crate) fn absolutize(path: &Path, base: &Path) -> PathBuf {
@@ -433,6 +468,55 @@ policy: |
         );
         assert!(policy_source(&loaded, None).unwrap().contains("rule r"));
         assert!(policy_source(&loaded, Some("session")).is_err());
+    }
+
+    #[test]
+    fn feedback_paths_include_default_and_custom_audit_log() {
+        let loaded = LoadedPolicy {
+            config: serde_yaml::from_str(
+                r#"
+feedback:
+  path: run/feedback.txt
+policy: |
+  rule r:
+    notify exec "git"
+    because "x"
+"#,
+            )
+            .unwrap(),
+            root: PathBuf::from("/repo"),
+            path: None,
+        };
+        let paths = feedback_paths(&loaded);
+        assert_eq!(paths.feedback, PathBuf::from("/repo/run/feedback.txt"));
+        assert_eq!(paths.audit, PathBuf::from("/repo/run/audit.jsonl"));
+        assert_eq!(paths.events, PathBuf::from("/repo/run/events.jsonl"));
+
+        let custom = LoadedPolicy {
+            config: serde_yaml::from_str(
+                r#"
+feedback:
+  path: run/feedback.txt
+  audit: logs/control.jsonl
+  events: logs/events.jsonl
+policy: |
+  rule r:
+    notify exec "git"
+    because "x"
+"#,
+            )
+            .unwrap(),
+            root: PathBuf::from("/repo"),
+            path: None,
+        };
+        assert_eq!(
+            feedback_paths(&custom).audit,
+            PathBuf::from("/repo/logs/control.jsonl")
+        );
+        assert_eq!(
+            feedback_paths(&custom).events,
+            PathBuf::from("/repo/logs/events.jsonl")
+        );
     }
 
     #[test]

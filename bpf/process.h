@@ -6,6 +6,12 @@
 #define TASK_COMM_LEN 16
 #define MAX_FILENAME_LEN 127
 
+#define TE_POLICY_PATH_CONTAINS (1U << 0)
+#define TE_POLICY_PATH_SUFFIX   (1U << 1)
+#define TE_POLICY_OPEN_RULES    (1U << 2)
+#define TE_POLICY_WRITE_RULES   (1U << 3)
+#define TE_POLICY_CONNECT       (1U << 4)
+
 #include "taint.h"
 
 /* The kernel emits exactly one kind of event: a taint-rule violation. */
