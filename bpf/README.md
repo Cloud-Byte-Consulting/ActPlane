@@ -21,6 +21,7 @@ hooks:
 | read/open | process acquires file labels |
 | write | file acquires process labels |
 | connect | endpoint acquires process labels |
+| recv | process acquires endpoint labels |
 
 Rules check accumulated labels at each hook. When a rule matches, the
 engine emits a match event with one of three effects:

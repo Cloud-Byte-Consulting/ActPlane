@@ -27,6 +27,9 @@ const volatile unsigned int policy_features = 0;
 #ifndef AF_INET
 #define AF_INET 2
 #endif
+#ifndef AF_UNIX
+#define AF_UNIX 1
+#endif
 #ifndef O_ACCMODE
 #define O_ACCMODE 00000003
 #endif
@@ -54,6 +57,62 @@ const volatile unsigned int policy_features = 0;
 #ifndef MAY_READ
 #define MAY_READ 4
 #endif
+#ifndef F_DUPFD
+#define F_DUPFD 0
+#endif
+#ifndef F_DUPFD_CLOEXEC
+#define F_DUPFD_CLOEXEC 1030
+#endif
+#ifndef PROT_READ
+#define PROT_READ 0x1
+#endif
+#ifndef PROT_WRITE
+#define PROT_WRITE 0x2
+#endif
+#ifndef PROT_EXEC
+#define PROT_EXEC 0x4
+#endif
+#ifndef MAP_SHARED
+#define MAP_SHARED 0x01
+#endif
+#ifndef MAP_SHARED_VALIDATE
+#define MAP_SHARED_VALIDATE 0x03
+#endif
+#ifndef MAP_PRIVATE
+#define MAP_PRIVATE 0x02
+#endif
+#ifndef MAP_TYPE
+#define MAP_TYPE 0x0f
+#endif
+#ifndef UNIX_PATH_MAX
+#define UNIX_PATH_MAX 108
+#endif
+#ifndef SOL_SOCKET
+#define SOL_SOCKET 1
+#endif
+#ifndef SCM_RIGHTS
+#define SCM_RIGHTS 1
+#endif
+#ifndef VM_SHARED
+#define VM_SHARED 0x00000008UL
+#endif
+
+#define TE_USER_MSGHDR_CONTROL_OFF    32
+#define TE_USER_MSGHDR_CONTROLLEN_OFF 40
+#define TE_CMSG_HDR_LEN               16
+#define TE_CMSG_ALIGN_MASK            7ULL
+#define TE_CMSG_SCAN_MAX              2
+#define TE_CMSG_CONTROL_MAX           4096ULL
+#define TE_SCM_RIGHTS_MAX_FDS         8
+#define TE_FD_TABLE_LOOKUP_MAX        4096
+/*
+ * Tracepoint fallback keeps exact-start records for the recent file-backed
+ * mappings of each active pid. mprotect/mremap use a direct (pid,start) lookup
+ * instead of scanning a shadow VMA table, because scanning while invoking full
+ * file-flow helpers is too expensive for the verifier. BPF-LSM file_mprotect is
+ * the precise pre-operation path when LSM is available.
+ */
+#define TE_MMAP_INDEX_SLOTS           8
 
 #define TE_MODE_NOTIFY 0
 #define TE_MODE_BLOCK  1
@@ -64,10 +123,13 @@ const volatile unsigned int policy_features = 0;
 #define TE_ACCESS_WRITE   (1U << 1)
 #define TE_ACCESS_EXEC    (1U << 2)
 #define TE_ACCESS_CONNECT (1U << 3)
+#define TE_ACCESS_RECV    (1U << 4)
 
 #define TE_OBJ_EXEC     1
 #define TE_OBJ_FILE     2
 #define TE_OBJ_ENDPOINT 3
+
+#define TE_FORK_FD_SCAN 64
 
 #define TE_REF_FILE          1
 #define TE_REF_PATH          2
@@ -77,6 +139,11 @@ const volatile unsigned int policy_features = 0;
 #define TE_REF_STRINGS       6
 #define TE_REF_SOCKADDR_KERN 7
 #define TE_REF_SOCKADDR_USER 8
+#define TE_REF_SOCKET        9
+
+#define TE_IO_ADDR_NONE        0
+#define TE_IO_ADDR_SOCKADDR    1
+#define TE_IO_ADDR_USER_MSGHDR 2
 
 #include "channel.bpf.h"
 
@@ -103,6 +170,7 @@ struct {
 struct open_pend {
 	__u64 path_ptr;
 	__u32 flags;
+	__u32 remember_fd;
 };
 struct {
 	__uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -110,6 +178,201 @@ struct {
 	__type(key, __u64);
 	__type(value, struct open_pend);
 } ts_openpend SEC(".maps");
+
+struct fd_key {
+	pid_t pid;
+	int fd;
+};
+struct fd_ref {
+	char path[MAX_FILENAME_LEN];
+	struct file_id fid;
+};
+struct fileptr_ref {
+	struct fd_ref ref;
+	struct file_id backing;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 65536);
+	__type(key, struct fd_key);
+	__type(value, struct fd_ref);
+} ts_fd SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 65536);
+	__type(key, __u64);
+	__type(value, struct fileptr_ref);
+} ts_fileptr SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 65536);
+	__type(key, struct fd_key);
+	__type(value, __u32);
+} ts_sockfd SEC(".maps");
+
+struct connect_pend {
+	int fd;
+	__u32 ip;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct connect_pend);
+} ts_connectpend SEC(".maps");
+
+struct unixsock_pend {
+	int fd;
+	char path[MAX_FILENAME_LEN];
+	struct file_id fid;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct unixsock_pend);
+} ts_unixsockpend SEC(".maps");
+
+struct accept_pend {
+	int fd;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct accept_pend);
+} ts_acceptpend SEC(".maps");
+
+struct io_pend {
+	int fd;
+	__u32 access;
+	__u64 addr_ptr;
+	__u32 addr_kind;
+	int addr_len;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct io_pend);
+} ts_iopend SEC(".maps");
+
+struct mmap_pend {
+	int fd;
+	__u64 len;
+	unsigned long prot;
+	unsigned long flags;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct mmap_pend);
+} ts_mmappend SEC(".maps");
+
+struct mprotect_pend {
+	__u64 start;
+	__u64 len;
+	unsigned long prot;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct mprotect_pend);
+} ts_mprotectpend SEC(".maps");
+
+struct mremap_pend {
+	__u64 old_addr;
+	__u64 old_size;
+	__u64 new_size;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct mremap_pend);
+} ts_mremappend SEC(".maps");
+
+struct mmap_key {
+	pid_t pid;
+	__u64 start;
+};
+struct mmap_ref {
+	char path[MAX_FILENAME_LEN];
+	__u64 start;
+	__u64 end;
+	unsigned long prot;
+	unsigned long flags;
+	struct file_id fid;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 65536);
+	__type(key, struct mmap_key);
+	__type(value, struct mmap_ref);
+} ts_mmap SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct mmap_ref);
+} ts_mmap_scratch SEC(".maps");
+
+struct mmap_index {
+	__u64 starts[TE_MMAP_INDEX_SLOTS];
+	__u32 next;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, pid_t);
+	__type(value, struct mmap_index);
+} ts_mmap_index SEC(".maps");
+
+struct dup_pend {
+	int oldfd;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct dup_pend);
+} ts_duppend SEC(".maps");
+
+struct fd_copy_pend {
+	int out_fd;
+	int in_fd;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct fd_copy_pend);
+} ts_fdcopypend SEC(".maps");
+
+struct pipe_pend {
+	__u64 fds_ptr;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct pipe_pend);
+} ts_pipepend SEC(".maps");
+
+struct socketpair_pend {
+	__u64 fds_ptr;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u64);
+	__type(value, struct socketpair_pend);
+} ts_socketpairpend SEC(".maps");
 
 struct exec_scratch {
 	char match[TAINT_TEXT_BUF];       /* >= PAT_LEN+SUF_MAX for suffix tail copy */
@@ -147,10 +410,478 @@ static __always_inline struct file_scratch *file_scratch_buf(void)
 	return bpf_map_lookup_elem(&ts_file_scratch, &key);
 }
 
+static __always_inline struct mmap_ref *mmap_scratch_buf(void)
+{
+	__u32 key = 0;
+
+	return bpf_map_lookup_elem(&ts_mmap_scratch, &key);
+}
+
+static __always_inline struct file *te_current_file_from_fd(int fd);
+static __always_inline int te_resolve_file_id_from_file(struct file *file,
+							struct file_id *fid);
+static __always_inline __u32 te_access_from_mmap(unsigned long prot,
+						 unsigned long flags);
+
+static __always_inline void te_fd_key(pid_t pid, int fd, struct fd_key *out)
+{
+	out->pid = pid;
+	out->fd = fd;
+}
+
+static __always_inline int te_file_id_equal(const struct file_id *a,
+					    const struct file_id *b)
+{
+	return a->ino == b->ino && a->dev == b->dev;
+}
+
+static __noinline void te_store_fileptr_ref(struct file *file,
+					    const struct fd_ref *ref)
+{
+	struct fileptr_ref fpref = {};
+	__u64 key;
+
+	if (!file)
+		return;
+	if (te_resolve_file_id_from_file(file, &fpref.backing) < 0)
+		return;
+	fpref.ref = *ref;
+	key = (__u64)file;
+	bpf_map_update_elem(&ts_fileptr, &key, &fpref, BPF_ANY);
+}
+
+static __always_inline struct fileptr_ref *te_lookup_fileptr_ref(struct file *file)
+{
+	struct file_id backing = {};
+	struct fileptr_ref *fpref;
+	__u64 key;
+
+	if (!file)
+		return NULL;
+	if (te_resolve_file_id_from_file(file, &backing) < 0)
+		return NULL;
+	key = (__u64)file;
+	fpref = bpf_map_lookup_elem(&ts_fileptr, &key);
+	if (!fpref || !te_file_id_equal(&fpref->backing, &backing))
+		return NULL;
+	return fpref;
+}
+
+static __always_inline void te_store_fd(pid_t pid, int fd, const char *path,
+					struct file_id *fid)
+{
+	if (fd < 0)
+		return;
+	struct fd_key key = {};
+	struct fd_ref ref = {};
+	te_fd_key(pid, fd, &key);
+	ref.fid = *fid;
+	for (int i = 0; i < MAX_FILENAME_LEN; i++)
+		ref.path[i] = path[i];
+	ref.path[MAX_FILENAME_LEN - 1] = '\0';
+	bpf_map_delete_elem(&ts_sockfd, &key);
+	bpf_map_update_elem(&ts_fd, &key, &ref, BPF_ANY);
+}
+
+static __always_inline void te_store_fd_with_current_file(pid_t pid, int fd,
+							  const char *path,
+							  struct file_id *fid)
+{
+	struct file *file;
+	struct fd_key key = {};
+	struct fd_ref *ref;
+
+	te_store_fd(pid, fd, path, fid);
+	if (fd < 0)
+		return;
+	te_fd_key(pid, fd, &key);
+	ref = bpf_map_lookup_elem(&ts_fd, &key);
+	if (!ref)
+		return;
+	file = te_current_file_from_fd(fd);
+	te_store_fileptr_ref(file, ref);
+}
+
+static __always_inline void te_delete_fd(pid_t pid, int fd)
+{
+	if (fd < 0)
+		return;
+	struct fd_key key = {};
+	te_fd_key(pid, fd, &key);
+	bpf_map_delete_elem(&ts_fd, &key);
+	bpf_map_delete_elem(&ts_sockfd, &key);
+}
+
+static __always_inline struct fd_ref *te_lookup_fd(pid_t pid, int fd)
+{
+	if (fd < 0)
+		return 0;
+	struct fd_key key = {};
+	te_fd_key(pid, fd, &key);
+	return bpf_map_lookup_elem(&ts_fd, &key);
+}
+
+static __always_inline void te_store_sockfd(pid_t pid, int fd, __u32 ip)
+{
+	if (fd < 0 || !ip)
+		return;
+	struct fd_key key = {};
+	te_fd_key(pid, fd, &key);
+	bpf_map_update_elem(&ts_sockfd, &key, &ip, BPF_ANY);
+}
+
+static __always_inline __u32 *te_lookup_sockfd(pid_t pid, int fd)
+{
+	if (fd < 0)
+		return 0;
+	struct fd_key key = {};
+	te_fd_key(pid, fd, &key);
+	return bpf_map_lookup_elem(&ts_sockfd, &key);
+}
+
+static __always_inline void te_store_unix_fd(pid_t pid, int fd, const char *path)
+{
+	struct file_id fid = {};
+
+	fid.ino = te_fnv1a(path);
+	te_store_fd(pid, fd, path, &fid);
+}
+
+static __always_inline struct file *te_current_file_from_fd(int fd)
+{
+	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+	struct files_struct *files;
+	struct fdtable *fdt;
+	struct file **fd_array;
+	struct file *file = NULL;
+	unsigned int max_fds;
+
+	if (fd < 0 || fd >= TE_FD_TABLE_LOOKUP_MAX)
+		return NULL;
+	files = BPF_CORE_READ(task, files);
+	if (!files)
+		return NULL;
+	fdt = BPF_CORE_READ(files, fdt);
+	if (!fdt)
+		return NULL;
+	max_fds = BPF_CORE_READ(fdt, max_fds);
+	if ((__u32)fd >= max_fds)
+		return NULL;
+	fd_array = BPF_CORE_READ(fdt, fd);
+	if (!fd_array)
+		return NULL;
+	if (bpf_probe_read_kernel(&file, sizeof(file), fd_array + fd) < 0)
+		return NULL;
+	return file;
+}
+
+static __always_inline int te_resolve_file_id_from_file(struct file *file,
+							struct file_id *fid)
+{
+	struct inode *inode;
+
+	fid->ino = 0;
+	fid->dev = 0;
+	fid->_pad = 0;
+	if (!file)
+		return -1;
+	inode = BPF_CORE_READ(file, f_inode);
+	if (!inode)
+		return -1;
+	fid->ino = BPF_CORE_READ(inode, i_ino);
+	fid->dev = BPF_CORE_READ(inode, i_sb, s_dev);
+	return fid->ino ? 0 : -1;
+}
+
+static __noinline void te_store_current_fd_file(pid_t pid, int fd)
+{
+	struct file_scratch *scratch = file_scratch_buf();
+	struct fileptr_ref *fpref;
+	struct file *file;
+
+	if (!scratch)
+		return;
+	file = te_current_file_from_fd(fd);
+	if (!file)
+		return;
+	fpref = te_lookup_fileptr_ref(file);
+	if (fpref) {
+		te_store_fd_with_current_file(pid, fd, fpref->ref.path,
+					      &fpref->ref.fid);
+		return;
+	}
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	if (te_resolve_file_id_from_file(file, &scratch->fid) < 0)
+		return;
+	__builtin_memcpy(scratch->path, "fd:scm_rights",
+			 sizeof("fd:scm_rights"));
+	te_store_fd_with_current_file(pid, fd, scratch->path, &scratch->fid);
+}
+
+static __always_inline void te_mmap_key(pid_t pid, __u64 start,
+					struct mmap_key *out)
+{
+	out->pid = pid;
+	out->start = start;
+}
+
+static __always_inline __u64 te_range_end(__u64 start, __u64 len)
+{
+	__u64 end = start + len;
+
+	if (end < start)
+		return ~0ULL;
+	return end;
+}
+
+static __always_inline int te_ranges_overlap(__u64 a_start, __u64 a_end,
+					     __u64 b_start, __u64 b_end)
+{
+	return a_start < b_end && b_start < a_end;
+}
+
+static __noinline __u64 te_mmap_index_remember(pid_t pid, __u64 start)
+{
+	struct mmap_index *idx = bpf_map_lookup_elem(&ts_mmap_index, &pid);
+	__u64 overwritten = 0;
+	__u32 slot = 0;
+	__u32 next_slot = 1;
+
+	if (!start)
+		return 0;
+	if (!idx) {
+		struct mmap_index fresh = {};
+
+		fresh.starts[0] = start;
+		fresh.next = 1;
+		bpf_map_update_elem(&ts_mmap_index, &pid, &fresh, BPF_ANY);
+		return 0;
+	}
+	for (int i = 0; i < TE_MMAP_INDEX_SLOTS; i++) {
+		if (idx->starts[i] == start)
+			idx->starts[i] = 0;
+	}
+	slot = idx->next;
+	if (slot >= TE_MMAP_INDEX_SLOTS)
+		slot = 0;
+	overwritten = idx->starts[slot];
+	idx->starts[slot] = start;
+	next_slot = slot + 1;
+	if (next_slot >= TE_MMAP_INDEX_SLOTS)
+		next_slot = 0;
+	idx->next = next_slot;
+	if (overwritten == start)
+		return 0;
+	return overwritten;
+}
+
+static __noinline void te_mmap_index_forget(pid_t pid, __u64 start)
+{
+	struct mmap_index *idx;
+
+	if (!start)
+		return;
+	idx = bpf_map_lookup_elem(&ts_mmap_index, &pid);
+	if (!idx)
+		return;
+	for (int i = 0; i < TE_MMAP_INDEX_SLOTS; i++) {
+		if (idx->starts[i] == start)
+			idx->starts[i] = 0;
+	}
+}
+
+static __always_inline void te_store_mmap_ref(pid_t pid, __u64 start,
+					      const struct mmap_pend *p,
+					      const struct fd_ref *fdref)
+{
+	struct mmap_ref *mref = mmap_scratch_buf();
+	struct mmap_key key = {};
+	__u64 overwritten;
+
+	if (!mref || !p || !fdref || !p->len || !start)
+		return;
+	__builtin_memset(mref, 0, sizeof(*mref));
+	overwritten = te_mmap_index_remember(pid, start);
+	if (overwritten) {
+		struct mmap_key old_key = {};
+
+		te_mmap_key(pid, overwritten, &old_key);
+		bpf_map_delete_elem(&ts_mmap, &old_key);
+	}
+	te_mmap_key(pid, start, &key);
+	mref->start = start;
+	mref->end = te_range_end(start, p->len);
+	mref->prot = p->prot;
+	mref->flags = p->flags;
+	mref->fid = fdref->fid;
+	__builtin_memcpy(mref->path, fdref->path, sizeof(mref->path));
+	bpf_map_update_elem(&ts_mmap, &key, mref, BPF_ANY);
+}
+
+static __noinline void te_apply_mmap_access(pid_t pid, struct mmap_ref *mref,
+					    unsigned long prot)
+{
+	__u32 access;
+
+	if (!mref)
+		return;
+	access = te_access_from_mmap(prot, mref->flags);
+	if (access & TE_ACCESS_READ)
+		te_read(pid, &mref->fid, mref->path);
+	if (access & TE_ACCESS_WRITE)
+		te_write_flow(pid, &mref->fid, mref->path);
+}
+
+static __noinline void te_handle_mprotect_range(pid_t pid, __u64 start,
+						__u64 len, unsigned long prot)
+{
+	__u64 end = te_range_end(start, len);
+	struct mmap_key key = {};
+	struct mmap_ref *mref;
+
+	if (!len)
+		return;
+	te_mmap_key(pid, start, &key);
+	mref = bpf_map_lookup_elem(&ts_mmap, &key);
+	if (!mref || !te_ranges_overlap(start, end, mref->start, mref->end))
+		return;
+	te_apply_mmap_access(pid, mref, prot);
+	mref->prot = prot;
+}
+
+static __noinline void te_handle_mremap_range(pid_t pid, __u64 old_addr,
+					      __u64 old_size, __u64 new_addr,
+					      __u64 new_size)
+{
+	__u64 old_end = te_range_end(old_addr, old_size);
+	struct mmap_ref *scratch = mmap_scratch_buf();
+	struct mmap_key old_key = {};
+	struct mmap_key new_key = {};
+	struct mmap_ref *mref;
+	__u64 overwritten;
+
+	if (!old_size || !new_size || !new_addr || !scratch)
+		return;
+	te_mmap_key(pid, old_addr, &old_key);
+	mref = bpf_map_lookup_elem(&ts_mmap, &old_key);
+	if (!mref ||
+	    !te_ranges_overlap(old_addr, old_end, mref->start, mref->end))
+		return;
+	te_apply_mmap_access(pid, mref, mref->prot);
+	__builtin_memcpy(scratch, mref, sizeof(*scratch));
+	scratch->start = new_addr;
+	scratch->end = te_range_end(new_addr, new_size);
+	bpf_map_delete_elem(&ts_mmap, &old_key);
+	te_mmap_index_forget(pid, old_addr);
+	overwritten = te_mmap_index_remember(pid, new_addr);
+	if (overwritten && overwritten != old_addr) {
+		struct mmap_key overwritten_key = {};
+
+		te_mmap_key(pid, overwritten, &overwritten_key);
+		bpf_map_delete_elem(&ts_mmap, &overwritten_key);
+	}
+	te_mmap_key(pid, new_addr, &new_key);
+	bpf_map_update_elem(&ts_mmap, &new_key, scratch, BPF_ANY);
+}
+
+static __noinline void te_delete_mmap_range(pid_t pid, __u64 start, __u64 len)
+{
+	__u64 end = te_range_end(start, len);
+	struct mmap_key key = {};
+	struct mmap_ref *mref;
+
+	if (!len)
+		return;
+	te_mmap_key(pid, start, &key);
+	mref = bpf_map_lookup_elem(&ts_mmap, &key);
+	if (!mref || !te_ranges_overlap(start, end, mref->start, mref->end))
+		return;
+	bpf_map_delete_elem(&ts_mmap, &key);
+	te_mmap_index_forget(pid, start);
+}
+
+static __noinline void te_delete_mmaps(pid_t pid)
+{
+	struct mmap_index *idx = bpf_map_lookup_elem(&ts_mmap_index, &pid);
+
+	if (!idx)
+		return;
+	for (int i = 0; i < TE_MMAP_INDEX_SLOTS; i++) {
+		struct mmap_key key = {};
+		__u64 start = idx->starts[i];
+
+		if (!start)
+			continue;
+		te_mmap_key(pid, start, &key);
+		bpf_map_delete_elem(&ts_mmap, &key);
+	}
+	bpf_map_delete_elem(&ts_mmap_index, &pid);
+}
+
+static __always_inline void te_copy_sockfd(pid_t pid, int oldfd, int newfd)
+{
+	__u32 *ip = te_lookup_sockfd(pid, oldfd);
+	if (!ip)
+		return;
+	te_store_sockfd(pid, newfd, *ip);
+}
+
+static __always_inline void te_copy_fd(pid_t pid, int oldfd, int newfd)
+{
+	struct fd_ref *ref = te_lookup_fd(pid, oldfd);
+	if (!ref)
+		return;
+	te_store_fd_with_current_file(pid, newfd, ref->path, &ref->fid);
+}
+
+static __always_inline void te_copy_sockfd_to_pid(pid_t from, pid_t to, int fd)
+{
+	__u32 *ip = te_lookup_sockfd(from, fd);
+	if (!ip)
+		return;
+	te_store_sockfd(to, fd, *ip);
+}
+
+static __always_inline void te_copy_fd_to_pid(pid_t from, pid_t to, int fd)
+{
+	struct fd_ref *ref = te_lookup_fd(from, fd);
+	if (!ref)
+		return;
+	te_store_fd(to, fd, ref->path, &ref->fid);
+}
+
+static __always_inline void te_copy_fork_fds(pid_t from, pid_t to)
+{
+	if (!te_pid_active(from) || !te_pid_active(to))
+		return;
+	for (int fd = 0; fd < TE_FORK_FD_SCAN; fd++) {
+		te_copy_fd_to_pid(from, to, fd);
+		te_copy_sockfd_to_pid(from, to, fd);
+	}
+}
+
 /* The one and only output channel. */
+static __always_inline void copy_violation_provenance(struct event *v,
+						      struct te_prov *p)
+{
+	if (!p)
+		return;
+	v->prov_label = p->label;
+	v->prov_timestamp_ns = p->timestamp_ns;
+	v->prov_pid = p->pid;
+	v->prov_op = p->op;
+	v->prov_ip = p->ip;
+	for (int j = 0; j < MAX_FILENAME_LEN; j++)
+		v->prov_target[j] = p->target[j];
+	v->prov_target[MAX_FILENAME_LEN - 1] = '\0';
+}
+
 static __always_inline void fill_violation_provenance(struct event *v, pid_t pid,
 						      __u32 domain_id,
-						      __u64 matched_req)
+						      __u64 matched_labels,
+						      __u32 obj_kind,
+						      struct file_id *fid,
+						      __u32 ip)
 {
 	v->matched_label = 0;
 	v->prov_label = 0;
@@ -162,29 +893,47 @@ static __always_inline void fill_violation_provenance(struct event *v, pid_t pid
 
 	for (int i = 0; i < MAX_TAINT_LABELS; i++) {
 		__u64 bit = 1ULL << i;
-		if (!(matched_req & bit))
+		if (!(matched_labels & bit))
 			continue;
 		if (!v->matched_label)
 			v->matched_label = bit;
 		struct te_prov *p = te_lookup_proc_prov(pid, domain_id, bit);
-		if (!p)
-			continue;
-		v->prov_label = p->label;
-		v->prov_timestamp_ns = p->timestamp_ns;
-		v->prov_pid = p->pid;
-		v->prov_op = p->op;
-		v->prov_ip = p->ip;
-		for (int j = 0; j < MAX_FILENAME_LEN; j++)
-			v->prov_target[j] = p->target[j];
-		v->prov_target[MAX_FILENAME_LEN - 1] = '\0';
-		return;
+		if (p) {
+			copy_violation_provenance(v, p);
+			return;
+		}
+		if (obj_kind == TE_OBJ_FILE && fid) {
+			struct file_domain_id *fdom = te_file_domain_tmp();
+			if (fdom) {
+				te_file_domain_key_for(domain_id, fid, fdom);
+				struct file_label_id fk = { .fdom = *fdom, .label = bit };
+				p = bpf_map_lookup_elem(&ts_file_prov, &fk);
+				if (p) {
+					copy_violation_provenance(v, p);
+					return;
+				}
+			}
+		}
+		if (obj_kind == TE_OBJ_ENDPOINT && ip) {
+			struct endp_domain_id edom = {};
+			te_endp_domain_key_for(domain_id, ip, &edom);
+			struct endp_label_id ek = { .edom = edom, .label = bit };
+			p = bpf_map_lookup_elem(&ts_endp_prov, &ek);
+			if (p) {
+				copy_violation_provenance(v, p);
+				return;
+			}
+		}
 	}
 }
 
 static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 					   const char *target, u32 conn_ip,
+					   __u32 obj_kind,
+					   struct file_id *fid,
 					   __u32 domain_id,
-					   __u64 matched_req,
+					   __u64 matched_labels,
+					   unsigned int op,
 					   unsigned int blocked,
 					   unsigned int killed,
 					   unsigned int effect)
@@ -199,11 +948,16 @@ static __always_inline void emit_violation(pid_t pid, unsigned int rule_id,
 	v->blocked = blocked;
 	v->killed = killed;
 	v->effect = effect;
+	v->op = op;
+	v->domain_id = domain_id;
+	v->session_root = te_root(pid);
 	v->timestamp_ns = bpf_ktime_get_ns();
 	v->taint_rule_id = rule_id;
 	v->conn_ip = conn_ip;
 	v->taint_label = te_labels_for_domain(pid, domain_id);
-	fill_violation_provenance(v, pid, domain_id, matched_req);
+	v->matched_labels = matched_labels;
+	fill_violation_provenance(v, pid, domain_id, matched_labels,
+				  obj_kind, fid, conn_ip);
 	bpf_get_current_comm(&v->comm, sizeof(v->comm));
 	v->filename[0] = '\0';
 	if (target)
@@ -216,6 +970,16 @@ static __always_inline int file_path(struct file *file, char *path, int path_sz)
 	if (bpf_d_path(&file->f_path, path, path_sz) > 0)
 		return 0;
 
+	struct dentry *de = BPF_CORE_READ(file, f_path.dentry);
+	const unsigned char *name = BPF_CORE_READ(de, d_name.name);
+	if (name && bpf_probe_read_kernel_str(path, path_sz, name) > 0)
+		return 0;
+	return -1;
+}
+
+static __always_inline int file_basename(struct file *file, char *path,
+					 int path_sz)
+{
 	struct dentry *de = BPF_CORE_READ(file, f_path.dentry);
 	const unsigned char *name = BPF_CORE_READ(de, d_name.name);
 	if (name && bpf_probe_read_kernel_str(path, path_sz, name) > 0)
@@ -269,6 +1033,24 @@ static __always_inline int path_dentry_to_str(const struct path *dir,
 	return 0;
 }
 
+static __noinline void te_store_current_fd_file_path(pid_t pid, int fd)
+{
+	struct file_scratch *scratch = file_scratch_buf();
+	struct file *file;
+
+	if (!scratch)
+		return;
+	file = te_current_file_from_fd(fd);
+	if (!file)
+		return;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	if (file_basename(file, scratch->path, sizeof(scratch->path)) < 0)
+		return;
+	if (te_resolve_file_id_from_file(file, &scratch->fid) < 0)
+		return;
+	te_store_fd_with_current_file(pid, fd, scratch->path, &scratch->fid);
+}
+
 static __always_inline int bprm_basename(struct linux_binprm *bprm, char *base,
 					 int base_sz)
 {
@@ -314,6 +1096,20 @@ static __always_inline __u32 te_access_from_perm_mask(int mask)
 	return access;
 }
 
+static __always_inline __u32 te_access_from_mmap(unsigned long prot,
+						 unsigned long flags)
+{
+	__u32 access = 0;
+	unsigned long map_type = flags & MAP_TYPE;
+
+	if (prot & (PROT_READ | PROT_EXEC))
+		access |= TE_ACCESS_READ;
+	if ((prot & PROT_WRITE) &&
+	    (map_type == MAP_SHARED || map_type == MAP_SHARED_VALIDATE))
+		access |= TE_ACCESS_WRITE;
+	return access;
+}
+
 static __always_inline __u32 te_tracepoint_mode(void)
 {
 	return TE_MODE_NOTIFY;
@@ -342,54 +1138,6 @@ static __always_inline int te_better_match(int candidate_rule, __u32 candidate_e
 {
 	return candidate_rule >= 0 &&
 	       (current_rule < 0 || candidate_effect > current_effect);
-}
-
-static __always_inline __u64 te_event_labels_for_domain(pid_t pid, __u32 domain_id,
-							struct file_id *fid,
-							__u32 access,
-							unsigned int op,
-							__u32 ip)
-{
-	__u64 labels = te_labels_for_domain(pid, domain_id);
-
-	if (fid && (access & TE_ACCESS_READ))
-		labels |= te_file_stored_labels_domain(fid, pid, domain_id);
-	if (op == TOP_CONNECT)
-		labels |= te_update_add_connect_domain(ip, pid, domain_id);
-	return labels;
-}
-
-static __always_inline void te_eval_op_domains(struct te_rule_eval *eval,
-					       pid_t pid,
-					       struct file_id *fid,
-					       __u32 access,
-					       unsigned int op,
-					       __u32 ip,
-					       int *best_rule,
-					       __u32 *best_effect,
-					       __u64 *matched_req,
-					       __u32 *matched_domain_id)
-{
-	int candidate;
-
-	for (int i = 0; i < CAP_DOMAIN_DEPTH; i++) {
-		__u32 domain_id = te_domain_for_depth(pid, i);
-		if (i > 0 && !domain_id)
-			break;
-		eval->op = op;
-		eval->rule_domain_id = domain_id;
-		eval->labels = te_event_labels_for_domain(pid, domain_id, fid,
-							  access, op, ip);
-		eval->effect = TEFFECT_BLOCK;
-		candidate = te_check_labels(eval);
-		if (te_better_match(candidate, eval->effect,
-				    *best_rule, *best_effect)) {
-			*best_rule = candidate;
-			*best_effect = eval->effect;
-			*matched_req = eval->matched_req;
-			*matched_domain_id = eval->matched_domain_id;
-		}
-	}
 }
 
 static __always_inline int te_resolve_file_ref(__u32 ref_kind, const void *a,
@@ -470,6 +1218,86 @@ static __always_inline int te_resolve_sockaddr(__u32 ref_kind, const void *addr,
 	return 0;
 }
 
+static __always_inline __u64 te_fnv1a_user_bytes(const void *ptr, int len)
+{
+	__u64 h = 0xcbf29ce484222325ULL;
+
+	h ^= (__u64)(__u32)len;
+	h *= 0x100000001b3ULL;
+	TAINT_UNROLL
+	for (int i = 0; i < UNIX_PATH_MAX; i++) {
+		unsigned char c = 0;
+
+		if (i >= len)
+			break;
+		if (bpf_probe_read_user(&c, sizeof(c), (const char *)ptr + i) < 0)
+			break;
+		h ^= c;
+		h *= 0x100000001b3ULL;
+	}
+	return h;
+}
+
+static __always_inline int te_resolve_unix_sockaddr_path(const void *addr,
+							 int addrlen,
+							 char *path,
+							 struct file_id *fid)
+{
+	u16 family = 0;
+	unsigned char first = 0;
+	int n;
+	int name_len = addrlen - 2;
+
+	if (bpf_probe_read_user(&family, sizeof(family), addr) < 0)
+		return -1;
+	if (family != AF_UNIX)
+		return -1;
+	if (name_len <= 0)
+		return -1;
+	if (name_len > UNIX_PATH_MAX)
+		name_len = UNIX_PATH_MAX;
+	path[0] = 'u';
+	path[1] = 'n';
+	path[2] = 'i';
+	path[3] = 'x';
+	path[4] = ':';
+	if (bpf_probe_read_user(&first, sizeof(first), ((const char *)addr) + 2) < 0)
+		return -1;
+	if (first == '\0') {
+		__builtin_memcpy(path, "unix:@abstract", sizeof("unix:@abstract"));
+		fid->ino = te_fnv1a_user_bytes(((const char *)addr) + 2, name_len);
+		fid->dev = 0;
+		fid->_pad = 0;
+		if (!fid->ino)
+			fid->ino = 1;
+		return 0;
+	}
+	n = bpf_probe_read_user_str(path + 5, MAX_FILENAME_LEN - 5,
+				    ((const char *)addr) + 2);
+	if (n <= 1)
+		return -1;
+	path[MAX_FILENAME_LEN - 1] = '\0';
+	fid->ino = te_fnv1a(path);
+	fid->dev = 0;
+	fid->_pad = 0;
+	return 0;
+}
+
+static __always_inline int te_resolve_socket_peer_ipv4(struct socket *sock, __u32 *ip)
+{
+	struct sock *sk = BPF_CORE_READ(sock, sk);
+	if (!sk)
+		return -1;
+	u16 family = BPF_CORE_READ(sk, __sk_common.skc_family);
+	if (family != AF_INET)
+		return -1;
+	__u32 daddr = BPF_CORE_READ(sk, __sk_common.skc_daddr);
+	if (!daddr)
+		return -1;
+	*ip = daddr;
+	return 0;
+}
+
 /* `fid` is the file object identity for TE_OBJ_FILE events (NULL otherwise);
  * it is only dereferenced in the FILE branches, which the verifier prunes for
  * the connect/exec programs (obj_kind is a compile-time constant per caller). */
@@ -481,44 +1309,97 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 	const char *display = ev->display ? ev->display : ev->target;
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action = TE_MODE_NOTIFY;
-	__u64 matched_req = 0;
+	__u64 matched_labels = 0;
 	__u32 matched_domain_id = 0;
+	__u32 matched_op = 0;
 	__u32 current_domain_id = cap_domain_for_pid(ev->pid);
+	__u64 global_labels = te_labels_for_domain(ev->pid, 0);
+	__u64 current_labels = te_labels_for_domain(ev->pid, current_domain_id);
 	int rid = -1;
+	int candidate = -1;
+
+	if (ev->obj_kind == TE_OBJ_FILE && (ev->access & TE_ACCESS_READ)) {
+		global_labels |= te_file_stored_labels_domain(fid, ev->pid, 0);
+		current_labels |= te_file_stored_labels_domain(fid, ev->pid, current_domain_id);
+	}
+	if (ev->obj_kind == TE_OBJ_ENDPOINT && (ev->access & TE_ACCESS_CONNECT)) {
+		global_labels |= te_update_add_connect_domain(ev->ip, ev->pid, 0);
+		current_labels |= te_update_add_connect_domain(ev->ip, ev->pid,
+							       current_domain_id);
+	}
+	if (ev->obj_kind == TE_OBJ_ENDPOINT && (ev->access & TE_ACCESS_RECV)) {
+		global_labels |= te_endpoint_stored_labels_domain(ev->ip, ev->pid, 0) |
+				 te_update_add_recv_domain(ev->ip, ev->pid, 0);
+		current_labels |=
+			te_endpoint_stored_labels_domain(ev->ip, ev->pid,
+							 current_domain_id) |
+			te_update_add_recv_domain(ev->ip, ev->pid,
+						  current_domain_id);
+	}
 
 	if (ev->obj_kind == TE_OBJ_EXEC) {
 		eval.pid = ev->pid;
+		eval.global_labels = global_labels;
+		eval.current_labels = current_labels;
 		eval.current_domain_id = current_domain_id;
+		eval.effect = TEFFECT_BLOCK;
 		eval.effect_mask = te_supported_effects(ev->mode);
+		eval.op = TOP_EXEC;
 		eval.target = ev->target;
-		te_eval_op_domains(&eval, ev->pid, 0, 0, TOP_EXEC, 0,
-				    &rid, &effect, &matched_req,
-				    &matched_domain_id);
+		rid = te_check_labels(&eval);
+		effect = eval.effect;
+		matched_labels = eval.matched_labels;
+		matched_domain_id = eval.matched_domain_id;
+		matched_op = eval.op;
 	} else if (ev->obj_kind == TE_OBJ_FILE) {
 		eval.pid = ev->pid;
+		eval.global_labels = global_labels;
+		eval.current_labels = current_labels;
 		eval.current_domain_id = current_domain_id;
+		eval.effect = TEFFECT_BLOCK;
 		eval.effect_mask = te_supported_effects(ev->mode);
 		eval.target = ev->target;
 		eval.fid = fid;
 		eval.include_file_labels = (ev->access & TE_ACCESS_READ) ? 1 : 0;
 		if ((ev->access & TE_ACCESS_READ) &&
-		    (policy_features & TE_POLICY_OPEN_RULES))
-			te_eval_op_domains(&eval, ev->pid, fid, ev->access,
-					    TOP_OPEN, 0, &rid, &effect,
-					    &matched_req, &matched_domain_id);
+		    (policy_features & TE_POLICY_OPEN_RULES)) {
+			eval.op = TOP_OPEN;
+			candidate = te_check_labels(&eval);
+			if (te_better_match(candidate, eval.effect, rid, effect)) {
+				rid = candidate;
+				effect = eval.effect;
+				matched_labels = eval.matched_labels;
+				matched_domain_id = eval.matched_domain_id;
+				matched_op = eval.op;
+			}
+		}
 		if ((ev->access & TE_ACCESS_WRITE) &&
-		    (policy_features & TE_POLICY_WRITE_RULES))
-			te_eval_op_domains(&eval, ev->pid, fid, ev->access,
-					    TOP_WRITE, 0, &rid, &effect,
-					    &matched_req, &matched_domain_id);
+		    (policy_features & TE_POLICY_WRITE_RULES)) {
+			eval.effect = TEFFECT_BLOCK;
+			eval.op = TOP_WRITE;
+			candidate = te_check_labels(&eval);
+			if (te_better_match(candidate, eval.effect, rid, effect)) {
+				rid = candidate;
+				effect = eval.effect;
+				matched_labels = eval.matched_labels;
+				matched_domain_id = eval.matched_domain_id;
+				matched_op = eval.op;
+			}
+		}
 	} else if (ev->obj_kind == TE_OBJ_ENDPOINT) {
 		eval.pid = ev->pid;
+		eval.global_labels = global_labels;
+		eval.current_labels = current_labels;
 		eval.current_domain_id = current_domain_id;
+		eval.effect = TEFFECT_BLOCK;
 		eval.effect_mask = te_supported_effects(ev->mode);
+		eval.op = (ev->access & TE_ACCESS_RECV) ? TOP_RECV : TOP_CONNECT;
 		eval.ip = ev->ip;
-		te_eval_op_domains(&eval, ev->pid, 0, ev->access,
-				    TOP_CONNECT, ev->ip, &rid, &effect,
-				    &matched_req, &matched_domain_id);
+		rid = te_check_labels(&eval);
+		effect = eval.effect;
+		matched_labels = eval.matched_labels;
+		matched_domain_id = eval.matched_domain_id;
+		matched_op = eval.op;
 	}
 
 	if (rid >= 0) {
@@ -526,8 +1407,9 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 		if (action != TE_MODE_UNSUPPORTED)
 			emit_violation(ev->pid, rid, display,
 				       ev->obj_kind == TE_OBJ_ENDPOINT ? ev->ip : 0,
-				       matched_domain_id,
-				       matched_req,
+				       ev->obj_kind, fid,
+				       matched_domain_id, matched_labels,
+				       matched_op,
 				       action == TE_MODE_BLOCK ||
 					       (action == TE_MODE_KILL && ev->mode == TE_MODE_BLOCK),
 				       action == TE_MODE_KILL, effect);
@@ -546,7 +1428,10 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 		if (ev->access & TE_ACCESS_WRITE)
 			te_write_flow(ev->pid, fid, ev->target);
 	} else if (ev->obj_kind == TE_OBJ_ENDPOINT) {
-		te_connect_flow(ev->ip, ev->pid);
+		if (ev->access & TE_ACCESS_CONNECT)
+			te_connect_flow(ev->ip, ev->pid);
+		if (ev->access & TE_ACCESS_RECV)
+			te_recv_flow(ev->ip, ev->pid);
 	}
 
 	return 0;
@@ -561,30 +1446,58 @@ static __always_inline int te_handle_file_event(pid_t pid, const char *target,
 	struct te_rule_eval eval = {};
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action = TE_MODE_NOTIFY;
-	__u64 matched_req = 0;
+	__u64 matched_labels = 0;
 	__u32 matched_domain_id = 0;
+	__u32 matched_op = 0;
 	__u32 current_domain_id = cap_domain_for_pid(pid);
+	__u64 global_labels = te_labels_for_domain(pid, 0);
+	__u64 current_labels = te_labels_for_domain(pid, current_domain_id);
 	int rid = -1;
+	int candidate = -1;
+
+	if (access & TE_ACCESS_READ) {
+		global_labels |= te_file_stored_labels_domain(fid, pid, 0);
+		current_labels |= te_file_stored_labels_domain(fid, pid, current_domain_id);
+	}
 
 	eval.pid = pid;
+	eval.global_labels = global_labels;
+	eval.current_labels = current_labels;
 	eval.current_domain_id = current_domain_id;
+	eval.effect = TEFFECT_BLOCK;
 	eval.effect_mask = te_supported_effects(mode);
 	eval.target = target;
 	eval.fid = fid;
 	eval.include_file_labels = (access & TE_ACCESS_READ) ? 1 : 0;
-	if ((access & TE_ACCESS_READ) && (policy_features & TE_POLICY_OPEN_RULES))
-		te_eval_op_domains(&eval, pid, fid, access, TOP_OPEN, 0,
-				    &rid, &effect, &matched_req,
-				    &matched_domain_id);
-	if ((access & TE_ACCESS_WRITE) && (policy_features & TE_POLICY_WRITE_RULES))
-		te_eval_op_domains(&eval, pid, fid, access, TOP_WRITE, 0,
-				    &rid, &effect, &matched_req,
-				    &matched_domain_id);
+	if ((access & TE_ACCESS_READ) && (policy_features & TE_POLICY_OPEN_RULES)) {
+		eval.op = TOP_OPEN;
+		candidate = te_check_labels(&eval);
+		if (te_better_match(candidate, eval.effect, rid, effect)) {
+			rid = candidate;
+			effect = eval.effect;
+			matched_labels = eval.matched_labels;
+			matched_domain_id = eval.matched_domain_id;
+			matched_op = eval.op;
+		}
+	}
+	if ((access & TE_ACCESS_WRITE) && (policy_features & TE_POLICY_WRITE_RULES)) {
+		eval.effect = TEFFECT_BLOCK;
+		eval.op = TOP_WRITE;
+		candidate = te_check_labels(&eval);
+		if (te_better_match(candidate, eval.effect, rid, effect)) {
+			rid = candidate;
+			effect = eval.effect;
+			matched_labels = eval.matched_labels;
+			matched_domain_id = eval.matched_domain_id;
+			matched_op = eval.op;
+		}
+	}
 
 	if (rid >= 0) {
 		action = te_effect_mode(mode, effect);
 		if (action != TE_MODE_UNSUPPORTED)
-			emit_violation(pid, rid, target, 0, matched_domain_id, matched_req,
+			emit_violation(pid, rid, target, 0, TE_OBJ_FILE, fid,
+				       matched_domain_id, matched_labels, matched_op,
 				       action == TE_MODE_BLOCK ||
 					       (action == TE_MODE_KILL && mode == TE_MODE_BLOCK),
 				       action == TE_MODE_KILL, effect);
@@ -671,6 +1584,33 @@ static __always_inline int te_handle_file(__u32 ref_kind, const void *a,
 	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
 }
 
+static __always_inline int te_handle_file_permission(struct file *file,
+						     __u32 access, __u32 mode)
+{
+	struct file_scratch *scratch = file_scratch_buf();
+	pid_t pid;
+
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
+		return 0;
+	if (!access)
+		return 0;
+	if (!scratch)
+		return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (!te_pid_active(pid))
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	/* bpf_d_path is not accepted by the verifier for file_permission on
+	 * some kernels. Use the dentry name for display/target matching but keep
+	 * the inode-backed file_id so fd-level flow still joins with open-time
+	 * labels for the same file object. */
+	if (file_basename(file, scratch->path, sizeof(scratch->path)) < 0)
+		return 0;
+	te_resolve_file_id(TE_REF_FILE, file, 0, scratch->path, &scratch->fid);
+
+	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
+}
+
 static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 					 const void *b, __u32 access,
 					 __u32 mode)
@@ -683,12 +1623,39 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 	(void)b;
 	if (mode == TE_MODE_BLOCK && !enforce_mode)
 		return 0;
-	if (!(access & TE_ACCESS_CONNECT))
+	if (!(access & (TE_ACCESS_CONNECT | TE_ACCESS_RECV)))
 		return 0;
 	pid = bpf_get_current_pid_tgid() >> 32;
 	if (!te_pid_active(pid))
 		return 0;
-	if (te_resolve_sockaddr(ref_kind, a, &ip) < 0)
+	if (ref_kind == TE_REF_SOCKET) {
+		if (te_resolve_socket_peer_ipv4((struct socket *)a, &ip) < 0)
+			return 0;
+	} else if (te_resolve_sockaddr(ref_kind, a, &ip) < 0) {
+		return 0;
+	}
+
+	ev.pid = pid;
+	ev.obj_kind = TE_OBJ_ENDPOINT;
+	ev.access = access;
+	ev.mode = mode;
+	ev.target = target;
+	ev.ip = ip;
+	return te_handle_event(&ev, 0);
+}
+
+static __always_inline int te_handle_net_ip(__u32 ip, __u32 access, __u32 mode)
+{
+	char target[TAINT_PAT_LEN] = {};
+	struct te_event ev = {};
+	pid_t pid;
+
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
+		return 0;
+	if (!ip || !(access & (TE_ACCESS_CONNECT | TE_ACCESS_RECV)))
+		return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (!te_pid_active(pid))
 		return 0;
 
 	ev.pid = pid;
@@ -698,6 +1665,23 @@ static __always_inline int te_handle_net(__u32 ref_kind, const void *a,
 	ev.target = target;
 	ev.ip = ip;
 	return te_handle_event(&ev, 0);
+}
+
+static __always_inline int te_handle_fd_event(int fd, __u32 access, __u32 mode)
+{
+	pid_t pid;
+
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
+		return 0;
+	if (!access)
+		return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (!te_pid_active(pid))
+		return 0;
+	struct fd_ref *ref = te_lookup_fd(pid, fd);
+	if (!ref)
+		return 0;
+	return te_handle_file_event(pid, ref->path, &ref->fid, access, mode);
 }
 
 static __always_inline int te_handle_channel(int fd, __u32 access, __u32 mode)
@@ -745,6 +1729,12 @@ static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
 				  sizeof(scratch->display)) < 0)
 			__builtin_memcpy(scratch->display, scratch->match,
 					 sizeof(scratch->match));
+		if (mode == TE_MODE_BLOCK) {
+			struct te_argslots *as = te_argslots_buf();
+
+			if (as)
+				__builtin_memset(as, 0, sizeof(*as));
+		}
 		target = scratch->match;
 		shown = scratch->display;
 	} else if (ref_kind == TE_REF_STRINGS) {
@@ -782,31 +1772,60 @@ int BPF_PROG(enforce_file_open, struct file *file)
 SEC("lsm/file_permission")
 int BPF_PROG(enforce_file_permission, struct file *file, int mask)
 {
-	(void)file;
-	(void)mask;
-	return 0;
+	return te_handle_file_permission(file, te_access_from_perm_mask(mask),
+					 TE_MODE_BLOCK);
 }
 
 SEC("lsm/file_truncate")
 int BPF_PROG(enforce_file_truncate, struct file *file)
 {
-	(void)file;
-	return 0;
+	return te_handle_file_permission(file, TE_ACCESS_WRITE, TE_MODE_BLOCK);
+}
+
+SEC("lsm/mmap_file")
+int BPF_PROG(enforce_mmap_file, struct file *file, unsigned long reqprot,
+	     unsigned long prot, unsigned long flags)
+{
+	(void)reqprot;
+	if (!file)
+		return 0;
+	return te_handle_file_permission(file, te_access_from_mmap(prot, flags),
+					 TE_MODE_BLOCK);
+}
+
+SEC("lsm/file_mprotect")
+int BPF_PROG(enforce_file_mprotect, struct vm_area_struct *vma,
+	     unsigned long reqprot, unsigned long prot)
+{
+	struct file *file;
+	unsigned long vm_flags;
+	unsigned long map_flags;
+
+	(void)reqprot;
+	if (!vma)
+		return 0;
+	file = BPF_CORE_READ(vma, vm_file);
+	if (!file)
+		return 0;
+	vm_flags = BPF_CORE_READ(vma, vm_flags);
+	map_flags = (vm_flags & VM_SHARED) ? MAP_SHARED : MAP_PRIVATE;
+	return te_handle_file_permission(file,
+					 te_access_from_mmap(prot, map_flags),
+					 TE_MODE_BLOCK);
 }
 
 SEC("lsm/path_truncate")
 int BPF_PROG(enforce_path_truncate, const struct path *path_arg)
 {
-	(void)path_arg;
-	return 0;
+	return te_handle_file(TE_REF_PATH, path_arg, 0, TE_ACCESS_WRITE,
+			      TE_MODE_BLOCK);
 }
 
 SEC("lsm/path_unlink")
 int BPF_PROG(enforce_path_unlink, const struct path *dir, struct dentry *dentry)
 {
-	(void)dir;
-	(void)dentry;
-	return 0;
+	return te_handle_file(TE_REF_PATH_DENTRY, dir, dentry, TE_ACCESS_WRITE,
+			      TE_MODE_BLOCK);
 }
 
 SEC("lsm/path_rename")
@@ -814,12 +1833,13 @@ int BPF_PROG(enforce_path_rename, const struct path *old_dir,
 	     struct dentry *old_dentry, const struct path *new_dir,
 	     struct dentry *new_dentry, unsigned int flags)
 {
-	(void)old_dir;
-	(void)old_dentry;
-	(void)new_dir;
-	(void)new_dentry;
 	(void)flags;
-	return 0;
+	int rc = te_handle_file(TE_REF_PATH_DENTRY, old_dir, old_dentry,
+				TE_ACCESS_WRITE, TE_MODE_BLOCK);
+	if (rc)
+		return rc;
+	return te_handle_file(TE_REF_PATH_DENTRY, new_dir, new_dentry,
+			      TE_ACCESS_WRITE, TE_MODE_BLOCK);
 }
 
 SEC("lsm/socket_connect")
@@ -832,12 +1852,23 @@ int BPF_PROG(enforce_socket_connect, struct socket *sock, struct sockaddr *addre
 			     TE_ACCESS_CONNECT, TE_MODE_BLOCK);
 }
 
+SEC("lsm/socket_recvmsg")
+int BPF_PROG(enforce_socket_recvmsg, struct socket *sock, struct msghdr *msg,
+	     int size, int flags)
+{
+	(void)msg;
+	(void)size;
+	(void)flags;
+	return te_handle_net(TE_REF_SOCKET, sock, 0, TE_ACCESS_RECV, TE_MODE_BLOCK);
+}
+
 SEC("tp/sched/sched_process_fork")
 int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 {
 	pid_t parent_tgid = bpf_get_current_pid_tgid() >> 32;
 
 	te_fork(parent_tgid, ctx->child_pid);
+	te_copy_fork_fds(parent_tgid, ctx->child_pid);
 	return 0;
 }
 
@@ -893,6 +1924,7 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 	if (pid != (u32)id)
 		return 0;
 	te_exit(pid, exit_code);
+	te_delete_mmaps(pid);
 	return 0;
 }
 
@@ -900,11 +1932,16 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
  * the path page is resident (see ts_openpend). Tracking opens at exit also means
  * we only act on opens that actually entered the kernel, which is fine for the
  * notify/kill model (kill still terminates the offending process). */
-static __always_inline int stash_open(const void *path_ptr, unsigned int flags)
+static __always_inline int stash_open(const void *path_ptr, unsigned int flags,
+				      __u32 remember_fd)
 {
 	__u64 tid = bpf_get_current_pid_tgid();
 	pid_t pid = tid >> 32;
-	struct open_pend p = { .path_ptr = (__u64)path_ptr, .flags = flags };
+	struct open_pend p = {
+		.path_ptr = (__u64)path_ptr,
+		.flags = flags,
+		.remember_fd = remember_fd,
+	};
 
 	if (!te_pid_active(pid))
 		return 0;
@@ -915,25 +1952,183 @@ static __always_inline int stash_open(const void *path_ptr, unsigned int flags)
 static __always_inline int handle_open_exit(long ret)
 {
 	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
 	struct open_pend *p = bpf_map_lookup_elem(&ts_openpend, &tid);
+	struct file_scratch *scratch = file_scratch_buf();
 	int rc = 0;
 
 	if (!p)
 		return 0;
 	/* On success the kernel has copied the path in, so the user page is now
 	 * resident and the read in te_handle_file is reliable. */
-	if (ret >= 0)
-		rc = te_handle_file(TE_REF_USER_PATH, (const void *)p->path_ptr, 0,
-				    te_access_from_open_flags(p->flags),
-				    te_tracepoint_mode());
+	if (ret >= 0 && scratch && te_pid_active(pid)) {
+		__builtin_memset(scratch, 0, sizeof(*scratch));
+		if (te_resolve_file_ref(TE_REF_USER_PATH, (const void *)p->path_ptr,
+					0, scratch->path, sizeof(scratch->path)) == 0) {
+			struct file *opened_file = NULL;
+
+			te_resolve_file_id(TE_REF_USER_PATH,
+					   (const void *)p->path_ptr, 0,
+					   scratch->path, &scratch->fid);
+			if (p->remember_fd) {
+				opened_file = te_current_file_from_fd((int)ret);
+				if (opened_file)
+					te_resolve_file_id_from_file(opened_file,
+								     &scratch->fid);
+			}
+			rc = te_handle_file_event(pid, scratch->path, &scratch->fid,
+						  te_access_from_open_flags(p->flags),
+						  te_tracepoint_mode());
+			if (p->remember_fd)
+				te_store_fd_with_current_file(pid, (int)ret,
+							      scratch->path,
+							      &scratch->fid);
+		}
+	}
 	bpf_map_delete_elem(&ts_openpend, &tid);
 	return rc;
+}
+
+static __always_inline int stash_pipe(const void *fds_ptr)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct pipe_pend p = { .fds_ptr = (__u64)fds_ptr };
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_pipepend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_pipe_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct pipe_pend *p = bpf_map_lookup_elem(&ts_pipepend, &tid);
+	struct file_scratch *scratch = file_scratch_buf();
+	int fds[2] = {};
+
+	if (!p)
+		return 0;
+	if (ret == 0 && scratch && te_pid_active(pid) &&
+	    bpf_probe_read_user(&fds, sizeof(fds), (void *)p->fds_ptr) == 0) {
+		__builtin_memset(scratch, 0, sizeof(*scratch));
+		__builtin_memcpy(scratch->path, "pipe", sizeof("pipe"));
+		scratch->fid.ino = bpf_ktime_get_ns() ^ ((__u64)pid << 32) ^
+				   ((__u64)(__u32)fds[0] << 16) ^
+				   (__u64)(__u32)fds[1];
+		if (!scratch->fid.ino)
+			scratch->fid.ino = 1;
+		te_store_fd_with_current_file(pid, fds[0], scratch->path,
+					      &scratch->fid);
+		te_store_fd_with_current_file(pid, fds[1], scratch->path,
+					      &scratch->fid);
+	}
+	bpf_map_delete_elem(&ts_pipepend, &tid);
+	return 0;
+}
+
+static __always_inline int stash_socketpair(const void *fds_ptr, int family)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct socketpair_pend p = { .fds_ptr = (__u64)fds_ptr };
+
+	if (family != AF_UNIX)
+		return 0;
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_socketpairpend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_socketpair_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct socketpair_pend *p = bpf_map_lookup_elem(&ts_socketpairpend, &tid);
+	struct file_scratch *scratch = file_scratch_buf();
+	int fds[2] = {};
+
+	if (!p)
+		return 0;
+	if (ret == 0 && scratch && te_pid_active(pid) &&
+	    bpf_probe_read_user(&fds, sizeof(fds), (void *)p->fds_ptr) == 0) {
+		__builtin_memset(scratch, 0, sizeof(*scratch));
+		__builtin_memcpy(scratch->path, "socketpair", sizeof("socketpair"));
+		scratch->fid.ino = bpf_ktime_get_ns() ^ ((__u64)pid << 32) ^
+				   ((__u64)(__u32)fds[0] << 16) ^
+				   (__u64)(__u32)fds[1];
+		if (!scratch->fid.ino)
+			scratch->fid.ino = 1;
+		te_store_fd_with_current_file(pid, fds[0], scratch->path,
+					      &scratch->fid);
+		te_store_fd_with_current_file(pid, fds[1], scratch->path,
+					      &scratch->fid);
+	}
+	bpf_map_delete_elem(&ts_socketpairpend, &tid);
+	return 0;
+}
+
+static __noinline int stash_unixsock(int fd, const void *sockaddr, int addrlen)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct unixsock_pend p = { .fd = fd };
+
+	if (!te_pid_active(pid))
+		return 0;
+	if (te_resolve_unix_sockaddr_path(sockaddr, addrlen, p.path, &p.fid) < 0)
+		return 0;
+	bpf_map_update_elem(&ts_unixsockpend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_unixsock_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct unixsock_pend *p = bpf_map_lookup_elem(&ts_unixsockpend, &tid);
+
+	if (!p)
+		return 0;
+	if (ret == 0 && te_pid_active(pid))
+		te_store_fd_with_current_file(pid, p->fd, p->path, &p->fid);
+	bpf_map_delete_elem(&ts_unixsockpend, &tid);
+	return 0;
+}
+
+static __always_inline int stash_accept(int fd)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct accept_pend p = { .fd = fd };
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_acceptpend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_accept_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct accept_pend *p = bpf_map_lookup_elem(&ts_acceptpend, &tid);
+
+	if (p && ret >= 0 && te_pid_active(pid)) {
+		te_copy_fd(pid, p->fd, (int)ret);
+		te_copy_sockfd(pid, p->fd, (int)ret);
+	}
+	bpf_map_delete_elem(&ts_acceptpend, &tid);
+	return 0;
 }
 
 SEC("tp/syscalls/sys_enter_openat")
 int trace_openat(struct trace_event_raw_sys_enter *ctx)
 {
-	return stash_open((const void *)ctx->args[1], (unsigned int)ctx->args[2]);
+	return stash_open((const void *)ctx->args[1], (unsigned int)ctx->args[2], 1);
 }
 
 SEC("tp/syscalls/sys_exit_openat")
@@ -945,7 +2140,7 @@ int trace_openat_exit(struct trace_event_raw_sys_exit *ctx)
 SEC("tp/syscalls/sys_enter_open")
 int trace_open(struct trace_event_raw_sys_enter *ctx)
 {
-	return stash_open((const void *)ctx->args[0], (unsigned int)ctx->args[1]);
+	return stash_open((const void *)ctx->args[0], (unsigned int)ctx->args[1], 1);
 }
 
 SEC("tp/syscalls/sys_exit_open")
@@ -961,7 +2156,7 @@ int trace_openat2(struct trace_event_raw_sys_enter *ctx)
 {
 	struct open_how how = {};
 	bpf_probe_read_user(&how, sizeof(how), (void *)ctx->args[2]);
-	return stash_open((const void *)ctx->args[1], (unsigned int)how.flags);
+	return stash_open((const void *)ctx->args[1], (unsigned int)how.flags, 1);
 }
 SEC("tp/syscalls/sys_exit_openat2")
 int trace_openat2_exit(struct trace_event_raw_sys_exit *ctx)
@@ -973,7 +2168,7 @@ int trace_openat2_exit(struct trace_event_raw_sys_exit *ctx)
 SEC("tp/syscalls/sys_enter_creat")
 int trace_creat(struct trace_event_raw_sys_enter *ctx)
 {
-	return stash_open((const void *)ctx->args[0], O_WRONLY | O_CREAT | O_TRUNC);
+	return stash_open((const void *)ctx->args[0], O_WRONLY | O_CREAT | O_TRUNC, 1);
 }
 SEC("tp/syscalls/sys_exit_creat")
 int trace_creat_exit(struct trace_event_raw_sys_exit *ctx)
@@ -985,7 +2180,7 @@ int trace_creat_exit(struct trace_event_raw_sys_exit *ctx)
 SEC("tp/syscalls/sys_enter_truncate")
 int trace_truncate(struct trace_event_raw_sys_enter *ctx)
 {
-	return stash_open((const void *)ctx->args[0], O_WRONLY);
+	return stash_open((const void *)ctx->args[0], O_WRONLY, 0);
 }
 SEC("tp/syscalls/sys_exit_truncate")
 int trace_truncate_exit(struct trace_event_raw_sys_exit *ctx)
@@ -993,6 +2188,79 @@ int trace_truncate_exit(struct trace_event_raw_sys_exit *ctx)
 	return handle_open_exit(ctx->ret);
 }
 /* renameat2 is already hooked below (sys_enter_renameat2 -> write on new path). */
+
+SEC("tp/syscalls/sys_enter_pipe")
+int trace_pipe(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_pipe((const void *)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_pipe")
+int trace_pipe_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_pipe_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_pipe2")
+int trace_pipe2(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_pipe((const void *)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_pipe2")
+int trace_pipe2_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_pipe_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_socketpair")
+int trace_socketpair(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_socketpair((const void *)ctx->args[3], (int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_socketpair")
+int trace_socketpair_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_socketpair_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_bind")
+int trace_bind(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_unixsock((int)ctx->args[0], (const void *)ctx->args[1],
+			      (int)ctx->args[2]);
+}
+
+SEC("tp/syscalls/sys_exit_bind")
+int trace_bind_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_unixsock_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_accept")
+int trace_accept(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_accept((int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_accept")
+int trace_accept_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_accept_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_accept4")
+int trace_accept4(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_accept((int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_accept4")
+int trace_accept4_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_accept_exit(ctx->ret);
+}
 
 SEC("tp/syscalls/sys_enter_unlink")
 int trace_unlink(struct trace_event_raw_sys_enter *ctx)
@@ -1028,23 +2296,710 @@ int trace_renameat2(struct trace_event_raw_sys_enter *ctx)
 /* connect: numeric IPv4 matching (compiler lowers host/IP patterns to net+mask;
  * no in-kernel string formatting, so no verifier-rejected pointer arithmetic).
  * The reported IP is formatted by the userspace loader from conn_ip. */
+static __always_inline int stash_connect(int fd, const void *sockaddr)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct connect_pend p = { .fd = fd };
+
+	if (!te_pid_active(pid))
+		return 0;
+	if (te_resolve_sockaddr(TE_REF_SOCKADDR_USER, sockaddr, &p.ip) < 0)
+		return 0;
+	bpf_map_update_elem(&ts_connectpend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_connect_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct connect_pend *p = bpf_map_lookup_elem(&ts_connectpend, &tid);
+
+	if (p && ret == 0 && te_pid_active(pid))
+		te_store_sockfd(pid, p->fd, p->ip);
+	bpf_map_delete_elem(&ts_connectpend, &tid);
+	return 0;
+}
+
 SEC("tp/syscalls/sys_enter_connect")
 int trace_connect(struct trace_event_raw_sys_enter *ctx)
 {
+	stash_connect((int)ctx->args[0], (const void *)ctx->args[1]);
+	stash_unixsock((int)ctx->args[0], (const void *)ctx->args[1],
+		       (int)ctx->args[2]);
 	return te_handle_net(TE_REF_SOCKADDR_USER, (const void *)ctx->args[1], 0,
 			     TE_ACCESS_CONNECT, te_tracepoint_mode());
+}
+
+SEC("tp/syscalls/sys_exit_connect")
+int trace_connect_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	handle_connect_exit(ctx->ret);
+	return handle_unixsock_exit(ctx->ret);
+}
+
+static __always_inline int stash_io(int fd, __u32 access, const void *addr_ptr,
+				    __u32 addr_kind, int addr_len)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct io_pend p = {
+		.fd = fd,
+		.access = access,
+		.addr_ptr = (__u64)addr_ptr,
+		.addr_kind = addr_kind,
+		.addr_len = addr_len,
+	};
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_iopend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int te_resolve_io_sockaddr(__u32 addr_kind, __u64 addr_ptr,
+						  __u32 *ip)
+{
+	if (!addr_ptr)
+		return -1;
+	if (addr_kind == TE_IO_ADDR_USER_MSGHDR) {
+		__u64 name_ptr = 0;
+
+		if (bpf_probe_read_user(&name_ptr, sizeof(name_ptr),
+					(const void *)addr_ptr) < 0)
+			return -1;
+		addr_ptr = name_ptr;
+	}
+	if (addr_kind != TE_IO_ADDR_SOCKADDR &&
+	    addr_kind != TE_IO_ADDR_USER_MSGHDR)
+		return -1;
+	if (!addr_ptr)
+		return -1;
+	return te_resolve_sockaddr(TE_REF_SOCKADDR_USER, (const void *)addr_ptr,
+				   ip);
+}
+
+static __always_inline int te_resolve_io_unix_sockaddr(__u32 addr_kind,
+						       __u64 addr_ptr,
+						       int addr_len,
+						       char *path,
+						       struct file_id *fid)
+{
+	if (!addr_ptr)
+		return -1;
+	if (addr_kind == TE_IO_ADDR_USER_MSGHDR) {
+		__u64 name_ptr = 0;
+		int name_len = 0;
+
+		if (bpf_probe_read_user(&name_ptr, sizeof(name_ptr),
+					(const void *)addr_ptr) < 0)
+			return -1;
+		if (bpf_probe_read_user(&name_len, sizeof(name_len),
+					((const char *)addr_ptr) + 8) < 0)
+			return -1;
+		addr_ptr = name_ptr;
+		addr_len = name_len;
+	}
+	if (addr_kind != TE_IO_ADDR_SOCKADDR &&
+	    addr_kind != TE_IO_ADDR_USER_MSGHDR)
+		return -1;
+	if (!addr_ptr)
+		return -1;
+	return te_resolve_unix_sockaddr_path((const void *)addr_ptr, addr_len,
+					     path, fid);
+}
+
+static __always_inline __u64 te_cmsg_align(__u64 len)
+{
+	return (len + TE_CMSG_ALIGN_MASK) & ~TE_CMSG_ALIGN_MASK;
+}
+
+static __noinline __u64 te_handle_scm_rights_cmsg(pid_t pid, __u64 control_ptr,
+						  __u64 controllen, __u64 off)
+{
+	__u64 cmsg_len = 0;
+	int level = 0;
+	int type = 0;
+	__u64 data_len;
+	__u64 base;
+	__u64 next;
+
+	if (off + TE_CMSG_HDR_LEN > controllen)
+		return 0;
+	base = control_ptr + off;
+	if (bpf_probe_read_user(&cmsg_len, sizeof(cmsg_len),
+				(const void *)base) < 0)
+		return 0;
+	if (bpf_probe_read_user(&level, sizeof(level),
+				(const void *)(base + 8)) < 0)
+		return 0;
+	if (bpf_probe_read_user(&type, sizeof(type),
+				(const void *)(base + 12)) < 0)
+		return 0;
+	if (cmsg_len < TE_CMSG_HDR_LEN || cmsg_len > controllen - off)
+		return 0;
+	if (level == SOL_SOCKET && type == SCM_RIGHTS) {
+		data_len = cmsg_len - TE_CMSG_HDR_LEN;
+		for (int i = 0; i < TE_SCM_RIGHTS_MAX_FDS; i++) {
+			int received_fd = -1;
+			__u64 data_off = TE_CMSG_HDR_LEN + ((__u64)i * sizeof(int));
+
+			if (data_off + sizeof(int) > data_len + TE_CMSG_HDR_LEN)
+				break;
+			if (bpf_probe_read_user(&received_fd, sizeof(received_fd),
+						(const void *)(base + data_off)) < 0)
+				break;
+			te_store_current_fd_file(pid, received_fd);
+		}
+	}
+	next = off + te_cmsg_align(cmsg_len);
+	if (next <= off || next > controllen)
+		return 0;
+	return next;
+}
+
+static __noinline void te_handle_scm_rights(pid_t pid, __u64 msg_ptr)
+{
+	__u64 control_ptr = 0;
+	__u64 controllen = 0;
+	__u64 off = 0;
+
+	if (!msg_ptr)
+		return;
+	if (bpf_probe_read_user(&control_ptr, sizeof(control_ptr),
+				(const void *)(msg_ptr + TE_USER_MSGHDR_CONTROL_OFF)) < 0)
+		return;
+	if (bpf_probe_read_user(&controllen, sizeof(controllen),
+				(const void *)(msg_ptr + TE_USER_MSGHDR_CONTROLLEN_OFF)) < 0)
+		return;
+	if (!control_ptr || controllen < TE_CMSG_HDR_LEN + sizeof(int))
+		return;
+	if (controllen > TE_CMSG_CONTROL_MAX)
+		controllen = TE_CMSG_CONTROL_MAX;
+	for (int i = 0; i < TE_CMSG_SCAN_MAX; i++) {
+		off = te_handle_scm_rights_cmsg(pid, control_ptr, controllen, off);
+		if (!off)
+			break;
+	}
+}
+
+static __always_inline int handle_io_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct io_pend *p = bpf_map_lookup_elem(&ts_iopend, &tid);
+
+	if (!p)
+		return 0;
+	if (enforce_mode) {
+		bpf_map_delete_elem(&ts_iopend, &tid);
+		return 0;
+	}
+	if (ret > 0 && te_pid_active(pid)) {
+		int fd = p->fd;
+		__u32 access = p->access;
+		__u64 addr_ptr = p->addr_ptr;
+		__u32 addr_kind = p->addr_kind;
+		int addr_len = p->addr_len;
+		struct fd_ref *ref = te_lookup_fd(pid, fd);
+		__u32 *peer_ip;
+
+		if (ref) {
+			if (access & TE_ACCESS_READ)
+				te_read(pid, &ref->fid, ref->path);
+			if (access & TE_ACCESS_WRITE)
+				te_write_flow(pid, &ref->fid, ref->path);
+		}
+		if ((access & TE_ACCESS_READ) &&
+		    addr_kind == TE_IO_ADDR_USER_MSGHDR)
+			te_handle_scm_rights(pid, addr_ptr);
+		peer_ip = te_lookup_sockfd(pid, fd);
+		if (peer_ip) {
+			if (access & TE_ACCESS_READ)
+				te_handle_net_ip(*peer_ip, TE_ACCESS_RECV,
+						 te_tracepoint_mode());
+			if (access & TE_ACCESS_WRITE)
+				te_connect_flow(*peer_ip, pid);
+		} else if (addr_ptr) {
+			__u32 ip = 0;
+			struct file_scratch *scratch = file_scratch_buf();
+
+			if (te_resolve_io_sockaddr(addr_kind, addr_ptr, &ip) ==
+			    0) {
+				if (access & TE_ACCESS_READ)
+					te_handle_net_ip(ip, TE_ACCESS_RECV,
+							 te_tracepoint_mode());
+				if (access & TE_ACCESS_WRITE)
+					te_handle_net_ip(ip, TE_ACCESS_CONNECT,
+							 te_tracepoint_mode());
+			} else if (scratch && (access & TE_ACCESS_WRITE)) {
+				__builtin_memset(scratch, 0, sizeof(*scratch));
+				if (te_resolve_io_unix_sockaddr(
+					    addr_kind, addr_ptr, addr_len,
+					    scratch->path, &scratch->fid) == 0)
+					te_write_flow(pid, &scratch->fid,
+						      scratch->path);
+			}
+		}
+	}
+	bpf_map_delete_elem(&ts_iopend, &tid);
+	return 0;
+}
+
+static __always_inline int handle_mmap_enter(int fd, unsigned long prot,
+					     unsigned long flags, __u64 len)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mmap_pend p = {
+		.fd = fd,
+		.len = len,
+		.prot = prot,
+		.flags = flags,
+	};
+
+	if (fd < 0 || !te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_mmappend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_mmap_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mmap_pend *p = bpf_map_lookup_elem(&ts_mmappend, &tid);
+
+	if (!p)
+		return 0;
+	if (ret >= 0 && te_pid_active(pid)) {
+		int fd = p->fd;
+		__u32 access = te_access_from_mmap(p->prot, p->flags);
+		struct fd_ref *ref = te_lookup_fd(pid, fd);
+
+		if (!ref) {
+			te_store_current_fd_file_path(pid, fd);
+			ref = te_lookup_fd(pid, fd);
+		}
+		if (ref) {
+			te_store_mmap_ref(pid, (__u64)ret, p, ref);
+			if (!enforce_mode) {
+				if (access & TE_ACCESS_READ)
+					te_read(pid, &ref->fid, ref->path);
+				if (access & TE_ACCESS_WRITE)
+					te_write_flow(pid, &ref->fid, ref->path);
+			}
+		}
+	}
+	bpf_map_delete_elem(&ts_mmappend, &tid);
+	return 0;
+}
+
+static __always_inline int handle_mprotect_enter(__u64 start, __u64 len,
+						 unsigned long prot)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mprotect_pend p = {
+		.start = start,
+		.len = len,
+		.prot = prot,
+	};
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_mprotectpend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_mprotect_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mprotect_pend *p = bpf_map_lookup_elem(&ts_mprotectpend, &tid);
+
+	if (!p)
+		return 0;
+	if (ret == 0 && te_pid_active(pid))
+		te_handle_mprotect_range(pid, p->start, p->len, p->prot);
+	bpf_map_delete_elem(&ts_mprotectpend, &tid);
+	return 0;
+}
+
+static __always_inline int handle_mremap_enter(__u64 old_addr, __u64 old_size,
+					       __u64 new_size)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mremap_pend p = {
+		.old_addr = old_addr,
+		.old_size = old_size,
+		.new_size = new_size,
+	};
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_mremappend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_mremap_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mremap_pend *p = bpf_map_lookup_elem(&ts_mremappend, &tid);
+
+	if (!p)
+		return 0;
+	if (ret >= 0 && te_pid_active(pid))
+		te_handle_mremap_range(pid, p->old_addr, p->old_size, (__u64)ret,
+				       p->new_size);
+	bpf_map_delete_elem(&ts_mremappend, &tid);
+	return 0;
+}
+
+static __always_inline int handle_munmap_enter(__u64 start, __u64 len)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mprotect_pend p = {
+		.start = start,
+		.len = len,
+		.prot = 0,
+	};
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_mprotectpend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_munmap_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct mprotect_pend *p = bpf_map_lookup_elem(&ts_mprotectpend, &tid);
+
+	if (!p)
+		return 0;
+	if (ret == 0 && te_pid_active(pid))
+		te_delete_mmap_range(pid, p->start, p->len);
+	bpf_map_delete_elem(&ts_mprotectpend, &tid);
+	return 0;
+}
+
+static __always_inline int handle_io_enter_addr(int fd, __u32 access,
+						const void *addr_ptr,
+						__u32 addr_kind,
+						int addr_len)
+{
+	pid_t pid = bpf_get_current_pid_tgid() >> 32;
+	int rc = 0;
+
+	if (te_pid_active(pid) && !te_lookup_fd(pid, fd))
+		rc = te_handle_channel(fd, access, te_tracepoint_mode());
+	stash_io(fd, access, addr_ptr, addr_kind, addr_len);
+	return rc;
+}
+
+static __always_inline int handle_io_enter(int fd, __u32 access)
+{
+	return handle_io_enter_addr(fd, access, 0, TE_IO_ADDR_NONE, 0);
 }
 
 SEC("tp/syscalls/sys_enter_read")
 int trace_read(struct trace_event_raw_sys_enter *ctx)
 {
-	return te_handle_channel((int)ctx->args[0], TE_ACCESS_READ, te_tracepoint_mode());
+	return handle_io_enter((int)ctx->args[0], TE_ACCESS_READ);
+}
+
+SEC("tp/syscalls/sys_exit_read")
+int trace_read_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_io_exit(ctx->ret);
 }
 
 SEC("tp/syscalls/sys_enter_write")
 int trace_write(struct trace_event_raw_sys_enter *ctx)
 {
-	return te_handle_channel((int)ctx->args[0], TE_ACCESS_WRITE, te_tracepoint_mode());
+	return handle_io_enter((int)ctx->args[0], TE_ACCESS_WRITE);
+}
+
+SEC("tp/syscalls/sys_exit_write")
+int trace_write_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_io_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_mmap")
+int trace_mmap(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_mmap_enter((int)ctx->args[4], ctx->args[2], ctx->args[3],
+				 ctx->args[1]);
+}
+
+SEC("tp/syscalls/sys_exit_mmap")
+int trace_mmap_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_mmap_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_mprotect")
+int trace_mprotect(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_mprotect_enter(ctx->args[0], ctx->args[1], ctx->args[2]);
+}
+
+SEC("tp/syscalls/sys_exit_mprotect")
+int trace_mprotect_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_mprotect_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_mremap")
+int trace_mremap(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_mremap_enter(ctx->args[0], ctx->args[1], ctx->args[2]);
+}
+
+SEC("tp/syscalls/sys_exit_mremap")
+int trace_mremap_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_mremap_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_munmap")
+int trace_munmap(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_munmap_enter(ctx->args[0], ctx->args[1]);
+}
+
+SEC("tp/syscalls/sys_exit_munmap")
+int trace_munmap_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_munmap_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_sendto")
+int trace_sendto(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_io_enter_addr((int)ctx->args[0], TE_ACCESS_WRITE,
+				    (const void *)ctx->args[4],
+				    TE_IO_ADDR_SOCKADDR, (int)ctx->args[5]);
+}
+
+SEC("tp/syscalls/sys_exit_sendto")
+int trace_sendto_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_io_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_recvfrom")
+int trace_recvfrom(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_io_enter_addr((int)ctx->args[0], TE_ACCESS_READ,
+				    (const void *)ctx->args[4],
+				    TE_IO_ADDR_SOCKADDR, 0);
+}
+
+SEC("tp/syscalls/sys_exit_recvfrom")
+int trace_recvfrom_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_io_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_sendmsg")
+int trace_sendmsg(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_io_enter_addr((int)ctx->args[0], TE_ACCESS_WRITE,
+				    (const void *)ctx->args[1],
+				    TE_IO_ADDR_USER_MSGHDR, 0);
+}
+
+SEC("tp/syscalls/sys_exit_sendmsg")
+int trace_sendmsg_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_io_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_recvmsg")
+int trace_recvmsg(struct trace_event_raw_sys_enter *ctx)
+{
+	return handle_io_enter_addr((int)ctx->args[0], TE_ACCESS_READ,
+				    (const void *)ctx->args[1],
+				    TE_IO_ADDR_USER_MSGHDR, 0);
+}
+
+SEC("tp/syscalls/sys_exit_recvmsg")
+int trace_recvmsg_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_io_exit(ctx->ret);
+}
+
+static __always_inline int stash_dup(int oldfd)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct dup_pend p = { .oldfd = oldfd };
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_duppend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_dup_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct dup_pend *p = bpf_map_lookup_elem(&ts_duppend, &tid);
+
+	if (p && ret >= 0 && te_pid_active(pid)) {
+		int newfd = (int)ret;
+		if (newfd != p->oldfd)
+			te_delete_fd(pid, newfd);
+		te_copy_fd(pid, p->oldfd, newfd);
+		te_copy_sockfd(pid, p->oldfd, newfd);
+	}
+	bpf_map_delete_elem(&ts_duppend, &tid);
+	return 0;
+}
+
+SEC("tp/syscalls/sys_enter_close")
+int trace_close(struct trace_event_raw_sys_enter *ctx)
+{
+	pid_t pid = bpf_get_current_pid_tgid() >> 32;
+	if (te_pid_active(pid))
+		te_delete_fd(pid, (int)ctx->args[0]);
+	return 0;
+}
+
+SEC("tp/syscalls/sys_enter_dup")
+int trace_dup(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_dup((int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_dup")
+int trace_dup_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_dup_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_dup2")
+int trace_dup2(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_dup((int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_dup2")
+int trace_dup2_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_dup_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_dup3")
+int trace_dup3(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_dup((int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_dup3")
+int trace_dup3_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_dup_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_fcntl")
+int trace_fcntl(struct trace_event_raw_sys_enter *ctx)
+{
+	int cmd = (int)ctx->args[1];
+	if (cmd == F_DUPFD || cmd == F_DUPFD_CLOEXEC)
+		return stash_dup((int)ctx->args[0]);
+	return 0;
+}
+
+SEC("tp/syscalls/sys_exit_fcntl")
+int trace_fcntl_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_dup_exit(ctx->ret);
+}
+
+static __always_inline int stash_fd_copy(int out_fd, int in_fd)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct fd_copy_pend p = {
+		.out_fd = out_fd,
+		.in_fd = in_fd,
+	};
+
+	if (!te_pid_active(pid))
+		return 0;
+	bpf_map_update_elem(&ts_fdcopypend, &tid, &p, BPF_ANY);
+	return 0;
+}
+
+static __always_inline int handle_fd_copy_exit(long ret)
+{
+	__u64 tid = bpf_get_current_pid_tgid();
+	pid_t pid = tid >> 32;
+	struct fd_copy_pend *p = bpf_map_lookup_elem(&ts_fdcopypend, &tid);
+
+	if (!p)
+		return 0;
+	if (enforce_mode) {
+		bpf_map_delete_elem(&ts_fdcopypend, &tid);
+		return 0;
+	}
+	if (ret > 0 && te_pid_active(pid)) {
+		struct fd_ref *in_ref = te_lookup_fd(pid, p->in_fd);
+		if (in_ref) {
+			te_read(pid, &in_ref->fid, in_ref->path);
+			struct fd_ref *out_ref = te_lookup_fd(pid, p->out_fd);
+			if (out_ref)
+				te_write_flow(pid, &out_ref->fid, out_ref->path);
+		}
+	}
+	bpf_map_delete_elem(&ts_fdcopypend, &tid);
+	return 0;
+}
+
+SEC("tp/syscalls/sys_enter_sendfile64")
+int trace_sendfile64(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_fd_copy((int)ctx->args[0], (int)ctx->args[1]);
+}
+
+SEC("tp/syscalls/sys_exit_sendfile64")
+int trace_sendfile64_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_fd_copy_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_copy_file_range")
+int trace_copy_file_range(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_fd_copy((int)ctx->args[2], (int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_copy_file_range")
+int trace_copy_file_range_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_fd_copy_exit(ctx->ret);
+}
+
+SEC("tp/syscalls/sys_enter_splice")
+int trace_splice(struct trace_event_raw_sys_enter *ctx)
+{
+	return stash_fd_copy((int)ctx->args[2], (int)ctx->args[0]);
+}
+
+SEC("tp/syscalls/sys_exit_splice")
+int trace_splice_exit(struct trace_event_raw_sys_exit *ctx)
+{
+	return handle_fd_copy_exit(ctx->ret);
 }
 
 SEC("tp/syscalls/sys_enter_getpid")

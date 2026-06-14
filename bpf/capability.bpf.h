@@ -20,6 +20,8 @@
 #define AUTH_REQUIRE_GATE    (1ULL << 2)
 #define AUTH_NARROW_SCOPE    (1ULL << 3)
 #define AUTH_BIND_RULE       (1ULL << 4)
+#define AUTH_DECLASSIFY      (1ULL << 5)
+#define AUTH_DELEGATE        (1ULL << 6)
 
 #define CAP_STAT_ACCEPT 0
 #define CAP_STAT_REJECT 1
@@ -33,6 +35,11 @@
 #define TE_POLICY_OPEN_RULES    (1U << 2)
 #define TE_POLICY_WRITE_RULES   (1U << 3)
 #define TE_POLICY_CONNECT       (1U << 4)
+#define TE_POLICY_RECV          (1U << 5)
+#define TE_POLICY_FILE_FLOW     (1U << 6)
+#define TE_POLICY_BLOCK_EXEC    (1U << 7)
+#define TE_POLICY_BLOCK_FILE    (1U << 8)
+#define TE_POLICY_BLOCK_CONNECT (1U << 9)
 #endif
 
 struct cap_state {
@@ -44,6 +51,11 @@ struct cap_state {
 	__u64 restrict_mask;
 	__u64 gate_mask;
 	__u64 label_mask;
+};
+
+struct cap_policy_mask {
+	__u64 lo;
+	__u64 hi;
 };
 
 struct cap_delta_request {
@@ -76,6 +88,13 @@ struct {
 } cap_task SEC(".maps");
 
 struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 4096);
+	__type(key, __u32);
+	__type(value, struct cap_policy_mask);
+} cap_policy SEC(".maps");
+
+struct {
 	__uint(type, BPF_MAP_TYPE_ARRAY);
 	__uint(max_entries, 4);
 	__type(key, __u32);
@@ -91,8 +110,8 @@ static __always_inline void cap_count(__u32 slot)
 
 static __always_inline __u64
 cap_required_mask_fields(__u64 required_mask, __u64 add_restrict_mask,
-			 __u64 add_label_mask, __u64 add_gate_mask,
-			 __u32 new_scope_id)
+			 __u64 add_label_mask, __u64 del_label_mask,
+			 __u64 add_gate_mask, __u32 new_scope_id)
 {
 	__u64 mask = required_mask;
 
@@ -100,6 +119,8 @@ cap_required_mask_fields(__u64 required_mask, __u64 add_restrict_mask,
 		mask |= AUTH_ADD_RESTRICTION;
 	if (add_label_mask)
 		mask |= AUTH_ADD_LABEL;
+	if (del_label_mask)
+		mask |= AUTH_DECLASSIFY;
 	if (add_gate_mask)
 		mask |= AUTH_REQUIRE_GATE;
 	if (new_scope_id)
@@ -110,7 +131,7 @@ cap_required_mask_fields(__u64 required_mask, __u64 add_restrict_mask,
 static __always_inline __u64 cap_required_mask(const struct cap_delta_request *r)
 {
 	return cap_required_mask_fields(r->required_mask, r->add_restrict_mask,
-					r->add_label_mask, r->add_gate_mask,
+					r->add_label_mask, 0, r->add_gate_mask,
 					r->new_scope_id);
 }
 
@@ -138,7 +159,8 @@ cap_target_mask(__u32 caller, __u32 target, const struct cap_state *dst)
 static __always_inline int
 cap_check_fields(pid_t caller_pid, __u32 target_id, __u32 new_scope_id,
 		 __u64 required_mask, __u64 add_restrict_mask,
-		 __u64 add_label_mask, __u64 add_gate_mask)
+		 __u64 add_label_mask, __u64 del_label_mask,
+		 __u64 add_gate_mask)
 {
 	__u32 *caller = bpf_map_lookup_elem(&cap_task, &caller_pid);
 	if (!caller)
@@ -153,10 +175,10 @@ cap_check_fields(pid_t caller_pid, __u32 target_id, __u32 new_scope_id,
 	if (!(target_mask & src->target_mask))
 		return -1;
 	if (cap_required_mask_fields(required_mask, add_restrict_mask,
-				     add_label_mask, add_gate_mask,
+				     add_label_mask, del_label_mask, add_gate_mask,
 				     new_scope_id) & ~src->authority_mask)
 		return -1;
-	if (add_label_mask & ~src->label_mask)
+	if ((add_label_mask | del_label_mask) & ~src->label_mask)
 		return -1;
 	if (!cap_scope_subset(new_scope_id, dst->scope_id))
 		return -1;
@@ -167,7 +189,21 @@ static __always_inline int cap_check_request(const struct cap_delta_request *r)
 {
 	return cap_check_fields(r->caller_pid, r->target_id, r->new_scope_id,
 				r->required_mask, r->add_restrict_mask,
-				r->add_label_mask, r->add_gate_mask);
+				r->add_label_mask, 0, r->add_gate_mask);
+}
+
+static __always_inline int cap_can_submit_for(pid_t submitter_pid, pid_t caller_pid)
+{
+	if (submitter_pid == caller_pid)
+		return 1;
+
+	__u32 *submitter = bpf_map_lookup_elem(&cap_task, &submitter_pid);
+	if (!submitter)
+		return 0;
+	struct cap_state *src = bpf_map_lookup_elem(&cap_state, submitter);
+	if (!src)
+		return 0;
+	return (src->authority_mask & AUTH_DELEGATE) != 0;
 }
 
 static __always_inline int cap_path_match_supported(unsigned char match)
@@ -181,15 +217,71 @@ static __always_inline int cap_path_match_supported(unsigned char match)
 	return 1;
 }
 
+static __always_inline int cap_policy_mask_has(const struct cap_policy_mask *m,
+					       __u32 idx)
+{
+	if (!m || idx >= MAX_TAINT_RULES)
+		return 0;
+	if (idx < 64)
+		return (m->lo & (1ULL << idx)) != 0;
+	return (m->hi & (1ULL << (idx - 64))) != 0;
+}
+
+static __always_inline int cap_policy_rule_bound(__u32 domain_id, __u32 idx)
+{
+	struct cap_policy_mask *m = bpf_map_lookup_elem(&cap_policy, &domain_id);
+
+	return cap_policy_mask_has(m, idx);
+}
+
+static __always_inline int cap_policy_bind_rule(__u32 domain_id, __u32 idx)
+{
+	if (idx >= MAX_TAINT_RULES)
+		return -1;
+
+	struct cap_policy_mask next = {};
+	struct cap_policy_mask *cur = bpf_map_lookup_elem(&cap_policy, &domain_id);
+	if (cur)
+		next = *cur;
+	if (idx < 64)
+		next.lo |= 1ULL << idx;
+	else
+		next.hi |= 1ULL << (idx - 64);
+	return bpf_map_update_elem(&cap_policy, &domain_id, &next, BPF_ANY);
+}
+
+static __always_inline void cap_policy_clear_domain(__u32 domain_id)
+{
+	bpf_map_delete_elem(&cap_policy, &domain_id);
+}
+
 static __always_inline int cap_update_supported(const struct taint_update *u)
 {
-	if (u->op == TOP_OPEN || u->op == TOP_WRITE)
+	if (u->op == TOP_OPEN || u->op == TOP_WRITE) {
+		if (!(policy_features & TE_POLICY_FILE_FLOW))
+			return 0;
 		return cap_path_match_supported(u->match);
+	}
+	if (u->op == TOP_CONNECT && !(policy_features & TE_POLICY_CONNECT))
+		return 0;
+	if (u->op == TOP_RECV && !(policy_features & TE_POLICY_RECV))
+		return 0;
 	return 1;
 }
 
 static __always_inline int cap_rule_supported(const struct taint_rule *r)
 {
+	if (r->effect == TEFFECT_BLOCK) {
+		if (r->op == TOP_EXEC &&
+		    !(policy_features & TE_POLICY_BLOCK_EXEC))
+			return 0;
+		if ((r->op == TOP_OPEN || r->op == TOP_WRITE) &&
+		    !(policy_features & TE_POLICY_BLOCK_FILE))
+			return 0;
+		if (r->op == TOP_CONNECT &&
+		    !(policy_features & TE_POLICY_BLOCK_CONNECT))
+			return 0;
+	}
 	if (r->op == TOP_OPEN) {
 		if (!(policy_features & TE_POLICY_OPEN_RULES))
 			return 0;
@@ -209,6 +301,8 @@ static __always_inline int cap_rule_supported(const struct taint_rule *r)
 			return 0;
 	}
 	if (r->op == TOP_CONNECT && !(policy_features & TE_POLICY_CONNECT))
+		return 0;
+	if (r->op == TOP_RECV && !(policy_features & TE_POLICY_RECV))
 		return 0;
 	return 1;
 }
@@ -297,29 +391,27 @@ struct cap_drain_ctx {
 static __always_inline int
 cap_append_update_admit(const struct cap_append_update *r, pid_t current_pid)
 {
-	if (r->caller_pid != current_pid)
-		return -1;
-	if (r->entry.del)
+	if (!cap_can_submit_for(current_pid, r->caller_pid))
 		return -1;
 	if (!cap_update_supported(&r->entry))
 		return -1;
 
 	return cap_check_fields(r->caller_pid, r->target_id, r->new_scope_id,
-				r->required_mask, 0, r->entry.add,
+				r->required_mask, 0, r->entry.add, r->entry.del,
 				r->entry.gates | r->entry.invals);
 }
 
 static __always_inline int
 cap_append_rule_admit(const struct cap_append_rule *r, pid_t current_pid)
 {
-	if (r->caller_pid != current_pid)
+	if (!cap_can_submit_for(current_pid, r->caller_pid))
 		return -1;
 	if (!cap_rule_supported(&r->entry))
 		return -1;
 
 	return cap_check_fields(r->caller_pid, r->target_id, r->new_scope_id,
 				r->required_mask | AUTH_BIND_RULE,
-				0, 0, 0);
+				0, 0, 0, 0);
 }
 
 static __always_inline int cap_append_update_entry(const struct cap_append_update *r)
@@ -350,6 +442,8 @@ static __always_inline int cap_append_rule_entry(const struct cap_append_rule *r
 	entry.domain_id = r->target_id;
 	__u32 idx = *count;
 	if (bpf_map_update_elem(&ts_rules, &idx, &entry, BPF_ANY) != 0)
+		return -1;
+	if (cap_policy_bind_rule(r->target_id, idx) != 0)
 		return -1;
 	idx++;
 	bpf_map_update_elem(&ts_counts, &slot, &idx, BPF_ANY);
@@ -393,6 +487,10 @@ static long cap_request_cb(struct bpf_dynptr *dynptr, void *data)
 		}
 		__u32 idx = r->index;
 		bpf_map_update_elem(&ts_rules, &idx, &r->entry, BPF_ANY);
+		if (cap_policy_bind_rule(r->entry.domain_id, idx) != 0) {
+			cap_count(CAP_STAT_REJECT);
+			return 0;
+		}
 		cap_count(CAP_STAT_ACCEPT);
 		return 0;
 	}
@@ -405,6 +503,8 @@ static long cap_request_cb(struct bpf_dynptr *dynptr, void *data)
 		}
 		__u32 slot0 = 0, slot1 = 1;
 		__u32 nr = r->n_rules, nu = r->n_updates;
+		if (!nr)
+			cap_policy_clear_domain(0);
 		bpf_map_update_elem(&ts_counts, &slot0, &nr, BPF_ANY);
 		bpf_map_update_elem(&ts_counts, &slot1, &nu, BPF_ANY);
 		cap_count(CAP_STAT_ACCEPT);

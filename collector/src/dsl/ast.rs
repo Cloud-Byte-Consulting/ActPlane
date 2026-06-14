@@ -97,17 +97,6 @@ pub struct Rule {
     pub reason: String,
 }
 
-impl Rule {
-    /// The strongest effect across all clauses (kill > block > notify).
-    pub fn effect(&self) -> Effect {
-        self.clauses
-            .iter()
-            .map(|cl| cl.effect)
-            .max()
-            .unwrap_or_default()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Xform {
     pub endorse: bool,

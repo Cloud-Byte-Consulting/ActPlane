@@ -9,9 +9,12 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 
@@ -20,8 +23,9 @@ use rmcp::transport::io::stdio;
 use rmcp::{Peer, RoleServer, ServerHandler, ServiceExt};
 use serde_json::Value;
 
-use crate::dsl;
-use crate::runtime::EngineControl;
+use crate::control as local_control;
+use crate::runtime::{EngineControl, PolicyAuditMeta};
+use crate::{audit, dsl};
 use ebpf_ifc_engine::ChildDomainSpec;
 use ebpf_ifc_engine::capability::{AUTH_BIND_RULE, TARGET_SELF};
 
@@ -29,6 +33,9 @@ const POLICY_RESOURCE_URI: &str = "actplane:///policy";
 const FEEDBACK_RESOURCE_URI: &str = "actplane:///feedback";
 const DEFAULT_FEEDBACK_FILE: &str = ".actplane/last-violation.txt";
 const WATCH_INTERVAL: Duration = Duration::from_secs(2);
+const SUPERVISOR_INTERVAL: Duration = Duration::from_millis(500);
+const DEFAULT_RESTART_LIMIT: u32 = 3;
+const DEFAULT_RESTART_BACKOFF_MS: u64 = 1000;
 
 // ── Server state ────────────────────────────────────────────────────
 
@@ -44,12 +51,89 @@ struct ChildRecord {
     launch_id: String,
     pid: i32,
     child_id: u32,
+    scope_id: u32,
     cmd: Vec<String>,
     stdout: PathBuf,
     stderr: PathBuf,
     meta: PathBuf,
     proc_start_time: Option<u64>,
+    policy: Option<String>,
+    restart_policy: RestartPolicy,
+    restart_count: u32,
+    restart_limit: u32,
+    restart_backoff_ms: u64,
+    last_exit_unix_ms: Option<u64>,
+    restart_alerted_unix_ms: Option<u64>,
+    adopted_unix_ms: Option<u64>,
+    restarted_from: Option<u32>,
+    replacement_child_id: Option<u32>,
     status: Arc<Mutex<ChildStatus>>,
+}
+
+struct LaunchOutcome {
+    pid: i32,
+    child_id: u32,
+}
+
+#[derive(Clone, Copy)]
+struct RestartSettings {
+    policy: RestartPolicy,
+    count: u32,
+    limit: u32,
+    backoff_ms: u64,
+}
+
+pub(crate) struct ActPlaneControlGuard {
+    _control: local_control::LocalControlGuard,
+    _supervisor: SupervisorGuard,
+}
+
+struct SupervisorGuard {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for SupervisorGuard {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RestartPolicy {
+    Never,
+    OnExit,
+}
+
+impl RestartPolicy {
+    fn as_str(self) -> &'static str {
+        match self {
+            RestartPolicy::Never => "never",
+            RestartPolicy::OnExit => "on_exit",
+        }
+    }
+}
+
+impl ChildRecord {
+    fn next_restart_settings(&self) -> RestartSettings {
+        RestartSettings {
+            policy: self.restart_policy,
+            count: self.restart_count.saturating_add(1),
+            limit: self.restart_limit,
+            backoff_ms: self.restart_backoff_ms,
+        }
+    }
+
+    fn next_restart_after_unix_ms(&self) -> Option<u64> {
+        if self.restart_policy != RestartPolicy::OnExit || self.replacement_child_id.is_some() {
+            return None;
+        }
+        self.last_exit_unix_ms
+            .map(|t| t.saturating_add(self.restart_backoff_ms))
+    }
 }
 
 #[derive(Clone)]
@@ -63,19 +147,33 @@ enum ChildStatus {
 }
 
 impl ActPlaneMcp {
-    pub fn new_with_control(control: Option<Arc<EngineControl>>) -> Self {
-        let project_dir = std::env::var("ACTPLANE_PROJECT_DIR")
-            .or_else(|_| std::env::var("CODEX_PROJECT_DIR"))
-            .or_else(|_| std::env::var("CODEX_WORKSPACE"))
-            .or_else(|_| std::env::var("CLAUDE_PROJECT_DIR"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        let children = Arc::new(Mutex::new(load_child_records(&project_dir)));
-        Self {
+    pub fn new_with_control_and_project_dir(
+        control: Option<Arc<EngineControl>>,
+        project_dir: Option<PathBuf>,
+    ) -> Self {
+        let project_dir = project_dir.unwrap_or_else(default_project_dir);
+        let loaded = load_child_records_with_adoptions(&project_dir);
+        let adopted = loaded.adopted;
+        let this = Self {
             project_dir,
             control,
-            children,
+            children: Arc::new(Mutex::new(loaded.records)),
+        };
+        if let Some(control) = this.control.as_ref() {
+            for record in adopted {
+                let _ = control.audit_child_adoption(
+                    record.pid,
+                    record.child_id,
+                    &record.cmd,
+                    record.policy.is_some(),
+                    record.restart_policy.as_str(),
+                    record.restart_count,
+                    record.restart_limit,
+                    record.adopted_unix_ms,
+                );
+            }
         }
+        this
     }
 
     fn discover_policy_file(&self) -> Option<PathBuf> {
@@ -310,6 +408,14 @@ impl ActPlaneMcp {
         &self,
         args: Option<serde_json::Map<String, Value>>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
+        self.do_append_policy_delta_for_actor(args, None)
+    }
+
+    fn do_append_policy_delta_for_actor(
+        &self,
+        args: Option<serde_json::Map<String, Value>>,
+        actor_pid: Option<i32>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
         let control = self.control.as_ref().ok_or_else(|| {
             rmcp::ErrorData::new(
                 ErrorCode::INTERNAL_ERROR,
@@ -326,8 +432,10 @@ impl ActPlaneMcp {
             return Err(invalid_params("target_id must be nonzero"));
         }
         let policy = json_string(&args, "policy")?;
+        let audit_meta = policy_audit_meta_from_args(&args)?;
+        let actor_pid = actor_pid.unwrap_or(control.submitter_pid());
         let (base, n_rules) = control
-            .append_policy_delta_dsl(target_id, policy)
+            .append_policy_delta_dsl_for_actor_with_audit(actor_pid, target_id, policy, &audit_meta)
             .map_err(|e| {
                 rmcp::ErrorData::new(
                     ErrorCode::INTERNAL_ERROR,
@@ -344,6 +452,49 @@ impl ActPlaneMcp {
         &self,
         args: Option<serde_json::Map<String, Value>>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let args = args.unwrap_or_default();
+        let cmd = json_string_vec(&args, "cmd")?;
+        if cmd.is_empty() {
+            return Err(invalid_params("cmd must not be empty"));
+        }
+        let child_id = json_optional_u32(&args, "child_id")?;
+        let scope_id = json_optional_u32(&args, "scope_id")?.unwrap_or(0);
+        let policy = json_optional_string(&args, "policy")?.map(ToString::to_string);
+        let restart_policy =
+            json_optional_restart_policy(&args, "restart_policy")?.unwrap_or(RestartPolicy::Never);
+        let restart_limit =
+            json_optional_u32(&args, "restart_limit")?.unwrap_or(DEFAULT_RESTART_LIMIT);
+        let restart_backoff_ms =
+            json_optional_u64(&args, "restart_backoff_ms")?.unwrap_or(DEFAULT_RESTART_BACKOFF_MS);
+        let outcome = self.launch_child_domain_inner(
+            cmd,
+            child_id,
+            scope_id,
+            policy,
+            None,
+            RestartSettings {
+                policy: restart_policy,
+                count: 0,
+                limit: restart_limit,
+                backoff_ms: restart_backoff_ms,
+            },
+        )?;
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Launched pid {} in child domain {}",
+            outcome.pid, outcome.child_id
+        ))]))
+    }
+
+    fn launch_child_domain_inner(
+        &self,
+        cmd: Vec<String>,
+        child_id: Option<u32>,
+        scope_id: u32,
+        policy: Option<String>,
+        restarted_from: Option<u32>,
+        restart: RestartSettings,
+    ) -> Result<LaunchOutcome, rmcp::ErrorData> {
         let control = self.control.as_ref().ok_or_else(|| {
             rmcp::ErrorData::new(
                 ErrorCode::INTERNAL_ERROR,
@@ -351,11 +502,6 @@ impl ActPlaneMcp {
                 None::<Value>,
             )
         })?;
-        let args = args.unwrap_or_default();
-        let cmd = json_string_vec(&args, "cmd")?;
-        if cmd.is_empty() {
-            return Err(invalid_params("cmd must not be empty"));
-        }
         let launch_id = child_launch_id();
         let log_dir = self
             .project_dir
@@ -364,12 +510,7 @@ impl ActPlaneMcp {
             .join(&launch_id);
         let mut child = spawn_stopped_child(&cmd, &self.project_dir, &log_dir)?;
         let pid = child.id() as i32;
-        let child_id = match json_optional_u32(&args, "child_id")? {
-            Some(id) => id,
-            None => pid as u32,
-        };
-        let scope_id = json_optional_u32(&args, "scope_id")?.unwrap_or(0);
-        let policy = json_optional_string(&args, "policy")?;
+        let child_id = child_id.unwrap_or(pid as u32);
         let policy_attached = policy.is_some();
 
         if let Err(e) = control.bind_child_domain(ChildDomainSpec {
@@ -398,7 +539,7 @@ impl ActPlaneMcp {
             ));
         }
 
-        if let Some(policy) = policy {
+        if let Some(policy) = policy.as_deref() {
             if let Err(e) = control.append_policy_delta_dsl(child_id, policy) {
                 kill_and_wait(child);
                 let _ = control.audit_child_launch(
@@ -438,11 +579,22 @@ impl ActPlaneMcp {
             launch_id,
             pid,
             child_id,
+            scope_id,
             cmd: cmd.clone(),
             stdout: log_dir.join("stdout.log"),
             stderr: log_dir.join("stderr.log"),
             meta: log_dir.join("meta.json"),
             proc_start_time: proc_start_time(pid),
+            policy: policy.clone(),
+            restart_policy: restart.policy,
+            restart_count: restart.count,
+            restart_limit: restart.limit,
+            restart_backoff_ms: restart.backoff_ms,
+            last_exit_unix_ms: None,
+            restart_alerted_unix_ms: None,
+            adopted_unix_ms: None,
+            restarted_from,
+            replacement_child_id: None,
             status: status.clone(),
         };
         persist_child_record(&record).map_err(|e| {
@@ -471,27 +623,30 @@ impl ActPlaneMcp {
                     None::<Value>,
                 )
             })?;
-        std::thread::spawn(move || match child.wait() {
-            Ok(exit) => {
-                if let Ok(mut st) = status.lock() {
-                    *st = ChildStatus::Exited {
-                        code: exit.code(),
-                        signal: exit.signal(),
-                    };
+        std::thread::spawn(move || {
+            let mut record = record;
+            match child.wait() {
+                Ok(exit) => {
+                    if let Ok(mut st) = status.lock() {
+                        *st = ChildStatus::Exited {
+                            code: exit.code(),
+                            signal: exit.signal(),
+                        };
+                    }
+                    record.last_exit_unix_ms = Some(unix_time_ms());
+                    let _ = persist_child_record(&record);
                 }
-                let _ = persist_child_record(&record);
-            }
-            Err(_) => {
-                if let Ok(mut st) = status.lock() {
-                    *st = ChildStatus::Terminated;
+                Err(_) => {
+                    if let Ok(mut st) = status.lock() {
+                        *st = ChildStatus::Terminated;
+                    }
+                    record.last_exit_unix_ms = Some(unix_time_ms());
+                    let _ = persist_child_record(&record);
                 }
-                let _ = persist_child_record(&record);
             }
         });
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "Launched pid {pid} in child domain {child_id}"
-        ))]))
+        Ok(LaunchOutcome { pid, child_id })
     }
 
     fn do_list_child_domains(&self) -> Result<CallToolResult, rmcp::ErrorData> {
@@ -625,6 +780,474 @@ impl ActPlaneMcp {
         };
         Ok(CallToolResult::success(vec![Content::text(msg)]))
     }
+
+    fn do_restart_child_domain(
+        &self,
+        args: Option<serde_json::Map<String, Value>>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let control = self.control.as_ref().ok_or_else(|| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                "No eBPF engine attached (MCP not started with --auto-attach-parent)",
+                None::<Value>,
+            )
+        })?;
+        let args = args.unwrap_or_default();
+        let old_child_id = child_id_arg(&args)?;
+        let new_child_id = json_optional_u32(&args, "new_child_id")?;
+        if new_child_id == Some(old_child_id) {
+            return Err(invalid_params(
+                "restart requires a fresh new_child_id; omit it to use the new pid",
+            ));
+        }
+        let terminate_existing = json_optional_bool(&args, "terminate_existing")?.unwrap_or(false);
+
+        let old_record = {
+            let mut children = self.children.lock().map_err(|e| {
+                rmcp::ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Child registry lock poisoned: {e}"),
+                    None::<Value>,
+                )
+            })?;
+            let record = children
+                .get_mut(&old_child_id)
+                .ok_or_else(|| invalid_params(format!("unknown child domain {old_child_id}")))?;
+            refresh_child_record_status(record);
+            if child_record_running(record) {
+                if !terminate_existing {
+                    let msg = format!(
+                        "child domain {old_child_id} is still running; pass terminate_existing=true to replace it"
+                    );
+                    let _ = control.audit_child_restart(
+                        old_child_id,
+                        0,
+                        new_child_id,
+                        &record.cmd,
+                        record.policy.is_some(),
+                        "rejected",
+                        Some(&msg),
+                    );
+                    return Err(invalid_params(msg));
+                }
+                let next_status = match terminate_process_group(record.pid) {
+                    Ok(()) => ChildStatus::Terminated,
+                    Err(e) if e.raw_os_error() == Some(libc::ESRCH) => ChildStatus::Exited {
+                        code: None,
+                        signal: None,
+                    },
+                    Err(e) => {
+                        let msg = format!("Terminate old child before restart failed: {e}");
+                        let _ = control.audit_child_restart(
+                            old_child_id,
+                            0,
+                            new_child_id,
+                            &record.cmd,
+                            record.policy.is_some(),
+                            "rejected",
+                            Some(&msg),
+                        );
+                        return Err(rmcp::ErrorData::new(
+                            ErrorCode::INTERNAL_ERROR,
+                            msg,
+                            None::<Value>,
+                        ));
+                    }
+                };
+                if let Ok(mut status) = record.status.lock() {
+                    *status = next_status;
+                }
+                persist_child_record(record).map_err(|e| {
+                    rmcp::ErrorData::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("Persist old child registry failed: {e}"),
+                        None::<Value>,
+                    )
+                })?;
+            }
+            record.clone()
+        };
+
+        let outcome = match self.launch_child_domain_inner(
+            old_record.cmd.clone(),
+            new_child_id,
+            old_record.scope_id,
+            old_record.policy.clone(),
+            Some(old_child_id),
+            old_record.next_restart_settings(),
+        ) {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                let msg = e.to_string();
+                let _ = control.audit_child_restart(
+                    old_child_id,
+                    0,
+                    new_child_id,
+                    &old_record.cmd,
+                    old_record.policy.is_some(),
+                    "rejected",
+                    Some(&msg),
+                );
+                return Err(e);
+            }
+        };
+        control
+            .audit_child_restart(
+                old_child_id,
+                outcome.pid,
+                Some(outcome.child_id),
+                &old_record.cmd,
+                old_record.policy.is_some(),
+                "accepted",
+                None,
+            )
+            .map_err(|e| {
+                rmcp::ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Restart succeeded but audit write failed: {e}"),
+                    None::<Value>,
+                )
+            })?;
+        {
+            let mut children = self.children.lock().map_err(|e| {
+                rmcp::ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Child registry lock poisoned: {e}"),
+                    None::<Value>,
+                )
+            })?;
+            if let Some(record) = children.get_mut(&old_child_id) {
+                record.replacement_child_id = Some(outcome.child_id);
+                persist_child_record(record).map_err(|e| {
+                    rmcp::ErrorData::new(
+                        ErrorCode::INTERNAL_ERROR,
+                        format!("Persist old child replacement metadata failed: {e}"),
+                        None::<Value>,
+                    )
+                })?;
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Restarted child domain {old_child_id} as pid {} in child domain {}",
+            outcome.pid, outcome.child_id
+        ))]))
+    }
+
+    fn do_reconcile_child_domains(&self) -> Result<CallToolResult, rmcp::ErrorData> {
+        let (restart_candidates, restart_alerts) = {
+            let mut children = self.children.lock().map_err(|e| {
+                rmcp::ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Child registry lock poisoned: {e}"),
+                    None::<Value>,
+                )
+            })?;
+            let now = unix_time_ms();
+            let mut restart_alerts = Vec::new();
+            for record in children.values_mut() {
+                refresh_child_record_status(record);
+                if child_restart_blocked_reason(record).is_some()
+                    && record.restart_alerted_unix_ms.is_none()
+                {
+                    record.restart_alerted_unix_ms = Some(now);
+                    let _ = persist_child_record(record);
+                    restart_alerts.push(record.clone());
+                }
+            }
+            let restart_candidates = children
+                .values()
+                .filter(|record| child_record_should_relaunch(record))
+                .cloned()
+                .collect::<Vec<_>>();
+            (restart_candidates, restart_alerts)
+        };
+
+        let mut alerts = Vec::new();
+        for record in restart_alerts {
+            let reason = child_restart_blocked_reason(&record).unwrap_or("restart blocked");
+            if let Some(control) = self.control.as_ref() {
+                let _ = control.audit_child_restart(
+                    record.child_id,
+                    0,
+                    None,
+                    &record.cmd,
+                    record.policy.is_some(),
+                    "blocked",
+                    Some(reason),
+                );
+            }
+            alerts.push(serde_json::json!({
+                "child_id": record.child_id,
+                "status": "blocked",
+                "reason": reason,
+                "restart_count": record.restart_count,
+                "restart_limit": record.restart_limit,
+                "alerted_unix_ms": record.restart_alerted_unix_ms,
+            }));
+        }
+
+        let mut restarted = Vec::new();
+        for old in restart_candidates {
+            let launch = self.launch_child_domain_inner(
+                old.cmd.clone(),
+                None,
+                old.scope_id,
+                old.policy.clone(),
+                Some(old.child_id),
+                old.next_restart_settings(),
+            );
+            match launch {
+                Ok(outcome) => {
+                    if let Some(control) = self.control.as_ref() {
+                        let _ = control.audit_child_restart(
+                            old.child_id,
+                            outcome.pid,
+                            Some(outcome.child_id),
+                            &old.cmd,
+                            old.policy.is_some(),
+                            "accepted",
+                            None,
+                        );
+                    }
+                    let mut children = self.children.lock().map_err(|e| {
+                        rmcp::ErrorData::new(
+                            ErrorCode::INTERNAL_ERROR,
+                            format!("Child registry lock poisoned: {e}"),
+                            None::<Value>,
+                        )
+                    })?;
+                    if let Some(record) = children.get_mut(&old.child_id) {
+                        record.replacement_child_id = Some(outcome.child_id);
+                        let _ = persist_child_record(record);
+                    }
+                    restarted.push(serde_json::json!({
+                        "old_child_id": old.child_id,
+                        "new_child_id": outcome.child_id,
+                        "pid": outcome.pid,
+                        "status": "accepted",
+                    }));
+                }
+                Err(e) => {
+                    if let Some(control) = self.control.as_ref() {
+                        let _ = control.audit_child_restart(
+                            old.child_id,
+                            0,
+                            None,
+                            &old.cmd,
+                            old.policy.is_some(),
+                            "rejected",
+                            Some(&e.to_string()),
+                        );
+                    }
+                    restarted.push(serde_json::json!({
+                        "old_child_id": old.child_id,
+                        "status": "rejected",
+                        "error": e.to_string(),
+                    }));
+                }
+            }
+        }
+
+        let mut children = self.children.lock().map_err(|e| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!("Child registry lock poisoned: {e}"),
+                None::<Value>,
+            )
+        })?;
+        for record in children.values_mut() {
+            refresh_child_record_status(record);
+        }
+        let mut rows: Vec<serde_json::Value> = children.values().map(child_record_json).collect();
+        rows.sort_by_key(|v| v["child_id"].as_u64().unwrap_or(0));
+        let running = children
+            .values()
+            .filter(|r| child_record_running(r))
+            .count();
+        let exited = children.values().filter(|r| child_record_exited(r)).count();
+        let terminated = children
+            .values()
+            .filter(|r| child_record_terminated(r))
+            .count();
+        let value = serde_json::json!({
+            "total": children.len(),
+            "running": running,
+            "exited": exited,
+            "terminated": terminated,
+            "alerts": alerts,
+            "restarted": restarted,
+            "children": rows,
+        });
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+        )]))
+    }
+
+    fn control_parent(&self) -> Option<(i32, u32)> {
+        self.control
+            .as_ref()
+            .map(|c| (c.parent_pid, c.parent_domain_id))
+    }
+
+    fn handle_local_control_request(
+        &self,
+        request: Value,
+        peer: Option<local_control::PeerCred>,
+    ) -> Value {
+        let Some(args) = request.as_object().cloned() else {
+            return serde_json::json!({
+                "ok": false,
+                "error": "control request must be a JSON object",
+            });
+        };
+        let Some(op) = args.get("op").and_then(Value::as_str) else {
+            return serde_json::json!({
+                "ok": false,
+                "error": "control request missing string `op`",
+            });
+        };
+        match op {
+            "status" => self.local_control_status(),
+            "reload_policy" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_reload_policy())
+            }
+            "bind_child_domain" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_bind_child_domain(Some(args)))
+            }
+            "append_policy_delta" => {
+                let Some(peer) = peer else {
+                    return serde_json::json!({
+                        "ok": false,
+                        "error": "local control peer credentials are unavailable",
+                    });
+                };
+                local_tool_response(
+                    self.do_append_policy_delta_for_actor(Some(args), Some(peer.pid)),
+                )
+            }
+            "launch_child_domain" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_launch_child_domain(Some(args)))
+            }
+            "list_child_domains" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_list_child_domains())
+            }
+            "read_child_domain_logs" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_read_child_domain_logs(Some(args)))
+            }
+            "terminate_child_domain" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_terminate_child_domain(Some(args)))
+            }
+            "restart_child_domain" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_restart_child_domain(Some(args)))
+            }
+            "reconcile_child_domains" => {
+                if let Err(e) = self.ensure_local_parent_peer(peer) {
+                    return serde_json::json!({ "ok": false, "error": e });
+                }
+                local_tool_response(self.do_reconcile_child_domains())
+            }
+            _ => serde_json::json!({
+                "ok": false,
+                "error": format!("unknown ActPlane control op `{op}`"),
+            }),
+        }
+    }
+
+    fn ensure_local_parent_peer(
+        &self,
+        peer: Option<local_control::PeerCred>,
+    ) -> Result<(), String> {
+        let peer =
+            peer.ok_or_else(|| "local control peer credentials are unavailable".to_string())?;
+        let Some(control) = self.control.as_ref() else {
+            return Ok(());
+        };
+        control
+            .ensure_parent_or_external_control_actor(peer.pid)
+            .map_err(|e| e.to_string())
+    }
+
+    fn local_control_status(&self) -> Value {
+        let child_count = self.children.lock().map(|c| c.len()).unwrap_or(0);
+        let control = self.control.as_ref().map(|c| {
+            serde_json::json!({
+                "parent_pid": c.parent_pid,
+                "parent_domain_id": c.parent_domain_id,
+            })
+        });
+        serde_json::json!({
+            "ok": true,
+            "result": {
+                "attached": self.control.is_some(),
+                "project_dir": self.project_dir.display().to_string(),
+                "control": control,
+                "child_count": child_count,
+            }
+        })
+    }
+}
+
+fn default_project_dir() -> PathBuf {
+    std::env::var("ACTPLANE_PROJECT_DIR")
+        .or_else(|_| std::env::var("CODEX_PROJECT_DIR"))
+        .or_else(|_| std::env::var("CODEX_WORKSPACE"))
+        .or_else(|_| std::env::var("CLAUDE_PROJECT_DIR"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+fn local_tool_response(result: Result<CallToolResult, rmcp::ErrorData>) -> Value {
+    match result {
+        Ok(result) => {
+            let value = serde_json::to_value(&result).unwrap_or_else(|e| {
+                serde_json::json!({
+                    "serialization_error": e.to_string()
+                })
+            });
+            let text = first_tool_text(&value);
+            serde_json::json!({
+                "ok": true,
+                "text": text,
+                "result": value,
+            })
+        }
+        Err(e) => serde_json::json!({
+            "ok": false,
+            "error": e.to_string(),
+        }),
+    }
+}
+
+fn first_tool_text(value: &Value) -> Option<String> {
+    value
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|content| content.first())
+        .and_then(|entry| entry.get("text"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 fn invalid_params(msg: impl Into<String>) -> rmcp::ErrorData {
@@ -712,6 +1335,62 @@ fn json_optional_usize(
     })?))
 }
 
+fn json_optional_u64(
+    args: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<u64>, rmcp::ErrorData> {
+    let Some(value) = args.get(key) else {
+        return Ok(None);
+    };
+    value
+        .as_u64()
+        .map(Some)
+        .ok_or_else(|| invalid_params(format!("`{key}` must be a non-negative integer")))
+}
+
+fn json_optional_bool(
+    args: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<bool>, rmcp::ErrorData> {
+    let Some(value) = args.get(key) else {
+        return Ok(None);
+    };
+    value
+        .as_bool()
+        .map(Some)
+        .ok_or_else(|| invalid_params(format!("`{key}` must be a boolean")))
+}
+
+fn policy_audit_meta_from_args(
+    args: &serde_json::Map<String, Value>,
+) -> Result<PolicyAuditMeta, rmcp::ErrorData> {
+    Ok(PolicyAuditMeta {
+        policy_ref: json_optional_string(args, "policy_ref")?.map(ToString::to_string),
+        approved_by: json_optional_string(args, "approved_by")?.map(ToString::to_string),
+        approval_ref: json_optional_string(args, "approval_ref")?.map(ToString::to_string),
+        generated_by: json_optional_string(args, "generated_by")?.map(ToString::to_string),
+    })
+}
+
+fn json_optional_restart_policy(
+    args: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Option<RestartPolicy>, rmcp::ErrorData> {
+    let Some(value) = args.get(key) else {
+        return Ok(None);
+    };
+    let Some(text) = value.as_str() else {
+        return Err(invalid_params(format!("`{key}` must be a string")));
+    };
+    match text {
+        "never" => Ok(Some(RestartPolicy::Never)),
+        "on_exit" | "on-exit" => Ok(Some(RestartPolicy::OnExit)),
+        _ => Err(invalid_params(format!(
+            "`{key}` must be one of never or on_exit"
+        ))),
+    }
+}
+
 fn child_id_arg(args: &serde_json::Map<String, Value>) -> Result<u32, rmcp::ErrorData> {
     match json_optional_u32(args, "child_id")? {
         Some(id) => Ok(id),
@@ -740,6 +1419,13 @@ fn child_launch_id() -> String {
     format!("child-{}-{now}", std::process::id())
 }
 
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or(0)
+}
+
 fn child_record_json(record: &ChildRecord) -> serde_json::Value {
     let status = record
         .status
@@ -750,13 +1436,36 @@ fn child_record_json(record: &ChildRecord) -> serde_json::Value {
         "launch_id": record.launch_id,
         "pid": record.pid,
         "child_id": record.child_id,
+        "scope_id": record.scope_id,
         "cmd": &record.cmd,
         "stdout": record.stdout.display().to_string(),
         "stderr": record.stderr.display().to_string(),
         "meta": record.meta.display().to_string(),
         "proc_start_time": record.proc_start_time,
+        "policy_attached": record.policy.is_some(),
+        "policy_hash": record.policy.as_deref().map(audit::policy_hash),
+        "restart_policy": record.restart_policy.as_str(),
+        "restart_count": record.restart_count,
+        "restart_limit": record.restart_limit,
+        "restart_backoff_ms": record.restart_backoff_ms,
+        "next_restart_after_unix_ms": record.next_restart_after_unix_ms(),
+        "last_exit_unix_ms": record.last_exit_unix_ms,
+        "restart_alerted_unix_ms": record.restart_alerted_unix_ms,
+        "restart_blocked_reason": child_restart_blocked_reason(record),
+        "adopted_unix_ms": record.adopted_unix_ms,
+        "supervision": child_supervision_json(record),
+        "restarted_from": record.restarted_from,
+        "replacement_child_id": record.replacement_child_id,
         "status": status,
     })
+}
+
+fn child_record_meta_json(record: &ChildRecord) -> serde_json::Value {
+    let mut value = child_record_json(record);
+    if let Some(policy) = &record.policy {
+        value["policy"] = serde_json::json!(policy);
+    }
+    value
 }
 
 fn child_status_json(status: &ChildStatus) -> serde_json::Value {
@@ -775,16 +1484,26 @@ fn persist_child_record(record: &ChildRecord) -> std::io::Result<()> {
     if let Some(parent) = record.meta.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let text =
-        serde_json::to_string_pretty(&child_record_json(record)).map_err(std::io::Error::other)?;
-    std::fs::write(&record.meta, text)
+    let text = serde_json::to_string_pretty(&child_record_meta_json(record))
+        .map_err(std::io::Error::other)?;
+    std::fs::write(&record.meta, text)?;
+    if let Some((uid, gid)) = sudo_target_user() {
+        chown_path(&record.meta, uid, gid)?;
+    }
+    Ok(())
 }
 
-fn load_child_records(project_dir: &std::path::Path) -> HashMap<u32, ChildRecord> {
+struct LoadedChildRecords {
+    records: HashMap<u32, ChildRecord>,
+    adopted: Vec<ChildRecord>,
+}
+
+fn load_child_records_with_adoptions(project_dir: &std::path::Path) -> LoadedChildRecords {
     let root = project_dir.join(".actplane").join("children");
     let mut records = HashMap::new();
+    let mut adopted = Vec::new();
     let Ok(entries) = std::fs::read_dir(root) else {
-        return records;
+        return LoadedChildRecords { records, adopted };
     };
     for entry in entries.flatten() {
         let log_dir = entry.path();
@@ -799,14 +1518,22 @@ fn load_child_records(project_dir: &std::path::Path) -> HashMap<u32, ChildRecord
             continue;
         };
         refresh_child_record_status(&mut record);
+        if adopt_running_child_record(&mut record) {
+            adopted.push(record.clone());
+        }
         records.insert(record.child_id, record);
     }
-    records
+    LoadedChildRecords { records, adopted }
 }
 
 fn child_record_from_meta(value: &Value, log_dir: PathBuf) -> Option<ChildRecord> {
     let pid = i32::try_from(value.get("pid")?.as_i64()?).ok()?;
     let child_id = u32::try_from(value.get("child_id")?.as_u64()?).ok()?;
+    let scope_id = value
+        .get("scope_id")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(0);
     let launch_id = value
         .get("launch_id")
         .and_then(Value::as_str)
@@ -839,6 +1566,40 @@ fn child_record_from_meta(value: &Value, log_dir: PathBuf) -> Option<ChildRecord
         .map(PathBuf::from)
         .unwrap_or_else(|| log_dir.join("meta.json"));
     let proc_start_time = value.get("proc_start_time").and_then(Value::as_u64);
+    let policy = value
+        .get("policy")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+    let restart_policy = value
+        .get("restart_policy")
+        .and_then(Value::as_str)
+        .map(parse_restart_policy_str)
+        .unwrap_or(RestartPolicy::Never);
+    let restart_count = value
+        .get("restart_count")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(0);
+    let restart_limit = value
+        .get("restart_limit")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(DEFAULT_RESTART_LIMIT);
+    let restart_backoff_ms = value
+        .get("restart_backoff_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_RESTART_BACKOFF_MS);
+    let last_exit_unix_ms = value.get("last_exit_unix_ms").and_then(Value::as_u64);
+    let restart_alerted_unix_ms = value.get("restart_alerted_unix_ms").and_then(Value::as_u64);
+    let adopted_unix_ms = value.get("adopted_unix_ms").and_then(Value::as_u64);
+    let restarted_from = value
+        .get("restarted_from")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
+    let replacement_child_id = value
+        .get("replacement_child_id")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
     let status = value
         .get("status")
         .and_then(child_status_from_json)
@@ -847,13 +1608,31 @@ fn child_record_from_meta(value: &Value, log_dir: PathBuf) -> Option<ChildRecord
         launch_id,
         pid,
         child_id,
+        scope_id,
         cmd,
         stdout,
         stderr,
         meta,
         proc_start_time,
+        policy,
+        restart_policy,
+        restart_count,
+        restart_limit,
+        restart_backoff_ms,
+        last_exit_unix_ms,
+        restart_alerted_unix_ms,
+        adopted_unix_ms,
+        restarted_from,
+        replacement_child_id,
         status: Arc::new(Mutex::new(status)),
     })
+}
+
+fn parse_restart_policy_str(text: &str) -> RestartPolicy {
+    match text {
+        "on_exit" | "on-exit" => RestartPolicy::OnExit,
+        _ => RestartPolicy::Never,
+    }
 }
 
 fn child_status_from_json(value: &Value) -> Option<ChildStatus> {
@@ -874,6 +1653,31 @@ fn child_status_from_json(value: &Value) -> Option<ChildStatus> {
     }
 }
 
+fn child_supervision_json(record: &ChildRecord) -> serde_json::Value {
+    if let Some(adopted_unix_ms) = record.adopted_unix_ms {
+        serde_json::json!({
+            "mode": "adopted_polling",
+            "adopted_unix_ms": adopted_unix_ms,
+            "exit_status_precise": false,
+        })
+    } else {
+        serde_json::json!({
+            "mode": "wait_handle",
+            "adopted_unix_ms": serde_json::Value::Null,
+            "exit_status_precise": true,
+        })
+    }
+}
+
+fn adopt_running_child_record(record: &mut ChildRecord) -> bool {
+    if !child_record_running(record) || record.adopted_unix_ms.is_some() {
+        return false;
+    }
+    record.adopted_unix_ms = Some(unix_time_ms());
+    let _ = persist_child_record(record);
+    true
+}
+
 fn refresh_child_record_status(record: &mut ChildRecord) {
     let Ok(mut status) = record.status.lock() else {
         return;
@@ -888,8 +1692,61 @@ fn refresh_child_record_status(record: &mut ChildRecord) {
         code: None,
         signal: None,
     };
+    if record.last_exit_unix_ms.is_none() {
+        record.last_exit_unix_ms = Some(unix_time_ms());
+    }
     drop(status);
     let _ = persist_child_record(record);
+}
+
+fn child_record_running(record: &ChildRecord) -> bool {
+    record
+        .status
+        .lock()
+        .map(|status| matches!(*status, ChildStatus::Running))
+        .unwrap_or(false)
+}
+
+fn child_record_exited(record: &ChildRecord) -> bool {
+    record
+        .status
+        .lock()
+        .map(|status| matches!(*status, ChildStatus::Exited { .. }))
+        .unwrap_or(false)
+}
+
+fn child_record_terminated(record: &ChildRecord) -> bool {
+    record
+        .status
+        .lock()
+        .map(|status| matches!(*status, ChildStatus::Terminated))
+        .unwrap_or(false)
+}
+
+fn child_record_should_relaunch(record: &ChildRecord) -> bool {
+    if record.restart_policy != RestartPolicy::OnExit
+        || record.replacement_child_id.is_some()
+        || !child_record_exited(record)
+        || child_restart_blocked_reason(record).is_some()
+    {
+        return false;
+    }
+    record
+        .next_restart_after_unix_ms()
+        .map(|due| unix_time_ms() >= due)
+        .unwrap_or(true)
+}
+
+fn child_restart_blocked_reason(record: &ChildRecord) -> Option<&'static str> {
+    if record.restart_policy == RestartPolicy::OnExit
+        && record.replacement_child_id.is_none()
+        && child_record_exited(record)
+        && record.restart_count >= record.restart_limit
+    {
+        Some("restart limit reached")
+    } else {
+        None
+    }
 }
 
 fn process_identity_matches(record: &ChildRecord) -> bool {
@@ -983,10 +1840,12 @@ fn spawn_stopped_child(
             None::<Value>,
         )
     })?;
+    let stdout_path = log_dir.join("stdout.log");
+    let stderr_path = log_dir.join("stderr.log");
     let stdout = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_dir.join("stdout.log"))
+        .open(&stdout_path)
         .map_err(|e| {
             rmcp::ErrorData::new(
                 ErrorCode::INTERNAL_ERROR,
@@ -997,7 +1856,7 @@ fn spawn_stopped_child(
     let stderr = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(log_dir.join("stderr.log"))
+        .open(&stderr_path)
         .map_err(|e| {
             rmcp::ErrorData::new(
                 ErrorCode::INTERNAL_ERROR,
@@ -1005,6 +1864,32 @@ fn spawn_stopped_child(
                 None::<Value>,
             )
         })?;
+    let drop_to = sudo_target_user();
+    if let Some((uid, gid)) = drop_to {
+        let children_dir = log_dir.parent();
+        let actplane_dir = children_dir.and_then(std::path::Path::parent);
+        for path in [actplane_dir, children_dir, Some(log_dir)]
+            .into_iter()
+            .flatten()
+        {
+            chown_path(path, uid, gid).map_err(|e| {
+                rmcp::ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Set child log directory ownership failed: {e}"),
+                    None::<Value>,
+                )
+            })?;
+        }
+        for path in [stdout_path.as_path(), stderr_path.as_path()] {
+            chown_path(path, uid, gid).map_err(|e| {
+                rmcp::ErrorData::new(
+                    ErrorCode::INTERNAL_ERROR,
+                    format!("Set child log ownership failed: {e}"),
+                    None::<Value>,
+                )
+            })?;
+        }
+    }
     let mut child = Command::new("/bin/sh");
     child.arg("-c");
     child.arg("kill -STOP $$; exec \"$@\"");
@@ -1018,20 +1903,39 @@ fn spawn_stopped_child(
     child.stderr(Stdio::from(stderr));
     #[cfg(unix)]
     unsafe {
-        child.pre_exec(|| {
+        child.pre_exec(move || {
             if libc::setpgid(0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
+            }
+            if let Some((uid, gid)) = drop_to {
+                if libc::setgid(gid) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::setuid(uid) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
             Ok(())
         });
     }
-    child.spawn().map_err(|e| {
+    let mut child = child.spawn().map_err(|e| {
         rmcp::ErrorData::new(
             ErrorCode::INTERNAL_ERROR,
             format!("Spawn child failed: {e}"),
             None::<Value>,
         )
-    })
+    })?;
+    let pid = child.id() as i32;
+    if let Err(e) = wait_for_stopped_process(pid, Duration::from_secs(5)) {
+        let _ = terminate_process_group_with(pid, libc::SIGKILL);
+        let _ = child.wait();
+        return Err(rmcp::ErrorData::new(
+            ErrorCode::INTERNAL_ERROR,
+            format!("Spawned child {pid} did not enter stopped state before domain bind: {e}"),
+            None::<Value>,
+        ));
+    }
+    Ok(child)
 }
 
 fn kill_and_wait(mut child: Child) {
@@ -1054,6 +1958,66 @@ fn terminate_process_group(pid: i32) -> std::io::Result<()> {
 
 fn terminate_process_group_with(pid: i32, sig: i32) -> std::io::Result<()> {
     let rc = unsafe { libc::kill(-pid, sig) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+fn wait_for_stopped_process(pid: i32, timeout: Duration) -> std::io::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = proc_state_code(pid)?;
+        if matches!(state, 'T' | 't') {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("last observed process state was {state}"),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn proc_state_code(pid: i32) -> std::io::Result<char> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status"))?;
+    status
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("State:")
+                .and_then(|state| state.split_whitespace().next())
+                .and_then(|state| state.chars().next())
+        })
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "missing process State line",
+            )
+        })
+}
+
+fn sudo_target_user() -> Option<(libc::uid_t, libc::gid_t)> {
+    if unsafe { libc::geteuid() } != 0 {
+        return None;
+    }
+    let uid = std::env::var("SUDO_UID")
+        .ok()?
+        .parse::<libc::uid_t>()
+        .ok()?;
+    let gid = std::env::var("SUDO_GID")
+        .ok()?
+        .parse::<libc::gid_t>()
+        .ok()?;
+    Some((uid, gid))
+}
+
+fn chown_path(path: &std::path::Path, uid: libc::uid_t, gid: libc::gid_t) -> std::io::Result<()> {
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"))?;
+    let rc = unsafe { libc::chown(c_path.as_ptr(), uid, gid) };
     if rc == 0 {
         Ok(())
     } else {
@@ -1120,6 +2084,22 @@ impl ServerHandler for ActPlaneMcp {
                     "policy": {
                         "type": "string",
                         "description": "Append-only ActPlane DSL fragment to compile and submit to the target domain."
+                    },
+                    "policy_ref": {
+                        "type": "string",
+                        "description": "Optional source reference for audit, such as a file path or generator id."
+                    },
+                    "approved_by": {
+                        "type": "string",
+                        "description": "Optional human or supervisor identity approving this delta."
+                    },
+                    "approval_ref": {
+                        "type": "string",
+                        "description": "Optional ticket, review, or decision id for this delta."
+                    },
+                    "generated_by": {
+                        "type": "string",
+                        "description": "Optional tool or agent identity that generated this delta."
                     }
                 },
                 "required": ["policy"]
@@ -1145,6 +2125,19 @@ impl ServerHandler for ActPlaneMcp {
                     "policy": {
                         "type": "string",
                         "description": "Optional append-only ActPlane DSL fragment installed into the child domain before resume."
+                    },
+                    "restart_policy": {
+                        "type": "string",
+                        "enum": ["never", "on_exit"],
+                        "description": "Whether reconcile_child_domains should relaunch this child after an unexpected exit. Defaults to never."
+                    },
+                    "restart_limit": {
+                        "type": "integer",
+                        "description": "Maximum number of automatic relaunches for this child lineage. Defaults to 3."
+                    },
+                    "restart_backoff_ms": {
+                        "type": "integer",
+                        "description": "Delay before an automatic relaunch after exit, in milliseconds. Defaults to 1000."
                     }
                 },
                 "required": ["cmd"]
@@ -1161,6 +2154,33 @@ impl ServerHandler for ActPlaneMcp {
                     "domain_id": {
                         "type": "integer",
                         "description": "Alias for child_id."
+                    }
+                },
+                "oneOf": [
+                    { "required": ["child_id"] },
+                    { "required": ["domain_id"] }
+                ]
+            }))
+            .unwrap();
+        let restart_schema: serde_json::Map<String, Value> =
+            serde_json::from_value(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "child_id": {
+                        "type": "integer",
+                        "description": "Existing child runtime domain id to restart."
+                    },
+                    "domain_id": {
+                        "type": "integer",
+                        "description": "Alias for child_id."
+                    },
+                    "new_child_id": {
+                        "type": "integer",
+                        "description": "Optional fresh runtime domain id for the restarted process. Defaults to the new pid."
+                    },
+                    "terminate_existing": {
+                        "type": "boolean",
+                        "description": "Terminate the existing process group first if it is still running. Defaults to false."
                     }
                 },
                 "oneOf": [
@@ -1223,7 +2243,9 @@ impl ServerHandler for ActPlaneMcp {
                 "launch_child_domain",
                 "Launch a subagent command stopped, bind it to a child runtime \
                  policy domain, optionally append its local policy, then resume \
-                 it. Child stdout/stderr are detached from MCP stdio.",
+                 it. Child stdout/stderr are detached from MCP stdio. Set \
+                 restart_policy=on_exit for long-lived subagents that should be \
+                 relaunched during reconciliation after an unexpected exit.",
                 launch_schema,
             ),
             Tool::new(
@@ -1231,7 +2253,7 @@ impl ServerHandler for ActPlaneMcp {
                 "List subagents launched by this MCP server, including child \
                  domain id, root pid, detached log paths, command argv, and \
                  current exit status.",
-                empty_schema,
+                empty_schema.clone(),
             ),
             Tool::new(
                 "read_child_domain_logs",
@@ -1245,6 +2267,20 @@ impl ServerHandler for ActPlaneMcp {
                  launch_child_domain and mark it in the local lifecycle \
                  registry.",
                 child_id_schema,
+            ),
+            Tool::new(
+                "restart_child_domain",
+                "Restart a subagent recorded in the local lifecycle registry. \
+                 The restarted process is launched stopped, placed in a fresh \
+                 child runtime domain, receives the recorded local policy if \
+                 one exists, then resumes.",
+                restart_schema,
+            ),
+            Tool::new(
+                "reconcile_child_domains",
+                "Refresh the persisted child-domain registry against /proc and \
+                 relaunch exited children whose restart_policy is on_exit.",
+                empty_schema,
             ),
         ];
         std::future::ready(Ok(ListToolsResult {
@@ -1267,6 +2303,8 @@ impl ServerHandler for ActPlaneMcp {
             "list_child_domains" => self.do_list_child_domains(),
             "read_child_domain_logs" => self.do_read_child_domain_logs(request.arguments),
             "terminate_child_domain" => self.do_terminate_child_domain(request.arguments),
+            "restart_child_domain" => self.do_restart_child_domain(request.arguments),
+            "reconcile_child_domains" => self.do_reconcile_child_domains(),
             _ => Err(rmcp::ErrorData::new(
                 ErrorCode::METHOD_NOT_FOUND,
                 format!("Unknown tool: {}", request.name),
@@ -1419,8 +2457,14 @@ async fn watch_policy_file(server: Arc<ActPlaneMcp>, peer: Peer<RoleServer>) {
 
 pub async fn run_mcp_server_with_control(
     control: Option<Arc<EngineControl>>,
+    project_dir: Option<PathBuf>,
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let server = ActPlaneMcp::new_with_control(control);
+    let server = ActPlaneMcp::new_with_control_and_project_dir(control, project_dir);
+    let control_guard = if server.control.is_some() {
+        Some(start_local_control_server_for_server(server.clone())?)
+    } else {
+        None
+    };
     let server_arc = Arc::new(server.clone());
     let transport = stdio();
     let service = server.serve(transport).await?;
@@ -1429,7 +2473,56 @@ pub async fn run_mcp_server_with_control(
     tokio::spawn(watch_policy_file(server_arc, peer));
 
     service.waiting().await?;
+    drop(control_guard);
     Ok(())
+}
+
+pub(crate) fn start_local_control_server(
+    control: Arc<EngineControl>,
+    project_dir: PathBuf,
+) -> crate::Result<ActPlaneControlGuard> {
+    let server = ActPlaneMcp::new_with_control_and_project_dir(Some(control), Some(project_dir));
+    start_local_control_server_for_server(server)
+}
+
+fn start_local_control_server_for_server(
+    server: ActPlaneMcp,
+) -> crate::Result<ActPlaneControlGuard> {
+    let (parent_pid, parent_domain_id) = server
+        .control_parent()
+        .ok_or("local control server requires an attached engine")?;
+    let server_for_control = server.clone();
+    let control = local_control::start_server(
+        &server.project_dir,
+        parent_pid,
+        parent_domain_id,
+        move |request, peer| server_for_control.handle_local_control_request(request, peer),
+    )?;
+    let supervisor = start_supervisor(server);
+    Ok(ActPlaneControlGuard {
+        _control: control,
+        _supervisor: supervisor,
+    })
+}
+
+fn start_supervisor(server: ActPlaneMcp) -> SupervisorGuard {
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_thread = stop.clone();
+    let thread = std::thread::spawn(move || {
+        while !stop_thread.load(Ordering::SeqCst) {
+            std::thread::sleep(SUPERVISOR_INTERVAL);
+            if stop_thread.load(Ordering::SeqCst) {
+                break;
+            }
+            if let Err(e) = server.do_reconcile_child_domains() {
+                eprintln!("ActPlane: child-domain supervisor reconcile failed: {e}");
+            }
+        }
+    });
+    SupervisorGuard {
+        stop,
+        thread: Some(thread),
+    }
 }
 
 #[cfg(test)]
@@ -1513,6 +2606,11 @@ mod tests {
         let log_dir = std::env::temp_dir().join(child_launch_id());
         let mut child = spawn_stopped_child(&cmd, &std::env::current_dir().expect("cwd"), &log_dir)
             .expect("spawn child");
+        let state = proc_state_code(child.id() as i32).expect("child process state");
+        assert!(
+            matches!(state, 'T' | 't'),
+            "spawn helper returned before child stopped; state={state}"
+        );
         terminate_process_group_with(child.id() as i32, libc::SIGKILL).expect("kill child group");
         let _ = child.wait().expect("wait child");
         assert!(log_dir.join("stdout.log").is_file());
@@ -1530,22 +2628,129 @@ mod tests {
             launch_id: "child-test".to_string(),
             pid: 123,
             child_id: 456,
+            scope_id: 3,
             cmd: vec!["/bin/echo".to_string(), "hello".to_string()],
             stdout: PathBuf::from("/tmp/stdout.log"),
             stderr: PathBuf::from("/tmp/stderr.log"),
             meta: PathBuf::from("/tmp/meta.json"),
             proc_start_time: Some(99),
+            policy: Some("rule r:\n  notify exec \"x\"\n  because \"x\"".to_string()),
+            restart_policy: RestartPolicy::OnExit,
+            restart_count: 2,
+            restart_limit: 5,
+            restart_backoff_ms: 250,
+            last_exit_unix_ms: Some(1234),
+            restart_alerted_unix_ms: Some(5678),
+            adopted_unix_ms: Some(9012),
+            restarted_from: Some(111),
+            replacement_child_id: Some(222),
             status,
         };
         let value = child_record_json(&record);
         assert_eq!(value["launch_id"], "child-test");
         assert_eq!(value["pid"], 123);
         assert_eq!(value["child_id"], 456);
+        assert_eq!(value["scope_id"], 3);
         assert_eq!(value["cmd"][1], "hello");
         assert_eq!(value["stdout"], "/tmp/stdout.log");
         assert_eq!(value["proc_start_time"], 99);
+        assert_eq!(value["policy_attached"], true);
+        assert!(value["policy_hash"].as_str().is_some());
+        assert!(value.get("policy").is_none());
+        assert_eq!(value["restart_policy"], "on_exit");
+        assert_eq!(value["restart_count"], 2);
+        assert_eq!(value["restart_limit"], 5);
+        assert_eq!(value["restart_backoff_ms"], 250);
+        assert_eq!(value["last_exit_unix_ms"], 1234);
+        assert_eq!(value["restart_alerted_unix_ms"], 5678);
+        assert_eq!(value["restart_blocked_reason"], serde_json::Value::Null);
+        assert_eq!(value["adopted_unix_ms"], 9012);
+        assert_eq!(value["supervision"]["mode"], "adopted_polling");
+        assert_eq!(value["supervision"]["exit_status_precise"], false);
+        assert_eq!(value["next_restart_after_unix_ms"], serde_json::Value::Null);
+        assert_eq!(value["restarted_from"], 111);
+        assert_eq!(value["replacement_child_id"], 222);
         assert_eq!(value["status"]["state"], "exited");
         assert_eq!(value["status"]["code"], 7);
+    }
+
+    #[test]
+    fn restart_policy_args_parse_aliases_and_reject_bad_values() {
+        let never = serde_json::json!({ "restart_policy": "never" })
+            .as_object()
+            .expect("object")
+            .clone();
+        assert_eq!(
+            json_optional_restart_policy(&never, "restart_policy").expect("never"),
+            Some(RestartPolicy::Never)
+        );
+
+        let on_exit = serde_json::json!({ "restart_policy": "on-exit" })
+            .as_object()
+            .expect("object")
+            .clone();
+        assert_eq!(
+            json_optional_restart_policy(&on_exit, "restart_policy").expect("on-exit"),
+            Some(RestartPolicy::OnExit)
+        );
+
+        let bad = serde_json::json!({ "restart_policy": "always" })
+            .as_object()
+            .expect("object")
+            .clone();
+        assert!(json_optional_restart_policy(&bad, "restart_policy").is_err());
+    }
+
+    #[test]
+    fn child_relaunch_honors_backoff_and_limit() {
+        let status = Arc::new(Mutex::new(ChildStatus::Exited {
+            code: Some(1),
+            signal: None,
+        }));
+        let mut record = ChildRecord {
+            launch_id: "child-restart-test".to_string(),
+            pid: 123,
+            child_id: 456,
+            scope_id: 0,
+            cmd: vec!["/bin/false".to_string()],
+            stdout: PathBuf::from("/tmp/stdout.log"),
+            stderr: PathBuf::from("/tmp/stderr.log"),
+            meta: PathBuf::from("/tmp/meta.json"),
+            proc_start_time: None,
+            policy: None,
+            restart_policy: RestartPolicy::OnExit,
+            restart_count: 0,
+            restart_limit: 2,
+            restart_backoff_ms: 1000,
+            last_exit_unix_ms: Some(unix_time_ms().saturating_add(60_000)),
+            restart_alerted_unix_ms: None,
+            adopted_unix_ms: None,
+            restarted_from: None,
+            replacement_child_id: None,
+            status,
+        };
+        assert!(
+            !child_record_should_relaunch(&record),
+            "future exit timestamp should delay relaunch"
+        );
+
+        record.last_exit_unix_ms = Some(unix_time_ms().saturating_sub(2_000));
+        assert!(
+            child_record_should_relaunch(&record),
+            "expired backoff should allow relaunch"
+        );
+
+        record.restart_count = 2;
+        assert!(
+            !child_record_should_relaunch(&record),
+            "restart limit should stop relaunch"
+        );
+        assert_eq!(
+            child_restart_blocked_reason(&record),
+            Some("restart limit reached")
+        );
+        let value = child_record_json(&record);
+        assert_eq!(value["restart_blocked_reason"], "restart limit reached");
     }
 
     #[test]
@@ -1564,6 +2769,55 @@ mod tests {
     }
 
     #[test]
+    fn child_registry_adopts_running_records_on_load() {
+        let project_dir = std::env::temp_dir().join(format!(
+            "actplane-mcp-adopt-test-{}-{}",
+            std::process::id(),
+            child_launch_id()
+        ));
+        let log_dir = project_dir
+            .join(".actplane")
+            .join("children")
+            .join("child-adopt-test");
+        let record = ChildRecord {
+            launch_id: "child-adopt-test".to_string(),
+            pid: std::process::id() as i32,
+            child_id: 778,
+            scope_id: 5,
+            cmd: vec!["/bin/sleep".to_string(), "30".to_string()],
+            stdout: log_dir.join("stdout.log"),
+            stderr: log_dir.join("stderr.log"),
+            meta: log_dir.join("meta.json"),
+            proc_start_time: proc_start_time(std::process::id() as i32),
+            policy: None,
+            restart_policy: RestartPolicy::OnExit,
+            restart_count: 0,
+            restart_limit: 1,
+            restart_backoff_ms: 100,
+            last_exit_unix_ms: None,
+            restart_alerted_unix_ms: None,
+            adopted_unix_ms: None,
+            restarted_from: None,
+            replacement_child_id: None,
+            status: Arc::new(Mutex::new(ChildStatus::Running)),
+        };
+        persist_child_record(&record).expect("persist record");
+
+        let loaded = load_child_records_with_adoptions(&project_dir);
+        assert_eq!(loaded.adopted.len(), 1);
+        let loaded_record = loaded.records.get(&778).expect("loaded child record");
+        assert!(loaded_record.adopted_unix_ms.is_some());
+        let value = child_record_json(loaded_record);
+        assert_eq!(value["supervision"]["mode"], "adopted_polling");
+        assert_eq!(value["supervision"]["exit_status_precise"], false);
+        let meta = std::fs::read_to_string(log_dir.join("meta.json")).expect("read meta");
+        let meta_value: Value = serde_json::from_str(&meta).expect("meta JSON");
+        assert!(meta_value["adopted_unix_ms"].as_u64().is_some());
+
+        let _ = std::fs::remove_dir_all(project_dir);
+    }
+
+    #[test]
     fn child_registry_persists_and_loads_records() {
         let project_dir = std::env::temp_dir().join(format!(
             "actplane-mcp-registry-test-{}-{}",
@@ -1579,20 +2833,45 @@ mod tests {
             launch_id: "child-persist-test".to_string(),
             pid: std::process::id() as i32,
             child_id: 777,
+            scope_id: 5,
             cmd: vec!["/bin/true".to_string()],
             stdout: log_dir.join("stdout.log"),
             stderr: log_dir.join("stderr.log"),
             meta: log_dir.join("meta.json"),
             proc_start_time: proc_start_time(std::process::id() as i32),
+            policy: Some("rule persisted:\n  notify exec \"true\"\n  because \"x\"".to_string()),
+            restart_policy: RestartPolicy::OnExit,
+            restart_count: 1,
+            restart_limit: 4,
+            restart_backoff_ms: 125,
+            last_exit_unix_ms: Some(42),
+            restart_alerted_unix_ms: Some(43),
+            adopted_unix_ms: Some(44),
+            restarted_from: Some(700),
+            replacement_child_id: Some(778),
             status,
         };
         persist_child_record(&record).expect("persist record");
 
-        let loaded = load_child_records(&project_dir);
-        let loaded_record = loaded.get(&777).expect("loaded child record");
+        let loaded = load_child_records_with_adoptions(&project_dir);
+        let loaded_record = loaded.records.get(&777).expect("loaded child record");
         assert_eq!(loaded_record.launch_id, "child-persist-test");
+        assert_eq!(loaded_record.scope_id, 5);
         assert_eq!(loaded_record.cmd, vec!["/bin/true".to_string()]);
         assert_eq!(loaded_record.stdout, log_dir.join("stdout.log"));
+        assert_eq!(
+            loaded_record.policy.as_deref().unwrap(),
+            "rule persisted:\n  notify exec \"true\"\n  because \"x\""
+        );
+        assert_eq!(loaded_record.restart_policy, RestartPolicy::OnExit);
+        assert_eq!(loaded_record.restart_count, 1);
+        assert_eq!(loaded_record.restart_limit, 4);
+        assert_eq!(loaded_record.restart_backoff_ms, 125);
+        assert_eq!(loaded_record.last_exit_unix_ms, Some(42));
+        assert_eq!(loaded_record.restart_alerted_unix_ms, Some(43));
+        assert_eq!(loaded_record.adopted_unix_ms, Some(44));
+        assert_eq!(loaded_record.restarted_from, Some(700));
+        assert_eq!(loaded_record.replacement_child_id, Some(778));
         assert!(matches!(
             *loaded_record.status.lock().expect("status"),
             ChildStatus::Running

@@ -3,9 +3,13 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use ebpf_ifc_engine::{DomainHandle, Loader, ReloadHandle};
+use ebpf_ifc_engine::capability::{
+    AUTH_ADD_LABEL, AUTH_BIND_RULE, AUTH_DECLASSIFY, AUTH_DELEGATE, AUTH_NARROW_SCOPE,
+    AUTH_REQUIRE_GATE, CapState, TARGET_CHILD, TARGET_SELF,
+};
+use ebpf_ifc_engine::{ChildDomainSpec, DomainHandle, HookReserve, Loader, ReloadHandle};
 use serde_json::json;
 use tokio::process::{Child, Command};
 
@@ -34,51 +38,110 @@ pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
     let policy = policy_source(&loaded, cli.domain.as_deref())?;
     let compiled = dsl::compile_str(&policy)?;
     let agent_label = runner_label(&compiled)?;
+    let submitter_pid = std::process::id() as i32;
+    let catalog = Arc::new(RuntimePolicyCatalog::from_compiled(&compiled));
     let feedback = feedback_paths(&loaded);
-    prepare_feedback_files(&feedback, target_user(cli.run_as_root))?;
+    let target_owner = target_user(cli.run_as_root);
+    prepare_feedback_files(&feedback, target_owner)?;
+    write_hook_state(&feedback.state, &feedback.feedback, attach_pid)?;
+    if let Some((uid, gid)) = target_owner {
+        chown_path(&feedback.state, uid, gid)?;
+    }
 
     let stop = Arc::new(AtomicBool::new(false));
-    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<std::result::Result<(), String>>();
+    type ReadyResult = std::result::Result<(ReloadHandle, DomainHandle), String>;
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<ReadyResult>();
     let blob = compiled.bytes;
-    let meta = compiled.meta;
-    let labels = compiled.labels;
     let fb = feedback.feedback.clone();
     let ev = feedback.events.clone();
+    let run_catalog = catalog.clone();
     let stop_thread = stop.clone();
     let poller = std::thread::spawn(move || {
-        let mut loader = match Loader::load(&blob) {
-            Ok(l) => l,
-            Err(e) => {
-                let _ = ready_tx.send(Err(format!("load engine: {e}")));
-                return;
-            }
-        };
+        let mut loader =
+            match Loader::load_with_hook_reserve(&blob, HookReserve::runtime_file_delta()) {
+                Ok(l) => l,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("load engine: {e}")));
+                    return;
+                }
+            };
         if let Err(e) = loader.seed_label(attach_pid, agent_label) {
             let _ = ready_tx.send(Err(format!("seed watch pid {attach_pid}: {e}")));
             return;
         }
-        let _ = ready_tx.send(Ok(()));
+        if submitter_pid != attach_pid {
+            if let Err(e) = loader.bind_state(
+                submitter_pid,
+                attach_pid as u32,
+                control_plane_cap_state(agent_label),
+            ) {
+                let _ = ready_tx.send(Err(format!(
+                    "bind control pid {submitter_pid} to watch domain {attach_pid}: {e}"
+                )));
+                return;
+            }
+        }
+        let rh = match loader.reload_handle() {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("create reload handle: {e}")));
+                return;
+            }
+        };
+        let dh = match loader.domain_handle() {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("create domain handle: {e}")));
+                return;
+            }
+        };
+        let _ = ready_tx.send(Ok((rh, dh)));
         let _ = loader.run(&stop_thread, |v| {
-            report(&meta, &labels, &to_violation(&v), Some(&fb), Some(&ev))
+            run_catalog.append_outputs(&to_violation(&v), &fb, &ev);
         });
     });
 
-    match ready_rx.recv() {
-        Ok(Ok(())) => {}
+    let (reload_handle, domain_handle) = match ready_rx.recv() {
+        Ok(Ok(handles)) => handles,
         Ok(Err(e)) => {
+            stop.store(true, Ordering::SeqCst);
             let _ = poller.join();
             return Err(e.into());
         }
-        Err(_) => return Err("engine thread exited before readiness".into()),
-    }
+        Err(_) => {
+            stop.store(true, Ordering::SeqCst);
+            let _ = poller.join();
+            return Err("engine thread exited before readiness".into());
+        }
+    };
+    let control = Arc::new(EngineControl {
+        reload_handle: Arc::new(reload_handle),
+        domain_handle: Arc::new(domain_handle),
+        catalog,
+        audit_path: feedback.audit.clone(),
+        parent_pid: attach_pid,
+        parent_domain_id: attach_pid as u32,
+        submitter_pid,
+    });
+    let project_dir = watch_project_dir(&loaded);
+    let control_guard = match crate::mcp::start_local_control_server(control, project_dir.clone()) {
+        Ok(guard) => guard,
+        Err(e) => {
+            stop.store(true, Ordering::SeqCst);
+            let _ = poller.join();
+            return Err(e);
+        }
+    };
     eprintln!(
-        "ActPlane: watching pid {} under COMMAND label 0x{:x}; feedback {}\n",
+        "ActPlane: watching pid {} under COMMAND label 0x{:x}; feedback {}; control {}\n",
         attach_pid,
         agent_label,
-        feedback.feedback.display()
+        feedback.feedback.display(),
+        crate::control::state_path(&project_dir).display()
     );
 
     let _ = tokio::signal::ctrl_c().await;
+    drop(control_guard);
     stop.store(true, Ordering::SeqCst);
     let _ = poller.join();
     Ok(0)
@@ -98,6 +161,7 @@ pub(crate) struct EngineControl {
     audit_path: PathBuf,
     pub(crate) parent_pid: i32,
     pub(crate) parent_domain_id: u32,
+    submitter_pid: i32,
 }
 
 struct RuntimePolicyCatalog {
@@ -107,6 +171,20 @@ struct RuntimePolicyCatalog {
 struct RuntimePolicyCatalogInner {
     rules: Vec<report::RuleFeedbackContext>,
     domain_labels: HashMap<u32, HashMap<String, u64>>,
+}
+
+struct PolicyDeltaOutcome {
+    rule_id_base: usize,
+    rule_count: usize,
+    rule_provenance: Vec<serde_json::Value>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct PolicyAuditMeta {
+    pub(crate) policy_ref: Option<String>,
+    pub(crate) approved_by: Option<String>,
+    pub(crate) approval_ref: Option<String>,
+    pub(crate) generated_by: Option<String>,
 }
 
 impl RuntimePolicyCatalog {
@@ -164,6 +242,7 @@ impl EngineControl {
                     "rule_count": n_rules,
                     "policy_ref": policy_ref,
                     "policy_hash": audit::policy_hash(policy_source),
+                    "rule_provenance": rule_provenance_json(&compiled.meta, 0),
                 }))?;
                 Ok(n_rules)
             }
@@ -176,6 +255,7 @@ impl EngineControl {
                     "domain_id": 0,
                     "policy_ref": policy_ref,
                     "policy_hash": audit::policy_hash(policy_source),
+                    "rule_provenance": rule_provenance_json(&compiled.meta, 0),
                     "error": msg,
                 }))
                 .map_err(|audit_err| format!("{e}; audit write failed: {audit_err}"))?;
@@ -227,37 +307,107 @@ impl EngineControl {
         target_id: u32,
         dsl_src: &str,
     ) -> Result<(usize, usize)> {
-        let outcome = self.append_policy_delta_dsl_inner(target_id, dsl_src);
+        self.append_policy_delta_dsl_with_audit(target_id, dsl_src, &PolicyAuditMeta::default())
+    }
+
+    pub(crate) fn submitter_pid(&self) -> i32 {
+        self.submitter_pid
+    }
+
+    pub(crate) fn ensure_parent_or_external_control_actor(&self, actor_pid: i32) -> Result<()> {
+        // Local control supervisor operations are a trusted repo-local admin
+        // path. If a peer is already inside this engine, it must be the parent
+        // domain; unbound CLI peers are allowed so operators can manage a watch
+        // engine attached to a different agent pid.
+        match self.reload_handle.domain_for_pid(actor_pid)? {
+            Some(domain_id) if domain_id == self.parent_domain_id => Ok(()),
+            Some(domain_id) => Err(format!(
+                "pid {actor_pid} belongs to runtime domain {domain_id}, not trusted parent domain {}",
+                self.parent_domain_id
+            )
+            .into()),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn append_policy_delta_dsl_with_audit(
+        &self,
+        target_id: u32,
+        dsl_src: &str,
+        audit_meta: &PolicyAuditMeta,
+    ) -> Result<(usize, usize)> {
+        self.append_policy_delta_dsl_for_actor_with_audit(
+            self.submitter_pid,
+            target_id,
+            dsl_src,
+            audit_meta,
+        )
+    }
+
+    pub(crate) fn append_policy_delta_dsl_for_actor_with_audit(
+        &self,
+        actor_pid: i32,
+        target_id: u32,
+        dsl_src: &str,
+        audit_meta: &PolicyAuditMeta,
+    ) -> Result<(usize, usize)> {
+        let outcome = self.append_policy_delta_dsl_inner(actor_pid, target_id, dsl_src);
         match outcome {
-            Ok((base, n_rules)) => {
-                self.audit(json!({
+            Ok(delta) => {
+                let mut record = json!({
                     "event": "append_policy_delta",
                     "status": "accepted",
                     "actor_pid": self.parent_pid,
+                    "caller_pid": actor_pid,
                     "target_id": target_id,
-                    "rule_id_base": base,
-                    "rule_count": n_rules,
+                    "rule_id_base": delta.rule_id_base,
+                    "rule_count": delta.rule_count,
                     "policy_hash": audit::policy_hash(dsl_src),
-                }))?;
-                Ok((base, n_rules))
+                    "rule_provenance": delta.rule_provenance,
+                });
+                apply_policy_audit_meta(&mut record, audit_meta);
+                self.audit(record)?;
+                Ok((delta.rule_id_base, delta.rule_count))
             }
             Err(e) => {
                 let msg = e.to_string();
-                self.audit(json!({
+                let mut record = json!({
                     "event": "append_policy_delta",
                     "status": "rejected",
                     "actor_pid": self.parent_pid,
+                    "caller_pid": actor_pid,
                     "target_id": target_id,
                     "policy_hash": audit::policy_hash(dsl_src),
                     "error": msg,
-                }))
-                .map_err(|audit_err| format!("{e}; audit write failed: {audit_err}"))?;
+                });
+                apply_policy_audit_meta(&mut record, audit_meta);
+                self.audit(record)
+                    .map_err(|audit_err| format!("{e}; audit write failed: {audit_err}"))?;
                 Err(e)
             }
         }
     }
 
-    fn audit(&self, record: serde_json::Value) -> Result<()> {
+    fn audit(&self, mut record: serde_json::Value) -> Result<()> {
+        if let Some(obj) = record.as_object_mut() {
+            obj.entry("actor_pid")
+                .or_insert_with(|| json!(self.parent_pid));
+            obj.entry("submitter_pid")
+                .or_insert_with(|| json!(self.submitter_pid));
+            obj.entry("engine_parent_pid")
+                .or_insert_with(|| json!(self.parent_pid));
+            obj.entry("engine_parent_domain_id")
+                .or_insert_with(|| json!(self.parent_domain_id));
+            obj.entry("audit_context_id")
+                .or_insert_with(|| json!(audit_context_id(&self.audit_path, self.submitter_pid)));
+            #[cfg(unix)]
+            {
+                obj.entry("audit_writer_euid")
+                    .or_insert_with(|| json!(unsafe { libc::geteuid() }));
+                obj.entry("audit_writer_egid")
+                    .or_insert_with(|| json!(unsafe { libc::getegid() }));
+            }
+        }
         audit::append(&self.audit_path, record)
     }
 
@@ -285,11 +435,67 @@ impl EngineControl {
         self.audit(record)
     }
 
+    pub(crate) fn audit_child_restart(
+        &self,
+        old_child_id: u32,
+        new_pid: i32,
+        new_child_id: Option<u32>,
+        cmd: &[String],
+        policy_attached: bool,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let mut record = json!({
+            "event": "restart_child_domain",
+            "status": status,
+            "actor_pid": self.parent_pid,
+            "old_child_domain_id": old_child_id,
+            "pid": new_pid,
+            "cmd": cmd,
+            "policy_attached": policy_attached,
+        });
+        if let Some(new_child_id) = new_child_id {
+            record["new_child_domain_id"] = json!(new_child_id);
+        }
+        if let Some(error) = error {
+            record["error"] = json!(error);
+        }
+        self.audit(record)
+    }
+
+    pub(crate) fn audit_child_adoption(
+        &self,
+        pid: i32,
+        child_id: u32,
+        cmd: &[String],
+        policy_attached: bool,
+        restart_policy: &str,
+        restart_count: u32,
+        restart_limit: u32,
+        adopted_unix_ms: Option<u64>,
+    ) -> Result<()> {
+        self.audit(json!({
+            "event": "adopt_child_domain",
+            "status": "accepted",
+            "actor_pid": self.parent_pid,
+            "pid": pid,
+            "child_domain_id": child_id,
+            "cmd": cmd,
+            "policy_attached": policy_attached,
+            "restart_policy": restart_policy,
+            "restart_count": restart_count,
+            "restart_limit": restart_limit,
+            "adopted_unix_ms": adopted_unix_ms,
+            "supervision_mode": "adopted_polling",
+        }))
+    }
+
     fn append_policy_delta_dsl_inner(
         &self,
+        actor_pid: i32,
         target_id: u32,
         dsl_src: &str,
-    ) -> Result<(usize, usize)> {
+    ) -> Result<PolicyDeltaOutcome> {
         if target_id == 0 {
             return Err("runtime policy deltas must target a nonzero domain".into());
         }
@@ -305,8 +511,10 @@ impl EngineControl {
             .unwrap_or_default();
         let compiled = dsl::compile_str_with_labels(dsl_src, &existing_labels)?;
         let rule_id_base = inner.rules.len();
+        let rule_count = compiled.meta.len();
+        let rule_provenance = rule_provenance_json(&compiled.meta, rule_id_base);
         self.reload_handle.append_policy_delta_with_rule_id_base(
-            self.parent_pid,
+            actor_pid,
             target_id,
             rule_id_base as u32,
             &compiled.bytes,
@@ -317,7 +525,83 @@ impl EngineControl {
         inner
             .rules
             .extend(report::contexts_from_compiled(&compiled));
-        Ok((rule_id_base, compiled.meta.len()))
+        Ok(PolicyDeltaOutcome {
+            rule_id_base,
+            rule_count,
+            rule_provenance,
+        })
+    }
+}
+
+fn audit_context_id(path: &Path, submitter_pid: i32) -> String {
+    path.parent()
+        .and_then(Path::file_name)
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty() && *s != ".actplane")
+        .map(ToString::to_string)
+        .unwrap_or_else(|| format!("pid-{submitter_pid}"))
+}
+
+fn rule_provenance_json(meta: &[dsl::RuleMeta], rule_id_base: usize) -> Vec<serde_json::Value> {
+    meta.iter()
+        .enumerate()
+        .map(|(offset, rule)| {
+            let mut value = json!({
+                "rule_id": rule_id_base + offset,
+                "name": &rule.name,
+                "effect": effect_name(rule.effect),
+                "ops": &rule.ops,
+                "clause_op": &rule.clause_op,
+                "kernel_op": &rule.kernel_op,
+                "target_kind": kind_name(rule.target_kind),
+                "target_pattern": &rule.target_pattern,
+                "target_arg": &rule.target_arg,
+                "reason": &rule.reason,
+            });
+            if let Some(source) = &rule.source {
+                value["source_ref"] = json!(&source.source_ref);
+                value["source_start_line"] = json!(source.start_line);
+                value["source_end_line"] = json!(source.end_line);
+                value["source_hash"] = json!(audit::policy_hash(&source.text));
+                value["source_text"] = json!(&source.text);
+                if let Some(mode) = &source.binding_mode {
+                    value["binding_mode"] = json!(mode);
+                }
+                value["immutable"] = json!(source.binding_mode.as_deref() == Some("locked"));
+            }
+            value
+        })
+        .collect()
+}
+
+fn apply_policy_audit_meta(record: &mut serde_json::Value, meta: &PolicyAuditMeta) {
+    if let Some(policy_ref) = &meta.policy_ref {
+        record["policy_ref"] = json!(policy_ref);
+    }
+    if let Some(approved_by) = &meta.approved_by {
+        record["approved_by"] = json!(approved_by);
+    }
+    if let Some(approval_ref) = &meta.approval_ref {
+        record["approval_ref"] = json!(approval_ref);
+    }
+    if let Some(generated_by) = &meta.generated_by {
+        record["generated_by"] = json!(generated_by);
+    }
+}
+
+fn effect_name(effect: dsl::ast::Effect) -> &'static str {
+    match effect {
+        dsl::ast::Effect::Notify => "notify",
+        dsl::ast::Effect::Block => "block",
+        dsl::ast::Effect::Kill => "kill",
+    }
+}
+
+fn kind_name(kind: dsl::ast::Kind) -> &'static str {
+    match kind {
+        dsl::ast::Kind::File => "file",
+        dsl::ast::Kind::Endpoint => "endpoint",
+        dsl::ast::Kind::Exec => "exec",
     }
 }
 
@@ -351,6 +635,7 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
     let policy = policy_source(&loaded, cli.domain.as_deref())?;
     let compiled = dsl::compile_str(&policy)?;
     let agent_label = runner_label(&compiled)?;
+    let submitter_pid = std::process::id() as i32;
     let catalog = Arc::new(RuntimePolicyCatalog::from_compiled(&compiled));
     let feedback = scoped_feedback_paths(&feedback_paths(&loaded), "mcp");
     prepare_feedback_files(&feedback, target_user(cli.run_as_root))?;
@@ -368,16 +653,29 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
     let run_catalog = catalog.clone();
     let stop_thread = stop.clone();
     let thread = std::thread::spawn(move || {
-        let mut loader = match Loader::load(&blob) {
-            Ok(l) => l,
-            Err(e) => {
-                let _ = ready_tx.send(Err(format!("load engine: {e}")));
-                return;
-            }
-        };
+        let mut loader =
+            match Loader::load_with_hook_reserve(&blob, HookReserve::runtime_file_delta()) {
+                Ok(l) => l,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("load engine: {e}")));
+                    return;
+                }
+            };
         if let Err(e) = loader.seed_label(attach_pid, agent_label) {
             let _ = ready_tx.send(Err(format!("seed parent pid {attach_pid}: {e}")));
             return;
+        }
+        if submitter_pid != attach_pid {
+            if let Err(e) = loader.bind_state(
+                submitter_pid,
+                attach_pid as u32,
+                control_plane_cap_state(agent_label),
+            ) {
+                let _ = ready_tx.send(Err(format!(
+                    "bind control pid {submitter_pid} to parent domain {attach_pid}: {e}"
+                )));
+                return;
+            }
         }
         let rh = match loader.reload_handle() {
             Ok(h) => h,
@@ -417,6 +715,7 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
                     audit_path: feedback.audit.clone(),
                     parent_pid: attach_pid,
                     parent_domain_id: attach_pid as u32,
+                    submitter_pid,
                 })),
             })
         }
@@ -442,6 +741,15 @@ fn attach_pid_from_env_or_parent() -> i32 {
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or_else(parent_pid)
+}
+
+fn watch_project_dir(loaded: &crate::config::LoadedPolicy) -> PathBuf {
+    loaded
+        .path
+        .as_deref()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| loaded.root.clone())
 }
 
 /// Check whether we have BPF capabilities (root or CAP_BPF + CAP_SYS_ADMIN).
@@ -531,7 +839,13 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     let target_owner = target_user(cli.run_as_root);
     prepare_feedback_files(&feedback, target_owner)?;
 
-    let mut target = spawn_stopped_target(cmd, &feedback, loaded.path.as_deref(), cli.run_as_root)?;
+    let mut target = spawn_stopped_target(
+        cmd,
+        &feedback,
+        loaded.path.as_deref(),
+        cli.run_as_root,
+        false,
+    )?;
     let target_pid = target.id().ok_or("target process has no pid")?;
     write_hook_state(&feedback.state, &feedback.feedback, target_pid as i32)?;
     if let Some((uid, gid)) = target_owner {
@@ -594,6 +908,182 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     Ok(exit_code(status))
 }
 
+pub(crate) async fn run_child_command(
+    cli: &Cli,
+    child_id: Option<u32>,
+    scope_id: u32,
+    delta_paths: &[PathBuf],
+    delta_texts: &[String],
+    cmd: &[String],
+) -> Result<i32> {
+    require_bpf_caps_or_elevate(cli.internal_elevated)?;
+    if cmd.is_empty() {
+        return Err("child-run requires a command".into());
+    }
+
+    let loaded = load_policy(cli)?;
+    let policy = policy_source(&loaded, cli.domain.as_deref())?;
+    let compiled = dsl::compile_str(&policy)?;
+    let agent_label = runner_label(&compiled)?;
+    let deltas = load_child_policy_deltas(delta_paths, delta_texts)?;
+    let feedback = scoped_feedback_paths(&feedback_paths(&loaded), "child-run");
+    let target_owner = target_user(cli.run_as_root);
+    prepare_feedback_files(&feedback, target_owner)?;
+
+    let mut child = spawn_stopped_target(
+        cmd,
+        &feedback,
+        loaded.path.as_deref(),
+        cli.run_as_root,
+        true,
+    )?;
+    let child_pid = child.id().ok_or("child process has no pid")?;
+    let parent_pid = std::process::id() as i32;
+    let parent_domain_id = parent_pid as u32;
+    let child_domain_id = child_id.unwrap_or(child_pid);
+    if child_domain_id == 0 {
+        kill_process_group_and_wait(&mut child).await;
+        return Err("child domain id must be nonzero".into());
+    }
+    write_hook_state(&feedback.state, &feedback.feedback, child_pid as i32)?;
+    if let Some((uid, gid)) = target_owner {
+        chown_path(&feedback.state, uid, gid)?;
+    }
+
+    let catalog = Arc::new(RuntimePolicyCatalog::from_compiled(&compiled));
+    let stop = Arc::new(AtomicBool::new(false));
+    type ReadyResult = std::result::Result<(ReloadHandle, DomainHandle), String>;
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<ReadyResult>();
+    let blob = compiled.bytes;
+    let fb = feedback.feedback.clone();
+    let ev = feedback.events.clone();
+    let run_catalog = catalog.clone();
+    let stop_thread = stop.clone();
+    let poller = std::thread::spawn(move || {
+        let mut loader =
+            match Loader::load_with_hook_reserve(&blob, HookReserve::runtime_file_delta()) {
+                Ok(l) => l,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("load engine: {e}")));
+                    return;
+                }
+            };
+        if let Err(e) = loader.seed_label(parent_pid, agent_label) {
+            let _ = ready_tx.send(Err(format!("seed parent pid {parent_pid}: {e}")));
+            return;
+        }
+        let rh = match loader.reload_handle() {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("create reload handle: {e}")));
+                return;
+            }
+        };
+        let dh = match loader.domain_handle() {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("create domain handle: {e}")));
+                return;
+            }
+        };
+        let _ = ready_tx.send(Ok((rh, dh)));
+        let _ = loader.run(&stop_thread, |v| {
+            run_catalog.append_outputs(&to_violation(&v), &fb, &ev);
+        });
+    });
+
+    let (reload_handle, domain_handle) = match ready_rx.recv() {
+        Ok(Ok(handles)) => handles,
+        Ok(Err(e)) => {
+            kill_process_group_and_wait(&mut child).await;
+            stop.store(true, Ordering::SeqCst);
+            let _ = poller.join();
+            return Err(e.into());
+        }
+        Err(_) => {
+            kill_process_group_and_wait(&mut child).await;
+            stop.store(true, Ordering::SeqCst);
+            let _ = poller.join();
+            return Err("engine thread exited before readiness".into());
+        }
+    };
+
+    let control = EngineControl {
+        reload_handle: Arc::new(reload_handle),
+        domain_handle: Arc::new(domain_handle),
+        catalog,
+        audit_path: feedback.audit.clone(),
+        parent_pid,
+        parent_domain_id,
+        submitter_pid: parent_pid,
+    };
+    let policy_attached = !deltas.is_empty();
+
+    if let Err(e) = control.bind_child_domain(ChildDomainSpec {
+        parent_pid,
+        parent_id: parent_domain_id,
+        child_id: child_domain_id,
+        pid: child_pid as i32,
+        scope_id,
+        authority_mask: AUTH_BIND_RULE,
+        target_mask: TARGET_SELF,
+        ..ChildDomainSpec::default()
+    }) {
+        kill_process_group_and_wait(&mut child).await;
+        let _ = control.audit_child_launch(
+            child_pid as i32,
+            child_domain_id,
+            &cmd.to_vec(),
+            policy_attached,
+            "rejected",
+            Some(&e.to_string()),
+        );
+        stop.store(true, Ordering::SeqCst);
+        let _ = poller.join();
+        return Err(format!("bind child domain failed: {e}").into());
+    }
+
+    for (policy_ref, delta) in &deltas {
+        if let Err(e) = control.append_policy_delta_dsl(child_domain_id, delta) {
+            kill_process_group_and_wait(&mut child).await;
+            let _ = control.audit_child_launch(
+                child_pid as i32,
+                child_domain_id,
+                &cmd.to_vec(),
+                policy_attached,
+                "rejected",
+                Some(&format!("{policy_ref}: {e}")),
+            );
+            stop.store(true, Ordering::SeqCst);
+            let _ = poller.join();
+            return Err(format!("append child policy delta {policy_ref} failed: {e}").into());
+        }
+    }
+
+    control.audit_child_launch(
+        child_pid as i32,
+        child_domain_id,
+        &cmd.to_vec(),
+        policy_attached,
+        "accepted",
+        None,
+    )?;
+
+    eprintln!(
+        "ActPlane: running child pid {} in domain {}; feedback {}",
+        child_pid,
+        child_domain_id,
+        feedback.feedback.display()
+    );
+    send_signal(child_pid, libc::SIGCONT)?;
+
+    let status = child.wait().await?;
+    std::thread::sleep(Duration::from_millis(200));
+    stop.store(true, Ordering::SeqCst);
+    let _ = poller.join();
+    Ok(exit_code(status))
+}
+
 fn runner_label(compiled: &dsl::Compiled) -> Result<u64> {
     compiled
         .labels
@@ -605,6 +1095,23 @@ fn runner_label(compiled: &dsl::Compiled) -> Result<u64> {
              (or AGENT for backward compatibility)"
                 .into()
         })
+}
+
+fn control_plane_cap_state(label: u64) -> CapState {
+    CapState {
+        scope_id: 1,
+        labels: label,
+        authority_mask: AUTH_BIND_RULE
+            | AUTH_NARROW_SCOPE
+            | AUTH_ADD_LABEL
+            | AUTH_REQUIRE_GATE
+            | AUTH_DECLASSIFY
+            | AUTH_DELEGATE,
+        target_mask: TARGET_SELF | TARGET_CHILD,
+        gate_mask: u64::MAX,
+        label_mask: u64::MAX,
+        ..CapState::default()
+    }
 }
 
 fn prepare_feedback_files(
@@ -672,6 +1179,19 @@ fn run_id(prefix: &str) -> String {
     format!("{prefix}-{}-{now}", std::process::id())
 }
 
+fn load_child_policy_deltas(paths: &[PathBuf], inline: &[String]) -> Result<Vec<(String, String)>> {
+    let mut deltas = Vec::new();
+    for path in paths {
+        let src = std::fs::read_to_string(path)
+            .map_err(|e| format!("cannot read child policy delta {}: {e}", path.display()))?;
+        deltas.push((path.display().to_string(), src));
+    }
+    for (idx, src) in inline.iter().enumerate() {
+        deltas.push((format!("--delta-text[{idx}]"), src.clone()));
+    }
+    Ok(deltas)
+}
+
 fn chown_path(path: &Path, uid: libc::uid_t, gid: libc::gid_t) -> std::io::Result<()> {
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"))?;
@@ -688,6 +1208,7 @@ fn spawn_stopped_target(
     feedback: &FeedbackPaths,
     policy_path: Option<&Path>,
     run_as_root: bool,
+    new_process_group: bool,
 ) -> Result<Child> {
     if cmd.is_empty() {
         return Err("run requires a command after `--`".into());
@@ -709,6 +1230,9 @@ fn spawn_stopped_target(
 
     unsafe {
         target.pre_exec(move || {
+            if new_process_group && libc::setpgid(0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
             if let Some((uid, gid)) = drop_to {
                 if libc::setgid(gid) != 0 {
                     return Err(std::io::Error::last_os_error());
@@ -720,7 +1244,27 @@ fn spawn_stopped_target(
             Ok(())
         });
     }
-    Ok(target.spawn()?)
+    let mut target = target.spawn()?;
+    let pid = target
+        .id()
+        .ok_or_else(|| "spawned target has no pid".to_string())?;
+    if let Err(e) = wait_for_stopped_process(pid, Duration::from_secs(5)) {
+        let _ = if new_process_group {
+            send_process_group_signal(pid, libc::SIGKILL)
+        } else {
+            send_signal(pid, libc::SIGKILL)
+        };
+        let _ = target.start_kill();
+        return Err(format!("target {pid} did not enter stopped state before setup: {e}").into());
+    }
+    Ok(target)
+}
+
+async fn kill_process_group_and_wait(child: &mut Child) {
+    if let Some(pid) = child.id() {
+        let _ = send_process_group_signal(pid, libc::SIGKILL);
+    }
+    let _ = child.wait().await;
 }
 
 fn target_user(run_as_root: bool) -> Option<(libc::uid_t, libc::gid_t)> {
@@ -747,6 +1291,49 @@ fn send_signal(pid: u32, sig: i32) -> std::io::Result<()> {
     }
 }
 
+fn send_process_group_signal(pid: u32, sig: i32) -> std::io::Result<()> {
+    let rc = unsafe { libc::kill(-(pid as libc::pid_t), sig) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+fn wait_for_stopped_process(pid: u32, timeout: Duration) -> std::io::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let state = proc_state_code(pid)?;
+        if matches!(state, 'T' | 't') {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("last observed process state was {state}"),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn proc_state_code(pid: u32) -> std::io::Result<char> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status"))?;
+    status
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("State:")
+                .and_then(|state| state.split_whitespace().next())
+                .and_then(|state| state.chars().next())
+        })
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "missing process State line",
+            )
+        })
+}
+
 fn exit_code(status: std::process::ExitStatus) -> i32 {
     if let Some(code) = status.code() {
         return code;
@@ -756,4 +1343,63 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
         return 128 + sig;
     }
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audit_context_id_uses_run_dir_when_available() {
+        assert_eq!(
+            audit_context_id(Path::new("/repo/.actplane/runs/mcp-123/audit.jsonl"), 42),
+            "mcp-123"
+        );
+        assert_eq!(
+            audit_context_id(Path::new("/repo/.actplane/audit.jsonl"), 42),
+            "pid-42"
+        );
+    }
+
+    #[test]
+    fn rule_provenance_json_includes_source_text_and_binding_mode() {
+        let meta = vec![dsl::RuleMeta {
+            name: "secret".to_string(),
+            reason: "review secrets".to_string(),
+            effect: dsl::ast::Effect::Block,
+            ops: vec!["exec".to_string()],
+            clause_op: "exec".to_string(),
+            kernel_op: "exec".to_string(),
+            target_kind: dsl::ast::Kind::Exec,
+            target_pattern: "git".to_string(),
+            target_arg: None,
+            source: Some(dsl::RuleSourceMeta {
+                source_ref: "rules.secret.ifc".to_string(),
+                binding_mode: Some("locked".to_string()),
+                start_line: 3,
+                end_line: 7,
+                text: "rule secret:\n  block exec \"git\"\n  because \"review secrets\""
+                    .to_string(),
+            }),
+        }];
+
+        let value = rule_provenance_json(&meta, 5);
+        assert_eq!(value[0]["rule_id"], 5);
+        assert_eq!(value[0]["source_ref"], "rules.secret.ifc");
+        assert_eq!(value[0]["binding_mode"], "locked");
+        assert_eq!(value[0]["immutable"], true);
+        assert_eq!(value[0]["source_start_line"], 3);
+        assert!(
+            value[0]["source_text"]
+                .as_str()
+                .unwrap()
+                .contains("rule secret")
+        );
+        assert!(
+            value[0]["source_hash"]
+                .as_str()
+                .unwrap()
+                .starts_with("fnv1a64:")
+        );
+    }
 }

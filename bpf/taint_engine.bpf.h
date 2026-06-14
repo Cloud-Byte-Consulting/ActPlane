@@ -178,10 +178,11 @@ struct sess_domain_id {
 	__u32 domain_id;
 };
 
-/* File object identity (Layer A, docs/rule-language.md §1.10). A real (dev, inode)
- * when the hook has an inode (LSM mode); otherwise (0, fnv1a(path)) so the
- * tracepoint path keeps its old path-keyed behavior byte-for-byte. Used as a
- * HASH key, so it MUST be fully zero-initialized (incl _pad) before use. */
+/* File object identity (Layer A, docs/rule-language.md §1.10). A real
+ * (dev, inode) when the hook or a post-syscall fdtable lookup can reach the
+ * file object. Otherwise (0, fnv1a(path)) preserves tracepoint path-keyed
+ * fallback behavior. Used as a HASH key, so it MUST be fully zero-initialized
+ * (incl _pad) before use. */
 struct file_id {
 	__u64 ino;
 	__u32 dev;
@@ -209,6 +210,10 @@ struct endp_domain_id {
 	__u32 ip;
 	__u32 domain_id;
 };
+struct endp_label_id {
+	struct endp_domain_id edom;
+	__u64 label;
+};
 
 static __always_inline void te_file_domain_key_for(__u32 domain_id,
 						   struct file_id *fid,
@@ -235,7 +240,6 @@ static __always_inline void te_endp_domain_key_for(__u32 domain_id, __u32 ip,
 
 struct te_rule_eval {
 	pid_t pid;
-	__u64 labels;
 	__u64 global_labels;
 	__u64 current_labels;
 	unsigned int op;
@@ -243,7 +247,6 @@ struct te_rule_eval {
 	struct file_id *fid;
 	__u32 ip;
 	__u32 current_domain_id;
-	__u32 rule_domain_id;
 	__u32 include_file_labels;
 	__u32 matched_domain_id;
 	unsigned int effect;
@@ -317,6 +320,13 @@ struct {
 	__type(key, struct endp_domain_id); /* IPv4 (network order) + domain */
 	__type(value, __u64);
 } ts_endp SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 65536);
+	__type(key, struct endp_label_id);
+	__type(value, struct te_prov);
+} ts_endp_prov SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -663,6 +673,75 @@ static __noinline void te_copy_proc_prov_to_file(pid_t pid, struct file_domain_i
 	bpf_loop(te_count(5), te_copy_proc_prov_to_file_cb, &c, 0);
 }
 
+struct te_copy_endp_to_proc_ctx {
+	pid_t pid;
+	struct endp_domain_id edom;
+	__u64 labels;
+};
+static int te_copy_endp_prov_to_proc_cb(__u32 i, void *vc)
+{
+	struct te_copy_endp_to_proc_ctx *c = vc;
+	if (i >= MAX_TAINT_LABELS)
+		return 1;
+	__u64 bit = 1ULL << i;
+	if (!(c->labels & bit))
+		return 0;
+	struct endp_label_id ek = { .edom = c->edom, .label = bit };
+	struct te_prov *p = bpf_map_lookup_elem(&ts_endp_prov, &ek);
+	if (!p)
+		return 0;
+	struct pid_label_id pk = {
+		.pid = c->pid,
+		.domain_id = c->edom.domain_id,
+		.label = bit,
+	};
+	bpf_map_update_elem(&ts_proc_prov, &pk, p, BPF_ANY);
+	return 0;
+}
+static __noinline void te_copy_endp_prov_to_proc(pid_t pid,
+						 struct endp_domain_id *edom,
+						 __u64 labels)
+{
+	struct te_copy_endp_to_proc_ctx c = {
+		.pid = pid,
+		.edom = *edom,
+		.labels = labels,
+	};
+	bpf_loop(te_count(5), te_copy_endp_prov_to_proc_cb, &c, 0);
+}
+
+struct te_copy_proc_to_endp_ctx {
+	pid_t pid;
+	struct endp_domain_id edom;
+	__u64 labels;
+};
+static int te_copy_proc_prov_to_endp_cb(__u32 i, void *vc)
+{
+	struct te_copy_proc_to_endp_ctx *c = vc;
+	if (i >= MAX_TAINT_LABELS)
+		return 1;
+	__u64 bit = 1ULL << i;
+	if (!(c->labels & bit))
+		return 0;
+	struct te_prov *p = te_lookup_proc_prov(c->pid, c->edom.domain_id, bit);
+	if (!p)
+		return 0;
+	struct endp_label_id ek = { .edom = c->edom, .label = bit };
+	bpf_map_update_elem(&ts_endp_prov, &ek, p, BPF_ANY);
+	return 0;
+}
+static __noinline void te_copy_proc_prov_to_endp(pid_t pid,
+						 struct endp_domain_id *edom,
+						 __u64 labels)
+{
+	struct te_copy_proc_to_endp_ctx c = {
+		.pid = pid,
+		.edom = *edom,
+		.labels = labels,
+	};
+	bpf_loop(te_count(5), te_copy_proc_prov_to_endp_cb, &c, 0);
+}
+
 static __always_inline void te_add_labels_domain(pid_t pid, __u32 domain_id, __u64 add)
 {
 	if (!te_pid_active(pid) || !add)
@@ -918,7 +997,7 @@ static __always_inline void te_collect_file_updates(struct te_update_ctx *c)
 	bpf_loop(te_count(1), te_file_update_cb, c, 0);
 }
 
-static int te_connect_update_cb(__u32 i, void *vc)
+static int te_endpoint_update_cb(__u32 i, void *vc)
 {
 	struct te_update_ctx *c = vc;
 
@@ -928,7 +1007,7 @@ static int te_connect_update_cb(__u32 i, void *vc)
 	if (!up)
 		return 1;
 	struct taint_update u = *up;
-	if (u.op != TOP_CONNECT)
+	if (u.op != c->op)
 		return 0;
 	if (u.domain_id != c->domain_id)
 		return 0;
@@ -938,9 +1017,9 @@ static int te_connect_update_cb(__u32 i, void *vc)
 	return 0;
 }
 
-static __always_inline void te_collect_connect_updates(struct te_update_ctx *c)
+static __always_inline void te_collect_endpoint_updates(struct te_update_ctx *c)
 {
-	bpf_loop(te_count(1), te_connect_update_cb, c, 0);
+	bpf_loop(te_count(1), te_endpoint_update_cb, c, 0);
 }
 
 /* on exec: apply compiled updates for labels, declassification, gates, and
@@ -1034,20 +1113,45 @@ static __noinline __u64 te_update_add_file_domain(unsigned int op,
 	return c.add;
 }
 
-static __noinline __u64 te_update_add_connect_domain(__u32 ip, pid_t pid,
-						     __u32 domain_id)
+static __noinline __u64 te_update_add_endpoint_domain(unsigned int op, __u32 ip,
+						      pid_t pid,
+						      __u32 domain_id)
 {
 	struct te_update_ctx c = {
 		.pid = pid,
 		.domain_id = domain_id,
-		.op = TOP_CONNECT,
+		.op = op,
 		.ip = ip,
 	};
 
 	if (!te_pid_active(pid) || !cap_domain_matches_pid(pid, domain_id))
 		return 0;
-	te_collect_connect_updates(&c);
+	te_collect_endpoint_updates(&c);
 	return c.add;
+}
+
+static __always_inline __u64 te_update_add_connect_domain(__u32 ip, pid_t pid,
+							  __u32 domain_id)
+{
+	return te_update_add_endpoint_domain(TOP_CONNECT, ip, pid, domain_id);
+}
+
+static __always_inline __u64 te_update_add_recv_domain(__u32 ip, pid_t pid,
+						       __u32 domain_id)
+{
+	return te_update_add_endpoint_domain(TOP_RECV, ip, pid, domain_id);
+}
+
+static __always_inline __u64 te_endpoint_stored_labels_domain(__u32 ip,
+							      pid_t pid,
+							      __u32 domain_id)
+{
+	if (!te_pid_active(pid) || !cap_domain_matches_pid(pid, domain_id))
+		return 0;
+	struct endp_domain_id edom = {};
+	te_endp_domain_key_for(domain_id, ip, &edom);
+	__u64 *el = bpf_map_lookup_elem(&ts_endp, &edom);
+	return el ? *el : 0;
 }
 
 static __always_inline __u64 te_file_labels_domain(struct file_id *fid, const char *path,
@@ -1191,6 +1295,7 @@ static __always_inline void te_connect_flow_domain(__u32 ip, pid_t pid, __u32 do
 	__u64 *el = bpf_map_lookup_elem(&ts_endp, &edom);
 	__u64 nv = (el ? *el : 0) | pl;
 	bpf_map_update_elem(&ts_endp, &edom, &nv, BPF_ANY);
+	te_copy_proc_prov_to_endp(pid, &edom, pl);
 }
 
 static __always_inline void te_connect_flow(__u32 ip, pid_t pid)
@@ -1200,6 +1305,36 @@ static __always_inline void te_connect_flow(__u32 ip, pid_t pid)
 		if (i > 0 && !domain_id)
 			break;
 		te_connect_flow_domain(ip, pid, domain_id);
+	}
+}
+
+/* recv ingress: process absorbs endpoint labels and recv endpoint sources. */
+static __always_inline void te_recv_flow_domain(__u32 ip, pid_t pid, __u32 domain_id)
+{
+	if (!te_pid_active(pid) || !cap_domain_matches_pid(pid, domain_id))
+		return;
+	struct endp_domain_id edom = {};
+	te_endp_domain_key_for(domain_id, ip, &edom);
+	__u64 *el = bpf_map_lookup_elem(&ts_endp, &edom);
+	__u64 endp_labels = el ? *el : 0;
+	__u64 src_labels = te_update_add_recv_domain(ip, pid, domain_id);
+	__u64 add = endp_labels | src_labels;
+	if (!add)
+		return;
+	te_add_labels_domain(pid, domain_id, add);
+	if (endp_labels)
+		te_copy_endp_prov_to_proc(pid, &edom, endp_labels);
+	if (src_labels)
+		te_record_proc_prov_mask(pid, domain_id, src_labels, TOP_RECV, 0, ip);
+}
+
+static __always_inline void te_recv_flow(__u32 ip, pid_t pid)
+{
+	for (int i = 0; i < CAP_DOMAIN_DEPTH; i++) {
+		__u32 domain_id = te_domain_for_depth(pid, i);
+		if (i > 0 && !domain_id)
+			break;
+		te_recv_flow_domain(ip, pid, domain_id);
 	}
 }
 
@@ -1216,7 +1351,7 @@ static __always_inline int te_cond_satisfied(const struct taint_rule *r,
 		return te_after_satisfied(r, e->pid);
 	/* TCOND_TARGET */
 	int m;
-	if (e->op == TOP_CONNECT)
+	if (e->op == TOP_CONNECT || e->op == TOP_RECV)
 		m = ((e->ip & r->cond_ipv4_mask) == r->cond_ipv4);
 	else if (e->op == TOP_EXEC)
 		m = taint_exec_match(r->cond_match, e->target, r->cond_pat);
@@ -1236,11 +1371,12 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 	if (!rp)
 		return -1;
 
+	if (!cap_policy_rule_bound(rp->domain_id, idx))
+		return -1;
 	if (rp->op != e->op)
 		return -1;
-	if (rp->domain_id != e->rule_domain_id)
-		return -1;
-	if (!cap_domain_matches_pid(e->pid, rp->domain_id))
+	if (rp->domain_id != 0 && rp->domain_id != e->current_domain_id &&
+	    !cap_domain_matches_pid(e->pid, rp->domain_id))
 		return -1;
 	if (e->effect_mask) {
 		if (rp->effect > TEFFECT_KILL)
@@ -1248,10 +1384,18 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 		if (!(e->effect_mask & (1U << rp->effect)))
 			return -1;
 	}
-	__u64 labels = e->labels;
+	__u64 labels = 0;
+	if (rp->domain_id == 0)
+		labels = e->global_labels;
+	else if (rp->domain_id == e->current_domain_id)
+		labels = e->current_labels;
+	else
+		labels = te_labels_for_domain(e->pid, rp->domain_id);
+	if (e->include_file_labels && e->fid)
+		labels |= te_file_stored_labels_domain(e->fid, e->pid, rp->domain_id);
 	if (!taint_mask_ok(labels, rp->req, rp->forbid))
 		return -1;
-	if (e->op == TOP_CONNECT) {
+	if (e->op == TOP_CONNECT || e->op == TOP_RECV) {
 		if ((e->ip & rp->ipv4_mask) != rp->ipv4)
 			return -1;
 	} else if (e->op == TOP_EXEC) {
@@ -1272,11 +1416,18 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 	e->matched_rule = (int)rp->rule_id;
 	e->matched_domain_id = rp->domain_id;
 	e->matched_req = rp->req;
-	e->matched_labels = labels;
+	e->matched_labels = labels & rp->req;
 	return (int)rp->effect;
 }
 
-struct te_rule_ctx { struct te_rule_eval *e; unsigned int best_effect; int best_rule; };
+struct te_rule_ctx {
+	struct te_rule_eval *e;
+	unsigned int best_effect;
+	int best_rule;
+	__u32 best_domain_id;
+	__u64 best_req;
+	__u64 best_labels;
+};
 static int te_rule_cb(__u32 i, void *vc)
 {
 	struct te_rule_ctx *c = vc;
@@ -1286,6 +1437,9 @@ static int te_rule_cb(__u32 i, void *vc)
 	if (c->best_rule < 0 || (unsigned int)eff > c->best_effect) {
 		c->best_rule = c->e->matched_rule;
 		c->best_effect = (unsigned int)eff;
+		c->best_domain_id = c->e->matched_domain_id;
+		c->best_req = c->e->matched_req;
+		c->best_labels = c->e->matched_labels;
 		if (c->best_effect == TEFFECT_KILL)
 			return 1;
 	}
@@ -1300,8 +1454,13 @@ static __noinline int te_check_labels(struct te_rule_eval *e)
 {
 	struct te_rule_ctx c = { .e = e, .best_effect = TEFFECT_NOTIFY, .best_rule = -1 };
 	bpf_loop(te_count(0), te_rule_cb, &c, 0);
-	if (c.best_rule >= 0)
+	if (c.best_rule >= 0) {
 		e->effect = c.best_effect;
+		e->matched_rule = c.best_rule;
+		e->matched_domain_id = c.best_domain_id;
+		e->matched_req = c.best_req;
+		e->matched_labels = c.best_labels;
+	}
 	return c.best_rule;
 }
 

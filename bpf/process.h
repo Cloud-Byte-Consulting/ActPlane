@@ -11,6 +11,11 @@
 #define TE_POLICY_OPEN_RULES    (1U << 2)
 #define TE_POLICY_WRITE_RULES   (1U << 3)
 #define TE_POLICY_CONNECT       (1U << 4)
+#define TE_POLICY_RECV          (1U << 5)
+#define TE_POLICY_FILE_FLOW     (1U << 6)
+#define TE_POLICY_BLOCK_EXEC    (1U << 7)
+#define TE_POLICY_BLOCK_FILE    (1U << 8)
+#define TE_POLICY_BLOCK_CONNECT (1U << 9)
 
 #include "taint.h"
 
@@ -26,6 +31,9 @@ struct event {
 	unsigned int blocked;          /* 1 if an LSM hook denied the operation */
 	unsigned int killed;           /* 1 if the rule sent SIGKILL */
 	unsigned int effect;           /* enum taint_effect declared by the rule */
+	unsigned int op;               /* enum taint_op for this matched operation */
+	unsigned int domain_id;         /* runtime domain whose rule matched */
+	int session_root;               /* root pid for session-scoped state */
 	unsigned long long timestamp_ns;
 	char comm[TASK_COMM_LEN];
 	char filename[MAX_FILENAME_LEN]; /* offending exe / path ("" for connect) */
@@ -33,6 +41,7 @@ struct event {
 	unsigned int conn_ip;            /* connect: network-order IPv4 (0 otherwise) */
 	unsigned long long taint_label;
 	unsigned long long matched_label;
+	unsigned long long matched_labels;
 	unsigned long long prov_label;
 	unsigned long long prov_timestamp_ns;
 	int prov_pid;

@@ -20,30 +20,60 @@ fn effect_name(e: u32) -> &'static str {
     }
 }
 
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0c}' => out.push_str("\\f"),
+            ch if ch < '\u{20}' => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn print_violation(v: &Violation) {
     let provenance = match &v.provenance {
         Some(p) => format!(
-            "{{\"label\":{},\"timestamp\":{},\"pid\":{},\"op\":{},\"target\":\"{}\"}}",
-            p.label, p.timestamp_ns, p.pid, p.op, p.target
+            "{{\"label\":{},\"timestamp_ns\":{},\"pid\":{},\"op\":{},\"target\":{}}}",
+            p.label,
+            p.timestamp_ns,
+            p.pid,
+            p.op,
+            json_string(&p.target)
         ),
         None => "null".to_string(),
     };
     println!(
         "{{\"timestamp\":{},\"event\":\"TAINT_VIOLATION\",\"effect\":\"{}\",\
-\"blocked\":{},\"killed\":{},\"comm\":\"{}\",\"pid\":{},\"ppid\":{},\
-\"target\":\"{}\",\"rule_id\":{},\"taint_label\":{},\"matched_label\":{},\
+\"blocked\":{},\"killed\":{},\"comm\":{},\"pid\":{},\"ppid\":{},\
+\"op\":{},\"domain_id\":{},\"session_root\":{},\
+\"target\":{},\"rule_id\":{},\"taint_label\":{},\"matched_label\":{},\
+\"matched_labels\":{},\
 \"provenance\":{}}}",
         v.timestamp_ns,
         effect_name(v.effect),
         v.blocked,
         v.killed,
-        v.comm,
+        json_string(&v.comm),
         v.pid,
         v.ppid,
-        v.target,
+        v.op,
+        v.domain_id,
+        v.session_root,
+        json_string(&v.target),
         v.rule_id,
         v.label,
         v.matched_label,
+        v.matched_labels,
         provenance,
     );
     use std::io::Write;

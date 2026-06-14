@@ -62,9 +62,11 @@ actplane explain last
 actplane status
 ```
 
-`check` validates policy without privileges. It should compile the DSL, explain
-rules, and report static warnings such as unsupported `block` behavior without
-BPF-LSM or hostname endpoint patterns that cannot match in-kernel IPv4.
+`check` validates policy without privileges. It compiles the DSL, summarizes
+rules, prints a backend support matrix, and reports static warnings such as
+unsupported `block` behavior without BPF-LSM, unsupported `notify/kill recv`,
+argv-sensitive `block exec`, or hostname endpoint patterns that cannot match
+in-kernel IPv4.
 
 `doctor` diagnoses the local environment: policy discovery, `actplane` on
 `PATH`, Codex hook setup, project MCP config, duplicate global/project MCP

@@ -14,16 +14,16 @@
 use std::io::{self, Read};
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use aya::maps::{Array, HashMap, Map, MapData, MapError, RingBuf};
 use aya::programs::{Lsm, TracePoint};
 use aya::{Btf, Ebpf, EbpfLoader};
 
 pub mod capability;
-#[cfg(test)]
-use capability::AUTH_ADD_LABEL;
 use capability::{
-    CapState, DeltaRequest, AUTH_BIND_RULE, AUTH_NARROW_SCOPE, TARGET_CHILD, TARGET_SELF,
+    CapState, DeltaRequest, AUTH_ADD_LABEL, AUTH_BIND_RULE, AUTH_DECLASSIFY, AUTH_DELEGATE,
+    AUTH_NARROW_SCOPE, AUTH_REQUIRE_GATE, TARGET_CHILD, TARGET_SELF,
 };
 
 const BPF_ANY: u64 = 0;
@@ -51,6 +51,7 @@ const OP_EXEC: u8 = 0;
 const OP_OPEN: u8 = 1;
 const OP_WRITE: u8 = 2;
 const OP_CONNECT: u8 = 3;
+const OP_RECV: u8 = 4;
 const EFFECT_BLOCK: u8 = 1;
 const C_TARGET: u8 = 3;
 const FEAT_PATH_CONTAINS: u32 = 1 << 0;
@@ -58,6 +59,11 @@ const FEAT_PATH_SUFFIX: u32 = 1 << 1;
 const FEAT_OPEN_RULES: u32 = 1 << 2;
 const FEAT_WRITE_RULES: u32 = 1 << 3;
 const FEAT_CONNECT: u32 = 1 << 4;
+const FEAT_RECV: u32 = 1 << 5;
+const FEAT_FILE_FLOW: u32 = 1 << 6;
+const FEAT_BLOCK_EXEC: u32 = 1 << 7;
+const FEAT_BLOCK_FILE: u32 = 1 << 8;
+const FEAT_BLOCK_CONNECT: u32 = 1 << 9;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -123,10 +129,18 @@ struct PidDomainKey {
     domain_id: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CapPolicyMask {
+    lo: u64,
+    hi: u64,
+}
+
 unsafe impl aya::Pod for CUpdate {}
 unsafe impl aya::Pod for CRule {}
 unsafe impl aya::Pod for ProcState {}
 unsafe impl aya::Pod for PidDomainKey {}
+unsafe impl aya::Pod for CapPolicyMask {}
 
 // ringbuf event (bpf/process.h: struct event).
 const EVENT_TYPE_TAINT_VIOLATION: i32 = 3;
@@ -142,6 +156,9 @@ struct Event {
     blocked: u32,
     killed: u32,
     effect: u32,
+    op: u32,
+    domain_id: u32,
+    session_root: i32,
     timestamp_ns: u64,
     comm: [u8; COMM_LEN],
     filename: [u8; FILENAME_LEN],
@@ -149,6 +166,7 @@ struct Event {
     conn_ip: u32,
     taint_label: u64,
     matched_label: u64,
+    matched_labels: u64,
     prov_label: u64,
     prov_timestamp_ns: u64,
     prov_pid: i32,
@@ -178,8 +196,12 @@ pub struct Violation {
     pub ppid: i32,
     pub target: String, // exe/path, or "a.b.c.d" for connect
     pub rule_id: u32,
+    pub op: u32,
+    pub domain_id: u32,
+    pub session_root: i32,
     pub label: u64,
     pub matched_label: u64,
+    pub matched_labels: u64,
     pub provenance: Option<Provenance>,
     pub timestamp_ns: u64,
 }
@@ -308,6 +330,21 @@ fn dup_hash_map_fd(bpf: &Ebpf, name: &str) -> io::Result<OwnedFd> {
     Ok(unsafe { OwnedFd::from_raw_fd(dup) })
 }
 
+fn dup_array_map_fd(bpf: &Ebpf, name: &str) -> io::Result<OwnedFd> {
+    let map = bpf
+        .map(name)
+        .ok_or_else(|| err(format!("{name} missing")))?;
+    let data = match map {
+        Map::Array(data) => data,
+        _ => return Err(err(format!("{name} is not an array map"))),
+    };
+    let dup = unsafe { libc::dup(data.fd().as_fd().as_raw_fd()) };
+    if dup < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe { OwnedFd::from_raw_fd(dup) })
+}
+
 fn hash_map_from_fd<K: aya::Pod, V: aya::Pod>(fd: &OwnedFd) -> io::Result<HashMap<MapData, K, V>> {
     let data = MapData::from_fd(dup_owned_fd(fd)?).map_err(|e| err(format!("map from fd: {e}")))?;
     HashMap::try_from(Map::HashMap(data)).map_err(|e| err(format!("typed hash map: {e}")))
@@ -382,30 +419,438 @@ impl DomainHandle {
     }
 }
 
-/// Tracepoint programs: (fn name, category, event). Always attached.
-const TRACEPOINTS: &[(&str, &str, &str)] = &[
-    ("handle_fork", "sched", "sched_process_fork"),
-    ("handle_exec", "sched", "sched_process_exec"),
-    ("handle_exit", "sched", "sched_process_exit"),
-    ("trace_openat", "syscalls", "sys_enter_openat"),
-    ("trace_openat_exit", "syscalls", "sys_exit_openat"),
-    ("trace_open", "syscalls", "sys_enter_open"),
-    ("trace_open_exit", "syscalls", "sys_exit_open"),
-    ("trace_openat2", "syscalls", "sys_enter_openat2"),
-    ("trace_openat2_exit", "syscalls", "sys_exit_openat2"),
-    ("trace_creat", "syscalls", "sys_enter_creat"),
-    ("trace_creat_exit", "syscalls", "sys_exit_creat"),
-    ("trace_truncate", "syscalls", "sys_enter_truncate"),
-    ("trace_truncate_exit", "syscalls", "sys_exit_truncate"),
-    ("trace_unlink", "syscalls", "sys_enter_unlink"),
-    ("trace_unlinkat", "syscalls", "sys_enter_unlinkat"),
-    ("trace_rename", "syscalls", "sys_enter_rename"),
-    ("trace_renameat", "syscalls", "sys_enter_renameat"),
-    ("trace_renameat2", "syscalls", "sys_enter_renameat2"),
-    ("trace_connect", "syscalls", "sys_enter_connect"),
-    ("trace_read", "syscalls", "sys_enter_read"),
-    ("trace_write", "syscalls", "sys_enter_write"),
-    ("cap_drain_tick", "syscalls", "sys_enter_getpid"),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TracepointNeed {
+    Core,
+    FileOpen,
+    FileWritePath,
+    FdFlow,
+    ConnectOrRecv,
+    SendAddr,
+    RecvAddr,
+    FileIpcAdvanced,
+    MmapAdvanced,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TracepointSpec {
+    name: &'static str,
+    category: &'static str,
+    event: &'static str,
+    need: TracepointNeed,
+}
+
+/// Tracepoint programs. The loader attaches only the subset required by the
+/// initial hook budget instead of attaching the entire object by default.
+const TRACEPOINTS: &[TracepointSpec] = &[
+    TracepointSpec {
+        name: "handle_fork",
+        category: "sched",
+        event: "sched_process_fork",
+        need: TracepointNeed::Core,
+    },
+    TracepointSpec {
+        name: "handle_exec",
+        category: "sched",
+        event: "sched_process_exec",
+        need: TracepointNeed::Core,
+    },
+    TracepointSpec {
+        name: "handle_exit",
+        category: "sched",
+        event: "sched_process_exit",
+        need: TracepointNeed::Core,
+    },
+    TracepointSpec {
+        name: "trace_openat",
+        category: "syscalls",
+        event: "sys_enter_openat",
+        need: TracepointNeed::FileOpen,
+    },
+    TracepointSpec {
+        name: "trace_openat_exit",
+        category: "syscalls",
+        event: "sys_exit_openat",
+        need: TracepointNeed::FileOpen,
+    },
+    TracepointSpec {
+        name: "trace_open",
+        category: "syscalls",
+        event: "sys_enter_open",
+        need: TracepointNeed::FileOpen,
+    },
+    TracepointSpec {
+        name: "trace_open_exit",
+        category: "syscalls",
+        event: "sys_exit_open",
+        need: TracepointNeed::FileOpen,
+    },
+    TracepointSpec {
+        name: "trace_openat2",
+        category: "syscalls",
+        event: "sys_enter_openat2",
+        need: TracepointNeed::FileOpen,
+    },
+    TracepointSpec {
+        name: "trace_openat2_exit",
+        category: "syscalls",
+        event: "sys_exit_openat2",
+        need: TracepointNeed::FileOpen,
+    },
+    TracepointSpec {
+        name: "trace_creat",
+        category: "syscalls",
+        event: "sys_enter_creat",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_creat_exit",
+        category: "syscalls",
+        event: "sys_exit_creat",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_truncate",
+        category: "syscalls",
+        event: "sys_enter_truncate",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_truncate_exit",
+        category: "syscalls",
+        event: "sys_exit_truncate",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_pipe",
+        category: "syscalls",
+        event: "sys_enter_pipe",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_pipe_exit",
+        category: "syscalls",
+        event: "sys_exit_pipe",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_pipe2",
+        category: "syscalls",
+        event: "sys_enter_pipe2",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_pipe2_exit",
+        category: "syscalls",
+        event: "sys_exit_pipe2",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_socketpair",
+        category: "syscalls",
+        event: "sys_enter_socketpair",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_socketpair_exit",
+        category: "syscalls",
+        event: "sys_exit_socketpair",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_bind",
+        category: "syscalls",
+        event: "sys_enter_bind",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_bind_exit",
+        category: "syscalls",
+        event: "sys_exit_bind",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_accept",
+        category: "syscalls",
+        event: "sys_enter_accept",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_accept_exit",
+        category: "syscalls",
+        event: "sys_exit_accept",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_accept4",
+        category: "syscalls",
+        event: "sys_enter_accept4",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_accept4_exit",
+        category: "syscalls",
+        event: "sys_exit_accept4",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_unlink",
+        category: "syscalls",
+        event: "sys_enter_unlink",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_unlinkat",
+        category: "syscalls",
+        event: "sys_enter_unlinkat",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_rename",
+        category: "syscalls",
+        event: "sys_enter_rename",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_renameat",
+        category: "syscalls",
+        event: "sys_enter_renameat",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_renameat2",
+        category: "syscalls",
+        event: "sys_enter_renameat2",
+        need: TracepointNeed::FileWritePath,
+    },
+    TracepointSpec {
+        name: "trace_connect",
+        category: "syscalls",
+        event: "sys_enter_connect",
+        need: TracepointNeed::ConnectOrRecv,
+    },
+    TracepointSpec {
+        name: "trace_connect_exit",
+        category: "syscalls",
+        event: "sys_exit_connect",
+        need: TracepointNeed::ConnectOrRecv,
+    },
+    TracepointSpec {
+        name: "trace_read",
+        category: "syscalls",
+        event: "sys_enter_read",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_read_exit",
+        category: "syscalls",
+        event: "sys_exit_read",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_write",
+        category: "syscalls",
+        event: "sys_enter_write",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_write_exit",
+        category: "syscalls",
+        event: "sys_exit_write",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_mmap",
+        category: "syscalls",
+        event: "sys_enter_mmap",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_mmap_exit",
+        category: "syscalls",
+        event: "sys_exit_mmap",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_mprotect",
+        category: "syscalls",
+        event: "sys_enter_mprotect",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_mprotect_exit",
+        category: "syscalls",
+        event: "sys_exit_mprotect",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_mremap",
+        category: "syscalls",
+        event: "sys_enter_mremap",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_mremap_exit",
+        category: "syscalls",
+        event: "sys_exit_mremap",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_munmap",
+        category: "syscalls",
+        event: "sys_enter_munmap",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_munmap_exit",
+        category: "syscalls",
+        event: "sys_exit_munmap",
+        need: TracepointNeed::MmapAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_sendto",
+        category: "syscalls",
+        event: "sys_enter_sendto",
+        need: TracepointNeed::SendAddr,
+    },
+    TracepointSpec {
+        name: "trace_sendto_exit",
+        category: "syscalls",
+        event: "sys_exit_sendto",
+        need: TracepointNeed::SendAddr,
+    },
+    TracepointSpec {
+        name: "trace_recvfrom",
+        category: "syscalls",
+        event: "sys_enter_recvfrom",
+        need: TracepointNeed::RecvAddr,
+    },
+    TracepointSpec {
+        name: "trace_recvfrom_exit",
+        category: "syscalls",
+        event: "sys_exit_recvfrom",
+        need: TracepointNeed::RecvAddr,
+    },
+    TracepointSpec {
+        name: "trace_sendmsg",
+        category: "syscalls",
+        event: "sys_enter_sendmsg",
+        need: TracepointNeed::SendAddr,
+    },
+    TracepointSpec {
+        name: "trace_sendmsg_exit",
+        category: "syscalls",
+        event: "sys_exit_sendmsg",
+        need: TracepointNeed::SendAddr,
+    },
+    TracepointSpec {
+        name: "trace_recvmsg",
+        category: "syscalls",
+        event: "sys_enter_recvmsg",
+        need: TracepointNeed::RecvAddr,
+    },
+    TracepointSpec {
+        name: "trace_recvmsg_exit",
+        category: "syscalls",
+        event: "sys_exit_recvmsg",
+        need: TracepointNeed::RecvAddr,
+    },
+    TracepointSpec {
+        name: "trace_close",
+        category: "syscalls",
+        event: "sys_enter_close",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_dup",
+        category: "syscalls",
+        event: "sys_enter_dup",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_dup_exit",
+        category: "syscalls",
+        event: "sys_exit_dup",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_dup2",
+        category: "syscalls",
+        event: "sys_enter_dup2",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_dup2_exit",
+        category: "syscalls",
+        event: "sys_exit_dup2",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_dup3",
+        category: "syscalls",
+        event: "sys_enter_dup3",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_dup3_exit",
+        category: "syscalls",
+        event: "sys_exit_dup3",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_fcntl",
+        category: "syscalls",
+        event: "sys_enter_fcntl",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_fcntl_exit",
+        category: "syscalls",
+        event: "sys_exit_fcntl",
+        need: TracepointNeed::FdFlow,
+    },
+    TracepointSpec {
+        name: "trace_sendfile64",
+        category: "syscalls",
+        event: "sys_enter_sendfile64",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_sendfile64_exit",
+        category: "syscalls",
+        event: "sys_exit_sendfile64",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_copy_file_range",
+        category: "syscalls",
+        event: "sys_enter_copy_file_range",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_copy_file_range_exit",
+        category: "syscalls",
+        event: "sys_exit_copy_file_range",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_splice",
+        category: "syscalls",
+        event: "sys_enter_splice",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "trace_splice_exit",
+        category: "syscalls",
+        event: "sys_exit_splice",
+        need: TracepointNeed::FileIpcAdvanced,
+    },
+    TracepointSpec {
+        name: "cap_drain_tick",
+        category: "syscalls",
+        event: "sys_enter_getpid",
+        need: TracepointNeed::Core,
+    },
 ];
 
 /// LSM programs: (fn name, hook). Attached only when BPF LSM is active.
@@ -414,18 +859,154 @@ const LSM_PROGS: &[(&str, &str)] = &[
     ("enforce_file_open", "file_open"),
     ("enforce_file_permission", "file_permission"),
     ("enforce_file_truncate", "file_truncate"),
+    ("enforce_mmap_file", "mmap_file"),
+    ("enforce_file_mprotect", "file_mprotect"),
     ("enforce_path_truncate", "path_truncate"),
     ("enforce_path_unlink", "path_unlink"),
     ("enforce_path_rename", "path_rename"),
     ("enforce_socket_connect", "socket_connect"),
+    ("enforce_socket_recvmsg", "socket_recvmsg"),
 ];
 
-fn lsm_needed(name: &str, block_exec: bool, block_file: bool, block_connect: bool) -> bool {
+const ALL_HOOK_FEATURES: u32 = FEAT_CONNECT
+    | FEAT_RECV
+    | FEAT_FILE_FLOW
+    | FEAT_BLOCK_EXEC
+    | FEAT_BLOCK_FILE
+    | FEAT_BLOCK_CONNECT;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HookProfile {
+    Minimal,
+    Full,
+}
+
+impl HookProfile {
+    fn from_env() -> Self {
+        match std::env::var("ACTPLANE_HOOK_PROFILE") {
+            Ok(v)
+                if v.eq_ignore_ascii_case("full")
+                    || v.eq_ignore_ascii_case("all")
+                    || v.eq_ignore_ascii_case("wide") =>
+            {
+                HookProfile::Full
+            }
+            _ => HookProfile::Minimal,
+        }
+    }
+
+    fn advanced_tracepoints(self) -> bool {
+        self == HookProfile::Full
+            || std::env::var_os("ACTPLANE_ENABLE_ADVANCED_HOOKS").is_some()
+            || std::env::var_os("ACTPLANE_ADVANCED_TRACEPOINTS").is_some()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct HookBudget {
+    features: u32,
+    file_write: bool,
+    advanced_tracepoints: bool,
+}
+
+impl HookBudget {
+    fn from_config(cfg: &CConfig, reserve: HookReserve) -> Self {
+        let profile = HookProfile::from_env();
+        let mut budget = match profile {
+            HookProfile::Minimal => HookBudget {
+                features: config_features(cfg),
+                file_write: config_has_file_write(cfg),
+                advanced_tracepoints: profile.advanced_tracepoints()
+                    || reserve.advanced_tracepoints,
+            },
+            HookProfile::Full => HookBudget {
+                features: config_features(cfg) | ALL_HOOK_FEATURES,
+                file_write: true,
+                advanced_tracepoints: profile.advanced_tracepoints()
+                    || reserve.advanced_tracepoints,
+            },
+        };
+        if reserve.file_flow {
+            budget.features |= FEAT_FILE_FLOW;
+        }
+        if std::env::var_os("ACTPLANE_RESERVE_FILE_FLOW").is_some() {
+            budget.features |= FEAT_FILE_FLOW;
+        }
+        if reserve.file_write_paths {
+            budget.file_write = true;
+        }
+        if reserve.network {
+            budget.features |= FEAT_CONNECT | FEAT_RECV;
+        }
+        if reserve.block_exec {
+            budget.features |= FEAT_BLOCK_EXEC;
+        }
+        if reserve.block_file {
+            budget.features |= FEAT_BLOCK_FILE;
+        }
+        if reserve.block_connect {
+            budget.features |= FEAT_BLOCK_CONNECT;
+        }
+        budget
+    }
+
+    fn has_file_flow(self) -> bool {
+        self.features & FEAT_FILE_FLOW != 0
+    }
+
+    fn has_file_write(self) -> bool {
+        self.file_write
+    }
+
+    fn has_connect(self) -> bool {
+        self.features & FEAT_CONNECT != 0
+    }
+
+    fn has_recv(self) -> bool {
+        self.features & FEAT_RECV != 0
+    }
+}
+
+fn tracepoint_needed(spec: &TracepointSpec, budget: HookBudget) -> bool {
+    match spec.need {
+        TracepointNeed::Core => true,
+        TracepointNeed::FileOpen => budget.has_file_flow(),
+        TracepointNeed::FileWritePath => budget.has_file_write(),
+        TracepointNeed::FdFlow => {
+            budget.has_file_flow() || budget.has_connect() || budget.has_recv()
+        }
+        TracepointNeed::ConnectOrRecv => {
+            budget.has_connect()
+                || budget.has_recv()
+                || (budget.has_file_flow() && budget.advanced_tracepoints)
+        }
+        TracepointNeed::SendAddr => {
+            budget.has_connect() || (budget.has_file_flow() && budget.advanced_tracepoints)
+        }
+        TracepointNeed::RecvAddr => {
+            budget.has_recv() || (budget.has_file_flow() && budget.advanced_tracepoints)
+        }
+        TracepointNeed::FileIpcAdvanced | TracepointNeed::MmapAdvanced => {
+            budget.has_file_flow() && budget.advanced_tracepoints
+        }
+    }
+}
+
+fn lsm_needed(
+    name: &str,
+    block_exec: bool,
+    block_file: bool,
+    block_connect: bool,
+    recv_flow: bool,
+    advanced_hooks: bool,
+) -> bool {
     match name {
         "enforce_bprm_check_security" => block_exec,
         "enforce_socket_connect" => block_connect,
+        "enforce_socket_recvmsg" => recv_flow,
+        "enforce_file_permission" => block_file,
+        "enforce_mmap_file" | "enforce_file_mprotect" => advanced_hooks && block_file,
         "enforce_file_open"
-        | "enforce_file_permission"
         | "enforce_file_truncate"
         | "enforce_path_truncate"
         | "enforce_path_unlink"
@@ -451,22 +1032,24 @@ fn err(msg: impl Into<String>) -> io::Error {
 }
 
 fn validate_config(cfg: &CConfig) -> io::Result<()> {
-    for (i, u) in cfg
-        .updates
-        .iter()
-        .take((cfg.n_updates as usize).min(MAX_UPDATES))
-        .enumerate()
-    {
+    if cfg.n_updates as usize > MAX_UPDATES {
+        return Err(err(format!(
+            "config declares {} updates, max is {MAX_UPDATES}",
+            cfg.n_updates
+        )));
+    }
+    if cfg.n_rules as usize > MAX_RULES {
+        return Err(err(format!(
+            "config declares {} rules, max is {MAX_RULES}",
+            cfg.n_rules
+        )));
+    }
+    for (i, u) in cfg.updates.iter().take(cfg.n_updates as usize).enumerate() {
         if u.op == OP_EXEC && u.m == M_SUFFIX {
             return Err(err(format!("config update[{i}]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix")));
         }
     }
-    for (i, r) in cfg
-        .rules
-        .iter()
-        .take((cfg.n_rules as usize).min(MAX_RULES))
-        .enumerate()
-    {
+    for (i, r) in cfg.rules.iter().take(cfg.n_rules as usize).enumerate() {
         if r.op == OP_EXEC && r.m == M_SUFFIX {
             return Err(err(format!("config rule[{i}]: suffix exec matches are unsupported; use DSL exec patterns that lower to exact/prefix")));
         }
@@ -493,21 +1076,36 @@ fn config_features(cfg: &CConfig) -> u32 {
         .take((cfg.n_updates as usize).min(MAX_UPDATES))
     {
         if u.op == OP_OPEN || u.op == OP_WRITE {
+            features |= FEAT_FILE_FLOW;
             features |= path_match_features(u.m);
         }
         if u.op == OP_CONNECT {
             features |= FEAT_CONNECT;
         }
+        if u.op == OP_RECV {
+            features |= FEAT_RECV;
+        }
     }
     for r in cfg.rules.iter().take((cfg.n_rules as usize).min(MAX_RULES)) {
+        if r.effect == EFFECT_BLOCK {
+            if r.op == OP_EXEC && r.arg[0] == 0 {
+                features |= FEAT_BLOCK_EXEC;
+            }
+            if r.op == OP_OPEN || r.op == OP_WRITE {
+                features |= FEAT_BLOCK_FILE;
+            }
+            if r.op == OP_CONNECT {
+                features |= FEAT_BLOCK_CONNECT;
+            }
+        }
         if r.op == OP_OPEN {
-            features |= FEAT_OPEN_RULES | path_match_features(r.m);
+            features |= FEAT_FILE_FLOW | FEAT_OPEN_RULES | path_match_features(r.m);
             if r.cond_kind == C_TARGET {
                 features |= path_match_features(r.cond_match);
             }
         }
         if r.op == OP_WRITE {
-            features |= FEAT_WRITE_RULES | path_match_features(r.m);
+            features |= FEAT_FILE_FLOW | FEAT_WRITE_RULES | path_match_features(r.m);
             if r.cond_kind == C_TARGET {
                 features |= path_match_features(r.cond_match);
             }
@@ -515,8 +1113,23 @@ fn config_features(cfg: &CConfig) -> u32 {
         if r.op == OP_CONNECT {
             features |= FEAT_CONNECT;
         }
+        if r.op == OP_RECV {
+            features |= FEAT_RECV;
+        }
     }
     features
+}
+
+fn config_has_file_write(cfg: &CConfig) -> bool {
+    cfg.updates
+        .iter()
+        .take((cfg.n_updates as usize).min(MAX_UPDATES))
+        .any(|u| u.op == OP_WRITE)
+        || cfg
+            .rules
+            .iter()
+            .take((cfg.n_rules as usize).min(MAX_RULES))
+            .any(|r| r.op == OP_WRITE)
 }
 
 fn validate_supported_features(cfg: &CConfig, supported: u32, context: &str) -> io::Result<()> {
@@ -541,6 +1154,21 @@ fn validate_supported_features(cfg: &CConfig, supported: u32, context: &str) -> 
     if missing & FEAT_CONNECT != 0 {
         names.push("connect rules or sources");
     }
+    if missing & FEAT_RECV != 0 {
+        names.push("recv rules or sources");
+    }
+    if missing & FEAT_FILE_FLOW != 0 {
+        names.push("file source or sink hooks");
+    }
+    if missing & FEAT_BLOCK_EXEC != 0 {
+        names.push("exec block hooks");
+    }
+    if missing & FEAT_BLOCK_FILE != 0 {
+        names.push("file block hooks");
+    }
+    if missing & FEAT_BLOCK_CONNECT != 0 {
+        names.push("connect block hooks");
+    }
     Err(err(format!(
         "{context} requires features not enabled when the eBPF engine was loaded: {}",
         names.join(", ")
@@ -553,9 +1181,39 @@ pub struct Loader {
     policy_features: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HookReserve {
+    pub file_flow: bool,
+    pub file_write_paths: bool,
+    pub network: bool,
+    pub block_exec: bool,
+    pub block_file: bool,
+    pub block_connect: bool,
+    pub advanced_tracepoints: bool,
+}
+
+impl HookReserve {
+    pub fn runtime_file_delta() -> Self {
+        HookReserve {
+            file_flow: true,
+            ..HookReserve::default()
+        }
+    }
+}
+
 impl Loader {
     /// `config_blob` is the raw `struct taint_config` produced by the collector.
     pub fn load(config_blob: &[u8]) -> io::Result<Self> {
+        Self::load_with_hook_reserve(config_blob, HookReserve::default())
+    }
+
+    /// Load the engine while reserving a bounded hook budget for later runtime
+    /// deltas. This does not enable file sink rule matching or expensive path
+    /// matchers unless the initial policy already requires them.
+    pub fn load_with_hook_reserve(
+        config_blob: &[u8],
+        hook_reserve: HookReserve,
+    ) -> io::Result<Self> {
         if config_blob.len() != std::mem::size_of::<CConfig>() {
             return Err(err(format!(
                 "config size mismatch: got {}, expected {}",
@@ -570,7 +1228,8 @@ impl Loader {
 
         let enforce = bpf_lsm_active();
         let enforce_mode: u32 = if enforce { 1 } else { 0 };
-        let policy_features = config_features(&cfg);
+        let hook_budget = HookBudget::from_config(&cfg, hook_reserve);
+        let policy_features = hook_budget.features;
 
         let mut loader = EbpfLoader::new();
         loader
@@ -585,6 +1244,7 @@ impl Loader {
         // Populate writable array maps for updates and rules.
         populate_update_map(&mut bpf, &cfg)?;
         populate_rule_map(&mut bpf, &cfg)?;
+        populate_policy_mask_map(&mut bpf, &cfg)?;
 
         // Loop counts in a (non-frozen) map so the verifier analyzes each
         // bpf_loop callback once. Slots: 0=rules 1=updates 5=labels.
@@ -602,41 +1262,38 @@ impl Loader {
             }
         }
 
-        let has_connect = policy_features & FEAT_CONNECT != 0;
-        let has_block_exec = (0..cfg.n_rules as usize).any(|i| {
-            cfg.rules
-                .get(i)
-                .map_or(false, |r| r.effect == EFFECT_BLOCK && r.op == OP_EXEC)
-        });
-        let has_block_file = (0..cfg.n_rules as usize).any(|i| {
-            cfg.rules.get(i).map_or(false, |r| {
-                r.effect == EFFECT_BLOCK && (r.op == OP_OPEN || r.op == OP_WRITE)
-            })
-        });
-        let has_block_connect = (0..cfg.n_rules as usize).any(|i| {
-            cfg.rules
-                .get(i)
-                .map_or(false, |r| r.effect == EFFECT_BLOCK && r.op == OP_CONNECT)
-        });
+        let has_recv = hook_budget.has_recv();
+        let has_block_exec = hook_budget.features & FEAT_BLOCK_EXEC != 0;
+        let has_block_file = hook_budget.features & FEAT_BLOCK_FILE != 0;
+        let has_block_connect = hook_budget.features & FEAT_BLOCK_CONNECT != 0;
 
-        // Attach tracepoints (always) then LSM programs (only with BPF LSM).
-        for (name, cat, event) in TRACEPOINTS {
-            if !has_connect && *name == "trace_connect" {
+        // Attach only the tracepoints required by this hook budget, then LSM
+        // programs only when BPF LSM is active.
+        for spec in TRACEPOINTS {
+            if !tracepoint_needed(spec, hook_budget) {
                 continue;
             }
             let p: &mut TracePoint = bpf
-                .program_mut(name)
-                .ok_or_else(|| err(format!("program {name} missing")))?
+                .program_mut(spec.name)
+                .ok_or_else(|| err(format!("program {} missing", spec.name)))?
                 .try_into()
-                .map_err(|e| err(format!("{name} not a tracepoint: {e}")))?;
-            p.load().map_err(|e| err(format!("{name}.load: {e}")))?;
-            p.attach(cat, event)
-                .map_err(|e| err(format!("{name}.attach: {e}")))?;
+                .map_err(|e| err(format!("{} not a tracepoint: {e}", spec.name)))?;
+            p.load()
+                .map_err(|e| err(format!("{}.load: {e}", spec.name)))?;
+            p.attach(spec.category, spec.event)
+                .map_err(|e| err(format!("{}.attach: {e}", spec.name)))?;
         }
         if enforce {
             let btf = Btf::from_sys_fs().map_err(|e| err(format!("btf: {e}")))?;
             for (name, hook) in LSM_PROGS {
-                if !lsm_needed(name, has_block_exec, has_block_file, has_block_connect) {
+                if !lsm_needed(
+                    name,
+                    has_block_exec,
+                    has_block_file,
+                    has_block_connect,
+                    has_recv,
+                    hook_budget.advanced_tracepoints,
+                ) {
                     continue;
                 }
                 let p: &mut Lsm = bpf
@@ -678,6 +1335,11 @@ impl Loader {
         }
         Ok(ReloadHandle {
             cap_req_fd: unsafe { OwnedFd::from_raw_fd(dup) },
+            cap_task_fd: dup_hash_map_fd(&self.bpf, "cap_task")?,
+            cap_state_fd: dup_hash_map_fd(&self.bpf, "cap_state")?,
+            cap_policy_fd: dup_hash_map_fd(&self.bpf, "cap_policy")?,
+            ts_counts_fd: dup_array_map_fd(&self.bpf, "ts_counts")?,
+            append_lock: Mutex::new(()),
             policy_features: self.policy_features,
         })
     }
@@ -739,8 +1401,15 @@ impl Loader {
             CapState {
                 scope_id: 1,
                 labels: label,
-                authority_mask: AUTH_BIND_RULE | AUTH_NARROW_SCOPE,
+                authority_mask: AUTH_BIND_RULE
+                    | AUTH_NARROW_SCOPE
+                    | AUTH_ADD_LABEL
+                    | AUTH_REQUIRE_GATE
+                    | AUTH_DECLASSIFY
+                    | AUTH_DELEGATE,
                 target_mask: TARGET_SELF | TARGET_CHILD,
+                gate_mask: u64::MAX,
+                label_mask: u64::MAX,
                 ..CapState::default()
             },
         )?;
@@ -910,6 +1579,40 @@ fn populate_rule_map(bpf: &mut Ebpf, cfg: &CConfig) -> io::Result<()> {
     Ok(())
 }
 
+fn policy_mask_set(mask: &mut CapPolicyMask, idx: usize) {
+    if idx < 64 {
+        mask.lo |= 1u64 << idx;
+    } else {
+        mask.hi |= 1u64 << (idx - 64);
+    }
+}
+
+fn populate_policy_mask_map(bpf: &mut Ebpf, cfg: &CConfig) -> io::Result<()> {
+    let mut masks: Vec<(u32, CapPolicyMask)> = Vec::new();
+    for i in 0..cfg.n_rules as usize {
+        let domain_id = cfg.rules[i].domain_id;
+        if let Some((_, mask)) = masks.iter_mut().find(|(id, _)| *id == domain_id) {
+            policy_mask_set(mask, i);
+        } else {
+            let mut mask = CapPolicyMask::default();
+            policy_mask_set(&mut mask, i);
+            masks.push((domain_id, mask));
+        }
+    }
+
+    let mut policy_map: HashMap<_, u32, CapPolicyMask> = HashMap::try_from(
+        bpf.map_mut("cap_policy")
+            .ok_or_else(|| err("map cap_policy missing"))?,
+    )
+    .map_err(|e| err(format!("cap_policy: {e}")))?;
+    for (domain_id, mask) in masks {
+        policy_map
+            .insert(domain_id, mask, 0)
+            .map_err(|e| err(format!("cap_policy[{domain_id}]: {e}")))?;
+    }
+    Ok(())
+}
+
 // ── Hot-reload via cap_req ring buffer ─────────────────────────────
 
 const CAP_REQ_RELOAD_UPDATE: i32 = -1;
@@ -971,6 +1674,11 @@ struct AppendRule {
 /// `Send + Sync` — safe to share across threads and the async MCP server.
 pub struct ReloadHandle {
     cap_req_fd: std::os::fd::OwnedFd,
+    cap_task_fd: std::os::fd::OwnedFd,
+    cap_state_fd: std::os::fd::OwnedFd,
+    cap_policy_fd: std::os::fd::OwnedFd,
+    ts_counts_fd: std::os::fd::OwnedFd,
+    append_lock: Mutex<()>,
     policy_features: u32,
 }
 
@@ -1006,6 +1714,196 @@ impl ReloadHandle {
         self.submit_raw(bytes)
     }
 
+    fn count_slot(&self, slot: u32) -> io::Result<u32> {
+        let mut value = 0u32;
+        let rc = unsafe {
+            libbpf_sys::bpf_map_lookup_elem(
+                self.ts_counts_fd.as_raw_fd(),
+                &slot as *const u32 as *const std::ffi::c_void,
+                &mut value as *mut u32 as *mut std::ffi::c_void,
+            )
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(value)
+    }
+
+    fn set_count_slot(&self, slot: u32, value: u32) -> io::Result<()> {
+        let rc = unsafe {
+            libbpf_sys::bpf_map_update_elem(
+                self.ts_counts_fd.as_raw_fd(),
+                &slot as *const u32 as *const std::ffi::c_void,
+                &value as *const u32 as *const std::ffi::c_void,
+                BPF_ANY,
+            )
+        };
+        if rc != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    fn cap_policy_mask(&self, domain_id: u32) -> io::Result<Option<CapPolicyMask>> {
+        let mut value = CapPolicyMask::default();
+        let rc = unsafe {
+            libbpf_sys::bpf_map_lookup_elem(
+                self.cap_policy_fd.as_raw_fd(),
+                &domain_id as *const u32 as *const std::ffi::c_void,
+                &mut value as *mut CapPolicyMask as *mut std::ffi::c_void,
+            )
+        };
+        if rc == 0 {
+            return Ok(Some(value));
+        }
+        let e = io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::ENOENT) {
+            return Ok(None);
+        }
+        Err(e)
+    }
+
+    fn restore_cap_policy_mask(
+        &self,
+        domain_id: u32,
+        before: Option<CapPolicyMask>,
+    ) -> io::Result<()> {
+        let rc = unsafe {
+            match before {
+                Some(mask) => libbpf_sys::bpf_map_update_elem(
+                    self.cap_policy_fd.as_raw_fd(),
+                    &domain_id as *const u32 as *const std::ffi::c_void,
+                    &mask as *const CapPolicyMask as *const std::ffi::c_void,
+                    BPF_ANY,
+                ),
+                None => libbpf_sys::bpf_map_delete_elem(
+                    self.cap_policy_fd.as_raw_fd(),
+                    &domain_id as *const u32 as *const std::ffi::c_void,
+                ),
+            }
+        };
+        if rc != 0 {
+            let e = io::Error::last_os_error();
+            if before.is_none() && e.raw_os_error() == Some(libc::ENOENT) {
+                return Ok(());
+            }
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    fn restore_append_state(
+        &self,
+        target_id: u32,
+        rules_before: u32,
+        updates_before: u32,
+        policy_before: Option<CapPolicyMask>,
+    ) -> io::Result<()> {
+        let mut first_err = None;
+        if let Err(e) = self.set_count_slot(0, rules_before) {
+            first_err.get_or_insert(e);
+        }
+        if let Err(e) = self.set_count_slot(1, updates_before) {
+            first_err.get_or_insert(e);
+        }
+        if let Err(e) = self.restore_cap_policy_mask(target_id, policy_before) {
+            first_err.get_or_insert(e);
+        }
+        if let Some(e) = first_err {
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    fn submit_expect_count<T: Copy>(
+        &self,
+        val: &T,
+        count_slot: u32,
+        before: u32,
+        what: &str,
+    ) -> io::Result<()> {
+        self.submit(val)?;
+        for _ in 0..10 {
+            let after = self.count_slot(count_slot)?;
+            if after == before + 1 {
+                return Ok(());
+            }
+            if after != before {
+                return Err(err(format!(
+                    "{what} changed count from {before} to {after}, expected {}",
+                    before + 1
+                )));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        Err(err(format!(
+            "{what} was not admitted by the kernel; count remained {before}"
+        )))
+    }
+
+    pub fn domain_for_pid(&self, pid: i32) -> io::Result<Option<u32>> {
+        let tasks: HashMap<_, i32, u32> = hash_map_from_fd(&self.cap_task_fd)?;
+        map_get_optional(&tasks, &pid, "lookup pid domain")
+    }
+
+    fn append_target_mask(caller_domain: u32, target_id: u32, target_state: &CapState) -> u64 {
+        let mut mask = 0;
+        if caller_domain == target_id {
+            mask |= TARGET_SELF;
+        }
+        if target_state.parent == caller_domain {
+            mask |= TARGET_CHILD;
+        }
+        mask
+    }
+
+    fn precheck_append_authority(
+        &self,
+        caller_pid: i32,
+        target_id: u32,
+        required_mask: u64,
+        add_label_mask: u64,
+        del_label_mask: u64,
+        gate_mask: u64,
+    ) -> io::Result<()> {
+        let tasks: HashMap<_, i32, u32> = hash_map_from_fd(&self.cap_task_fd)?;
+        let states: HashMap<_, u32, CapState> = hash_map_from_fd(&self.cap_state_fd)?;
+        let caller_domain = map_get(&tasks, &caller_pid, "lookup caller domain")?;
+        let source = map_get(&states, &caller_domain, "lookup caller cap_state")?;
+        let target = map_get(&states, &target_id, "lookup target cap_state")?;
+        let target_mask = Self::append_target_mask(caller_domain, target_id, &target);
+        if target_mask & source.target_mask == 0 {
+            return Err(err(format!(
+                "caller domain {caller_domain} cannot target runtime domain {target_id}"
+            )));
+        }
+
+        let mut needed = required_mask;
+        if add_label_mask != 0 {
+            needed |= AUTH_ADD_LABEL;
+        }
+        if del_label_mask != 0 {
+            needed |= AUTH_DECLASSIFY;
+        }
+        if gate_mask != 0 {
+            needed |= AUTH_REQUIRE_GATE;
+        }
+        if needed & !source.authority_mask != 0 {
+            return Err(err(format!(
+                "caller domain {caller_domain} lacks runtime authority 0x{:x}",
+                needed & !source.authority_mask
+            )));
+        }
+        let label_bits = add_label_mask | del_label_mask;
+        if label_bits & !source.label_mask != 0 {
+            return Err(err(format!(
+                "caller domain {caller_domain} lacks label authority 0x{:x}",
+                label_bits & !source.label_mask
+            )));
+        }
+        Ok(())
+    }
+
     /// Hot-reload a new compiled policy blob without restarting the engine.
     ///
     /// Sequence: quiesce (counts→0) → write updates → write rules → activate.
@@ -1022,6 +1920,10 @@ impl ReloadHandle {
             Box::new(unsafe { std::ptr::read_unaligned(new_blob.as_ptr() as *const CConfig) });
         validate_config(&cfg)?;
         validate_supported_features(&cfg, self.policy_features, "reload policy")?;
+        let _guard = self
+            .append_lock
+            .lock()
+            .map_err(|e| err(format!("reload lock poisoned: {e}")))?;
 
         // Phase 1: quiesce — set counts to 0 so the engine skips all rules.
         self.submit(&ReloadCounts {
@@ -1064,8 +1966,9 @@ impl ReloadHandle {
     ///
     /// Unlike `reload_policy`, this does not replace existing rules. Each update
     /// and rule is admitted by the BPF capability checker using the submitting
-    /// pid's bound state. Updates that delete labels are rejected because a
-    /// runtime self-policy delta must not declassify inherited state.
+    /// pid's bound state. Updates that delete labels require `AUTH_DECLASSIFY`
+    /// and label authority over every deleted bit, so runtime declassification is
+    /// domain-local instead of a way to clear inherited higher-authority labels.
     pub fn append_policy_delta(
         &self,
         caller_pid: i32,
@@ -1099,34 +2002,95 @@ impl ReloadHandle {
         validate_config(&cfg)?;
         validate_supported_features(&cfg, self.policy_features, "runtime policy delta")?;
 
+        let _guard = self
+            .append_lock
+            .lock()
+            .map_err(|e| err(format!("append lock poisoned: {e}")))?;
+        let updates_before = self.count_slot(1)?;
+        let rules_before = self.count_slot(0)?;
+        if updates_before as usize + cfg.n_updates as usize > MAX_UPDATES {
+            return Err(err(format!(
+                "runtime policy delta has {} updates but only {} update slots remain",
+                cfg.n_updates,
+                MAX_UPDATES.saturating_sub(updates_before as usize)
+            )));
+        }
+        if rules_before as usize + cfg.n_rules as usize > MAX_RULES {
+            return Err(err(format!(
+                "runtime policy delta has {} rules but only {} rule slots remain",
+                cfg.n_rules,
+                MAX_RULES.saturating_sub(rules_before as usize)
+            )));
+        }
+
         for i in 0..cfg.n_updates {
             let entry = cfg.updates[i as usize];
-            if entry.del != 0 {
-                return Err(err(format!(
-                    "runtime policy delta update[{i}] deletes labels; declassification is not allowed"
-                )));
-            }
-            self.submit(&AppendUpdate {
-                tag: CAP_REQ_APPEND_UPDATE,
+            self.precheck_append_authority(
                 caller_pid,
                 target_id,
-                new_scope_id: 0,
-                required_mask: 0,
-                entry,
-            })?;
+                0,
+                entry.add,
+                entry.del,
+                entry.gates | entry.invals,
+            )
+            .map_err(|e| err(format!("runtime policy delta update[{i}] rejected: {e}")))?;
         }
 
         for i in 0..cfg.n_rules {
-            let mut entry = cfg.rules[i as usize];
-            entry.rule_id = entry.rule_id.saturating_add(rule_id_base);
-            self.submit(&AppendRule {
-                tag: CAP_REQ_APPEND_RULE,
-                caller_pid,
-                target_id,
-                new_scope_id: 0,
-                required_mask: AUTH_BIND_RULE,
-                entry,
-            })?;
+            self.precheck_append_authority(caller_pid, target_id, AUTH_BIND_RULE, 0, 0, 0)
+                .map_err(|e| err(format!("runtime policy delta rule[{i}] rejected: {e}")))?;
+        }
+
+        let policy_before = self.cap_policy_mask(target_id)?;
+        let submitted = (|| -> io::Result<()> {
+            for i in 0..cfg.n_updates {
+                let entry = cfg.updates[i as usize];
+                self.submit_expect_count(
+                    &AppendUpdate {
+                        tag: CAP_REQ_APPEND_UPDATE,
+                        caller_pid,
+                        target_id,
+                        new_scope_id: 0,
+                        required_mask: 0,
+                        entry,
+                    },
+                    1,
+                    updates_before + i,
+                    &format!("runtime policy delta update[{i}]"),
+                )?;
+            }
+
+            for i in 0..cfg.n_rules {
+                let mut entry = cfg.rules[i as usize];
+                entry.rule_id = entry.rule_id.saturating_add(rule_id_base);
+                self.submit_expect_count(
+                    &AppendRule {
+                        tag: CAP_REQ_APPEND_RULE,
+                        caller_pid,
+                        target_id,
+                        new_scope_id: 0,
+                        required_mask: AUTH_BIND_RULE,
+                        entry,
+                    },
+                    0,
+                    rules_before + i,
+                    &format!("runtime policy delta rule[{i}]"),
+                )?;
+            }
+            Ok(())
+        })();
+
+        if let Err(e) = submitted {
+            let rollback =
+                self.restore_append_state(target_id, rules_before, updates_before, policy_before);
+            if let Err(rollback_err) = rollback {
+                return Err(err(format!(
+                    "{e}; failed to roll back partial runtime policy delta: {rollback_err}"
+                )));
+            }
+            return Err(err(format!(
+                "{e}; rolled back partial runtime policy delta"
+            )));
         }
 
         Ok(())
@@ -1183,8 +2147,12 @@ fn decode(e: &Event) -> Violation {
         ppid: e.ppid,
         target,
         rule_id: e.taint_rule_id,
+        op: e.op,
+        domain_id: e.domain_id,
+        session_root: e.session_root,
         label: e.taint_label,
         matched_label: e.matched_label,
+        matched_labels: e.matched_labels,
         provenance,
         timestamp_ns: e.timestamp_ns,
     }
@@ -1194,6 +2162,9 @@ fn decode(e: &Event) -> Violation {
 mod tests {
     use super::*;
 
+    const EFFECT_NOTIFY: u8 = 0;
+    const EFFECT_KILL: u8 = 2;
+
     // The Rust ABI mirror must match the C struct sizes the object was built
     // with. These are the documented sizes from bpf/taint.h.
     #[test]
@@ -1201,10 +2172,14 @@ mod tests {
         assert_eq!(std::mem::size_of::<ProcState>(), 16);
         assert_eq!(std::mem::size_of::<CapState>(), 56);
         assert_eq!(std::mem::size_of::<DeltaRequest>(), 48);
-        // CConfig = 5 u32 (+pad) + the five arrays; just assert it is non-trivial
-        // and 8-aligned so set_global offsets line up.
+        // CConfig mirrors bpf/taint.h exactly:
+        // 8-byte header + 320 taint_update entries + 128 taint_rule entries.
         assert_eq!(std::mem::align_of::<CConfig>(), 8);
-        assert!(std::mem::size_of::<CConfig>() > 0);
+        assert_eq!(std::mem::size_of::<CUpdate>(), 144);
+        assert_eq!(std::mem::size_of::<CRule>(), 224);
+        assert_eq!(std::mem::size_of::<CConfig>(), 74_760);
+        assert_eq!(std::mem::align_of::<Event>(), 8);
+        assert_eq!(std::mem::size_of::<Event>(), 384);
     }
 
     #[test]
@@ -1221,9 +2196,38 @@ mod tests {
             b"cap_req".as_slice(),
             b"cap_state".as_slice(),
             b"cap_task".as_slice(),
+            b"cap_policy".as_slice(),
             b"cap_drain_tick".as_slice(),
             b"trace_read".as_slice(),
+            b"trace_read_exit".as_slice(),
             b"trace_write".as_slice(),
+            b"trace_write_exit".as_slice(),
+            b"trace_sendto".as_slice(),
+            b"trace_recvfrom".as_slice(),
+            b"trace_sendmsg".as_slice(),
+            b"trace_recvmsg".as_slice(),
+            b"trace_connect_exit".as_slice(),
+            b"trace_close".as_slice(),
+            b"trace_dup".as_slice(),
+            b"trace_fcntl".as_slice(),
+            b"trace_pipe".as_slice(),
+            b"trace_socketpair".as_slice(),
+            b"trace_bind".as_slice(),
+            b"trace_accept".as_slice(),
+            b"trace_sendfile64".as_slice(),
+            b"trace_copy_file_range".as_slice(),
+            b"trace_splice".as_slice(),
+            b"enforce_socket_recvmsg".as_slice(),
+            b"ts_fd".as_slice(),
+            b"ts_sockfd".as_slice(),
+            b"ts_connectpend".as_slice(),
+            b"ts_iopend".as_slice(),
+            b"ts_duppend".as_slice(),
+            b"ts_fdcopypend".as_slice(),
+            b"ts_pipepend".as_slice(),
+            b"ts_socketpairpend".as_slice(),
+            b"ts_unixsockpend".as_slice(),
+            b"ts_acceptpend".as_slice(),
             b"stdio:stdin".as_slice(),
             b"stdio:stdout".as_slice(),
             b"ts_updates".as_slice(),
@@ -1237,6 +2241,129 @@ mod tests {
                 String::from_utf8_lossy(name)
             );
         }
+    }
+
+    #[test]
+    fn default_hook_budget_keeps_advanced_tracepoints_off() {
+        fn spec(name: &str) -> &'static TracepointSpec {
+            TRACEPOINTS
+                .iter()
+                .find(|s| s.name == name)
+                .expect("tracepoint spec")
+        }
+
+        let empty = HookBudget {
+            features: 0,
+            file_write: false,
+            advanced_tracepoints: false,
+        };
+        assert!(tracepoint_needed(spec("handle_fork"), empty));
+        assert!(tracepoint_needed(spec("handle_exec"), empty));
+        assert!(tracepoint_needed(spec("handle_exit"), empty));
+        assert!(tracepoint_needed(spec("cap_drain_tick"), empty));
+        assert!(!tracepoint_needed(spec("trace_openat"), empty));
+        assert!(!tracepoint_needed(spec("trace_mmap"), empty));
+        assert!(!tracepoint_needed(spec("trace_recvmsg"), empty));
+
+        let file = HookBudget {
+            features: FEAT_FILE_FLOW,
+            file_write: false,
+            advanced_tracepoints: false,
+        };
+        assert!(tracepoint_needed(spec("trace_openat"), file));
+        assert!(tracepoint_needed(spec("trace_read_exit"), file));
+        assert!(!tracepoint_needed(spec("trace_unlink"), file));
+        assert!(!tracepoint_needed(spec("trace_pipe"), file));
+        assert!(!tracepoint_needed(spec("trace_mmap"), file));
+
+        let advanced_file = HookBudget {
+            advanced_tracepoints: true,
+            ..file
+        };
+        assert!(tracepoint_needed(spec("trace_pipe"), advanced_file));
+        assert!(tracepoint_needed(spec("trace_mmap"), advanced_file));
+        assert!(tracepoint_needed(spec("trace_recvmsg"), advanced_file));
+    }
+
+    #[test]
+    fn file_flow_does_not_enable_lsm_file_hooks_without_block_file() {
+        assert!(!lsm_needed(
+            "enforce_file_permission",
+            false,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(!lsm_needed(
+            "enforce_mmap_file",
+            false,
+            false,
+            false,
+            false,
+            true
+        ));
+        assert!(lsm_needed(
+            "enforce_file_permission",
+            false,
+            true,
+            false,
+            false,
+            false
+        ));
+        assert!(lsm_needed(
+            "enforce_mmap_file",
+            false,
+            true,
+            false,
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn file_delta_requires_file_flow_budget() {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_updates = 1;
+        cfg.updates[0].op = OP_OPEN;
+        cfg.updates[0].m = 3; // TAINT_MATCH_ANY
+        cfg.updates[0].add = 1;
+
+        let err = validate_supported_features(&cfg, 0, "runtime policy delta")
+            .expect_err("file source should require file-flow budget");
+        assert!(
+            err.to_string().contains("file source or sink hooks"),
+            "{err}"
+        );
+        validate_supported_features(&cfg, FEAT_FILE_FLOW, "runtime policy delta")
+            .expect("file-flow budget admits file source");
+    }
+
+    #[test]
+    fn block_delta_requires_matching_lsm_hook_budget() {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_EXEC;
+        cfg.rules[0].effect = EFFECT_BLOCK;
+
+        let err = validate_supported_features(&cfg, 0, "runtime policy delta")
+            .expect_err("block exec should require bprm hook budget");
+        assert!(err.to_string().contains("exec block hooks"), "{err}");
+        validate_supported_features(&cfg, FEAT_BLOCK_EXEC, "runtime policy delta")
+            .expect("block exec budget admits block exec rule");
+    }
+
+    #[test]
+    fn argv_sensitive_block_exec_does_not_request_lsm_hook_budget() {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_EXEC;
+        cfg.rules[0].effect = EFFECT_BLOCK;
+        set_cstr(&mut cfg.rules[0].arg, "commit");
+
+        assert_eq!(config_features(&cfg) & FEAT_BLOCK_EXEC, 0);
+        validate_supported_features(&cfg, 0, "runtime policy delta")
+            .expect("argv-sensitive block exec is unsupported and should not reserve bprm hook");
     }
 
     #[test]
@@ -1355,6 +2482,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cap_policy_mask_tracks_full_rule_index_range() {
+        let mut mask = CapPolicyMask::default();
+        policy_mask_set(&mut mask, 0);
+        policy_mask_set(&mut mask, 63);
+        policy_mask_set(&mut mask, 64);
+        policy_mask_set(&mut mask, MAX_RULES - 1);
+
+        assert_eq!(mask.lo, 1 | (1u64 << 63));
+        assert_eq!(mask.hi, 1 | (1u64 << 63));
+    }
+
     fn set_cstr<const N: usize>(dst: &mut [u8; N], s: &str) {
         let bytes = s.as_bytes();
         let n = bytes.len().min(N.saturating_sub(1));
@@ -1381,9 +2520,21 @@ mod tests {
         cfg.n_rules = 1;
         cfg.rules[0].op = OP_EXEC;
         cfg.rules[0].m = 0; // TAINT_MATCH_EXACT
-        cfg.rules[0].effect = 0; // notify
+        cfg.rules[0].effect = EFFECT_NOTIFY;
         cfg.rules[0].rule_id = 0;
         set_cstr(&mut cfg.rules[0].target, name);
+        config_blob(&cfg)
+    }
+
+    fn exec_arg_rule_config_blob(name: &str, arg: &str, effect: u8) -> Vec<u8> {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_EXEC;
+        cfg.rules[0].m = 0; // TAINT_MATCH_EXACT
+        cfg.rules[0].effect = effect;
+        cfg.rules[0].rule_id = 0;
+        set_cstr(&mut cfg.rules[0].target, name);
+        set_cstr(&mut cfg.rules[0].arg, arg);
         config_blob(&cfg)
     }
 
@@ -1418,10 +2569,70 @@ mod tests {
         cfg.n_rules = 1;
         cfg.rules[0].op = OP_EXEC;
         cfg.rules[0].m = 0; // TAINT_MATCH_EXACT
-        cfg.rules[0].effect = 0; // notify
+        cfg.rules[0].effect = EFFECT_NOTIFY;
         cfg.rules[0].rule_id = 0;
         cfg.rules[0].req = label;
         set_cstr(&mut cfg.rules[0].target, name);
+        config_blob(&cfg)
+    }
+
+    fn source_open_then_notify_open_config_blob(source: &str, sink: &str, label: u64) -> Vec<u8> {
+        assert!(source.len() < PAT, "test source path too long for CUpdate");
+        assert!(sink.len() < PAT, "test sink path too long for CRule");
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_updates = 1;
+        cfg.updates[0].op = OP_OPEN;
+        cfg.updates[0].m = 0; // TAINT_MATCH_EXACT
+        cfg.updates[0].add = label;
+        set_cstr(&mut cfg.updates[0].target, source);
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_OPEN;
+        cfg.rules[0].m = 0; // TAINT_MATCH_EXACT
+        cfg.rules[0].effect = EFFECT_NOTIFY;
+        cfg.rules[0].rule_id = 0;
+        cfg.rules[0].req = label;
+        set_cstr(&mut cfg.rules[0].target, sink);
+        config_blob(&cfg)
+    }
+
+    fn declassify_exec_config_blob(name: &str, label: u64) -> Vec<u8> {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_updates = 1;
+        cfg.updates[0].op = OP_EXEC;
+        cfg.updates[0].m = 0; // TAINT_MATCH_EXACT
+        cfg.updates[0].del = label;
+        set_cstr(&mut cfg.updates[0].target, name);
+        config_blob(&cfg)
+    }
+
+    fn source_recv_then_notify_exec_config_blob(ipv4: u32, name: &str, label: u64) -> Vec<u8> {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_updates = 1;
+        cfg.updates[0].op = OP_RECV;
+        cfg.updates[0].m = 3; // TAINT_MATCH_ANY
+        cfg.updates[0].add = label;
+        cfg.updates[0].ipv4 = ipv4;
+        cfg.updates[0].ipv4_mask = u32::MAX;
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_EXEC;
+        cfg.rules[0].m = 0; // TAINT_MATCH_EXACT
+        cfg.rules[0].effect = EFFECT_NOTIFY;
+        cfg.rules[0].rule_id = 0;
+        cfg.rules[0].req = label;
+        set_cstr(&mut cfg.rules[0].target, name);
+        config_blob(&cfg)
+    }
+
+    fn block_recv_endpoint_config_blob(ipv4: u32, label: u64) -> Vec<u8> {
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_rules = 1;
+        cfg.rules[0].op = OP_RECV;
+        cfg.rules[0].m = 3; // TAINT_MATCH_ANY
+        cfg.rules[0].effect = EFFECT_BLOCK;
+        cfg.rules[0].rule_id = 0;
+        cfg.rules[0].req = label;
+        cfg.rules[0].ipv4 = ipv4;
+        cfg.rules[0].ipv4_mask = u32::MAX;
         config_blob(&cfg)
     }
 
@@ -1430,10 +2641,26 @@ mod tests {
         cfg.n_rules = 1;
         cfg.rules[0].op = OP_EXEC;
         cfg.rules[0].m = 0; // TAINT_MATCH_EXACT
-        cfg.rules[0].effect = 0; // notify
+        cfg.rules[0].effect = EFFECT_NOTIFY;
         cfg.rules[0].rule_id = 0;
         cfg.rules[0].req = label;
         set_cstr(&mut cfg.rules[0].target, name);
+        config_blob(&cfg)
+    }
+
+    fn block_write_exact_paths_config_blob(paths: &[String], label: u64) -> Vec<u8> {
+        assert!(paths.len() <= MAX_RULES);
+        let mut cfg: CConfig = unsafe { std::mem::zeroed() };
+        cfg.n_rules = paths.len() as u32;
+        for (idx, path) in paths.iter().enumerate() {
+            assert!(path.len() < PAT, "test write path too long for CRule");
+            cfg.rules[idx].op = OP_WRITE;
+            cfg.rules[idx].m = 0; // TAINT_MATCH_EXACT
+            cfg.rules[idx].effect = EFFECT_BLOCK;
+            cfg.rules[idx].rule_id = idx as u32;
+            cfg.rules[idx].req = label;
+            set_cstr(&mut cfg.rules[idx].target, path);
+        }
         config_blob(&cfg)
     }
 
@@ -1455,12 +2682,223 @@ mod tests {
             .expect("spawn stopped shell")
     }
 
+    fn wait_until_stopped(child: &std::process::Child) {
+        let pid = child.id() as i32;
+        let stat_path = format!("/proc/{pid}/stat");
+        for _ in 0..200 {
+            if let Ok(stat) = std::fs::read_to_string(&stat_path) {
+                if let Some((_, rest)) = stat.rsplit_once(") ") {
+                    match rest.chars().next() {
+                        Some('T') | Some('t') => return,
+                        Some('Z') => panic!("child {pid} exited before reaching stopped state"),
+                        _ => {}
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("child {pid} did not reach stopped state before resume");
+    }
+
     fn resume_and_wait(child: &mut std::process::Child) {
         let pid = child.id() as i32;
+        wait_until_stopped(child);
         let rc = unsafe { libc::kill(pid, libc::SIGCONT) };
         assert_eq!(rc, 0, "resume child {pid}");
         let status = child.wait().expect("wait child");
         assert!(status.success(), "child status {status:?}");
+    }
+
+    fn wait_child_timeout(
+        child: &mut std::process::Child,
+        timeout: std::time::Duration,
+    ) -> Option<std::process::ExitStatus> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return Some(status),
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        return None;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => panic!("try_wait child: {e}"),
+            }
+        }
+    }
+
+    fn mmap_shared_writer_script(src: &str, out: &str) -> String {
+        format!(
+            r#"import mmap, os, signal
+os.kill(os.getpid(), signal.SIGSTOP)
+out_fd = os.open({out:?}, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+try:
+    os.ftruncate(out_fd, 4096)
+    with open({src:?}, "rb") as src:
+        src.read()
+    mm = mmap.mmap(out_fd, 4096, access=mmap.ACCESS_WRITE)
+    try:
+        mm[:6] = b"copied"
+        mm.flush()
+    finally:
+        mm.close()
+finally:
+    os.close(out_fd)
+"#
+        )
+    }
+
+    fn mprotect_shared_writer_script(src: &str, out: &str) -> String {
+        format!(
+            r#"import ctypes, os, signal
+os.kill(os.getpid(), signal.SIGSTOP)
+libc = ctypes.CDLL(None, use_errno=True)
+PROT_READ = 1
+PROT_WRITE = 2
+MAP_SHARED = 1
+MS_SYNC = 4
+size = 4096
+libc.mmap.restype = ctypes.c_void_p
+libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
+libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+libc.msync.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+out_fd = os.open({out:?}, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+try:
+    os.ftruncate(out_fd, size)
+    addr = libc.mmap(None, size, PROT_READ, MAP_SHARED, out_fd, 0)
+    if addr is None or addr == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_errno(), "mmap failed")
+    try:
+        with open({src:?}, "rb") as src:
+            src.read()
+        if libc.mprotect(ctypes.c_void_p(addr), size, PROT_READ | PROT_WRITE) != 0:
+            raise OSError(ctypes.get_errno(), "mprotect failed")
+        ctypes.memmove(ctypes.c_void_p(addr), b"copied\n", 7)
+        if libc.msync(ctypes.c_void_p(addr), size, MS_SYNC) != 0:
+            raise OSError(ctypes.get_errno(), "msync failed")
+    finally:
+        libc.munmap(ctypes.c_void_p(addr), size)
+finally:
+    os.close(out_fd)
+"#
+        )
+    }
+
+    fn mremap_shared_writer_script(src: &str, out: &str) -> String {
+        format!(
+            r#"import ctypes, os, signal
+os.kill(os.getpid(), signal.SIGSTOP)
+libc = ctypes.CDLL(None, use_errno=True)
+PROT_READ = 1
+PROT_WRITE = 2
+MAP_SHARED = 1
+MS_SYNC = 4
+size = 4096
+libc.mmap.restype = ctypes.c_void_p
+libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
+libc.mremap.restype = ctypes.c_void_p
+libc.mremap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_int]
+libc.msync.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+out_fd = os.open({out:?}, os.O_RDWR | os.O_CREAT | os.O_TRUNC, 0o600)
+try:
+    os.ftruncate(out_fd, size)
+    addr = libc.mmap(None, size, PROT_READ | PROT_WRITE, MAP_SHARED, out_fd, 0)
+    if addr is None or addr == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_errno(), "mmap failed")
+    mapped = addr
+    try:
+        with open({src:?}, "rb") as src:
+            src.read()
+        remapped = libc.mremap(ctypes.c_void_p(addr), size, size, 0)
+        if remapped is None or remapped == ctypes.c_void_p(-1).value:
+            raise OSError(ctypes.get_errno(), "mremap failed")
+        mapped = remapped
+        ctypes.memmove(ctypes.c_void_p(mapped), b"copied\n", 7)
+        if libc.msync(ctypes.c_void_p(mapped), size, MS_SYNC) != 0:
+            raise OSError(ctypes.get_errno(), "msync failed")
+    finally:
+        libc.munmap(ctypes.c_void_p(mapped), size)
+finally:
+    os.close(out_fd)
+"#
+        )
+    }
+
+    fn mprotect_read_upgrade_exec_script(src: &str, hit: &str) -> String {
+        format!(
+            r#"import ctypes, os, signal
+libc = ctypes.CDLL(None, use_errno=True)
+PROT_NONE = 0
+PROT_READ = 1
+MAP_PRIVATE = 2
+size = 4096
+libc.mmap.restype = ctypes.c_void_p
+libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
+libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+fd = os.open({src:?}, os.O_RDONLY)
+os.kill(os.getpid(), signal.SIGSTOP)
+try:
+    addr = libc.mmap(None, size, PROT_NONE, MAP_PRIVATE, fd, 0)
+    if addr is None or addr == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_errno(), "mmap failed")
+    try:
+        if libc.mprotect(ctypes.c_void_p(addr), size, PROT_READ) != 0:
+            raise OSError(ctypes.get_errno(), "mprotect failed")
+        data = ctypes.string_at(ctypes.c_void_p(addr), 1)
+        if data != b"s":
+            raise RuntimeError("unexpected mapped data")
+    finally:
+        libc.munmap(ctypes.c_void_p(addr), size)
+finally:
+    os.close(fd)
+os.execv({hit:?}, [{hit:?}])
+"#
+        )
+    }
+
+    fn mprotect_two_mapping_read_upgrade_exec_script(
+        src_a: &str,
+        src_b: &str,
+        hit: &str,
+    ) -> String {
+        format!(
+            r#"import ctypes, os, signal
+libc = ctypes.CDLL(None, use_errno=True)
+PROT_NONE = 0
+PROT_READ = 1
+MAP_PRIVATE = 2
+size = 4096
+libc.mmap.restype = ctypes.c_void_p
+libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_long]
+libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+fd_a = os.open({src_a:?}, os.O_RDONLY)
+fd_b = os.open({src_b:?}, os.O_RDONLY)
+os.kill(os.getpid(), signal.SIGSTOP)
+addr_a = libc.mmap(None, size, PROT_NONE, MAP_PRIVATE, fd_a, 0)
+addr_b = libc.mmap(None, size, PROT_NONE, MAP_PRIVATE, fd_b, 0)
+if addr_a is None or addr_a == ctypes.c_void_p(-1).value:
+    raise OSError(ctypes.get_errno(), "mmap src_a failed")
+if addr_b is None or addr_b == ctypes.c_void_p(-1).value:
+    raise OSError(ctypes.get_errno(), "mmap src_b failed")
+try:
+    if libc.mprotect(ctypes.c_void_p(addr_a), size, PROT_READ) != 0:
+        raise OSError(ctypes.get_errno(), "mprotect src_a failed")
+    data = ctypes.string_at(ctypes.c_void_p(addr_a), 1)
+    if data != b"s":
+        raise RuntimeError("unexpected mapped data")
+finally:
+    libc.munmap(ctypes.c_void_p(addr_b), size)
+    libc.munmap(ctypes.c_void_p(addr_a), size)
+    os.close(fd_b)
+    os.close(fd_a)
+os.execv({hit:?}, [{hit:?}])
+"#
+        )
     }
 
     fn percentile(sorted: &[std::time::Duration], pct: f64) -> std::time::Duration {
@@ -1484,6 +2922,36 @@ mod tests {
             sorted[0].as_secs_f64() * 1_000_000.0,
             sorted[sorted.len() - 1].as_secs_f64() * 1_000_000.0,
         );
+    }
+
+    struct LiveBpfTestGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        old_hook_profile: Option<std::ffi::OsString>,
+    }
+
+    impl Drop for LiveBpfTestGuard {
+        fn drop(&mut self) {
+            if let Some(v) = self.old_hook_profile.take() {
+                std::env::set_var("ACTPLANE_HOOK_PROFILE", v);
+            } else {
+                std::env::remove_var("ACTPLANE_HOOK_PROFILE");
+            }
+        }
+    }
+
+    fn live_bpf_test_guard() -> LiveBpfTestGuard {
+        static LIVE_BPF_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> =
+            std::sync::OnceLock::new();
+        let lock = LIVE_BPF_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("live BPF test lock");
+        let old_hook_profile = std::env::var_os("ACTPLANE_HOOK_PROFILE");
+        std::env::set_var("ACTPLANE_HOOK_PROFILE", "full");
+        LiveBpfTestGuard {
+            _lock: lock,
+            old_hook_profile,
+        }
     }
 
     #[test]
@@ -1602,7 +3070,3144 @@ mod tests {
 
     #[test]
     #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
+    fn exec_argv_notify_matches_token_smoke() {
+        let policy = exec_arg_rule_config_blob("apargnotify", "needle", EFFECT_NOTIFY);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        loader
+            .seed_label(std::process::id() as i32, 1)
+            .expect("seed current test domain");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let tmp = std::env::temp_dir().join(format!("actplane-argv-notify-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("apargnotify");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let miss = std::process::Command::new(&hit_path)
+            .arg("other")
+            .status()
+            .expect("run non-matching argv executable");
+        assert!(miss.success());
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(250))
+                .is_err(),
+            "non-matching argv token reported a violation"
+        );
+
+        let hit = std::process::Command::new(&hit_path)
+            .arg("needle")
+            .status()
+            .expect("run matching argv executable");
+        assert!(hit.success());
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("argv-sensitive notify violation");
+        assert_eq!(v.effect, EFFECT_NOTIFY as u32);
+        assert!(!v.blocked, "notify should not block: {v:?}");
+        assert!(!v.killed, "notify should not kill: {v:?}");
+        assert!(v.target.ends_with("apargnotify"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
+    fn exec_argv_kill_terminates_post_exec_smoke() {
+        let policy = exec_arg_rule_config_blob("apargkill", "needle", EFFECT_KILL);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        loader
+            .seed_label(std::process::id() as i32, 1)
+            .expect("seed current test domain");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let tmp = std::env::temp_dir().join(format!("actplane-argv-kill-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("apargkill");
+        std::fs::copy("/bin/sh", &hit_path).expect("copy /bin/sh");
+
+        let mut child = std::process::Command::new(&hit_path)
+            .arg("-c")
+            .arg("sleep 30")
+            .arg("needle")
+            .spawn()
+            .expect("spawn matching argv executable");
+        let status = match wait_child_timeout(&mut child, std::time::Duration::from_secs(2)) {
+            Some(status) => status,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("argv-sensitive kill rule did not terminate child");
+            }
+        };
+        assert!(!status.success(), "kill rule child status {status:?}");
+
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("argv-sensitive kill violation");
+        assert_eq!(v.effect, EFFECT_KILL as u32);
+        assert!(v.killed, "kill violation did not set killed=true: {v:?}");
+        assert!(
+            !v.blocked,
+            "argv-sensitive kill should come from post-exec tracepoint: {v:?}"
+        );
+        assert!(v.target.ends_with("apargkill"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF, active BPF LSM, and loads live eBPF programs"]
+    fn lsm_path_write_hooks_block_unlink_rename_and_truncate_smoke() {
+        if !bpf_lsm_active() {
+            eprintln!("skipping LSM path write hook smoke: bpf LSM is not active");
+            return;
+        }
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!(
+            "actplane-lsm-path-write-smoke-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let unlink_path = tmp.join("protected-unlink");
+        let truncate_path = tmp.join("protected-truncate");
+        let rename_old_path = tmp.join("protected-rename-old");
+        let rename_new_path = tmp.join("protected-rename-new");
+        std::fs::write(&unlink_path, "keep unlink\n").expect("write unlink file");
+        std::fs::write(&truncate_path, "keep truncate\n").expect("write truncate file");
+        std::fs::write(&rename_old_path, "keep rename\n").expect("write rename file");
+
+        let protected = vec![
+            unlink_path.to_string_lossy().to_string(),
+            truncate_path.to_string_lossy().to_string(),
+            rename_old_path.to_string_lossy().to_string(),
+        ];
+        let policy = block_write_exact_paths_config_blob(&protected, label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        assert!(
+            loader.enforce_mode(),
+            "BPF LSM should be active for this test"
+        );
+        loader
+            .seed_label(caller_pid, label)
+            .expect("seed current test domain");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let unlink_err = std::fs::remove_file(&unlink_path).expect_err("unlink should be blocked");
+        assert_eq!(unlink_err.raw_os_error(), Some(libc::EPERM));
+        assert!(unlink_path.is_file(), "blocked unlink removed the file");
+
+        let truncate_c = std::ffi::CString::new(truncate_path.to_string_lossy().as_bytes())
+            .expect("truncate path cstring");
+        let truncate_rc = unsafe { libc::truncate(truncate_c.as_ptr(), 0) };
+        assert_eq!(truncate_rc, -1, "truncate should fail");
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EPERM)
+        );
+        let truncate_contents =
+            std::fs::read_to_string(&truncate_path).expect("read truncate file");
+        assert_eq!(truncate_contents, "keep truncate\n");
+
+        let rename_err = std::fs::rename(&rename_old_path, &rename_new_path)
+            .expect_err("rename should be blocked");
+        assert_eq!(rename_err.raw_os_error(), Some(libc::EPERM));
+        assert!(rename_old_path.is_file(), "blocked rename removed old path");
+        assert!(!rename_new_path.exists(), "blocked rename created new path");
+
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            let v = rx
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("blocked write violation event");
+            assert!(v.blocked, "violation was not marked blocked: {v:?}");
+            seen.push(v.target);
+        }
+        for path in &protected {
+            assert!(
+                seen.iter().any(|target| target == path),
+                "missing blocked event for {path}; saw {seen:?}"
+            );
+        }
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF, active BPF LSM, and loads live eBPF programs"]
+    fn lsm_fd_write_after_late_read_propagates_file_label_smoke() {
+        if !bpf_lsm_active() {
+            eprintln!("skipping LSM fd write flow smoke: bpf LSM is not active");
+            return;
+        }
+        let _guard = live_bpf_test_guard();
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-lsm-fd-flow-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("apfdhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "apfdhit", label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        assert!(
+            loader.enforce_mode(),
+            "BPF LSM should be active for this test"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer =
+            spawn_stopped_shell(&format!("exec 3> {out}; read _ < {src}; echo copied >&3"));
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("reader should inherit label written through an already-open fd");
+        assert!(v.target.ends_with("apfdhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
+    fn object_label_open_violation_reports_file_provenance_smoke() {
+        let _guard = live_bpf_test_guard();
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-object-prov-smoke-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let shared_path = tmp.join("shared");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+
+        let src = src_path.to_string_lossy().to_string();
+        let shared = shared_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_open_config_blob(&src, &shared, label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer =
+            spawn_stopped_shell(&format!("read _ < {src}; printf 'copied\\n' > {shared}"));
+        let mut reader = spawn_stopped_shell(&format!("read _ < {shared}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            shared_path.is_file(),
+            "writer did not create the shared file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("open sink should report the file object's provenance");
+        assert_eq!(v.op, OP_OPEN as u32);
+        assert_eq!(v.matched_label, label);
+        assert_eq!(v.matched_labels, label);
+        assert!(
+            v.target.ends_with("/shared") || v.target == shared,
+            "target was {}",
+            v.target
+        );
+        let provenance = v.provenance.expect("file object provenance");
+        assert_eq!(provenance.label, label);
+        assert_eq!(provenance.op, OP_OPEN as u32);
+        assert!(
+            provenance.target.ends_with("/src") || provenance.target == src,
+            "provenance target was {}",
+            provenance.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF, active BPF LSM, and loads live eBPF programs"]
+    fn lsm_mmap_shared_write_after_late_read_propagates_file_label_smoke() {
+        if !bpf_lsm_active() {
+            eprintln!("skipping LSM mmap write flow smoke: bpf LSM is not active");
+            return;
+        }
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import mmap")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping LSM mmap write flow smoke: python3 mmap is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-lsm-mmap-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("apmaphit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "apmaphit", label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        assert!(
+            loader.enforce_mode(),
+            "BPF LSM should be active for this test"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mmap_shared_writer_script(&src, &out))
+            .spawn()
+            .expect("spawn stopped mmap writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("LSM reader should inherit label written through shared mmap");
+        assert!(v.target.ends_with("apmaphit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF, active BPF LSM, and loads live eBPF programs"]
+    fn lsm_mprotect_shared_write_after_late_read_propagates_file_label_smoke() {
+        if !bpf_lsm_active() {
+            eprintln!("skipping LSM mprotect write flow smoke: bpf LSM is not active");
+            return;
+        }
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import ctypes")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping LSM mprotect write flow smoke: python3 ctypes is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-lsm-mprotect-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("apmprothit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "apmprothit", label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        assert!(
+            loader.enforce_mode(),
+            "BPF LSM should be active for this test"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mprotect_shared_writer_script(&src, &out))
+            .spawn()
+            .expect("spawn stopped mprotect writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("LSM reader should inherit label written after mprotect");
+        assert!(v.target.ends_with("apmprothit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF, active BPF LSM, and loads live eBPF programs"]
+    fn lsm_mprotect_read_upgrade_source_taints_subject_smoke() {
+        if !bpf_lsm_active() {
+            eprintln!("skipping LSM mprotect read-upgrade smoke: bpf LSM is not active");
+            return;
+        }
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import ctypes")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping LSM mprotect read-upgrade smoke: python3 ctypes is not available");
+            return;
+        }
+
+        let label = 1;
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-lsm-mprotect-read-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("apmprdhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let mut subject = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mprotect_read_upgrade_exec_script(&src, &hit))
+            .spawn()
+            .expect("spawn stopped mprotect read-upgrade subject");
+        wait_until_stopped(&subject);
+
+        let policy = source_open_then_notify_exec_config_blob("src", "apmprdhit", label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        assert!(
+            loader.enforce_mode(),
+            "BPF LSM should be active for this test"
+        );
+        let subject_pid = subject.id() as i32;
+        loader
+            .bind_state(
+                subject_pid,
+                subject_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind stopped subject domain");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut subject);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("LSM subject should inherit source label on mprotect read upgrade");
+        assert!(v.target.ends_with("apmprdhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_fd_write_after_late_read_propagates_file_label_smoke() {
+        let _guard = live_bpf_test_guard();
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-fd-flow-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpfdhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpfdhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer =
+            spawn_stopped_shell(&format!("exec 3> {out}; read _ < {src}; echo copied >&3"));
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written through an already-open fd");
+        assert!(v.target.ends_with("aptpfdhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_mmap_shared_write_after_late_read_propagates_file_label_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import mmap")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping tracepoint mmap write flow smoke: python3 mmap is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-mmap-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpmaphit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpmaphit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mmap_shared_writer_script(&src, &out))
+            .spawn()
+            .expect("spawn stopped mmap writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written through shared mmap");
+        assert!(v.target.ends_with("aptpmaphit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_mprotect_shared_write_after_late_read_propagates_file_label_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import ctypes")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!(
+                "skipping tracepoint mprotect write flow smoke: python3 ctypes is not available"
+            );
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-mprotect-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpmprothit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpmprothit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mprotect_shared_writer_script(&src, &out))
+            .spawn()
+            .expect("spawn stopped mprotect writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written after mprotect");
+        assert!(
+            v.target.ends_with("aptpmprothit"),
+            "target was {}",
+            v.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_mprotect_read_upgrade_source_taints_subject_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import ctypes")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!(
+                "skipping tracepoint mprotect read-upgrade smoke: python3 ctypes is not available"
+            );
+            return;
+        }
+
+        let label = 1;
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-tp-mprotect-read-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("aptpmprdhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let mut subject = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mprotect_read_upgrade_exec_script(&src, &hit))
+            .spawn()
+            .expect("spawn stopped mprotect read-upgrade subject");
+        wait_until_stopped(&subject);
+
+        let policy = source_open_then_notify_exec_config_blob("src", "aptpmprdhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        let subject_pid = subject.id() as i32;
+        loader
+            .bind_state(
+                subject_pid,
+                subject_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind stopped subject domain");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut subject);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint subject should inherit source label on mprotect read upgrade");
+        assert!(v.target.ends_with("aptpmprdhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_mmap_exact_start_tracks_multiple_mappings_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import ctypes")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!(
+                "skipping tracepoint mmap multi-mapping smoke: python3 ctypes is not available"
+            );
+            return;
+        }
+
+        let label = 1;
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-tp-mmap-multi-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_a_path = tmp.join("src_a");
+        let src_b_path = tmp.join("src_b");
+        let hit_path = tmp.join("aptpmmultihit");
+        std::fs::write(&src_a_path, "secret-a\n").expect("write source a");
+        std::fs::write(&src_b_path, "secret-b\n").expect("write source b");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src_a = src_a_path.to_string_lossy().to_string();
+        let src_b = src_b_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let mut subject = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mprotect_two_mapping_read_upgrade_exec_script(
+                &src_a, &src_b, &hit,
+            ))
+            .spawn()
+            .expect("spawn stopped mmap multi-mapping subject");
+        wait_until_stopped(&subject);
+
+        let policy = source_open_then_notify_exec_config_blob("src_a", "aptpmmultihit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        let subject_pid = subject.id() as i32;
+        loader
+            .bind_state(
+                subject_pid,
+                subject_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind stopped subject domain");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut subject);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint subject should keep the older mmap record after a later mmap");
+        assert!(
+            v.target.ends_with("aptpmmultihit"),
+            "target was {}",
+            v.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_mremap_shared_write_after_late_read_propagates_file_label_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import ctypes")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!(
+                "skipping tracepoint mremap write flow smoke: python3 ctypes is not available"
+            );
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-mremap-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpmremaphit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpmremaphit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(mremap_shared_writer_script(&src, &out))
+            .spawn()
+            .expect("spawn stopped mremap writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written after mremap");
+        assert!(
+            v.target.ends_with("aptpmremaphit"),
+            "target was {}",
+            v.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_fcntl_dup_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping fcntl fd-flow smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-fcntl-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpfcntlhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpfcntlhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import fcntl, os, signal
+os.kill(os.getpid(), signal.SIGSTOP)
+out_fd = os.open({out:?}, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with open({src:?}, "rb") as src:
+    src.read()
+dup_fd = fcntl.fcntl(out_fd, fcntl.F_DUPFD, 10)
+os.write(dup_fd, b"copied\n")
+os.close(dup_fd)
+os.close(out_fd)
+"#
+        );
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped fcntl writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written through fcntl-duplicated fd");
+        assert!(
+            v.target.ends_with("aptpfcntlhit"),
+            "target was {}",
+            v.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_sendfile_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_sendfile = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import os; raise SystemExit(0 if hasattr(os, 'sendfile') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_sendfile {
+            eprintln!("skipping sendfile fd-flow smoke: python3 os.sendfile is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-sendfile-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpsendfilehit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpsendfilehit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal
+os.kill(os.getpid(), signal.SIGSTOP)
+out_fd = os.open({out:?}, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+src_fd = os.open({src:?}, os.O_RDONLY)
+try:
+    os.sendfile(out_fd, src_fd, 0, 4096)
+finally:
+    os.close(src_fd)
+    os.close(out_fd)
+"#
+        );
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped sendfile writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written through sendfile");
+        assert!(
+            v.target.ends_with("aptpsendfilehit"),
+            "target was {}",
+            v.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_copy_file_range_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_copy_file_range = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import os; raise SystemExit(0 if hasattr(os, 'copy_file_range') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_copy_file_range {
+            eprintln!(
+                "skipping copy_file_range fd-flow smoke: python3 os.copy_file_range is not available"
+            );
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!(
+            "actplane-tp-copy-file-range-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpcfrhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpcfrhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal
+os.kill(os.getpid(), signal.SIGSTOP)
+out_fd = os.open({out:?}, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+src_fd = os.open({src:?}, os.O_RDONLY)
+try:
+    os.copy_file_range(src_fd, out_fd, 4096)
+finally:
+    os.close(src_fd)
+    os.close(out_fd)
+"#
+        );
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped copy_file_range writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written through copy_file_range");
+        assert!(v.target.ends_with("aptpcfrhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_pipe_fork_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping pipe fd-flow smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-pipe-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("aptppipehit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptppipehit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, sys
+os.kill(os.getpid(), signal.SIGSTOP)
+r_fd, w_fd = os.pipe()
+pid = os.fork()
+if pid == 0:
+    os.close(w_fd)
+    os.read(r_fd, 4096)
+    os.close(r_fd)
+    os.execv({hit:?}, [{hit:?}])
+os.close(r_fd)
+with open({src:?}, "rb") as src:
+    src.read()
+os.write(w_fd, b"x")
+os.close(w_fd)
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped pipe actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("forked child should inherit label read through pipe");
+        assert!(v.target.ends_with("aptppipehit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_socketpair_fork_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping socketpair fd-flow smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-tp-socketpair-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("aptpsockhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpsockhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket
+os.kill(os.getpid(), signal.SIGSTOP)
+left, right = socket.socketpair()
+pid = os.fork()
+if pid == 0:
+    left.close()
+    right.recv(4096)
+    right.close()
+    os.execv({hit:?}, [{hit:?}])
+right.close()
+with open({src:?}, "rb") as src:
+    src.read()
+left.send(b"x")
+left.close()
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped socketpair actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("forked child should inherit label received through socketpair");
+        assert!(v.target.ends_with("aptpsockhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_unix_path_socket_fork_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping pathname unix socket smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-unix-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let sock_path = tmp.join("sock");
+        let hit_path = tmp.join("aptpunixhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let sock = sock_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpunixhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket, time
+os.kill(os.getpid(), signal.SIGSTOP)
+try:
+    os.unlink({sock:?})
+except FileNotFoundError:
+    pass
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind({sock:?})
+srv.listen(1)
+pid = os.fork()
+if pid == 0:
+    conn, _ = srv.accept()
+    conn.recv(4096)
+    conn.close()
+    srv.close()
+    os.execv({hit:?}, [{hit:?}])
+with open({src:?}, "rb") as src:
+    src.read()
+cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+for _ in range(100):
+    try:
+        cli.connect({sock:?})
+        break
+    except OSError:
+        time.sleep(0.01)
+else:
+    raise RuntimeError("connect failed")
+cli.sendall(b"x")
+cli.close()
+srv.close()
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped pathname unix socket actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("forked child should inherit label received through pathname unix socket");
+        assert!(v.target.ends_with("aptpunixhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_unix_abstract_socket_fork_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping abstract unix socket smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-unix-abs-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("aptpabshit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let addr = format!("\0actplane-abstract-{}", std::process::id());
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpabshit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket, time
+addr = {addr:?}
+os.kill(os.getpid(), signal.SIGSTOP)
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind(addr)
+srv.listen(1)
+pid = os.fork()
+if pid == 0:
+    conn, _ = srv.accept()
+    conn.recv(4096)
+    conn.close()
+    srv.close()
+    os.execv({hit:?}, [{hit:?}])
+with open({src:?}, "rb") as src:
+    src.read()
+cli = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+for _ in range(100):
+    try:
+        cli.connect(addr)
+        break
+    except OSError:
+        time.sleep(0.01)
+else:
+    raise RuntimeError("connect failed")
+cli.sendall(b"x")
+cli.close()
+srv.close()
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped abstract unix socket actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("forked child should inherit label received through abstract unix socket");
+        assert!(v.target.ends_with("aptpabshit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_unix_dgram_sendto_path_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping pathname unix datagram smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-tp-unix-dgram-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let sock_path = tmp.join("sock");
+        let hit_path = tmp.join("aptpdgrhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let sock = sock_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpdgrhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket
+os.kill(os.getpid(), signal.SIGSTOP)
+try:
+    os.unlink({sock:?})
+except FileNotFoundError:
+    pass
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+srv.bind({sock:?})
+pid = os.fork()
+if pid == 0:
+    srv.recvfrom(4096)
+    srv.close()
+    os.execv({hit:?}, [{hit:?}])
+with open({src:?}, "rb") as src:
+    src.read()
+cli = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+cli.sendto(b"x", {sock:?})
+cli.close()
+srv.close()
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped pathname unix datagram actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("forked child should inherit label received through unix datagram sendto");
+        assert!(v.target.ends_with("aptpdgrhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_unix_dgram_sendmsg_abstract_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_sendmsg = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import socket; raise SystemExit(0 if hasattr(socket.socket, 'sendmsg') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_sendmsg {
+            eprintln!("skipping abstract unix datagram sendmsg smoke: python3 socket.sendmsg is unavailable");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-unix-msg-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("aptpmsgdhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let addr = format!("\0actplane-dgram-{}", std::process::id());
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpmsgdhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket
+addr = {addr:?}
+os.kill(os.getpid(), signal.SIGSTOP)
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+srv.bind(addr)
+pid = os.fork()
+if pid == 0:
+    srv.recvmsg(4096)
+    srv.close()
+    os.execv({hit:?}, [{hit:?}])
+with open({src:?}, "rb") as src:
+    src.read()
+cli = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+cli.sendmsg([b"x"], [], 0, addr)
+cli.close()
+srv.close()
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped abstract unix datagram actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("forked child should inherit label received through unix datagram sendmsg");
+        assert!(v.target.ends_with("aptpmsgdhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_scm_rights_received_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_scm_rights = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import array, socket; raise SystemExit(0 if hasattr(socket, 'SCM_RIGHTS') and hasattr(socket.socket, 'sendmsg') and hasattr(socket.socket, 'recvmsg') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_scm_rights {
+            eprintln!("skipping SCM_RIGHTS smoke: python3 sendmsg/recvmsg is unavailable");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-scm-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpscmhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpscmhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import array, os, signal, socket
+os.kill(os.getpid(), signal.SIGSTOP)
+left, right = socket.socketpair()
+out_fd = os.open({out:?}, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+pid = os.fork()
+if pid == 0:
+    left.close()
+    fds = array.array("i")
+    msg, ancdata, flags, addr = right.recvmsg(1, socket.CMSG_SPACE(fds.itemsize))
+    for level, ctype, data in ancdata:
+        if level == socket.SOL_SOCKET and ctype == socket.SCM_RIGHTS:
+            fds.frombytes(data[:fds.itemsize])
+            break
+    if not fds:
+        raise RuntimeError("missing received fd")
+    os.write(fds[0], b"copied\n")
+    os.close(fds[0])
+    right.close()
+    raise SystemExit(0)
+right.close()
+with open({src:?}, "rb") as src:
+    src.read()
+fds = array.array("i", [out_fd])
+left.sendmsg([b"x"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds)])
+left.close()
+os.close(out_fd)
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped SCM_RIGHTS actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        assert!(
+            out_path.is_file(),
+            "SCM_RIGHTS actor did not create the output file"
+        );
+        while rx.try_recv().is_ok() {}
+
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("reader should inherit label written through SCM_RIGHTS fd");
+        assert!(v.target.ends_with("aptpscmhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_scm_rights_fifth_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_scm_rights = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import array, socket; raise SystemExit(0 if hasattr(socket, 'SCM_RIGHTS') and hasattr(socket.socket, 'sendmsg') and hasattr(socket.socket, 'recvmsg') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_scm_rights {
+            eprintln!("skipping SCM_RIGHTS fifth-fd smoke: python3 sendmsg/recvmsg is unavailable");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-scm5-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpscm5hit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpscm5hit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import array, os, signal, socket
+os.kill(os.getpid(), signal.SIGSTOP)
+left, right = socket.socketpair()
+dummy_fds = [os.open(os.devnull, os.O_WRONLY) for _ in range(4)]
+out_fd = os.open({out:?}, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+pid = os.fork()
+if pid == 0:
+    left.close()
+    fds = array.array("i")
+    msg, ancdata, flags, addr = right.recvmsg(1, socket.CMSG_SPACE(fds.itemsize * 5))
+    for level, ctype, data in ancdata:
+        if level == socket.SOL_SOCKET and ctype == socket.SCM_RIGHTS:
+            fds.frombytes(data[:fds.itemsize * 5])
+            break
+    if len(fds) < 5:
+        raise RuntimeError("missing received fd batch")
+    os.write(fds[4], b"copied\n")
+    for fd in fds:
+        os.close(fd)
+    right.close()
+    raise SystemExit(0)
+right.close()
+with open({src:?}, "rb") as src:
+    src.read()
+fds = array.array("i", dummy_fds + [out_fd])
+left.sendmsg([b"x"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds)])
+left.close()
+for fd in dummy_fds:
+    os.close(fd)
+os.close(out_fd)
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if status == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped SCM_RIGHTS fifth-fd actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        assert!(
+            out_path.is_file(),
+            "SCM_RIGHTS fifth-fd actor did not create the output file"
+        );
+        while rx.try_recv().is_ok() {}
+
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("reader should inherit label written through fifth SCM_RIGHTS fd");
+        assert!(v.target.ends_with("aptpscm5hit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_scm_rights_socketpair_fd_identity_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_scm_rights = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import array, socket; raise SystemExit(0 if hasattr(socket, 'SCM_RIGHTS') and hasattr(socket.socket, 'sendmsg') and hasattr(socket.socket, 'recvmsg') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_scm_rights {
+            eprintln!(
+                "skipping SCM_RIGHTS socketpair smoke: python3 sendmsg/recvmsg is unavailable"
+            );
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-scm-sock-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("aptpscmsockhit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpscmsockhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import array, os, signal, socket
+os.kill(os.getpid(), signal.SIGSTOP)
+ctrl_parent, ctrl_child = socket.socketpair()
+pid = os.fork()
+if pid == 0:
+    ctrl_parent.close()
+    fds = array.array("i")
+    msg, ancdata, flags, addr = ctrl_child.recvmsg(1, socket.CMSG_SPACE(fds.itemsize))
+    for level, ctype, data in ancdata:
+        if level == socket.SOL_SOCKET and ctype == socket.SCM_RIGHTS:
+            fds.frombytes(data[:fds.itemsize])
+            break
+    if not fds:
+        raise RuntimeError("missing received socket fd")
+    os.read(fds[0], 1)
+    os.execv({hit:?}, [{hit:?}])
+ctrl_child.close()
+data_parent, data_child = socket.socketpair()
+fds = array.array("i", [data_child.fileno()])
+ctrl_parent.sendmsg([b"x"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, fds)])
+data_child.close()
+with open({src:?}, "rb") as src:
+    src.read()
+data_parent.send(b"y")
+data_parent.close()
+ctrl_parent.close()
+_, status = os.waitpid(pid, 0)
+raise SystemExit(0 if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0 else 1)
+"#
+        );
+        let mut actor = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped SCM_RIGHTS socketpair actor");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut actor);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("child should inherit label through SCM_RIGHTS socketpair fd");
+        assert!(
+            v.target.ends_with("aptpscmsockhit"),
+            "target was {}",
+            v.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_recv_endpoint_source_taints_reader_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping tracepoint recv flow smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-recv-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("aptprecvhit");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+        let hit = hit_path.to_string_lossy().to_string();
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind listener");
+        let port = listener.local_addr().expect("listener addr").port();
+        let loopback = 127u32 | (1u32 << 24);
+        let policy = source_recv_then_notify_exec_config_blob(loopback, "aptprecvhit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket
+os.kill(os.getpid(), signal.SIGSTOP)
+s = socket.create_connection(("127.0.0.1", {port}))
+s.recv(4096)
+s.close()
+os.execv({hit:?}, [{hit:?}])
+"#
+        );
+        let mut reader = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped tracepoint TCP reader");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        wait_until_stopped(&reader);
+        let rc = unsafe { libc::kill(reader.id() as i32, libc::SIGCONT) };
+        assert_eq!(rc, 0, "resume tracepoint TCP reader");
+        let (mut stream, _addr) = listener.accept().expect("accept TCP reader");
+        use std::io::Write;
+        stream
+            .write_all(b"network-secret\n")
+            .expect("write to reader");
+        drop(stream);
+        let status = reader.wait().expect("wait TCP reader");
+        assert!(status.success(), "reader status {status:?}");
+
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint recv source should taint reader before exec");
+        assert!(v.target.ends_with("aptprecvhit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_udp_recvfrom_endpoint_source_taints_reader_smoke() {
+        let _guard = live_bpf_test_guard();
+        if std::process::Command::new("python3")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping tracepoint UDP recvfrom smoke: python3 is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-udp-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("aptpudphit");
+        let port_path = tmp.join("port");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+        let hit = hit_path.to_string_lossy().to_string();
+        let port_file = port_path.to_string_lossy().to_string();
+        let loopback = 127u32 | (1u32 << 24);
+        let policy = source_recv_then_notify_exec_config_blob(loopback, "aptpudphit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 0))
+with open({port_file:?}, "w", encoding="utf-8") as f:
+    f.write(str(s.getsockname()[1]))
+    f.flush()
+os.kill(os.getpid(), signal.SIGSTOP)
+s.recvfrom(4096)
+s.close()
+os.execv({hit:?}, [{hit:?}])
+"#
+        );
+        let mut reader = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped tracepoint UDP reader");
+
+        let mut port = None;
+        for _ in 0..200 {
+            match std::fs::read_to_string(&port_path) {
+                Ok(s) => {
+                    port = Some(s.trim().parse::<u16>().expect("parse UDP port"));
+                    break;
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(10)),
+            }
+        }
+        let port = port.expect("UDP reader should publish bound port");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        let sender = std::net::UdpSocket::bind(("127.0.0.1", 0)).expect("bind UDP sender");
+        sender
+            .send_to(b"network-secret\n", ("127.0.0.1", port))
+            .expect("send UDP packet");
+        resume_and_wait(&mut reader);
+
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint UDP recvfrom source should taint reader before exec");
+        assert!(v.target.ends_with("aptpudphit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_udp_recvmsg_endpoint_source_taints_reader_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_recvmsg = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import socket; raise SystemExit(0 if hasattr(socket.socket, 'recvmsg') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_recvmsg {
+            eprintln!(
+                "skipping tracepoint UDP recvmsg smoke: python3 socket.recvmsg is unavailable"
+            );
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-udpmsg-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("aptpmsghit");
+        let port_path = tmp.join("port");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+        let hit = hit_path.to_string_lossy().to_string();
+        let port_file = port_path.to_string_lossy().to_string();
+        let loopback = 127u32 | (1u32 << 24);
+        let policy = source_recv_then_notify_exec_config_blob(loopback, "aptpmsghit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal, socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 0))
+with open({port_file:?}, "w", encoding="utf-8") as f:
+    f.write(str(s.getsockname()[1]))
+    f.flush()
+os.kill(os.getpid(), signal.SIGSTOP)
+s.recvmsg(4096)
+s.close()
+os.execv({hit:?}, [{hit:?}])
+"#
+        );
+        let mut reader = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped tracepoint UDP recvmsg reader");
+
+        let mut port = None;
+        for _ in 0..200 {
+            match std::fs::read_to_string(&port_path) {
+                Ok(s) => {
+                    port = Some(s.trim().parse::<u16>().expect("parse UDP port"));
+                    break;
+                }
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(10)),
+            }
+        }
+        let port = port.expect("UDP recvmsg reader should publish bound port");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        while rx.try_recv().is_ok() {}
+
+        let sender = std::net::UdpSocket::bind(("127.0.0.1", 0)).expect("bind UDP sender");
+        sender
+            .send_to(b"network-secret\n", ("127.0.0.1", port))
+            .expect("send UDP packet");
+        resume_and_wait(&mut reader);
+
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint UDP recvmsg source should taint reader before exec");
+        assert!(v.target.ends_with("aptpmsghit"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF tracepoints"]
+    fn tracepoint_splice_fd_flow_smoke() {
+        let _guard = live_bpf_test_guard();
+        let python_has_splice = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import os; raise SystemExit(0 if hasattr(os, 'splice') else 1)")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !python_has_splice {
+            eprintln!("skipping splice fd-flow smoke: python3 os.splice is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-tp-splice-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let out_path = tmp.join("out");
+        let hit_path = tmp.join("aptpsplicehit");
+        std::fs::write(&src_path, "secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+
+        let src = src_path.to_string_lossy().to_string();
+        let out = out_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "aptpsplicehit", label);
+        let old_force = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT");
+        std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", "1");
+        let loaded = Loader::load(&policy);
+        if let Some(v) = old_force {
+            std::env::set_var("ACTPLANE_FORCE_TRACEPOINT", v);
+        } else {
+            std::env::remove_var("ACTPLANE_FORCE_TRACEPOINT");
+        }
+        let mut loader = loaded.expect("load tracepoint eBPF engine");
+        assert!(
+            !loader.enforce_mode(),
+            "forced tracepoint mode should not attach BPF LSM"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let py = format!(
+            r#"import os, signal
+os.kill(os.getpid(), signal.SIGSTOP)
+r_fd, w_fd = os.pipe()
+out_fd = os.open({out:?}, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+src_fd = os.open({src:?}, os.O_RDONLY)
+try:
+    os.splice(src_fd, w_fd, 4096)
+    os.close(w_fd)
+    w_fd = -1
+    os.splice(r_fd, out_fd, 4096)
+finally:
+    for fd in (src_fd, out_fd, r_fd, w_fd):
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+"#
+        );
+        let mut writer = std::process::Command::new("python3")
+            .arg("-c")
+            .arg(py)
+            .spawn()
+            .expect("spawn stopped splice writer");
+        let mut reader = spawn_stopped_shell(&format!("read _ < {out}; exec {hit}"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        resume_and_wait(&mut writer);
+        assert!(
+            out_path.is_file(),
+            "writer did not create the output file before reader ran"
+        );
+        while rx.try_recv().is_ok() {}
+
+        resume_and_wait(&mut reader);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("tracepoint reader should inherit label written through splice");
+        assert!(
+            v.target.ends_with("aptpsplicehit"),
+            "target was {}",
+            v.target
+        );
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF, active BPF LSM, and loads live eBPF programs"]
+    fn lsm_recv_endpoint_source_taints_reader_smoke() {
+        if !bpf_lsm_active() {
+            eprintln!("skipping LSM recv flow smoke: bpf LSM is not active");
+            return;
+        }
+        if !std::path::Path::new("/bin/bash").exists() {
+            eprintln!("skipping LSM recv flow smoke: /bin/bash is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let tmp = std::env::temp_dir().join(format!("actplane-lsm-recv-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let hit_path = tmp.join("aprecvhit");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+        let hit = hit_path.to_string_lossy().to_string();
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind listener");
+        let port = listener.local_addr().expect("listener addr").port();
+        let loopback = 127u32 | (1u32 << 24);
+        let policy = source_recv_then_notify_exec_config_blob(loopback, "aprecvhit", label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        assert!(
+            loader.enforce_mode(),
+            "BPF LSM should be active for this test"
+        );
+        loader
+            .bind_state(
+                caller_pid,
+                caller_pid as u32,
+                CapState {
+                    scope_id: 1,
+                    target_mask: TARGET_SELF | TARGET_CHILD,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind active unlabeled caller domain");
+
+        let mut reader = std::process::Command::new("/bin/bash")
+            .arg("-c")
+            .arg(format!(
+                "kill -STOP $$; exec 3<>/dev/tcp/127.0.0.1/{port}; IFS= read -r _ <&3; exec {hit}"
+            ))
+            .spawn()
+            .expect("spawn stopped TCP reader");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        wait_until_stopped(&reader);
+        let rc = unsafe { libc::kill(reader.id() as i32, libc::SIGCONT) };
+        assert_eq!(rc, 0, "resume TCP reader");
+        let (mut stream, _addr) = listener.accept().expect("accept TCP reader");
+        use std::io::Write;
+        stream
+            .write_all(b"network-secret\n")
+            .expect("write to reader");
+        drop(stream);
+        let status = reader.wait().expect("wait TCP reader");
+        assert!(status.success(), "reader status {status:?}");
+
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("recv source should taint reader before exec");
+        assert!(v.target.ends_with("aprecvhit"), "target was {}", v.target);
+        assert_eq!(v.rule_id, 0);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF, active BPF LSM, and loads live eBPF programs"]
+    fn lsm_recv_endpoint_block_smoke() {
+        if !bpf_lsm_active() {
+            eprintln!("skipping LSM recv block smoke: bpf LSM is not active");
+            return;
+        }
+        if !std::path::Path::new("/bin/bash").exists() {
+            eprintln!("skipping LSM recv block smoke: /bin/bash is not available");
+            return;
+        }
+
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind listener");
+        let port = listener.local_addr().expect("listener addr").port();
+        let loopback = 127u32 | (1u32 << 24);
+        let policy = block_recv_endpoint_config_blob(loopback, label);
+        let mut loader = Loader::load(&policy).expect("load eBPF engine");
+        assert!(
+            loader.enforce_mode(),
+            "BPF LSM should be active for this test"
+        );
+        loader
+            .seed_label(caller_pid, label)
+            .expect("seed labeled caller domain");
+
+        let mut reader = std::process::Command::new("/bin/bash")
+            .arg("-c")
+            .arg(format!(
+                "kill -STOP $$; exec 3<>/dev/tcp/127.0.0.1/{port}; if IFS= read -r _ <&3; then exit 42; else exit 0; fi"
+            ))
+            .spawn()
+            .expect("spawn stopped TCP reader");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        wait_until_stopped(&reader);
+        let rc = unsafe { libc::kill(reader.id() as i32, libc::SIGCONT) };
+        assert_eq!(rc, 0, "resume TCP reader");
+        let (mut stream, _addr) = listener.accept().expect("accept TCP reader");
+        use std::io::Write;
+        let _ = stream.write_all(b"network-secret\n");
+        drop(stream);
+        let status = reader.wait().expect("wait TCP reader");
+        assert!(status.success(), "reader status {status:?}");
+
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("recv rule should block reader");
+        assert!(v.blocked, "recv violation was not blocked: {v:?}");
+        assert_eq!(v.rule_id, 0);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
     fn sibling_domain_file_labels_do_not_collide_smoke() {
+        let _guard = live_bpf_test_guard();
         let empty = empty_config_blob();
         let caller_pid = std::process::id() as i32;
         let domain_a = 300;
@@ -1627,7 +6232,8 @@ mod tests {
         let policy_b_rule = notify_exec_if_label_config_blob("aplabel", label);
         let policy_b_source = source_open_any_config_blob(label);
 
-        let mut loader = Loader::load(&empty).expect("load eBPF engine");
+        let mut loader = Loader::load_with_hook_reserve(&empty, HookReserve::runtime_file_delta())
+            .expect("load eBPF engine with file-flow reserve");
         let domain_a_state = CapState {
             scope_id: 1,
             authority_mask: AUTH_ADD_LABEL,
@@ -2010,6 +6616,7 @@ mod tests {
     #[test]
     #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
     fn ancestor_domain_dynamic_labels_apply_in_child_smoke() {
+        let _guard = live_bpf_test_guard();
         let empty = empty_config_blob();
         let label = 1;
         let caller_pid = std::process::id() as i32;
@@ -2173,6 +6780,78 @@ mod tests {
 
     #[test]
     #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
+    fn seeded_parent_can_append_child_source_policy_smoke() {
+        let empty = empty_config_blob();
+        let label = 1;
+        let caller_pid = std::process::id() as i32;
+        let parent_domain = caller_pid as u32;
+        let child_domain = parent_domain + 2000;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "actplane-child-source-policy-smoke-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src_path = tmp.join("src");
+        let hit_path = tmp.join("apseedchild");
+        std::fs::write(&src_path, "child secret\n").expect("write source");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+        let src = src_path.to_string_lossy().to_string();
+        let hit = hit_path.to_string_lossy().to_string();
+        let policy = source_open_then_notify_exec_config_blob(&src, "apseedchild", label);
+
+        let mut loader = Loader::load_with_hook_reserve(&empty, HookReserve::runtime_file_delta())
+            .expect("load eBPF engine with file-flow reserve");
+        loader
+            .seed_label(caller_pid, 1)
+            .expect("seed parent agent domain");
+        let handle = loader.reload_handle().expect("reload handle");
+        let domains = loader.domain_handle().expect("domain handle");
+
+        let mut child = spawn_stopped_shell(&format!("read _ < {src}; exec {hit}"));
+        domains
+            .bind_child_domain(ChildDomainSpec {
+                parent_pid: caller_pid,
+                parent_id: parent_domain,
+                child_id: child_domain,
+                pid: child.id() as i32,
+                scope_id: 2,
+                authority_mask: AUTH_BIND_RULE,
+                target_mask: TARGET_SELF,
+                ..ChildDomainSpec::default()
+            })
+            .expect("bind child domain through handle");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        handle
+            .append_policy_delta(caller_pid, child_domain, &policy)
+            .expect("seeded parent appends child source+rule policy");
+
+        resume_and_wait(&mut child);
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("child source policy violation");
+        assert!(v.target.ends_with("apseedchild"), "target was {}", v.target);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
     fn append_policy_delta_admits_self_rule_smoke() {
         let empty = empty_config_blob();
         let policy = notify_exec_config_blob("aprladd");
@@ -2223,6 +6902,158 @@ mod tests {
             .expect("violation from appended rule");
         assert!(v.target.ends_with("aprladd"), "target was {}", v.target);
         assert_eq!(v.rule_id, 0);
+
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        run_thread
+            .join()
+            .expect("join ring thread")
+            .expect("run loop");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    #[ignore = "requires root/CAP_BPF and loads live eBPF programs"]
+    fn append_policy_delta_admits_domain_local_declassify_smoke() {
+        let empty = empty_config_blob();
+        let label = 1u64;
+        let caller_pid = std::process::id() as i32;
+        let target_id = 43;
+        let delegate_target_id = 44;
+        let submitter_domain_id = 45;
+
+        let tmp =
+            std::env::temp_dir().join(format!("actplane-runtime-declass-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let src = tmp.join("secret.txt");
+        std::fs::write(&src, "classified\n").expect("write secret");
+        let hit_path = tmp.join("apdeclasshit");
+        std::fs::copy("/bin/true", &hit_path).expect("copy /bin/true");
+        let runner = tmp.join("runner.sh");
+        std::fs::write(&runner, "exec \"$1\"\n").expect("write runner");
+
+        let source_rule = source_open_then_notify_exec_config_blob(
+            src.to_str().expect("source path"),
+            "apdeclasshit",
+            label,
+        );
+        let declassify = declassify_exec_config_blob("sh", label);
+
+        let mut loader = Loader::load_with_hook_reserve(&empty, HookReserve::runtime_file_delta())
+            .expect("load eBPF engine");
+        loader
+            .bind_state(
+                caller_pid,
+                submitter_domain_id,
+                CapState {
+                    scope_id: 1,
+                    authority_mask: AUTH_DELEGATE,
+                    ..CapState::default()
+                },
+            )
+            .expect("bind delegated submitter domain");
+        let mut delegated_actor = spawn_stopped_shell("sleep 30");
+        wait_until_stopped(&delegated_actor);
+        let delegated_actor_pid = delegated_actor.id() as i32;
+        let base_state = CapState {
+            scope_id: 1,
+            authority_mask: AUTH_BIND_RULE | AUTH_ADD_LABEL,
+            target_mask: TARGET_SELF,
+            label_mask: label,
+            ..CapState::default()
+        };
+        loader
+            .bind_state(delegated_actor_pid, delegate_target_id, base_state)
+            .expect("bind delegated actor domain");
+        let handle = loader.reload_handle().expect("reload handle");
+        let err = handle
+            .append_policy_delta(delegated_actor_pid, delegate_target_id, &declassify)
+            .expect_err("declassify delta without AUTH_DECLASSIFY");
+        assert!(
+            err.to_string().contains("lacks runtime authority"),
+            "unexpected error: {err}"
+        );
+        loader
+            .bind_state(
+                delegated_actor_pid,
+                delegate_target_id,
+                CapState {
+                    authority_mask: AUTH_BIND_RULE | AUTH_ADD_LABEL | AUTH_DECLASSIFY,
+                    ..base_state
+                },
+            )
+            .expect("grant delegated actor declassify authority");
+        handle
+            .append_policy_delta(delegated_actor_pid, delegate_target_id, &declassify)
+            .expect("delegated domain-local declassify delta");
+        let _ = delegated_actor.kill();
+        let _ = delegated_actor.wait();
+
+        loader
+            .bind_state(
+                caller_pid,
+                target_id,
+                CapState {
+                    authority_mask: AUTH_BIND_RULE | AUTH_ADD_LABEL | AUTH_DECLASSIFY,
+                    ..base_state
+                },
+            )
+            .expect("bind caller domain");
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let run_stop = std::sync::Arc::clone(&stop);
+        let run_thread = std::thread::spawn(move || {
+            loader.run(&run_stop, |v| {
+                let _ = tx.send(v);
+            })
+        });
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        handle
+            .append_policy_delta(caller_pid, target_id, &source_rule)
+            .expect("append source/rule delta");
+
+        let command = format!(
+            "IFS= read -r _ < '{}'; exec /bin/sh '{}' '{}'",
+            src.display(),
+            runner.display(),
+            hit_path.display()
+        );
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&command)
+            .status()
+            .expect("run labeled flow before declassify");
+        assert!(status.success());
+        let v = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("violation before declassify");
+        assert!(
+            v.target.ends_with("apdeclasshit"),
+            "target was {}",
+            v.target
+        );
+        assert_eq!(v.op, OP_EXEC as u32);
+        assert_eq!(v.domain_id, target_id);
+        assert_eq!(v.session_root, caller_pid);
+        assert_eq!(v.matched_label, label);
+        assert_eq!(v.matched_labels, label);
+        while rx.try_recv().is_ok() {}
+
+        handle
+            .append_policy_delta(caller_pid, target_id, &declassify)
+            .expect("append domain-local declassify delta");
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&command)
+            .status()
+            .expect("run labeled flow after declassify");
+        assert!(status.success());
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
+            "declassified flow still matched local rule"
+        );
 
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         run_thread

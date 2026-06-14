@@ -222,7 +222,7 @@ actplane.yaml ─▶ collector (Rust) ─▶ .rodata config ─▶ eBPF kernel e
  matches ◀─────── ring buffer (in-process, via aya) ◀─── emit on match only
 ```
 
-- **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect`,
+- **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect / recv`,
   keeps a per-node label set (process / file / endpoint), propagates labels,
   evaluates compiled rules, emits only match events.
 - **Collector** (`actplane`): discovers `actplane.yaml`, compiles the DSL to the

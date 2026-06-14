@@ -262,6 +262,19 @@ mod tests {
             (M_EXACT, "/tmp/guarded/file.txt".into())
         );
     }
+
+    #[test]
+    fn endpoint_sources_lower_to_connect_and_recv_updates() {
+        let pol = crate::dsl::parse::parse(r#"source NET = endpoint "127.0.0.1""#)
+            .expect("parse endpoint source");
+        let compiled = compile(&pol).expect("compile endpoint source");
+        let cfg: CConfig =
+            unsafe { std::ptr::read_unaligned(compiled.bytes.as_ptr() as *const CConfig) };
+        assert_eq!(cfg.n_updates, 2);
+        let ops = [cfg.updates[0].op, cfg.updates[1].op];
+        assert!(ops.contains(&OP_CONNECT), "missing connect update: {ops:?}");
+        assert!(ops.contains(&OP_RECV), "missing recv update: {ops:?}");
+    }
 }
 
 /// Lower an IPv4 prefix/host pattern to (net, mask) in the same byte order as
@@ -555,7 +568,7 @@ fn lower_target(op: u8, kind: Kind, pat: &str) -> (u8, String) {
     let _ = kind;
     match op {
         OP_EXEC => lower_exec(pat),
-        OP_CONNECT => (M_ANY, String::new()), // connect matches numerically (ipv4/mask)
+        OP_CONNECT | OP_RECV => (M_ANY, String::new()),
         _ => lower_path(pat),
     }
 }
@@ -568,21 +581,37 @@ fn lower_effect(effect: Effect) -> u8 {
     }
 }
 
-/// Per-rule metadata, indexed by `rule_id`, kept Rust-side for building the
-/// corrective-feedback payload (docs/feedback-design.md §6).
+/// Per-lowered-rule metadata, indexed by `rule_id`, kept Rust-side for building
+/// the corrective-feedback payload (docs/feedback-design.md §6).
 #[derive(Clone)]
 pub struct RuleMeta {
     pub name: String,
     pub reason: String,
     pub effect: Effect,
-    /// Operations the rule denies (e.g. "exec", "write"), de-duplicated.
+    /// Operations represented by this lowered rule. This is usually a single
+    /// DSL op, kept as a list for compatibility with existing feedback code.
     pub ops: Vec<String>,
+    pub clause_op: String,
+    pub kernel_op: String,
+    pub target_kind: Kind,
+    pub target_pattern: String,
+    pub target_arg: Option<String>,
+    pub source: Option<RuleSourceMeta>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleSourceMeta {
+    pub source_ref: String,
+    pub binding_mode: Option<String>,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub text: String,
 }
 
 pub struct Compiled {
     pub bytes: Vec<u8>,
-    pub reasons: Vec<String>, // indexed by rule_id
-    pub meta: Vec<RuleMeta>,  // indexed by rule_id
+    pub reasons: Vec<String>, // indexed by lowered rule_id
+    pub meta: Vec<RuleMeta>,  // indexed by lowered rule_id
     pub labels: HashMap<String, u64>,
 }
 
@@ -673,7 +702,22 @@ pub fn compile_with_labels(
             }
             Kind::Endpoint => {
                 let (n, mk) = lower_ipv4(&s.pattern);
-                (OP_CONNECT, M_ANY, String::new(), n, mk)
+                for op in [OP_CONNECT, OP_RECV] {
+                    ctx.add_update(UpdateSpec {
+                        op,
+                        m: M_ANY,
+                        target: "",
+                        arg: "",
+                        add: bit,
+                        del: 0,
+                        gates: 0,
+                        invals: 0,
+                        ipv4: n,
+                        ipv4_mask: mk,
+                        gate_exit_code: GATE_IMMEDIATE,
+                    })?;
+                }
+                continue;
             }
         };
         ctx.add_update(UpdateSpec {
@@ -707,27 +751,13 @@ pub fn compile_with_labels(
             gate_exit_code: GATE_IMMEDIATE,
         })?;
     }
-    for (rid, rule) in pol.rules.iter().enumerate() {
-        reasons.push(rule.reason.clone());
-        let mut ops: Vec<String> = Vec::new();
-        for cl in &rule.clauses {
-            let s = op_name(cl.op).to_string();
-            if !ops.contains(&s) {
-                ops.push(s);
-            }
-        }
-        meta.push(RuleMeta {
-            name: rule.name.clone(),
-            reason: rule.reason.clone(),
-            effect: rule.effect(),
-            ops,
-        });
+    for rule in &pol.rules {
         for cl in &rule.clauses {
             for op in op_lowers(cl.op)? {
                 let op = *op;
                 let (tm, tlit) = lower_target(op, cl.target.kind, &cl.target.pattern);
-                // connect: numeric IPv4 target
-                let (ipv4, ipv4_mask) = if op == OP_CONNECT {
+                // endpoint ops: numeric IPv4 target
+                let (ipv4, ipv4_mask) = if op == OP_CONNECT || op == OP_RECV {
                     lower_ipv4(&cl.target.pattern)
                 } else {
                     (0, 0)
@@ -743,7 +773,7 @@ pub fn compile_with_labels(
                     Some(Cond::Target { negate, pattern }) => {
                         ck = C_TARGET;
                         cneg = *negate as u8;
-                        if op == OP_CONNECT {
+                        if op == OP_CONNECT || op == OP_RECV {
                             let (n, mk) = lower_ipv4(pattern);
                             cipv4 = n;
                             cipv4_mask = mk;
@@ -776,6 +806,20 @@ pub fn compile_with_labels(
                     }
                 }
                 for (req, forbid) in dnf(&cl.when, &mut ctx)? {
+                    let rule_id = meta.len() as u32;
+                    reasons.push(rule.reason.clone());
+                    meta.push(RuleMeta {
+                        name: rule.name.clone(),
+                        reason: rule.reason.clone(),
+                        effect: cl.effect,
+                        ops: vec![op_name(cl.op).to_string()],
+                        clause_op: op_name(cl.op).to_string(),
+                        kernel_op: kernel_op_name(op).to_string(),
+                        target_kind: cl.target.kind,
+                        target_pattern: cl.target.pattern.clone(),
+                        target_arg: cl.target.arg.clone(),
+                        source: None,
+                    });
                     let mut cr = CRule {
                         op,
                         m: tm,
@@ -789,7 +833,7 @@ pub fn compile_with_labels(
                         req,
                         forbid,
                         gate,
-                        rule_id: rid as u32,
+                        rule_id,
                         ipv4,
                         ipv4_mask,
                         cond_ipv4: cipv4,
@@ -841,4 +885,15 @@ pub fn compile_with_labels(
         meta,
         labels: ctx.labels,
     })
+}
+
+fn kernel_op_name(op: u8) -> &'static str {
+    match op {
+        OP_EXEC => "exec",
+        OP_OPEN => "read",
+        OP_WRITE => "write",
+        OP_CONNECT => "connect",
+        OP_RECV => "recv",
+        _ => "op",
+    }
 }

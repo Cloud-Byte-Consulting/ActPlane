@@ -11,6 +11,8 @@ pub const AUTH_ADD_LABEL: u64 = 1 << 1;
 pub const AUTH_REQUIRE_GATE: u64 = 1 << 2;
 pub const AUTH_NARROW_SCOPE: u64 = 1 << 3;
 pub const AUTH_BIND_RULE: u64 = 1 << 4;
+pub const AUTH_DECLASSIFY: u64 = 1 << 5;
+pub const AUTH_DELEGATE: u64 = 1 << 6;
 
 pub const STAT_ACCEPT: u32 = 0;
 pub const STAT_REJECT: u32 = 1;

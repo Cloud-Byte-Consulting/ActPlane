@@ -190,13 +190,22 @@ pub(crate) fn resolve_policy(
     let domain = select_domain(&loaded.config, domain)?;
     let resolved = resolve_domain(&loaded.config, &domain)?;
     let mut out = String::new();
-    for rule in resolved.locked.iter().chain(resolved.defaults.iter()) {
+    for (mode, rule) in resolved
+        .locked
+        .iter()
+        .map(|rule| ("locked", rule))
+        .chain(resolved.defaults.iter().map(|rule| ("default", rule)))
+    {
         let entry = loaded
             .config
             .rules
             .get(rule)
             .ok_or_else(|| format!("domain `{domain}` references unknown rule `{rule}`"))?;
         let ifc = entry.ifc_source(rule)?;
+        out.push_str("\n# actplane-rule-source ref=rules.");
+        out.push_str(rule);
+        out.push_str(".ifc mode=");
+        out.push_str(mode);
         out.push_str("\n# rule ");
         out.push_str(rule);
         out.push('\n');
@@ -549,6 +558,7 @@ domains:
         );
         let policy = policy_source(&loaded, Some("review")).unwrap();
         assert!(policy.contains("locked-rule"));
+        assert!(policy.contains("# actplane-rule-source ref=rules.locked-rule.ifc mode=locked"));
         assert!(!policy.contains("default-rule"));
 
         let mut bad = loaded;

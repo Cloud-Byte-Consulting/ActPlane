@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use crate::config::{domain_summaries, feedback_paths, load_policy, resolve_policy};
+use crate::dsl::ast::{Effect, Kind, Op, Policy};
 use crate::runtime::{have_bpf_caps, passwordless_sudo_available};
 use crate::setup::{codex_hook_has_actplane_command, project_mcp_auto_attach_ok};
 use crate::{Cli, Result, dsl};
@@ -9,7 +10,14 @@ use crate::{Cli, Result, dsl};
 pub(crate) fn check_policy(cli: &Cli) -> Result<i32> {
     let loaded = load_policy(cli)?;
     let resolved = resolve_policy(&loaded, cli.domain.as_deref())?;
-    let compiled = match dsl::compile_str(&resolved.source) {
+    let parsed = match dsl::parse::parse(&resolved.source) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("✗ policy does not compile: {}", e);
+            return Ok(1);
+        }
+    };
+    let compiled = match dsl::compile(&parsed) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("✗ policy does not compile: {}", e);
@@ -40,41 +48,13 @@ pub(crate) fn check_policy(cli: &Cli) -> Result<i32> {
         println!("  {}. {} — {} {} ({})", i + 1, m.name, eff, ops, m.reason);
     }
     let lsm_bpf = active_lsms().is_some_and(|s| lsm_list_has_bpf(&s));
-    let mut warns: Vec<String> = Vec::new();
-    if !lsm_bpf
-        && compiled
-            .meta
-            .iter()
-            .any(|m| format!("{:?}", m.effect).eq_ignore_ascii_case("block"))
-    {
-        warns.push(
-            "`block` rules need BPF-LSM (not active here: /sys/kernel/security/lsm has no `bpf`); \
-             those rules will not fire in tracepoint mode. Use `kill` if harness-level termination is acceptable."
-                .into(),
-        );
+    println!("\nbackend support:");
+    for line in backend_support_lines(&parsed, lsm_bpf) {
+        println!("  - {}", line);
     }
-    for line in resolved.source.lines() {
-        let t = line.trim();
-        let rest_opt = t
-            .strip_prefix("notify connect endpoint")
-            .or_else(|| t.strip_prefix("block connect endpoint"))
-            .or_else(|| t.strip_prefix("kill connect endpoint"));
-        if let Some(rest) = rest_opt
-            && let Some(pat) = rest.split('"').nth(1)
-        {
-            let ipish = pat == "*"
-                || pat
-                    .trim_end_matches('.')
-                    .split('.')
-                    .all(|o| !o.is_empty() && o.chars().all(|c| c.is_ascii_digit()));
-            if !ipish {
-                warns.push(format!(
-                    "connect endpoint \"{}\" looks like a hostname; the kernel matches \
-                     numeric IPv4 only, so this rule will not fire (use an IP/CIDR prefix).",
-                    pat
-                ));
-            }
-        }
+    let mut warns: Vec<String> = Vec::new();
+    for warning in backend_support_warnings(&parsed, lsm_bpf) {
+        warns.push(warning);
     }
     if warns.is_empty() {
         println!("\n✓ no warnings.");
@@ -90,6 +70,134 @@ pub(crate) fn check_policy(cli: &Cli) -> Result<i32> {
         );
     }
     Ok(0)
+}
+
+fn backend_support_lines(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    for rule in &policy.rules {
+        for clause in &rule.clauses {
+            lines.push(format!(
+                "{}: {} {} -> {}",
+                rule.name,
+                effect_name(clause.effect),
+                op_name(clause.op),
+                clause_support(
+                    clause.effect,
+                    clause.op,
+                    clause.target.arg.as_deref(),
+                    lsm_bpf
+                )
+            ));
+        }
+    }
+    lines
+}
+
+fn backend_support_warnings(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for source in &policy.sources {
+        if source.kind == Kind::Endpoint && !endpoint_pattern_is_numeric_ipv4(&source.pattern) {
+            warnings.push(format!(
+                "source {} = endpoint \"{}\" uses a hostname or IPv6 pattern; endpoint sources currently match numeric IPv4 only.",
+                source.label, source.pattern
+            ));
+        }
+    }
+    for rule in &policy.rules {
+        for clause in &rule.clauses {
+            if matches!(clause.op, Op::Connect | Op::Recv)
+                && clause.target.kind == Kind::Endpoint
+                && !endpoint_pattern_is_numeric_ipv4(&clause.target.pattern)
+            {
+                warnings.push(format!(
+                    "{} {} endpoint \"{}\" uses a hostname or IPv6 pattern; the kernel matches numeric IPv4 only, so this rule will not fire.",
+                    effect_name(clause.effect),
+                    op_name(clause.op),
+                    clause.target.pattern
+                ));
+            }
+            if clause.effect == Effect::Block
+                && clause.op == Op::Exec
+                && clause.target.arg.is_some()
+            {
+                warnings.push(format!(
+                    "{}: `block exec` with an argv token cannot block pre-exec because argv is only available after exec; use `kill exec` if termination after exec is acceptable.",
+                    rule.name
+                ));
+            }
+            if clause.effect == Effect::Block && !lsm_bpf {
+                warnings.push(format!(
+                    "{}: `block {}` is unsupported on this host until BPF-LSM is active.",
+                    rule.name,
+                    op_name(clause.op)
+                ));
+            }
+        }
+    }
+    warnings
+}
+
+fn clause_support(effect: Effect, op: Op, arg: Option<&str>, lsm_bpf: bool) -> &'static str {
+    match effect {
+        Effect::Block => {
+            if op == Op::Exec && arg.is_some() {
+                "unsupported as pre-op block, argv is only available after exec"
+            } else if !lsm_bpf {
+                "unsupported on this host, BPF-LSM is not active"
+            } else {
+                match op {
+                    Op::Exec => "pre-op block via BPF-LSM bprm_check_security",
+                    Op::Read | Op::Open | Op::Write | Op::Unlink => {
+                        "pre-op block via BPF-LSM file/path hooks"
+                    }
+                    Op::Connect => "pre-op block via BPF-LSM socket_connect, numeric IPv4 only",
+                    Op::Recv => {
+                        "pre-op block via BPF-LSM socket_recvmsg, connected numeric IPv4 only"
+                    }
+                }
+            }
+        }
+        Effect::Notify => match op {
+            Op::Recv => "tracepoint report after recv, connected numeric IPv4 only",
+            Op::Exec => "post-exec tracepoint report",
+            Op::Read | Op::Open | Op::Write | Op::Unlink => "tracepoint report",
+            Op::Connect => "connect tracepoint report, numeric IPv4 only",
+        },
+        Effect::Kill => match op {
+            Op::Recv => "tracepoint kill after recv, connected numeric IPv4 only",
+            Op::Exec => "post-exec tracepoint kill",
+            Op::Read | Op::Open | Op::Write | Op::Unlink => "tracepoint kill",
+            Op::Connect => "connect tracepoint kill, numeric IPv4 only",
+        },
+    }
+}
+
+fn effect_name(effect: Effect) -> &'static str {
+    match effect {
+        Effect::Notify => "notify",
+        Effect::Block => "block",
+        Effect::Kill => "kill",
+    }
+}
+
+fn op_name(op: Op) -> &'static str {
+    match op {
+        Op::Exec => "exec",
+        Op::Read => "read",
+        Op::Write => "write",
+        Op::Unlink => "unlink",
+        Op::Connect => "connect",
+        Op::Recv => "recv",
+        Op::Open => "open",
+    }
+}
+
+fn endpoint_pattern_is_numeric_ipv4(pat: &str) -> bool {
+    pat == "*"
+        || pat
+            .trim_end_matches('.')
+            .split('.')
+            .all(|o| !o.is_empty() && o.chars().all(|c| c.is_ascii_digit()))
 }
 
 pub(crate) fn doctor(cli: &Cli) -> Result<i32> {
