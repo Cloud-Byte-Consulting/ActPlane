@@ -641,6 +641,171 @@ policy: |
 
 #[test]
 #[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
+fn mcp_append_delta_requires_configured_approval_privileged() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let policy = tmp.path().join("actplane.yaml");
+    std::fs::write(
+        &policy,
+        r#"
+version: 1
+runtime:
+  approval:
+    append_delta:
+      required: true
+      require_approval_ref: true
+      require_generated_by: true
+      allowed_approvers:
+        - repo-supervisor
+policy: |
+  source COMMAND = exec "**"
+  rule noop:
+    notify exec "__actplane_never__" if COMMAND
+    because "noop"
+"#,
+    )
+    .expect("write policy");
+
+    let Some(mut mcp) = McpProcess::start_auto_attach(&policy, tmp.path()) else {
+        eprintln!("skipping privileged MCP approval e2e: no root/CAP_BPF or passwordless sudo");
+        return;
+    };
+    initialize_mcp(&mut mcp, 1, "actplane-approval-test");
+
+    let mut next_id = 2;
+    let rejected = call_tool_raw(
+        &mut mcp,
+        &mut next_id,
+        "append_policy_delta",
+        json!({
+            "policy": "rule missing-approval:\n  notify exec \"__actplane_never__\"\n  because \"missing approval\"",
+            "policy_ref": "inline://missing-approval"
+        }),
+    );
+    assert!(
+        rejected.to_string().contains("requires approval metadata"),
+        "missing approval response: {rejected}"
+    );
+    let rejected_audit =
+        poll_audit_append_delta_ref_status(tmp.path(), "inline://missing-approval", "rejected");
+    assert_eq!(rejected_audit["approval_chain"]["enforced"], true);
+    assert_eq!(rejected_audit["approval_chain"]["decision"], "rejected");
+    assert_eq!(
+        rejected_audit["approval_chain"]["missing_fields"],
+        json!(["approved_by", "approval_ref", "generated_by"])
+    );
+
+    let accepted = call_tool(
+        &mut mcp,
+        &mut next_id,
+        "append_policy_delta",
+        json!({
+            "policy": "rule approved:\n  notify exec \"__actplane_never__\"\n  because \"approved\"",
+            "policy_ref": "inline://approved",
+            "approved_by": "repo-supervisor",
+            "approval_ref": "ticket-42",
+            "generated_by": "mcp-approval-test"
+        }),
+    );
+    assert!(
+        tool_text(&accepted).contains("Appended policy delta"),
+        "accepted response: {accepted}"
+    );
+    let accepted_audit =
+        poll_audit_append_delta_ref_status(tmp.path(), "inline://approved", "accepted");
+    assert_eq!(accepted_audit["approval_chain"]["enforced"], true);
+    assert_eq!(accepted_audit["approval_chain"]["decision"], "accepted");
+    assert_eq!(
+        accepted_audit["approval_chain"]["admission_model"],
+        "static_metadata_allowlist"
+    );
+    assert_eq!(accepted_audit["approval_chain"]["external_verified"], false);
+    assert_eq!(
+        accepted_audit["approval_chain"]["signature"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+#[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
+fn mcp_reload_updates_append_delta_approval_gate_privileged() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let policy = tmp.path().join("actplane.yaml");
+    let base_policy = r#"
+version: 1
+policy: |
+  source COMMAND = exec "**"
+  rule noop:
+    notify exec "__actplane_never__" if COMMAND
+    because "noop"
+"#;
+    std::fs::write(&policy, base_policy).expect("write policy");
+
+    let Some(mut mcp) = McpProcess::start_auto_attach(&policy, tmp.path()) else {
+        eprintln!(
+            "skipping privileged MCP reload approval e2e: no root/CAP_BPF or passwordless sudo"
+        );
+        return;
+    };
+    initialize_mcp(&mut mcp, 1, "actplane-reload-approval-test");
+
+    let mut next_id = 2;
+    let before_reload = call_tool(
+        &mut mcp,
+        &mut next_id,
+        "append_policy_delta",
+        json!({
+            "policy": "rule pre-reload:\n  notify exec \"__actplane_never__\"\n  because \"pre reload\"",
+            "policy_ref": "inline://pre-reload"
+        }),
+    );
+    assert!(
+        tool_text(&before_reload).contains("Appended policy delta"),
+        "pre-reload append response: {before_reload}"
+    );
+
+    let requiring_approval = r#"
+version: 1
+runtime:
+  approval:
+    append_delta:
+      required: true
+      require_approval_ref: true
+      allowed_approvers:
+        - repo-supervisor
+policy: |
+  source COMMAND = exec "**"
+  rule noop:
+    notify exec "__actplane_never__" if COMMAND
+    because "noop"
+"#;
+    std::fs::write(&policy, requiring_approval).expect("rewrite policy");
+    let reload = call_tool(&mut mcp, &mut next_id, "reload_policy", json!({}));
+    assert!(
+        tool_text(&reload).contains("Policy hot-reloaded"),
+        "reload response: {reload}"
+    );
+
+    let rejected = call_tool_raw(
+        &mut mcp,
+        &mut next_id,
+        "append_policy_delta",
+        json!({
+            "policy": "rule post-reload:\n  notify exec \"__actplane_never__\"\n  because \"post reload\"",
+            "policy_ref": "inline://post-reload-missing"
+        }),
+    );
+    assert!(
+        rejected.to_string().contains("requires approval metadata"),
+        "post-reload missing approval response: {rejected}"
+    );
+    let audit =
+        poll_audit_append_delta_ref_status(tmp.path(), "inline://post-reload-missing", "rejected");
+    assert_eq!(audit["approval_chain"]["enforced"], true);
+    assert_eq!(audit["approval_chain"]["decision"], "rejected");
+}
+
+#[test]
+#[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
 fn mcp_background_supervisor_relaunches_on_exit_child_privileged() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let policy = write_base_policy(tmp.path());
@@ -1030,6 +1195,19 @@ fn actplane_control_output(
 }
 
 fn call_tool(mcp: &mut McpProcess, next_id: &mut i64, name: &str, arguments: Value) -> Value {
+    let response = call_tool_raw(mcp, next_id, name, arguments);
+    assert!(
+        response.get("error").is_none(),
+        "tool {name} returned top-level error: {response}"
+    );
+    assert_eq!(
+        response["result"]["isError"], false,
+        "tool {name} returned tool error: {response}"
+    );
+    response
+}
+
+fn call_tool_raw(mcp: &mut McpProcess, next_id: &mut i64, name: &str, arguments: Value) -> Value {
     let id = *next_id;
     *next_id += 1;
     mcp.send(json!({
@@ -1041,16 +1219,7 @@ fn call_tool(mcp: &mut McpProcess, next_id: &mut i64, name: &str, arguments: Val
             "arguments": arguments,
         }
     }));
-    let response = mcp.response(id);
-    assert!(
-        response.get("error").is_none(),
-        "tool {name} returned top-level error: {response}"
-    );
-    assert_eq!(
-        response["result"]["isError"], false,
-        "tool {name} returned tool error: {response}"
-    );
-    response
+    mcp.response(id)
 }
 
 fn tool_text(response: &Value) -> &str {
@@ -1247,6 +1416,14 @@ fn poll_audit_append_delta(root: &std::path::Path, target_id: u32) -> Value {
 }
 
 fn poll_audit_append_delta_ref(root: &std::path::Path, policy_ref: &str) -> Value {
+    poll_audit_append_delta_ref_status(root, policy_ref, "accepted")
+}
+
+fn poll_audit_append_delta_ref_status(
+    root: &std::path::Path,
+    policy_ref: &str,
+    status: &str,
+) -> Value {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let text = read_audit_files(root);
@@ -1256,7 +1433,7 @@ fn poll_audit_append_delta_ref(root: &std::path::Path, policy_ref: &str) -> Valu
             }
             let value: Value = serde_json::from_str(line).expect("audit JSONL record");
             if value["event"] == "append_policy_delta"
-                && value["status"].as_str() == Some("accepted")
+                && value["status"].as_str() == Some(status)
                 && value["policy_ref"].as_str() == Some(policy_ref)
             {
                 return value;

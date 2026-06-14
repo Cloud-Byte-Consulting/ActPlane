@@ -136,6 +136,27 @@ policy: |
     because "Source files changed since last test run. Run `pnpm test:changed`, then commit."
 ```
 
+Projects that allow runtime policy deltas can require approval metadata before
+ActPlane accepts those deltas:
+
+```yaml
+runtime:
+  approval:
+    append_delta:
+      required: true
+      require_approval_ref: true
+      allowed_approvers:
+        - repo-supervisor
+```
+
+With that gate enabled, `actplane delta add`, `control append-delta`,
+`control launch-child`, and `child-run --delta` must include matching
+`--approved-by` metadata, plus any configured `--approval-ref` or
+`--generated-by` fields. Accepted and rejected attempts are recorded in
+`.actplane/audit.jsonl` with an enforced `approval_chain` decision. The audit
+record explicitly marks this as a local static metadata gate
+(`external_verified=false`), not a signed external approval.
+
 Three rules, three effects, three patterns:
 
 - **`no-git-branch`** (kill): per-event rule — anything in the agent's

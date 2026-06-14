@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use ebpf_ifc_engine::capability::{
@@ -18,7 +18,10 @@ use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 
-use crate::config::{FeedbackPaths, feedback_paths, load_policy, policy_source};
+use crate::config::{
+    AppendDeltaApprovalConfig, FeedbackPaths, LoadedPolicy, feedback_paths, load_policy,
+    policy_source,
+};
 use crate::hook::write_hook_state;
 use crate::report::{self, report, to_violation};
 use crate::{Cli, Result, audit, dsl};
@@ -118,7 +121,9 @@ pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
         reload_handle: Arc::new(reload_handle),
         domain_handle: Arc::new(domain_handle),
         catalog,
+        mutation_lock: Mutex::new(()),
         audit_path: feedback.audit.clone(),
+        approval_policy: RwLock::new(RuntimeApprovalPolicy::from_loaded_policy(&loaded)),
         parent_pid: attach_pid,
         parent_domain_id: attach_pid as u32,
         submitter_pid,
@@ -153,12 +158,13 @@ pub(crate) struct AttachGuard {
     control: Option<Arc<EngineControl>>,
 }
 
-#[derive(Clone)]
 pub(crate) struct EngineControl {
     pub(crate) reload_handle: Arc<ReloadHandle>,
     pub(crate) domain_handle: Arc<DomainHandle>,
     catalog: Arc<RuntimePolicyCatalog>,
+    mutation_lock: Mutex<()>,
     audit_path: PathBuf,
+    approval_policy: RwLock<RuntimeApprovalPolicy>,
     pub(crate) parent_pid: i32,
     pub(crate) parent_domain_id: u32,
     submitter_pid: i32,
@@ -179,12 +185,135 @@ struct PolicyDeltaOutcome {
     rule_provenance: Vec<serde_json::Value>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub(crate) struct PolicyAuditMeta {
     pub(crate) policy_ref: Option<String>,
     pub(crate) approved_by: Option<String>,
     pub(crate) approval_ref: Option<String>,
     pub(crate) generated_by: Option<String>,
+}
+
+#[derive(Clone, Default)]
+struct RuntimeApprovalPolicy {
+    append_delta: AppendDeltaApprovalGate,
+}
+
+#[derive(Clone, Default)]
+struct AppendDeltaApprovalGate {
+    required: bool,
+    require_approval_ref: bool,
+    require_generated_by: bool,
+    allowed_approvers: Vec<String>,
+}
+
+struct ApprovalEvaluation {
+    enforced: bool,
+    required: bool,
+    accepted: bool,
+    workflow: &'static str,
+    missing_fields: Vec<&'static str>,
+    rejection_reason: Option<String>,
+    allowed_approvers: Vec<String>,
+}
+
+impl RuntimeApprovalPolicy {
+    fn from_loaded_policy(loaded: &LoadedPolicy) -> Self {
+        Self {
+            append_delta: AppendDeltaApprovalGate::from_config(
+                &loaded.config.runtime.approval.append_delta,
+            ),
+        }
+    }
+
+    fn evaluate_append_delta(&self, meta: &PolicyAuditMeta) -> ApprovalEvaluation {
+        self.append_delta.evaluate(meta)
+    }
+}
+
+impl ApprovalEvaluation {
+    fn internal_rejection(reason: String) -> Self {
+        Self {
+            enforced: false,
+            required: false,
+            accepted: false,
+            workflow: "append_delta_static_approval",
+            missing_fields: Vec::new(),
+            rejection_reason: Some(reason),
+            allowed_approvers: Vec::new(),
+        }
+    }
+}
+
+impl AppendDeltaApprovalGate {
+    fn from_config(config: &AppendDeltaApprovalConfig) -> Self {
+        Self {
+            required: config.required,
+            require_approval_ref: config.require_approval_ref,
+            require_generated_by: config.require_generated_by,
+            allowed_approvers: config.allowed_approvers.clone(),
+        }
+    }
+
+    fn evaluate(&self, meta: &PolicyAuditMeta) -> ApprovalEvaluation {
+        if !self.required {
+            return ApprovalEvaluation {
+                enforced: false,
+                required: false,
+                accepted: true,
+                workflow: "declarative_metadata",
+                missing_fields: Vec::new(),
+                rejection_reason: None,
+                allowed_approvers: Vec::new(),
+            };
+        }
+
+        let mut missing_fields = Vec::new();
+        if string_missing(meta.approved_by.as_deref()) {
+            missing_fields.push("approved_by");
+        }
+        if self.require_approval_ref && string_missing(meta.approval_ref.as_deref()) {
+            missing_fields.push("approval_ref");
+        }
+        if self.require_generated_by && string_missing(meta.generated_by.as_deref()) {
+            missing_fields.push("generated_by");
+        }
+
+        let mut rejection_reason = if missing_fields.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "append policy delta requires approval metadata: missing {}",
+                missing_fields.join(", ")
+            ))
+        };
+
+        if rejection_reason.is_none()
+            && !self.allowed_approvers.is_empty()
+            && let Some(approved_by) = meta.approved_by.as_deref()
+            && !self
+                .allowed_approvers
+                .iter()
+                .any(|allowed| allowed == approved_by)
+        {
+            rejection_reason = Some(format!(
+                "append policy delta approved_by `{approved_by}` is not in runtime.approval.append_delta.allowed_approvers"
+            ));
+        }
+
+        ApprovalEvaluation {
+            enforced: true,
+            required: true,
+            accepted: rejection_reason.is_none(),
+            workflow: "append_delta_static_approval",
+            missing_fields,
+            rejection_reason,
+            allowed_approvers: self.allowed_approvers.clone(),
+        }
+    }
+}
+
+fn string_missing(value: Option<&str>) -> bool {
+    value.is_none_or(|value| value.trim().is_empty())
 }
 
 impl RuntimePolicyCatalog {
@@ -220,8 +349,14 @@ impl EngineControl {
         compiled: &dsl::Compiled,
         policy_source: &str,
         policy_ref: &str,
+        loaded: &LoadedPolicy,
     ) -> Result<usize> {
+        let next_approval_policy = RuntimeApprovalPolicy::from_loaded_policy(loaded);
         let outcome: Result<usize> = (|| {
+            let _mutation = self
+                .mutation_lock
+                .lock()
+                .map_err(|e| format!("runtime mutation lock poisoned: {e}"))?;
             let mut inner = self
                 .catalog
                 .inner
@@ -230,6 +365,10 @@ impl EngineControl {
             self.reload_handle.reload_policy(&compiled.bytes)?;
             inner.rules = report::contexts_from_compiled(compiled);
             inner.domain_labels.insert(0, compiled.labels.clone());
+            *self
+                .approval_policy
+                .write()
+                .map_err(|e| format!("approval policy lock poisoned: {e}"))? = next_approval_policy;
             Ok(compiled.meta.len())
         })();
         match outcome {
@@ -302,14 +441,6 @@ impl EngineControl {
         }
     }
 
-    pub(crate) fn append_policy_delta_dsl(
-        &self,
-        target_id: u32,
-        dsl_src: &str,
-    ) -> Result<(usize, usize)> {
-        self.append_policy_delta_dsl_with_audit(target_id, dsl_src, &PolicyAuditMeta::default())
-    }
-
     pub(crate) fn submitter_pid(&self) -> i32 {
         self.submitter_pid
     }
@@ -364,7 +495,33 @@ impl EngineControl {
         dsl_src: &str,
         audit_meta: &PolicyAuditMeta,
     ) -> Result<(usize, usize)> {
-        let outcome = self.append_policy_delta_dsl_inner(actor_pid, target_id, dsl_src);
+        let (approval, outcome): (ApprovalEvaluation, Result<PolicyDeltaOutcome>) =
+            match self.mutation_lock.lock() {
+                Ok(_mutation) => {
+                    let approval = self
+                        .approval_policy
+                        .read()
+                        .map(|policy| policy.evaluate_append_delta(audit_meta))
+                        .unwrap_or_else(|e| {
+                            ApprovalEvaluation::internal_rejection(format!(
+                                "runtime approval policy lock poisoned: {e}"
+                            ))
+                        });
+                    let outcome = if let Some(reason) = &approval.rejection_reason {
+                        Err(reason.clone().into())
+                    } else {
+                        self.append_policy_delta_dsl_inner(actor_pid, target_id, dsl_src)
+                    };
+                    (approval, outcome)
+                }
+                Err(e) => {
+                    let reason = format!("runtime mutation lock poisoned: {e}");
+                    (
+                        ApprovalEvaluation::internal_rejection(reason.clone()),
+                        Err(reason.into()),
+                    )
+                }
+            };
         match outcome {
             Ok(delta) => {
                 let mut record = json!({
@@ -381,7 +538,7 @@ impl EngineControl {
                 if let Some(identity) = &actor_identity {
                     record["caller_identity"] = identity.to_json();
                 }
-                apply_policy_audit_meta(&mut record, audit_meta);
+                apply_policy_audit_meta(&mut record, audit_meta, Some(&approval));
                 self.audit(record)?;
                 Ok((delta.rule_id_base, delta.rule_count))
             }
@@ -399,7 +556,7 @@ impl EngineControl {
                 if let Some(identity) = &actor_identity {
                     record["caller_identity"] = identity.to_json();
                 }
-                apply_policy_audit_meta(&mut record, audit_meta);
+                apply_policy_audit_meta(&mut record, audit_meta, Some(&approval));
                 self.audit(record)
                     .map_err(|audit_err| format!("{e}; audit write failed: {audit_err}"))?;
                 Err(e)
@@ -628,10 +785,24 @@ fn rule_provenance_json(meta: &[dsl::RuleMeta], rule_id_base: usize) -> Vec<serd
         .collect()
 }
 
-fn apply_policy_audit_meta(record: &mut serde_json::Value, meta: &PolicyAuditMeta) {
+fn apply_policy_audit_meta(
+    record: &mut serde_json::Value,
+    meta: &PolicyAuditMeta,
+    approval: Option<&ApprovalEvaluation>,
+) {
+    let enforced = approval.is_some_and(|approval| approval.enforced);
     let mut approval_chain = json!({
-        "enforced": false,
-        "workflow": "declarative_metadata",
+        "enforced": enforced,
+        "workflow": approval
+            .map(|approval| approval.workflow)
+            .unwrap_or("declarative_metadata"),
+        "admission_model": if enforced {
+            "static_metadata_allowlist"
+        } else {
+            "metadata_only"
+        },
+        "external_verified": false,
+        "signature": serde_json::Value::Null,
     });
     let mut has_approval_chain = false;
     if let Some(policy_ref) = &meta.policy_ref {
@@ -651,6 +822,24 @@ fn apply_policy_audit_meta(record: &mut serde_json::Value, meta: &PolicyAuditMet
         record["generated_by"] = json!(generated_by);
         approval_chain["generated_by"] = json!(generated_by);
         has_approval_chain = true;
+    }
+    if let Some(approval) = approval {
+        approval_chain["required"] = json!(approval.required);
+        approval_chain["decision"] = json!(if approval.accepted {
+            "accepted"
+        } else {
+            "rejected"
+        });
+        if !approval.missing_fields.is_empty() {
+            approval_chain["missing_fields"] = json!(approval.missing_fields);
+        }
+        if !approval.allowed_approvers.is_empty() {
+            approval_chain["allowed_approvers"] = json!(approval.allowed_approvers);
+        }
+        if let Some(reason) = &approval.rejection_reason {
+            approval_chain["rejection_reason"] = json!(reason);
+        }
+        has_approval_chain = has_approval_chain || approval.enforced;
     }
     if has_approval_chain {
         record["approval_chain"] = approval_chain;
@@ -780,7 +969,11 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
                     reload_handle: Arc::new(reload_handle),
                     domain_handle: Arc::new(domain_handle),
                     catalog,
+                    mutation_lock: Mutex::new(()),
                     audit_path: feedback.audit.clone(),
+                    approval_policy: RwLock::new(RuntimeApprovalPolicy::from_loaded_policy(
+                        &loaded,
+                    )),
                     parent_pid: attach_pid,
                     parent_domain_id: attach_pid as u32,
                     submitter_pid,
@@ -982,6 +1175,7 @@ pub(crate) async fn run_child_command(
     scope_id: u32,
     delta_paths: &[PathBuf],
     delta_texts: &[String],
+    audit_meta: &PolicyAuditMeta,
     cmd: &[String],
 ) -> Result<i32> {
     require_bpf_caps_or_elevate(cli.internal_elevated)?;
@@ -1080,7 +1274,9 @@ pub(crate) async fn run_child_command(
         reload_handle: Arc::new(reload_handle),
         domain_handle: Arc::new(domain_handle),
         catalog,
+        mutation_lock: Mutex::new(()),
         audit_path: feedback.audit.clone(),
+        approval_policy: RwLock::new(RuntimeApprovalPolicy::from_loaded_policy(&loaded)),
         parent_pid,
         parent_domain_id,
         submitter_pid: parent_pid,
@@ -1112,7 +1308,11 @@ pub(crate) async fn run_child_command(
     }
 
     for (policy_ref, delta) in &deltas {
-        if let Err(e) = control.append_policy_delta_dsl(child_domain_id, delta) {
+        let mut delta_meta = audit_meta.clone();
+        delta_meta.policy_ref = Some(policy_ref.clone());
+        if let Err(e) =
+            control.append_policy_delta_dsl_with_audit(child_domain_id, delta, &delta_meta)
+        {
             kill_process_group_and_wait(&mut child).await;
             let _ = control.audit_child_launch(
                 child_pid as i32,
@@ -1480,6 +1680,92 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .starts_with("fnv1a64:")
+        );
+    }
+
+    #[test]
+    fn append_delta_approval_gate_rejects_missing_and_unknown_approver() {
+        let gate = AppendDeltaApprovalGate {
+            required: true,
+            require_approval_ref: true,
+            require_generated_by: false,
+            allowed_approvers: vec!["repo-supervisor".to_string()],
+        };
+
+        let missing = gate.evaluate(&PolicyAuditMeta::default());
+        assert!(missing.enforced);
+        assert!(!missing.accepted);
+        assert_eq!(missing.missing_fields, vec!["approved_by", "approval_ref"]);
+        assert!(
+            missing
+                .rejection_reason
+                .as_deref()
+                .unwrap_or("")
+                .contains("missing approved_by, approval_ref")
+        );
+
+        let wrong = gate.evaluate(&PolicyAuditMeta {
+            approved_by: Some("other-reviewer".to_string()),
+            approval_ref: Some("ticket-7".to_string()),
+            ..PolicyAuditMeta::default()
+        });
+        assert!(!wrong.accepted);
+        assert!(
+            wrong
+                .rejection_reason
+                .as_deref()
+                .unwrap_or("")
+                .contains("not in runtime.approval.append_delta.allowed_approvers")
+        );
+
+        let accepted = gate.evaluate(&PolicyAuditMeta {
+            approved_by: Some("repo-supervisor".to_string()),
+            approval_ref: Some("ticket-7".to_string()),
+            ..PolicyAuditMeta::default()
+        });
+        assert!(accepted.accepted);
+        assert!(accepted.rejection_reason.is_none());
+    }
+
+    #[test]
+    fn policy_audit_meta_records_enforced_approval_chain() {
+        let gate = AppendDeltaApprovalGate {
+            required: true,
+            require_approval_ref: true,
+            require_generated_by: true,
+            allowed_approvers: vec!["repo-supervisor".to_string()],
+        };
+        let meta = PolicyAuditMeta {
+            policy_ref: Some("policy-delta.dsl".to_string()),
+            approved_by: Some("repo-supervisor".to_string()),
+            approval_ref: Some("ticket-7".to_string()),
+            generated_by: Some("template/readonly".to_string()),
+        };
+        let approval = gate.evaluate(&meta);
+        let mut record = json!({});
+        apply_policy_audit_meta(&mut record, &meta, Some(&approval));
+
+        assert_eq!(record["policy_ref"], "policy-delta.dsl");
+        assert_eq!(record["approved_by"], "repo-supervisor");
+        assert_eq!(record["approval_chain"]["enforced"], true);
+        assert_eq!(record["approval_chain"]["required"], true);
+        assert_eq!(record["approval_chain"]["decision"], "accepted");
+        assert_eq!(
+            record["approval_chain"]["workflow"],
+            "append_delta_static_approval"
+        );
+        assert_eq!(
+            record["approval_chain"]["admission_model"],
+            "static_metadata_allowlist"
+        );
+        assert_eq!(record["approval_chain"]["external_verified"], false);
+        assert_eq!(
+            record["approval_chain"]["signature"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            record["approval_chain"]["allowed_approvers"][0],
+            "repo-supervisor"
         );
     }
 }

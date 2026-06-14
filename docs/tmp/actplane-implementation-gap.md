@@ -53,8 +53,8 @@ adopted under polling-based supervision and can be relaunched when they later
 exit, with the limitation that exit code/signal precision is unavailable for
 adopted processes. Basic runtime audit context, stable process identity for
 audit actors, parser-backed lowered-clause source provenance, machine-readable
-backend support reports, and structured
-append-delta approval/generator metadata are now present. Basic
+backend support reports, and a project-configured append-delta approval
+admission gate are now present. Basic
 domain-local runtime declassification is now admitted by the kernel when the
 submitting domain has `AUTH_DECLASSIFY` and label authority for the cleared
 bits, which covers the paper's core "clear labels within an authoring domain"
@@ -249,16 +249,20 @@ Implemented:
   pattern, and optional target argument.
 - Feedback payloads include the ActPlane prefix, target operation, reason,
   action taken, retry guidance, and a small machine-readable JSON tag.
-- Provenance is surfaced for the first matched required label when available.
-  For stored file and endpoint labels, the kernel falls back to object
-  provenance if the process label provenance has not yet been populated.
+- Provenance is surfaced for one matched required label when available. For
+  stored file and endpoint labels, the kernel falls back to object provenance if
+  the process label provenance has not yet been populated. Structured events
+  now enumerate every matched label in `matched_label_details`, including each
+  label's name, mask, provenance status, and a single-hop causal-chain entry
+  when the kernel reported an origin for that label.
 - Structured violation events are appended to `events.jsonl` alongside the
   text feedback file. Each event records pid/ppid/comm, target, rule id,
-  action, effect, matched label, rule metadata when available, and first-label
-  provenance. Rule metadata now includes lowered-clause operation/effect/target
-  fields plus source ref, source line span, parser-backed lowered-clause source
-  index, exact lowered-clause line span and text, source/clause hashes, and
-  locked/default binding mode when those fields are known.
+  action, effect, matched label mask, per-label matched details, rule metadata
+  when available, and reported single-hop provenance. Rule metadata now
+  includes lowered-clause operation/effect/target fields plus source ref,
+  source line span, parser-backed lowered-clause source index, exact
+  lowered-clause line span and text, source/clause hashes, and locked/default
+  binding mode when those fields are known.
 
 Relevant code:
 
@@ -392,8 +396,13 @@ Current state:
   feedback rule names and reasons remain engine-local.
 - MCP- and watch-launched children drop from the sudo/root control process back
   to `SUDO_UID`/`SUDO_GID` before exec, matching the safer `actplane run` and
-  `child-run` behavior. Repo-local control state, child log directories, and
-  child metadata are chowned back to that user when created under sudo.
+  `child-run` behavior. Child stdout/stderr log files are chowned back to that
+  user when created under sudo, while `.actplane/children` registry directories
+  and `meta.json` records remain root-owned and non-group/world-writable so
+  restart/reconcile does not trust user-editable policy metadata. In non-root
+  capability-based deployments, persisted child registry replay is disabled
+  rather than trusted, because a same-UID agent could otherwise edit the
+  registry before MCP restart.
 - The C loader's `--seed-pid/--seed-label` path seeds both label state and the
   capability maps required by the runtime boundary.
 - YAML `domains:` select a set of locked/default rules at compile time.
@@ -426,11 +435,11 @@ registry reconcile, and background relaunch for `on_exit` children. The core
 MCP JSON-RPC workflow is now covered, with explicit adopted-polling recovery
 across MCP server restarts. A declarative YAML-to-runtime-domain mapping would
 be a convenience layer, not a requirement for the current repo-scoped MVP. The
-remaining domain product gap is an enforced supervisor approval workflow.
+remaining domain product gap is richer review/template UX and stronger
+activation-time provenance.
 
 Minimum fix:
 
-- Add an enforced supervisor approval workflow for runtime policy changes.
 - Keep root/admin rules globally inherited and immutable, and reserve
   whole-policy reload for trusted admin contexts.
 - Add product-level live tests for two sibling agents with conflicting local
@@ -461,16 +470,29 @@ Current state:
   resume into one lifecycle operation.
 - CLI `child-run --delta FILE` and `child-run --delta-text DSL` submit
   append-only DSL deltas into the newly launched child domain before the child
-  is resumed.
+  is resumed. They also accept `--approved-by`, `--approval-ref`, and
+  `--generated-by` metadata for projects that require approved runtime deltas.
 - CLI `control append-delta --target-id DOMAIN --delta FILE` and
   `--delta-text DSL` submit append-only DSL deltas into a domain owned by an
   already-running MCP auto-attached or `watch` engine. `control launch-child
-  --delta FILE` uses the same append path before resuming the launched child.
+  --delta FILE` uses the same append path before resuming the launched child
+  and accepts the same approval metadata.
 - CLI `delta add --target-id DOMAIN --delta FILE` is the stable high-level
   alias for the same repo-local append path. It preserves the existing
   `control append-delta` behavior, including optional `--approved-by`,
   `--approval-ref`, and `--generated-by` audit metadata, and defaults to the
   attached parent domain when no target id is provided by the control server.
+- `actplane.yaml` can now configure
+  `runtime.approval.append_delta.required=true`. When enabled, append-only
+  runtime policy changes are rejected before compilation/kernel admission
+  unless they carry non-empty `approved_by`, any configured required
+  `approval_ref` and `generated_by`, and an `approved_by` value present in the
+  optional `allowed_approvers` allowlist. This covers direct append-delta
+  requests and child launch/restart policy attachments. Restart/reconcile
+  persists and reuses the original child policy approval metadata from the
+  protected child registry. Hot reload now refreshes this approval gate from
+  the reloaded `actplane.yaml`, so runtime admission follows the active project
+  config rather than the startup config.
 - Runtime policy metadata is now mutable in the MCP auto-attach and `watch`
   control paths. Whole-policy reload replaces the global metadata table, and
   append-only deltas extend it with a rule-id base that matches the
@@ -523,10 +545,15 @@ Current state:
   violation-event metadata.
   Append-delta requests can carry optional `policy_ref`, `approved_by`,
   `approval_ref`, and `generated_by` fields through MCP,
-  `actplane control append-delta`, or `actplane delta add`, and those fields
-  are written both as flat fields and as an `approval_chain` object in the JSONL
-  audit record. The approval chain is explicitly marked `enforced=false`
-  because it is provenance metadata, not yet a supervisor-enforced workflow.
+  `actplane control append-delta`, `actplane control launch-child`,
+  `actplane child-run`, or `actplane delta add`, and those fields are written
+  both as flat fields and as an `approval_chain` object in the JSONL audit
+  record. When `runtime.approval.append_delta.required=true`, the
+  `approval_chain` is marked `enforced=true` with an accepted/rejected decision,
+  missing fields, allowlist context, and rejection reason. It also records
+  `admission_model=static_metadata_allowlist`, `external_verified=false`, and
+  `signature=null` so downstream tools do not mistake the local gate for an
+  external ticket-system or signature verifier.
 - Structured violation events now carry the matched runtime domain id, session
   root pid, exact matched kernel operation, declared effect, full matched
   required-label mask, and per-lowered-rule clause/target metadata. Human
@@ -540,10 +567,10 @@ Missing:
 
 - Audit records are useful but still incomplete. They now include runtime
   context fields, stable process identities, source/clause-level rule
-  provenance, and structured append-delta approval/generator metadata, but the
-  approval chain is still declarative metadata rather than an enforced
-  supervisor workflow, and whole-policy reload remains trusted-admin
-  functionality.
+  provenance, and enforced append-delta approval state, but the approval gate
+  is a static project-configured metadata admission check rather than a
+  cryptographic signature or external ticket-system verification, and
+  whole-policy reload remains trusted-admin functionality.
 - `reload_policy` is powerful: it can replace the whole active table and should
   be treated as trusted-admin functionality, not ordinary agent
   self-restriction.
@@ -554,10 +581,10 @@ Missing:
 
 Minimum fix:
 
-- Add an enforced supervisor approval workflow on top of the existing
-  `approval_chain` provenance fields.
 - Add end-to-end MCP tests that bind a child domain, append a local delta, and
   verify feedback metadata for the appended rule.
+- Decide whether stronger deployments need signed approval tokens or external
+  ticket verification beyond the current static allowlist admission gate.
 - Surface feature-gate rejections as actionable feedback, and either restart
   with a richer feature set or provide prebuilt BPF variants for common policy
   classes.
@@ -790,7 +817,11 @@ Current state:
 - Ring-buffer events are decoded in-process.
 - A small JSON tag is appended inside the human feedback payload.
 - Structured violation events are appended as JSONL using schema
-  `actplane.violation.v1`.
+  `actplane.violation.v1`. They include `matched_label_details`, which expands
+  the kernel `matched_labels` mask into one object per label with label name,
+  mask, provenance status, a reported origin when available, and
+  `causal_chain_complete=false` to avoid overstating single-hop provenance as a
+  full causal graph.
 - Rule source metadata and per-lowered-rule clause metadata are carried into
   violation events when available, so an event can identify the YAML rule entry
   or inline DSL rule plus the lowered clause operation/effect/target that
@@ -807,7 +838,9 @@ Current state:
   where available. Local-control caller identity is snapshotted at peer-credential
   capture time. Append-delta audit records include an explicit
   `approval_chain` object for approved-by, approval-ref, and generated-by
-  provenance.
+  provenance. When `runtime.approval.append_delta.required=true`, the same
+  object records an enforced admission decision with missing-field and allowlist
+  details.
 - Kernel provenance lookup covers both process labels and stored file/endpoint
   object labels. This matters for pre-flow sink events such as an `open` rule
   matching a label stored on the file object before that label is copied into
@@ -815,32 +848,46 @@ Current state:
 
 Missing:
 
-- Policy/rule provenance still lacks a supervisor-enforced approval workflow
-  and richer activation-time state transitions.
-- Provenance reports one required label origin, not the full causal chain.
-  Stored file/endpoint object labels now have a fallback provenance lookup, but
-  events still do not include every matched label's origin or a multi-hop chain.
+- Policy/rule provenance still lacks stronger activation-time state transitions
+  and external proof of approval beyond the static project allowlist gate.
+- Events enumerate every matched label, but kernel provenance still reports one
+  matched label origin per violation, not every matched label's origin and not a
+  complete multi-hop chain. Stored file/endpoint object labels now have a
+  fallback provenance lookup for the reported origin.
 
 Minimum fix:
 
-- Add enforced approval-chain state and richer causal provenance fields.
+- Add richer causal provenance fields and, if needed for deployments, signed or
+  externally verified approval tokens.
 - Keep human feedback as a formatted view over the structured event.
 
 ### P1: Evaluation Coverage Is Not Yet CI-Grade
 
 Verified in this snapshot:
 
-- `cargo test --locked -p actplane --tests`: 77 unit tests passed, 1 ignored,
-  plus 16 CLI UX tests passed, 2 default MCP JSON-RPC e2e tests passed with 5
+- `cargo test --locked -p actplane --tests`: 81 unit tests passed, 1 ignored,
+  plus 17 CLI UX tests passed, 2 default MCP JSON-RPC e2e tests passed with 7
   privileged MCP tests ignored, and 2 privileged watch/control e2e tests
   ignored.
-- `cargo test --locked -p actplane --test mcp_protocol -- --ignored
-  --nocapture --test-threads=1`: 5 privileged MCP e2e tests passed, including
+- `sudo -E cargo test --locked -p actplane --test mcp_protocol -- --ignored
+  --nocapture --test-threads=1`: 7 privileged MCP e2e tests passed, including
   the concurrent two-engine child-domain delta isolation test through JSON-RPC,
   the `restart_policy=on_exit` background supervisor relaunch test, and the MCP
-  restart adopted-polling recovery test. It also covers 128 concurrent
+  restart adopted-polling recovery test. It also covers enforced append-delta
+  approval admission, hot-reloaded approval-gate changes, and 128 concurrent
   repo-local `control status` requests against a live MCP auto-attached engine.
-- `cargo test --locked -p actplane --test watch_control -- --ignored
+- `sudo -E cargo test --locked -p actplane --test mcp_protocol
+  mcp_append_delta_requires_configured_approval_privileged -- --ignored
+  --nocapture --test-threads=1`: passed. The test verifies that
+  `runtime.approval.append_delta.required=true` rejects missing approval
+  metadata before admission, writes a rejected audit record, and accepts a delta
+  with the configured allowlisted approver plus required metadata.
+- `sudo -E cargo test --locked -p actplane --test mcp_protocol
+  mcp_reload_updates_append_delta_approval_gate_privileged -- --ignored
+  --nocapture --test-threads=1`: passed. The test starts with approval disabled,
+  accepts a delta without approval, hot-reloads an `actplane.yaml` that requires
+  approval, and verifies that the next unapproved append is rejected.
+- `sudo -E cargo test --locked -p actplane --test watch_control -- --ignored
   --nocapture --test-threads=1`: 2 privileged watch/control e2e tests passed,
   including the concurrent two-engine child-domain delta isolation test.
 - `ACTPLANE_REBUILD_BPF=1 cargo test --locked -p ebpf-ifc-engine --lib
@@ -1080,8 +1127,8 @@ Verified in this snapshot:
   32 concurrent `control status` requests succeeded against the same loaded
   engine, `control launch-child` launched a child domain, `control read-logs`
   observed child stdout, `control terminate-child` stopped it, graceful watch
-  shutdown removed the control state, and sudo-created child log directories
-  remained removable by the normal user. The same e2e now also verifies the
+  shutdown removed the control state, and bounded log reads worked through the
+  root-owned child registry. The same e2e now also verifies the
   negative boundary for the trusted local-admin model: a process already bound
   into a launched child domain runs `actplane control launch-child`, receives a
   nonzero rejection that names the non-parent runtime domain, and no nested
@@ -1194,11 +1241,11 @@ Minimum fix:
 
 ### P1: Make It Useful For Real Users
 
-1. Add an enforced supervisor approval workflow on top of the existing
-   `approval_chain` provenance fields.
-2. Add templates and a richer `check --explain` or `plan` command.
-3. Extend templates, review, and supervisor-grade recovery semantics for
+1. Add templates and a richer `check --explain` or `plan` command.
+2. Extend templates, review, and supervisor-grade recovery semantics for
    long-lived subagents.
+3. Decide whether deployments need signed approval tokens or external
+   ticket-system verification on top of the static approval allowlist gate.
 4. Add privileged CI/e2e coverage for BPF-LSM and tracepoint modes.
 5. Add safe rollout modes: observe-only, warn, block selected rules, fail closed
    for high-severity rules.

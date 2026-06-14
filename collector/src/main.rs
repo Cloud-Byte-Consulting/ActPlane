@@ -134,6 +134,15 @@ struct ChildRunArgs {
     /// Inline append-only ActPlane DSL fragment installed into the child before resume.
     #[arg(long = "delta-text", value_name = "DSL")]
     delta_text: Vec<String>,
+    /// Optional approval metadata for child policy deltas.
+    #[arg(long)]
+    approved_by: Option<String>,
+    /// Optional ticket, review, or decision id for child policy deltas.
+    #[arg(long)]
+    approval_ref: Option<String>,
+    /// Optional tool or agent identity that generated child policy deltas.
+    #[arg(long)]
+    generated_by: Option<String>,
     /// Child command argv.
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     cmd: Vec<String>,
@@ -189,6 +198,15 @@ enum ControlCommands {
         /// Delay before automatic relaunch after exit, in milliseconds.
         #[arg(long, default_value_t = 1000)]
         restart_backoff_ms: u64,
+        /// Optional approval metadata for child policy deltas.
+        #[arg(long)]
+        approved_by: Option<String>,
+        /// Optional ticket, review, or decision id for child policy deltas.
+        #[arg(long)]
+        approval_ref: Option<String>,
+        /// Optional tool or agent identity that generated child policy deltas.
+        #[arg(long)]
+        generated_by: Option<String>,
         /// Child command argv.
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<String>,
@@ -258,7 +276,7 @@ struct DeltaAddArgs {
     /// Inline ActPlane DSL fragment.
     #[arg(long = "delta-text", value_name = "DSL")]
     delta_text: Vec<String>,
-    /// Optional human or supervisor identity approving this delta.
+    /// Optional approval metadata for this delta.
     #[arg(long)]
     approved_by: Option<String>,
     /// Optional ticket, review, or decision id for this delta.
@@ -277,12 +295,19 @@ async fn main() -> Result<()> {
     let code = match &cli.command {
         Commands::Run { cmd } => runtime::run_command(&cli, cmd).await?,
         Commands::ChildRun(args) => {
+            let audit_meta = policy_audit_meta_from_fields(
+                None,
+                &args.approved_by,
+                &args.approval_ref,
+                &args.generated_by,
+            );
             runtime::run_child_command(
                 &cli,
                 args.child_id,
                 args.scope_id,
                 &args.deltas,
                 &args.delta_text,
+                &audit_meta,
                 &args.cmd,
             )
             .await?
@@ -357,6 +382,9 @@ async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
             restart_policy,
             restart_limit,
             restart_backoff_ms,
+            approved_by,
+            approval_ref,
+            generated_by,
             cmd,
         } => {
             let policy =
@@ -372,6 +400,10 @@ async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
             if let Some(child_id) = child_id {
                 request["child_id"] = serde_json::json!(child_id);
             }
+            add_policy_audit_meta_fields(
+                &mut request,
+                &policy_audit_meta_from_fields(None, approved_by, approval_ref, generated_by),
+            );
             if let Some(policy) = policy {
                 request["policy"] = serde_json::json!(policy);
             }
@@ -473,21 +505,51 @@ fn append_delta_control_requests(
             "policy": policy,
             "policy_ref": policy_ref,
         });
-        if let Some(approved_by) = &args.approved_by {
-            request["approved_by"] = serde_json::json!(approved_by);
-        }
-        if let Some(approval_ref) = &args.approval_ref {
-            request["approval_ref"] = serde_json::json!(approval_ref);
-        }
-        if let Some(generated_by) = &args.generated_by {
-            request["generated_by"] = serde_json::json!(generated_by);
-        }
+        add_policy_audit_meta_fields(&mut request, &policy_audit_meta_from_delta_args(args));
         if let Some(target_id) = target_id {
             request["target_id"] = serde_json::json!(target_id);
         }
         responses.push(control::send_request(project_dir, request)?);
     }
     Ok(responses)
+}
+
+fn policy_audit_meta_from_delta_args(args: &DeltaAddArgs) -> runtime::PolicyAuditMeta {
+    policy_audit_meta_from_fields(
+        None,
+        &args.approved_by,
+        &args.approval_ref,
+        &args.generated_by,
+    )
+}
+
+fn policy_audit_meta_from_fields(
+    policy_ref: Option<String>,
+    approved_by: &Option<String>,
+    approval_ref: &Option<String>,
+    generated_by: &Option<String>,
+) -> runtime::PolicyAuditMeta {
+    runtime::PolicyAuditMeta {
+        policy_ref,
+        approved_by: approved_by.clone(),
+        approval_ref: approval_ref.clone(),
+        generated_by: generated_by.clone(),
+    }
+}
+
+fn add_policy_audit_meta_fields(request: &mut serde_json::Value, meta: &runtime::PolicyAuditMeta) {
+    if let Some(policy_ref) = &meta.policy_ref {
+        request["policy_ref"] = serde_json::json!(policy_ref);
+    }
+    if let Some(approved_by) = &meta.approved_by {
+        request["approved_by"] = serde_json::json!(approved_by);
+    }
+    if let Some(approval_ref) = &meta.approval_ref {
+        request["approval_ref"] = serde_json::json!(approval_ref);
+    }
+    if let Some(generated_by) = &meta.generated_by {
+        request["generated_by"] = serde_json::json!(generated_by);
+    }
 }
 
 fn control_project_dir(cli: &Cli) -> Result<PathBuf> {

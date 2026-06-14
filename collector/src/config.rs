@@ -23,6 +23,8 @@ pub(crate) struct FileConfig {
     #[serde(default)]
     pub(crate) default_domain: Option<String>,
     #[serde(default)]
+    pub(crate) runtime: RuntimeConfig,
+    #[serde(default)]
     feedback: FeedbackConfig,
 }
 
@@ -58,6 +60,33 @@ pub(crate) struct RuleBinding {
 pub(crate) enum BindingMode {
     Locked,
     Default,
+}
+
+#[derive(Debug, Default, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RuntimeConfig {
+    #[serde(default)]
+    pub(crate) approval: RuntimeApprovalConfig,
+}
+
+#[derive(Debug, Default, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RuntimeApprovalConfig {
+    #[serde(default)]
+    pub(crate) append_delta: AppendDeltaApprovalConfig,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AppendDeltaApprovalConfig {
+    #[serde(default)]
+    pub(crate) required: bool,
+    #[serde(default)]
+    pub(crate) require_approval_ref: bool,
+    #[serde(default)]
+    pub(crate) require_generated_by: bool,
+    #[serde(default)]
+    pub(crate) allowed_approvers: Vec<String>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -115,6 +144,16 @@ pub(crate) fn load_policy(cli: &Cli) -> Result<LoadedPolicy> {
         None => discover_policy(&cwd)
             .ok_or("no actplane.yaml found; pass --policy <file> or --rule <dsl>")?,
     };
+    let loaded = load_policy_path(&path, explicit_policy, &cwd)?;
+    let _ = resolve_policy(&loaded, cli.domain.as_deref())?;
+    Ok(loaded)
+}
+
+pub(crate) fn load_policy_path(
+    path: &Path,
+    explicit_policy: bool,
+    cwd: &Path,
+) -> Result<LoadedPolicy> {
     if path.extension().is_some_and(|ext| ext == "dsl") {
         return Err(format!(
             "{} is a raw DSL file; policy files must be YAML with `policy: |`. Use `--rule` for one-off inline DSL.",
@@ -123,20 +162,21 @@ pub(crate) fn load_policy(cli: &Cli) -> Result<LoadedPolicy> {
         .into());
     }
     let src =
-        std::fs::read_to_string(&path).map_err(|e| format!("reading {}: {}", path.display(), e))?;
+        std::fs::read_to_string(path).map_err(|e| format!("reading {}: {}", path.display(), e))?;
     let config: FileConfig =
         serde_yaml::from_str(&src).map_err(|e| format!("parsing {}: {}", path.display(), e))?;
-    validate_policy_shape(&config, &path)?;
+    validate_policy_shape(&config, path)?;
     let loaded = LoadedPolicy {
         config,
         root: if explicit_policy {
-            cwd
+            cwd.to_path_buf()
         } else {
-            path.parent().map(Path::to_path_buf).unwrap_or(cwd)
+            path.parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| cwd.to_path_buf())
         },
-        path: Some(path),
+        path: Some(path.to_path_buf()),
     };
-    let _ = resolve_policy(&loaded, cli.domain.as_deref())?;
     Ok(loaded)
 }
 
@@ -155,6 +195,7 @@ fn validate_policy_shape(config: &FileConfig, path: &Path) -> Result<()> {
         .into());
     }
     if has_legacy {
+        validate_runtime_config(config, path)?;
         return Ok(());
     }
     if config.rules.is_empty() || config.domains.is_empty() {
@@ -163,6 +204,20 @@ fn validate_policy_shape(config: &FileConfig, path: &Path) -> Result<()> {
             path.display()
         )
         .into());
+    }
+    validate_runtime_config(config, path)?;
+    Ok(())
+}
+
+fn validate_runtime_config(config: &FileConfig, path: &Path) -> Result<()> {
+    for approver in &config.runtime.approval.append_delta.allowed_approvers {
+        if approver.trim().is_empty() {
+            return Err(format!(
+                "{} runtime.approval.append_delta.allowed_approvers must not contain empty entries",
+                path.display()
+            )
+            .into());
+        }
     }
     Ok(())
 }
@@ -525,6 +580,56 @@ policy: |
         assert_eq!(
             feedback_paths(&custom).events,
             PathBuf::from("/repo/logs/events.jsonl")
+        );
+    }
+
+    #[test]
+    fn runtime_append_delta_approval_config_parses() {
+        let loaded = load(
+            r#"
+runtime:
+  approval:
+    append_delta:
+      required: true
+      require_approval_ref: true
+      require_generated_by: true
+      allowed_approvers:
+        - repo-supervisor
+policy: |
+  rule r:
+    notify exec "git"
+    because "x"
+"#,
+        );
+        let approval = &loaded.config.runtime.approval.append_delta;
+        assert!(approval.required);
+        assert!(approval.require_approval_ref);
+        assert!(approval.require_generated_by);
+        assert_eq!(approval.allowed_approvers, vec!["repo-supervisor"]);
+    }
+
+    #[test]
+    fn runtime_append_delta_approval_rejects_empty_approver() {
+        let config: FileConfig = serde_yaml::from_str(
+            r#"
+runtime:
+  approval:
+    append_delta:
+      required: true
+      allowed_approvers:
+        - ""
+policy: |
+  rule r:
+    notify exec "git"
+    because "x"
+"#,
+        )
+        .unwrap();
+        let err = validate_policy_shape(&config, Path::new("/repo/actplane.yaml")).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("allowed_approvers must not contain empty entries"),
+            "{err}"
         );
     }
 

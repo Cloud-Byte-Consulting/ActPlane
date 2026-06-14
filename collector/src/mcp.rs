@@ -16,6 +16,8 @@ use std::time::{Duration, Instant, SystemTime};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+#[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 
 use rmcp::model::*;
@@ -23,6 +25,7 @@ use rmcp::transport::io::stdio;
 use rmcp::{Peer, RoleServer, ServerHandler, ServiceExt};
 use serde_json::Value;
 
+use crate::config::{load_policy_path, policy_source};
 use crate::control as local_control;
 use crate::runtime::{EngineControl, PolicyAuditMeta};
 use crate::{audit, dsl};
@@ -58,6 +61,7 @@ struct ChildRecord {
     meta: PathBuf,
     proc_start_time: Option<u64>,
     policy: Option<String>,
+    policy_audit_meta: PolicyAuditMeta,
     restart_policy: RestartPolicy,
     restart_count: u32,
     restart_limit: u32,
@@ -310,31 +314,21 @@ impl ActPlaneMcp {
                 None::<Value>,
             )
         })?;
-        let src = std::fs::read_to_string(&path).map_err(|e| {
+        let loaded = load_policy_path(&path, false, &self.project_dir).map_err(|e| {
             rmcp::ErrorData::new(
                 ErrorCode::INTERNAL_ERROR,
-                format!("Cannot read {}: {e}", path.display()),
+                format!("Policy load error: {e}"),
                 None::<Value>,
             )
         })?;
-        let config: serde_yaml::Value = serde_yaml::from_str(&src).map_err(|e| {
+        let dsl_src = policy_source(&loaded, None).map_err(|e| {
             rmcp::ErrorData::new(
-                ErrorCode::INTERNAL_ERROR,
-                format!("YAML parse error: {e}"),
+                ErrorCode::INVALID_PARAMS,
+                format!("Policy resolve error: {e}"),
                 None::<Value>,
             )
         })?;
-        let dsl_src = config
-            .get("policy")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                rmcp::ErrorData::new(
-                    ErrorCode::INVALID_PARAMS,
-                    "No `policy:` field in actplane.yaml",
-                    None::<Value>,
-                )
-            })?;
-        let compiled = dsl::compile_str(dsl_src).map_err(|e| {
+        let compiled = dsl::compile_str(&dsl_src).map_err(|e| {
             rmcp::ErrorData::new(
                 ErrorCode::INTERNAL_ERROR,
                 format!("Policy compile error: {e}"),
@@ -342,7 +336,7 @@ impl ActPlaneMcp {
             )
         })?;
         let n_rules = control
-            .reload_policy(&compiled, dsl_src, &path.display().to_string())
+            .reload_policy(&compiled, &dsl_src, &path.display().to_string(), &loaded)
             .map_err(|e| {
                 rmcp::ErrorData::new(
                     ErrorCode::INTERNAL_ERROR,
@@ -467,6 +461,11 @@ impl ActPlaneMcp {
         let child_id = json_optional_u32(&args, "child_id")?;
         let scope_id = json_optional_u32(&args, "scope_id")?.unwrap_or(0);
         let policy = json_optional_string(&args, "policy")?.map(ToString::to_string);
+        let policy_audit_meta = if policy.is_some() {
+            policy_audit_meta_from_args(&args)?
+        } else {
+            PolicyAuditMeta::default()
+        };
         let restart_policy =
             json_optional_restart_policy(&args, "restart_policy")?.unwrap_or(RestartPolicy::Never);
         let restart_limit =
@@ -478,6 +477,7 @@ impl ActPlaneMcp {
             child_id,
             scope_id,
             policy,
+            policy_audit_meta,
             None,
             RestartSettings {
                 policy: restart_policy,
@@ -499,6 +499,7 @@ impl ActPlaneMcp {
         child_id: Option<u32>,
         scope_id: u32,
         policy: Option<String>,
+        policy_audit_meta: PolicyAuditMeta,
         restarted_from: Option<u32>,
         restart: RestartSettings,
     ) -> Result<LaunchOutcome, rmcp::ErrorData> {
@@ -547,7 +548,9 @@ impl ActPlaneMcp {
         }
 
         if let Some(policy) = policy.as_deref() {
-            if let Err(e) = control.append_policy_delta_dsl(child_id, policy) {
+            if let Err(e) =
+                control.append_policy_delta_dsl_with_audit(child_id, policy, &policy_audit_meta)
+            {
                 kill_and_wait(child);
                 let _ = control.audit_child_launch(
                     pid,
@@ -593,6 +596,7 @@ impl ActPlaneMcp {
             meta: log_dir.join("meta.json"),
             proc_start_time: proc_start_time(pid),
             policy: policy.clone(),
+            policy_audit_meta,
             restart_policy: restart.policy,
             restart_count: restart.count,
             restart_limit: restart.limit,
@@ -880,6 +884,7 @@ impl ActPlaneMcp {
             new_child_id,
             old_record.scope_id,
             old_record.policy.clone(),
+            old_record.policy_audit_meta.clone(),
             Some(old_child_id),
             old_record.next_restart_settings(),
         ) {
@@ -1001,6 +1006,7 @@ impl ActPlaneMcp {
                 None,
                 old.scope_id,
                 old.policy.clone(),
+                old.policy_audit_meta.clone(),
                 Some(old.child_id),
                 old.next_restart_settings(),
             );
@@ -1441,7 +1447,7 @@ fn child_record_json(record: &ChildRecord) -> serde_json::Value {
         .lock()
         .map(|s| child_status_json(&s))
         .unwrap_or_else(|_| serde_json::json!({ "state": "unknown" }));
-    serde_json::json!({
+    let mut value = serde_json::json!({
         "launch_id": record.launch_id,
         "pid": record.pid,
         "child_id": record.child_id,
@@ -1466,7 +1472,11 @@ fn child_record_json(record: &ChildRecord) -> serde_json::Value {
         "restarted_from": record.restarted_from,
         "replacement_child_id": record.replacement_child_id,
         "status": status,
-    })
+    });
+    if let Some(policy_approval) = policy_audit_meta_json(&record.policy_audit_meta) {
+        value["policy_approval"] = policy_approval;
+    }
+    value
 }
 
 fn child_record_meta_json(record: &ChildRecord) -> serde_json::Value {
@@ -1475,6 +1485,52 @@ fn child_record_meta_json(record: &ChildRecord) -> serde_json::Value {
         value["policy"] = serde_json::json!(policy);
     }
     value
+}
+
+fn policy_audit_meta_json(meta: &PolicyAuditMeta) -> Option<serde_json::Value> {
+    if meta.policy_ref.is_none()
+        && meta.approved_by.is_none()
+        && meta.approval_ref.is_none()
+        && meta.generated_by.is_none()
+    {
+        return None;
+    }
+    let mut value = serde_json::json!({});
+    if let Some(policy_ref) = &meta.policy_ref {
+        value["policy_ref"] = serde_json::json!(policy_ref);
+    }
+    if let Some(approved_by) = &meta.approved_by {
+        value["approved_by"] = serde_json::json!(approved_by);
+    }
+    if let Some(approval_ref) = &meta.approval_ref {
+        value["approval_ref"] = serde_json::json!(approval_ref);
+    }
+    if let Some(generated_by) = &meta.generated_by {
+        value["generated_by"] = serde_json::json!(generated_by);
+    }
+    Some(value)
+}
+
+fn policy_audit_meta_from_json(value: &Value) -> Option<PolicyAuditMeta> {
+    let object = value.as_object()?;
+    Some(PolicyAuditMeta {
+        policy_ref: object
+            .get("policy_ref")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        approved_by: object
+            .get("approved_by")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        approval_ref: object
+            .get("approval_ref")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        generated_by: object
+            .get("generated_by")
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+    })
 }
 
 fn child_status_json(status: &ChildStatus) -> serde_json::Value {
@@ -1492,13 +1548,40 @@ fn child_status_json(status: &ChildStatus) -> serde_json::Value {
 fn persist_child_record(record: &ChildRecord) -> std::io::Result<()> {
     if let Some(parent) = record.meta.parent() {
         std::fs::create_dir_all(parent)?;
+        secure_child_registry_dir(parent)?;
     }
     let text = serde_json::to_string_pretty(&child_record_meta_json(record))
         .map_err(std::io::Error::other)?;
     std::fs::write(&record.meta, text)?;
-    if let Some((uid, gid)) = sudo_target_user() {
-        chown_path(&record.meta, uid, gid)?;
+    secure_child_registry_file(&record.meta)?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_child_registry_dir(path: &std::path::Path) -> std::io::Result<()> {
+    if unsafe { libc::geteuid() } == 0 {
+        chown_path(path, 0, 0)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
     }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn secure_child_registry_dir(_path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_child_registry_file(path: &std::path::Path) -> std::io::Result<()> {
+    if unsafe { libc::geteuid() } == 0 {
+        chown_path(path, 0, 0)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn secure_child_registry_file(_path: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
@@ -1517,6 +1600,9 @@ fn load_child_records_with_adoptions(project_dir: &std::path::Path) -> LoadedChi
     for entry in entries.flatten() {
         let log_dir = entry.path();
         let meta = log_dir.join("meta.json");
+        if !child_record_meta_trusted(&meta) {
+            continue;
+        }
         let Ok(text) = std::fs::read_to_string(&meta) else {
             continue;
         };
@@ -1533,6 +1619,45 @@ fn load_child_records_with_adoptions(project_dir: &std::path::Path) -> LoadedChi
         records.insert(record.child_id, record);
     }
     LoadedChildRecords { records, adopted }
+}
+
+#[cfg(unix)]
+fn child_record_meta_trusted(meta: &std::path::Path) -> bool {
+    if unsafe { libc::geteuid() } != 0 {
+        #[cfg(test)]
+        {
+            return true;
+        }
+        #[cfg(not(test))]
+        {
+            return false;
+        }
+    }
+    child_record_meta_trusted_root(meta)
+}
+
+#[cfg(unix)]
+fn child_record_meta_trusted_root(meta: &std::path::Path) -> bool {
+    if unsafe { libc::geteuid() } != 0 {
+        return true;
+    }
+    let Some(log_dir) = meta.parent() else {
+        return false;
+    };
+    let Some(children_dir) = log_dir.parent() else {
+        return false;
+    };
+    [children_dir, log_dir, meta].into_iter().all(|path| {
+        let Ok(st) = std::fs::metadata(path) else {
+            return false;
+        };
+        st.uid() == 0 && st.mode() & 0o022 == 0
+    })
+}
+
+#[cfg(not(unix))]
+fn child_record_meta_trusted(_meta: &std::path::Path) -> bool {
+    true
 }
 
 fn child_record_from_meta(value: &Value, log_dir: PathBuf) -> Option<ChildRecord> {
@@ -1579,6 +1704,10 @@ fn child_record_from_meta(value: &Value, log_dir: PathBuf) -> Option<ChildRecord
         .get("policy")
         .and_then(Value::as_str)
         .map(ToString::to_string);
+    let policy_audit_meta = value
+        .get("policy_approval")
+        .and_then(policy_audit_meta_from_json)
+        .unwrap_or_default();
     let restart_policy = value
         .get("restart_policy")
         .and_then(Value::as_str)
@@ -1624,6 +1753,7 @@ fn child_record_from_meta(value: &Value, log_dir: PathBuf) -> Option<ChildRecord
         meta,
         proc_start_time,
         policy,
+        policy_audit_meta,
         restart_policy,
         restart_count,
         restart_limit,
@@ -1849,6 +1979,22 @@ fn spawn_stopped_child(
             None::<Value>,
         )
     })?;
+    if let Some(children_dir) = log_dir.parent() {
+        secure_child_registry_dir(children_dir).map_err(|e| {
+            rmcp::ErrorData::new(
+                ErrorCode::INTERNAL_ERROR,
+                format!("Secure child registry directory failed: {e}"),
+                None::<Value>,
+            )
+        })?;
+    }
+    secure_child_registry_dir(log_dir).map_err(|e| {
+        rmcp::ErrorData::new(
+            ErrorCode::INTERNAL_ERROR,
+            format!("Secure child registry directory failed: {e}"),
+            None::<Value>,
+        )
+    })?;
     let stdout_path = log_dir.join("stdout.log");
     let stderr_path = log_dir.join("stderr.log");
     let stdout = std::fs::OpenOptions::new()
@@ -1875,20 +2021,6 @@ fn spawn_stopped_child(
         })?;
     let drop_to = sudo_target_user();
     if let Some((uid, gid)) = drop_to {
-        let children_dir = log_dir.parent();
-        let actplane_dir = children_dir.and_then(std::path::Path::parent);
-        for path in [actplane_dir, children_dir, Some(log_dir)]
-            .into_iter()
-            .flatten()
-        {
-            chown_path(path, uid, gid).map_err(|e| {
-                rmcp::ErrorData::new(
-                    ErrorCode::INTERNAL_ERROR,
-                    format!("Set child log directory ownership failed: {e}"),
-                    None::<Value>,
-                )
-            })?;
-        }
         for path in [stdout_path.as_path(), stderr_path.as_path()] {
             chown_path(path, uid, gid).map_err(|e| {
                 rmcp::ErrorData::new(
@@ -2100,7 +2232,7 @@ impl ServerHandler for ActPlaneMcp {
                     },
                     "approved_by": {
                         "type": "string",
-                        "description": "Optional human or supervisor identity approving this delta."
+                        "description": "Optional approval metadata checked against the static append-delta allowlist when configured."
                     },
                     "approval_ref": {
                         "type": "string",
@@ -2134,6 +2266,22 @@ impl ServerHandler for ActPlaneMcp {
                     "policy": {
                         "type": "string",
                         "description": "Optional append-only ActPlane DSL fragment installed into the child domain before resume."
+                    },
+                    "policy_ref": {
+                        "type": "string",
+                        "description": "Optional source reference for the child policy audit record."
+                    },
+                    "approved_by": {
+                        "type": "string",
+                        "description": "Optional approval metadata checked against the static append-delta allowlist when configured."
+                    },
+                    "approval_ref": {
+                        "type": "string",
+                        "description": "Optional ticket, review, or decision id for the child policy."
+                    },
+                    "generated_by": {
+                        "type": "string",
+                        "description": "Optional tool or agent identity that generated the child policy."
                     },
                     "restart_policy": {
                         "type": "string",
@@ -2644,6 +2792,12 @@ mod tests {
             meta: PathBuf::from("/tmp/meta.json"),
             proc_start_time: Some(99),
             policy: Some("rule r:\n  notify exec \"x\"\n  because \"x\"".to_string()),
+            policy_audit_meta: PolicyAuditMeta {
+                policy_ref: Some("child-policy.dsl".to_string()),
+                approved_by: Some("repo-supervisor".to_string()),
+                approval_ref: Some("ticket-7".to_string()),
+                generated_by: Some("template/no-network".to_string()),
+            },
             restart_policy: RestartPolicy::OnExit,
             restart_count: 2,
             restart_limit: 5,
@@ -2666,6 +2820,8 @@ mod tests {
         assert_eq!(value["policy_attached"], true);
         assert!(value["policy_hash"].as_str().is_some());
         assert!(value.get("policy").is_none());
+        assert_eq!(value["policy_approval"]["approved_by"], "repo-supervisor");
+        assert_eq!(value["policy_approval"]["approval_ref"], "ticket-7");
         assert_eq!(value["restart_policy"], "on_exit");
         assert_eq!(value["restart_count"], 2);
         assert_eq!(value["restart_limit"], 5);
@@ -2727,6 +2883,7 @@ mod tests {
             meta: PathBuf::from("/tmp/meta.json"),
             proc_start_time: None,
             policy: None,
+            policy_audit_meta: PolicyAuditMeta::default(),
             restart_policy: RestartPolicy::OnExit,
             restart_count: 0,
             restart_limit: 2,
@@ -2799,6 +2956,7 @@ mod tests {
             meta: log_dir.join("meta.json"),
             proc_start_time: proc_start_time(std::process::id() as i32),
             policy: None,
+            policy_audit_meta: PolicyAuditMeta::default(),
             restart_policy: RestartPolicy::OnExit,
             restart_count: 0,
             restart_limit: 1,
@@ -2849,6 +3007,12 @@ mod tests {
             meta: log_dir.join("meta.json"),
             proc_start_time: proc_start_time(std::process::id() as i32),
             policy: Some("rule persisted:\n  notify exec \"true\"\n  because \"x\"".to_string()),
+            policy_audit_meta: PolicyAuditMeta {
+                policy_ref: Some("persisted-policy.dsl".to_string()),
+                approved_by: Some("repo-supervisor".to_string()),
+                approval_ref: Some("ticket-9".to_string()),
+                generated_by: Some("template/readonly".to_string()),
+            },
             restart_policy: RestartPolicy::OnExit,
             restart_count: 1,
             restart_limit: 4,
@@ -2871,6 +3035,18 @@ mod tests {
         assert_eq!(
             loaded_record.policy.as_deref().unwrap(),
             "rule persisted:\n  notify exec \"true\"\n  because \"x\""
+        );
+        assert_eq!(
+            loaded_record.policy_audit_meta.approved_by.as_deref(),
+            Some("repo-supervisor")
+        );
+        assert_eq!(
+            loaded_record.policy_audit_meta.approval_ref.as_deref(),
+            Some("ticket-9")
+        );
+        assert_eq!(
+            loaded_record.policy_audit_meta.generated_by.as_deref(),
+            Some("template/readonly")
         );
         assert_eq!(loaded_record.restart_policy, RestartPolicy::OnExit);
         assert_eq!(loaded_record.restart_count, 1);

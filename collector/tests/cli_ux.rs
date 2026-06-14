@@ -238,6 +238,9 @@ fn child_run_help_exposes_domain_lifecycle_flags() {
     assert!(stdout.contains("--scope-id"));
     assert!(stdout.contains("--delta"));
     assert!(stdout.contains("--delta-text"));
+    assert!(stdout.contains("--approved-by"));
+    assert!(stdout.contains("--approval-ref"));
+    assert!(stdout.contains("--generated-by"));
 }
 
 #[test]
@@ -374,6 +377,97 @@ policy: |
     handle.join().expect("control server thread");
 }
 
+#[cfg(unix)]
+#[test]
+fn control_launch_child_sends_policy_approval_over_repo_control_socket() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    fs::write(
+        &policy,
+        r#"
+version: 1
+policy: |
+  source COMMAND = exec "**"
+  rule noop:
+    notify exec "__actplane_never__" if COMMAND
+    because "noop"
+"#,
+    )
+    .unwrap();
+
+    let socket_path = tmp.path().join("control.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    let state_dir = tmp.path().join(".actplane");
+    fs::create_dir_all(&state_dir).unwrap();
+    fs::write(
+        state_dir.join("control.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema": "actplane.control.v1",
+            "pid": std::process::id() as i32,
+            "proc_start_time": null,
+            "socket_path": socket_path,
+            "project_dir": tmp.path(),
+            "parent_pid": 1111,
+            "parent_domain_id": 2222,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept control client");
+        let mut line = String::new();
+        std::io::BufReader::new(stream.try_clone().expect("clone stream"))
+            .read_line(&mut line)
+            .expect("read request");
+        let request: serde_json::Value = serde_json::from_str(&line).expect("request JSON");
+        tx.send(request).expect("send request");
+        serde_json::to_writer(
+            &mut stream,
+            &serde_json::json!({ "ok": true, "text": "launch accepted" }),
+        )
+        .expect("write response");
+        writeln!(stream).expect("write response newline");
+    });
+
+    let output = Command::new(actplane())
+        .current_dir(tmp.path())
+        .args([
+            "--policy",
+            policy.to_str().unwrap(),
+            "control",
+            "launch-child",
+            "--child-id",
+            "5252",
+            "--delta-text",
+            "rule child:\n  notify exec \"git\" if true\n  because \"child\"",
+            "--approved-by",
+            "repo-supervisor",
+            "--approval-ref",
+            "ticket-8",
+            "--generated-by",
+            "cli-test",
+            "/bin/true",
+        ])
+        .output()
+        .expect("run control launch-child");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("launch accepted"));
+
+    let request = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("control request");
+    assert_eq!(request["op"], "launch_child_domain");
+    assert_eq!(request["child_id"], 5252);
+    assert!(request["policy"].as_str().unwrap().contains("rule child"));
+    assert_eq!(request["approved_by"], "repo-supervisor");
+    assert_eq!(request["approval_ref"], "ticket-8");
+    assert_eq!(request["generated_by"], "cli-test");
+    assert_eq!(request["cmd"][0], "/bin/true");
+    handle.join().expect("control server thread");
+}
+
 #[test]
 fn control_launch_child_help_exposes_supervisor_flags() {
     let output = run(&["control", "launch-child", "--help"]);
@@ -384,6 +478,9 @@ fn control_launch_child_help_exposes_supervisor_flags() {
     assert!(stdout.contains("--restart-policy"));
     assert!(stdout.contains("--restart-limit"));
     assert!(stdout.contains("--restart-backoff-ms"));
+    assert!(stdout.contains("--approved-by"));
+    assert!(stdout.contains("--approval-ref"));
+    assert!(stdout.contains("--generated-by"));
 }
 
 #[test]

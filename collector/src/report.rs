@@ -245,6 +245,15 @@ pub(crate) fn append_violation_event_context(
     if let Some(matched_labels) = v.matched_labels {
         record["matched_labels"] = json!(format!("0x{matched_labels:x}"));
     }
+    let matched_label_mask = v.matched_labels.unwrap_or(v.matched_label);
+    record["matched_label_details"] = matched_label_details(ctx, v, matched_label_mask);
+    record["provenance_model"] = json!({
+        "matched_labels_enumerated": v.matched_labels.is_some(),
+        "reported_origin_available": v.provenance.is_some(),
+        "reported_origin_scope": "first_available_matched_label",
+        "causal_chain_scope": "single_hop_origin",
+        "full_causal_chain": false,
+    });
     if let Some(m) = m {
         let mut rule = json!({
             "name": &m.name,
@@ -288,21 +297,63 @@ pub(crate) fn append_violation_event_context(
         }
     }
     if let Some(p) = &v.provenance {
-        let label = ctx
-            .map(|ctx| label_name(&ctx.labels, p.label))
-            .unwrap_or_else(|| format!("0x{:x}", p.label));
-        record["provenance"] = json!({
-            "label": label,
-            "label_mask": format!("0x{:x}", p.label),
-            "origin_pid": p.pid,
-            "origin_op": kernel_op_name(p.op),
-            "origin_target": &p.target,
-            "origin_timestamp_ns": p.timestamp_ns,
-        });
+        record["provenance"] = provenance_json(ctx, p);
     }
     if let Err(e) = audit::append_with_schema(path, "actplane.violation.v1", &mut record) {
         eprintln!("ActPlane: writing event log {}: {}", path.display(), e);
     }
+}
+
+fn matched_label_details(
+    ctx: Option<&RuleFeedbackContext>,
+    v: &Violation,
+    matched_label_mask: u64,
+) -> serde_json::Value {
+    let mut details = Vec::new();
+    for i in 0..64 {
+        let bit = 1u64 << i;
+        if matched_label_mask & bit == 0 {
+            continue;
+        }
+        let label = ctx
+            .map(|ctx| label_name(&ctx.labels, bit))
+            .unwrap_or_else(|| format!("0x{bit:x}"));
+        let mut detail = json!({
+            "label": label,
+            "label_mask": format!("0x{bit:x}"),
+            "provenance_status": "not_reported",
+            "provenance": serde_json::Value::Null,
+            "causal_chain": [],
+            "causal_chain_complete": false,
+        });
+        if let Some(p) = &v.provenance
+            && p.label == bit
+        {
+            let origin = provenance_json(ctx, p);
+            detail["provenance_status"] = json!("reported_first_origin");
+            detail["provenance"] = origin.clone();
+            detail["causal_chain"] = json!([origin]);
+        }
+        details.push(detail);
+    }
+    json!(details)
+}
+
+fn provenance_json(
+    ctx: Option<&RuleFeedbackContext>,
+    p: &ViolationProvenance,
+) -> serde_json::Value {
+    let label = ctx
+        .map(|ctx| label_name(&ctx.labels, p.label))
+        .unwrap_or_else(|| format!("0x{:x}", p.label));
+    json!({
+        "label": label,
+        "label_mask": format!("0x{:x}", p.label),
+        "origin_pid": p.pid,
+        "origin_op": kernel_op_name(p.op),
+        "origin_target": &p.target,
+        "origin_timestamp_ns": p.timestamp_ns,
+    })
 }
 
 fn matched_op_name(v: &Violation) -> Option<&'static str> {
@@ -380,6 +431,7 @@ mod tests {
 
         let mut labels = HashMap::new();
         labels.insert("LOCAL_SECRET".to_string(), 1);
+        labels.insert("LOCAL_TOKEN".to_string(), 2);
         let ctx = RuleFeedbackContext {
             meta: dsl::RuleMeta {
                 name: "local-rule".to_string(),
@@ -436,6 +488,7 @@ mod tests {
 
         let mut labels = HashMap::new();
         labels.insert("LOCAL_SECRET".to_string(), 1);
+        labels.insert("LOCAL_TOKEN".to_string(), 2);
         let ctx = RuleFeedbackContext {
             meta: dsl::RuleMeta {
                 name: "local-rule".to_string(),
@@ -476,7 +529,7 @@ mod tests {
             killed: Some(true),
             taint_label: 1,
             matched_label: 1,
-            matched_labels: Some(1),
+            matched_labels: Some(3),
             provenance: Some(ViolationProvenance {
                 label: 1,
                 timestamp_ns: 42,
@@ -505,9 +558,47 @@ mod tests {
         assert_eq!(value["op_code"], 0);
         assert_eq!(value["domain_id"], 23);
         assert_eq!(value["session_root"], 10);
-        assert_eq!(value["matched_labels"], "0x1");
+        assert_eq!(value["matched_labels"], "0x3");
         assert_eq!(value["matched_label_name"], "LOCAL_SECRET");
         assert_eq!(value["matched_label_names"][0], "LOCAL_SECRET");
+        assert_eq!(value["matched_label_names"][1], "LOCAL_TOKEN");
+        assert_eq!(value["matched_label_details"][0]["label"], "LOCAL_SECRET");
+        assert_eq!(
+            value["matched_label_details"][0]["provenance_status"],
+            "reported_first_origin"
+        );
+        assert_eq!(
+            value["matched_label_details"][0]["provenance"]["origin_target"],
+            "/tmp/local"
+        );
+        assert_eq!(
+            value["matched_label_details"][0]["causal_chain"][0]["label"],
+            "LOCAL_SECRET"
+        );
+        assert_eq!(
+            value["matched_label_details"][0]["causal_chain_complete"],
+            false
+        );
+        assert_eq!(value["matched_label_details"][1]["label"], "LOCAL_TOKEN");
+        assert_eq!(
+            value["matched_label_details"][1]["provenance_status"],
+            "not_reported"
+        );
+        assert_eq!(
+            value["matched_label_details"][1]["provenance"],
+            serde_json::Value::Null
+        );
+        assert_eq!(value["provenance_model"]["matched_labels_enumerated"], true);
+        assert_eq!(value["provenance_model"]["reported_origin_available"], true);
+        assert_eq!(
+            value["provenance_model"]["reported_origin_scope"],
+            "first_available_matched_label"
+        );
+        assert_eq!(
+            value["provenance_model"]["causal_chain_scope"],
+            "single_hop_origin"
+        );
+        assert_eq!(value["provenance_model"]["full_causal_chain"], false);
         assert_eq!(value["provenance"]["label"], "LOCAL_SECRET");
         assert_eq!(value["rule"]["source_ref"], "rules.local.ifc");
         assert_eq!(value["rule"]["binding_mode"], "locked");
