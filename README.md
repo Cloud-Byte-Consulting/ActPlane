@@ -30,13 +30,20 @@ Write a policy and run an agent (or any command) under the harness:
 
 ```bash
 actplane init                                  # write a starter actplane.yaml
+actplane templates list                        # discover built-in policy templates
+actplane templates show no-secret-egress       # inspect template DSL
 actplane check                                 # validate rules (no privileges)
+actplane check --explain                       # human-readable policy review artifact
+actplane check --explain --out docs/actplane-review.txt
 actplane check --json                          # machine-readable support matrix for CI/review
 actplane doctor                                # diagnose hooks, MCP, kernel support
 
 codex                                         # MCP auto-attach tries passwordless sudo
 sudo -E actplane run claude -p "review this repo"
 ```
+
+`check --explain --out` refuses to overwrite an existing artifact unless you
+add `--force`.
 
 When a rule matches, ActPlane kills the action and tells the agent why:
 

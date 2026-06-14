@@ -161,6 +161,301 @@ rule block-git:
 }
 
 #[test]
+fn check_reports_endpoint_target_condition_hostname_warning() {
+    let policy = r#"
+source AGENT = exec "**"
+
+rule host-exception:
+  notify connect endpoint "*" if AGENT unless target "api.example.com"
+  because "hostname exception"
+"#;
+    let output = run(&["--rule", policy, "check", "--json"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("check --json stdout");
+    let clause = &value["backend_support"]["clauses"][0];
+    assert_eq!(clause["supported"], true);
+    assert_eq!(
+        clause["condition_warnings"][0]["code"],
+        "endpoint_target_condition_non_numeric_ipv4"
+    );
+    let warning_codes: Vec<&str> = value["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .collect();
+    assert!(warning_codes.contains(&"endpoint_target_condition_non_numeric_ipv4"));
+
+    let output = run(&["--rule", policy, "check", "--explain"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("condition warning:"));
+    assert!(stdout.contains("unless target \"api.example.com\" uses a hostname"));
+}
+
+#[test]
+fn check_help_exposes_explain_output() {
+    let output = run(&["check", "--help"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("--json"));
+    assert!(stdout.contains("--explain"));
+    assert!(stdout.contains("--out"));
+    assert!(stdout.contains("--force"));
+}
+
+#[test]
+fn check_explain_emits_policy_review_artifact() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    fs::write(
+        &policy,
+        r#"
+version: 1
+runtime:
+  approval:
+    append_delta:
+      required: true
+      require_approval_ref: true
+      require_generated_by: true
+      allowed_approvers:
+        - repo-supervisor
+policy: |
+  source SECRET = file "secrets/**"
+  source NET = endpoint "source.example.com"
+
+  rule argv-block:
+    block exec "git" "push" if SECRET
+    because "no secret push"
+
+  rule hostname-connect:
+    notify connect endpoint "api.example.com" if true
+    because "hostname connect"
+"#,
+    )
+    .unwrap();
+
+    let output = run(&["--policy", policy.to_str().unwrap(), "check", "--explain"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("ActPlane policy review"));
+    assert!(stdout.contains("append-delta approval: required"));
+    assert!(stdout.contains("allowed approvers: repo-supervisor"));
+    assert!(stdout.contains("admission model: static_metadata_allowlist"));
+    assert!(stdout.contains("external_verified=false, signature=null"));
+    assert!(stdout.contains("source SECRET = file \"secrets/**\""));
+    assert!(stdout.contains("source NET = endpoint \"source.example.com\""));
+    assert!(stdout.contains("clause 1: block exec \"**/git\" \"push\" if SECRET"));
+    assert!(stdout.contains("argv is only available after exec"));
+    assert!(stdout.contains("not enforceable by the current backend selection"));
+    assert!(stdout.contains("endpoint target pattern is not numeric IPv4"));
+    assert!(stdout.contains("positive required label bits for the selected lowered matcher"));
+    assert!(stdout.contains("causal_chain is a reported single-hop origin"));
+    assert!(stdout.contains("shared memory, IPv6, hostname endpoint globs"));
+    assert!(stdout.contains("lowered:"));
+}
+
+#[test]
+fn check_explain_writes_policy_review_artifact_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("review.txt");
+    let policy = r#"
+source AGENT = exec "**"
+
+rule no-network:
+  notify connect endpoint "*" if AGENT unless target "127."
+  because "network review"
+"#;
+    let output = run(&[
+        "--rule",
+        policy,
+        "check",
+        "--explain",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        output.stdout.is_empty(),
+        "stdout should be empty when writing --out: {}",
+        stdout(&output)
+    );
+    assert!(stderr(&output).contains("wrote policy review"));
+    let artifact = fs::read_to_string(&out).unwrap();
+    assert!(artifact.contains("ActPlane policy review"));
+    assert!(artifact.contains("rule no-network"));
+    assert!(artifact.contains("review scope: selected initial policy"));
+}
+
+#[test]
+fn check_explain_out_refuses_existing_file_without_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("review.txt");
+    fs::write(&out, "keep me").unwrap();
+    let policy = r#"
+rule noop:
+  notify exec "git" if true
+  because "noop"
+"#;
+
+    let output = run(&[
+        "--rule",
+        policy,
+        "check",
+        "--explain",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("already exists"));
+    assert_eq!(fs::read_to_string(&out).unwrap(), "keep me");
+
+    let output = run(&[
+        "--rule",
+        policy,
+        "check",
+        "--explain",
+        "--out",
+        out.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let artifact = fs::read_to_string(&out).unwrap();
+    assert!(artifact.contains("ActPlane policy review"));
+    assert!(artifact.contains("rule noop"));
+}
+
+#[test]
+fn check_out_requires_explain() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("review.txt");
+    let policy = r#"
+rule noop:
+  notify exec "git" if true
+  because "noop"
+"#;
+    let output = run(&["--rule", policy, "check", "--out", out.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("required"));
+}
+
+#[test]
+fn check_json_and_explain_are_mutually_exclusive() {
+    let policy = r#"
+rule noop:
+  notify exec "git" if true
+  because "noop"
+"#;
+    let output = run(&["--rule", policy, "check", "--json", "--explain"]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("cannot be used with"));
+}
+
+#[test]
+fn check_explain_reports_force_tracepoint_block_limit() {
+    let policy = r#"
+rule block-git:
+  block exec "git" if true
+  because "block git"
+"#;
+    let output = Command::new(actplane())
+        .env("ACTPLANE_FORCE_TRACEPOINT", "1")
+        .args(["--rule", policy, "check", "--explain"])
+        .output()
+        .expect("run check --explain");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("ACTPLANE_FORCE_TRACEPOINT: set"));
+    assert!(stdout.contains("BPF-LSM pre-op block: unavailable"));
+    assert!(stdout.contains("not enforceable by the current backend selection"));
+    assert!(stdout.contains("bpf_lsm_inactive_for_block"));
+}
+
+#[test]
+fn templates_list_and_json_expose_catalog() {
+    let output = run(&["templates", "list"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("ActPlane policy templates"));
+    assert!(stdout.contains("no-secret-egress"));
+    assert!(stdout.contains("test-before-commit"));
+    assert!(stdout.contains("prod-db-via-migrate"));
+
+    let output = run(&["templates", "list", "--json"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("templates list --json stdout");
+    assert_eq!(value["schema"], "actplane.templates.v1");
+    let ids: Vec<&str> = value["templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|template| template["id"].as_str())
+        .collect();
+    assert!(ids.contains(&"no-network"));
+    assert!(ids.contains(&"readonly-review"));
+}
+
+#[test]
+fn templates_show_prints_dsl_and_yaml() {
+    let output = run(&["templates", "show", "no-secret-egress"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let dsl_stdout = stdout(&output);
+    assert!(dsl_stdout.contains("source SECRET = file"));
+    assert!(dsl_stdout.contains("rule no-secret-egress:"));
+    assert!(!dsl_stdout.contains("version: 1"));
+
+    let output = run(&["templates", "show", "no-network", "--format", "yaml"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let yaml_stdout = stdout(&output);
+    assert!(yaml_stdout.contains("version: 1"));
+    assert!(yaml_stdout.contains("policy: |"));
+    assert!(yaml_stdout.contains("rule no-network:"));
+}
+
+#[test]
+fn templates_write_outputs_checkable_yaml_and_respects_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("actplane.yaml");
+    let output = run(&[
+        "templates",
+        "write",
+        "no-network",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let written = fs::read_to_string(&out).unwrap();
+    assert!(written.contains("ActPlane policy generated from template `no-network`"));
+    assert!(written.contains("rule no-network:"));
+
+    let check = run(&["--policy", out.to_str().unwrap(), "check", "--explain"]);
+    assert!(check.status.success(), "stderr: {}", stderr(&check));
+    assert!(stdout(&check).contains("rule no-network"));
+
+    let output = run(&[
+        "templates",
+        "write",
+        "no-network",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("already exists"));
+
+    let output = run(&[
+        "templates",
+        "write",
+        "no-network",
+        "--out",
+        out.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+}
+
+#[test]
 fn domains_lists_effective_bindings_and_default_selection() {
     let policy = fixture("15_domain_bindings.yaml");
     let output = run(&["--policy", &policy, "domains"]);

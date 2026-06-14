@@ -252,9 +252,11 @@ Implemented:
 - Provenance is surfaced for one matched required label when available. For
   stored file and endpoint labels, the kernel falls back to object provenance if
   the process label provenance has not yet been populated. Structured events
-  now enumerate every matched label in `matched_label_details`, including each
-  label's name, mask, provenance status, and a single-hop causal-chain entry
-  when the kernel reported an origin for that label.
+  now enumerate the positive required label bits reported by the selected
+  lowered matcher in `matched_label_details`, including each label's name, mask,
+  provenance status, and a single-hop causal-chain entry when the kernel
+  reported an origin for that label. Labels that appear only in `not` terms are
+  not part of this enumeration.
 - Structured violation events are appended to `events.jsonl` alongside the
   text feedback file. Each event records pid/ppid/comm, target, rule id,
   action, effect, matched label mask, per-label matched details, rule metadata
@@ -632,7 +634,10 @@ Current state:
   support status, support reason, limitations, compiled rule metadata,
   environment override fields such as `ACTPLANE_FORCE_TRACEPOINT`, structured
   warning codes, and JSON-formatted load/compile errors for CI and
-  policy-review tools.
+  policy-review tools. `actplane check --explain` emits a human-readable policy
+  review artifact over the selected initial policy, including runtime approval
+  settings, source-flow interpretation, per-clause enforcement timing, lowered
+  kernel matcher counts, warnings, and provenance/audit boundaries.
 - The Rust/aya loader and the C skeleton loader now use the same load-time hook
   budget. Core domain hooks (`sched_process_fork`, `sched_process_exec`,
   `sched_process_exit`) and the runtime control drain tick are always attached.
@@ -782,32 +787,46 @@ Minimum fix:
 - Decide whether open-time over-taint remains an acceptable conservative mode
   for v1, and document it if so.
 
-### P1: Policy Generation, Review, And Templates Are Not Implemented
+### P1: Policy Generation, Review, And Templates Are Partially Implemented
 
 Current state:
 
 - `actplane init` writes a starter policy.
+- `actplane templates list/show/write` exposes a built-in template catalog for
+  common policies: no agent-created git branches/worktrees, no secret egress,
+  fresh tests before commit, workspace write confinement, read-only review
+  domains, no external network, and mediated prod database access. Templates
+  can be rendered as DSL for deltas or as a flat YAML policy file, and every
+  built-in template is compile-tested in both forms.
 - `actplane check` validates and summarizes rules.
+- `actplane check --explain` emits a human-readable policy review artifact for
+  the selected policy/domain. It connects sources, runtime append-delta approval
+  settings, each rule clause, host/backend support, pre-op versus post-event
+  enforcement timing, lowered kernel matcher counts, and provenance/audit
+  boundaries. `actplane check --explain --out FILE` writes the same artifact to
+  a file for CI upload or repository review.
 - The repository contains evaluation-time policy corpora and generated policies.
 
 Missing:
 
 - No built-in generator from `AGENTS.md`, `CLAUDE.md`, project config, and the
   current task.
-- No template library for common policies such as no protected-branch push,
-  tests before commit, no secret egress, no writes outside workspace, or
-  no dependency update unless requested.
-- No review workflow that shows the natural-language source, generated DSL,
-  concrete paths/commands/endpoints, and expected effect.
+- Templates are not yet parameterized by project paths, commands, branch names,
+  or dependency managers. Users still edit emitted DSL/YAML before rollout.
+- The catalog does not yet cover dependency-update gates, protected-branch push
+  rules, or organization-specific release workflows.
+- No template-backed review workflow that starts from natural-language project
+  instructions, generates candidate DSL, writes the selected policy, and runs
+  the explicit review artifact step as one command.
 - No dry-run/observe-first rollout helper that recommends which rules are safe
   to promote from notify to block/kill.
 
 Minimum fix:
 
-- Add a template catalog with parameterized policies.
-- Extend `check --json` into a richer `check --explain` or `plan` command that
-  prints the concrete OS-level interpretation of each rule.
-- Add a policy review artifact that can be committed or attached to CI.
+- Add a generator/review command that ties templates, generated DSL, policy
+  writing, and `check --explain --out` into one guided workflow.
+- Add template parameters for common project-specific paths, commands, branch
+  names, and dependency managers.
 
 ### P1: Audit And Feedback Need Structured State
 
@@ -818,8 +837,9 @@ Current state:
 - A small JSON tag is appended inside the human feedback payload.
 - Structured violation events are appended as JSONL using schema
   `actplane.violation.v1`. They include `matched_label_details`, which expands
-  the kernel `matched_labels` mask into one object per label with label name,
-  mask, provenance status, a reported origin when available, and
+  the kernel `matched_labels` mask for the selected lowered matcher into one
+  object per positive required label bit with label name, mask, provenance
+  status, a reported origin when available, and
   `causal_chain_complete=false` to avoid overstating single-hop provenance as a
   full causal graph.
 - Rule source metadata and per-lowered-rule clause metadata are carried into
@@ -829,10 +849,12 @@ Current state:
   clause source index, exact lowered-clause source line span, clause text, and
   clause hash when source metadata is available.
 - `actplane check --json` emits a stable host/backend support matrix with
-  per-source and per-clause support status, support reason, limitations, and
-  warning codes. It also reports policy load/compile failures as
+  per-source and per-clause support status, support reason, limitations,
+  condition warnings, and warning codes. It also reports policy load/compile failures as
   `actplane.check.v1` JSON and accounts for `ACTPLANE_FORCE_TRACEPOINT` when
-  reporting BPF-LSM block support.
+  reporting BPF-LSM block support. `actplane check --explain` renders the same
+  support decisions into a human-readable policy review artifact and explicitly
+  states the event/audit provenance limits.
 - Runtime audit records include stable actor/caller/submitter process
   identities built from pid plus `/proc` start time, uid/gid, comm, and exe
   where available. Local-control caller identity is snapshotted at peer-credential
@@ -850,10 +872,11 @@ Missing:
 
 - Policy/rule provenance still lacks stronger activation-time state transitions
   and external proof of approval beyond the static project allowlist gate.
-- Events enumerate every matched label, but kernel provenance still reports one
-  matched label origin per violation, not every matched label's origin and not a
-  complete multi-hop chain. Stored file/endpoint object labels now have a
-  fallback provenance lookup for the reported origin.
+- Events enumerate positive required label bits for the selected lowered
+  matcher, but kernel provenance still reports one matched label origin per
+  violation, not every reported label bit's origin and not a complete multi-hop
+  chain. Stored file/endpoint object labels now have a fallback provenance
+  lookup for the reported origin.
 
 Minimum fix:
 
@@ -865,8 +888,8 @@ Minimum fix:
 
 Verified in this snapshot:
 
-- `cargo test --locked -p actplane --tests`: 81 unit tests passed, 1 ignored,
-  plus 17 CLI UX tests passed, 2 default MCP JSON-RPC e2e tests passed with 7
+- `cargo test --locked -p actplane --tests`: 84 unit tests passed, 1 ignored,
+  plus 28 CLI UX tests passed, 2 default MCP JSON-RPC e2e tests passed with 7
   privileged MCP tests ignored, and 2 privileged watch/control e2e tests
   ignored.
 - `sudo -E cargo test --locked -p actplane --test mcp_protocol -- --ignored
@@ -1232,8 +1255,8 @@ Minimum fix:
      inheritance before making that claim.
 2. Fix the enforcement support matrix:
    - Keep argv-sensitive `block exec` documented and warned as unsupported.
-   - Keep `check --json` as the stable backend matrix surface and add richer
-     human explanations where useful.
+   - Keep `check --json` as the stable backend matrix surface and keep
+     `check --explain` aligned with the same support decisions.
 3. Cover remaining file-flow bypasses: tracepoint mmap subrange and
    beyond-eight-mapping precision, SCM_RIGHTS batches beyond the bounded parser,
    shared memory, and rename/link alias precision.
@@ -1241,7 +1264,8 @@ Minimum fix:
 
 ### P1: Make It Useful For Real Users
 
-1. Add templates and a richer `check --explain` or `plan` command.
+1. Add template parameters and a guided generator/review workflow around
+   `check --explain --out`.
 2. Extend templates, review, and supervisor-grade recovery semantics for
    long-lived subagents.
 3. Decide whether deployments need signed approval tokens or external

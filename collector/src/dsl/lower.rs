@@ -95,6 +95,9 @@ fn set_pat(dst: &mut [u8], s: &str) {
 
 /// (match, literal) lowering for exec-side patterns (matched on comm).
 fn lower_exec(pat: &str) -> (u8, String) {
+    if pat == "*" || pat == "**" || pat == "**/*" {
+        return (M_ANY, String::new());
+    }
     let base = pat.rsplit('/').next().unwrap_or(pat);
     if let Some(stripped) = base.strip_suffix('*') {
         (M_PREFIX, stripped.to_string())
@@ -261,6 +264,13 @@ mod tests {
             lower_path("/tmp/guarded/file.txt"),
             (M_EXACT, "/tmp/guarded/file.txt".into())
         );
+    }
+
+    #[test]
+    fn exec_wildcard_patterns_match_any_comm() {
+        assert_eq!(lower_exec("*"), (M_ANY, String::new()));
+        assert_eq!(lower_exec("**"), (M_ANY, String::new()));
+        assert_eq!(lower_exec("**/*"), (M_ANY, String::new()));
     }
 
     #[test]

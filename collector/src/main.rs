@@ -7,7 +7,7 @@
 //! kernel ABI, runs the embedded eBPF engine, and reports every kernel-detected
 //! rule match with the corrective-feedback payload.
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 
 mod audit;
@@ -21,6 +21,7 @@ mod mcp;
 mod report;
 mod runtime;
 mod setup;
+mod templates;
 
 type AnyError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, AnyError>;
@@ -30,6 +31,9 @@ type Result<T> = std::result::Result<T, AnyError>;
     after_help = "EXAMPLES:\n  \
       # get started: write a starter policy, wire agent hooks/MCP, then diagnose\n  \
       actplane init  &&  actplane doctor\n\n  \
+      # inspect or write a built-in policy template\n  \
+      actplane templates list\n  \
+      actplane templates write no-secret-egress --out /tmp/no-secret-policy.yaml\n\n  \
       # apply a one-line policy around a command (needs sudo for the eBPF load)\n  \
       sudo -E actplane --rule 'source COMMAND = exec \"**\"\n                       rule no-git-branch:\n                         kill exec \"git\" \"branch\" if COMMAND\n                         because \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
@@ -118,6 +122,11 @@ enum Commands {
         #[command(subcommand)]
         command: DeltaCommands,
     },
+    /// List, inspect, and write built-in policy templates.
+    Templates {
+        #[command(subcommand)]
+        command: TemplateCommands,
+    },
 }
 
 #[derive(Args)]
@@ -153,6 +162,20 @@ struct CheckArgs {
     /// Emit a stable machine-readable support matrix and warning report.
     #[arg(long)]
     json: bool,
+    /// Emit a human-readable policy review explaining enforcement timing and limits.
+    #[arg(long, conflicts_with = "json")]
+    explain: bool,
+    /// Write the --explain policy review artifact to a file instead of stdout.
+    #[arg(
+        long,
+        value_name = "FILE",
+        requires = "explain",
+        conflicts_with = "json"
+    )]
+    out: Option<PathBuf>,
+    /// Overwrite an existing --out policy review artifact.
+    #[arg(long, requires = "out")]
+    force: bool,
 }
 
 #[derive(Subcommand)]
@@ -262,6 +285,50 @@ enum DeltaCommands {
     Add(DeltaAddArgs),
 }
 
+#[derive(Subcommand)]
+enum TemplateCommands {
+    /// List built-in policy templates.
+    List {
+        /// Emit machine-readable template metadata.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print one built-in template.
+    Show(TemplateShowArgs),
+    /// Write one built-in template to a file.
+    Write(TemplateWriteArgs),
+}
+
+#[derive(Args)]
+struct TemplateShowArgs {
+    /// Template id, for example `no-secret-egress`.
+    name: String,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = TemplateFormat::Dsl)]
+    format: TemplateFormat,
+}
+
+#[derive(Args)]
+struct TemplateWriteArgs {
+    /// Template id, for example `no-secret-egress`.
+    name: String,
+    /// Output file path.
+    #[arg(short, long)]
+    out: PathBuf,
+    /// Output format.
+    #[arg(long, value_enum, default_value_t = TemplateFormat::Yaml)]
+    format: TemplateFormat,
+    /// Overwrite an existing output file.
+    #[arg(short, long)]
+    force: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum TemplateFormat {
+    Dsl,
+    Yaml,
+}
+
 #[derive(Args)]
 struct DeltaAddArgs {
     /// Runtime domain id to receive the delta. Defaults to the attached parent domain.
@@ -315,7 +382,13 @@ async fn main() -> Result<()> {
         Commands::Compile { out } => compile_policy(&cli, out).await?,
         Commands::Init { force } => setup::init_policy(*force)?,
         Commands::Setup { force } => setup::setup_project(*force)?,
-        Commands::Check(args) => doctor::check_policy(&cli, args.json)?,
+        Commands::Check(args) => doctor::check_policy(
+            &cli,
+            args.json,
+            args.explain,
+            args.out.as_deref(),
+            args.force,
+        )?,
         Commands::Doctor => doctor::doctor(&cli)?,
         Commands::Domains => doctor::list_domains(&cli)?,
         Commands::Watch => runtime::watch_policy(&cli).await?,
@@ -336,11 +409,59 @@ async fn main() -> Result<()> {
         }
         Commands::Control { command } => control_command(&cli, command).await?,
         Commands::Delta { command } => delta_command(&cli, command).await?,
+        Commands::Templates { command } => template_command(command)?,
     };
     if code != 0 {
         std::process::exit(code);
     }
     Ok(())
+}
+
+fn template_command(command: &TemplateCommands) -> Result<i32> {
+    match command {
+        TemplateCommands::List { json } => {
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&templates::json())?);
+            } else {
+                println!("ActPlane policy templates");
+                for template in templates::all() {
+                    println!(
+                        "  {:<24} {:<12} {:<6} {}",
+                        template.id, template.category, template.effect, template.title
+                    );
+                }
+                println!("\nUse `actplane templates show <id>` to inspect DSL.");
+            }
+        }
+        TemplateCommands::Show(args) => {
+            let template = templates::get(&args.name)?;
+            print!("{}", render_template(template, args.format));
+        }
+        TemplateCommands::Write(args) => {
+            let template = templates::get(&args.name)?;
+            if args.out.exists() && !args.force {
+                return Err(format!(
+                    "{} already exists (use --force to overwrite)",
+                    args.out.display()
+                )
+                .into());
+            }
+            std::fs::write(&args.out, render_template(template, args.format))?;
+            eprintln!(
+                "actplane: wrote template `{}` to {}",
+                template.id,
+                args.out.display()
+            );
+        }
+    }
+    Ok(0)
+}
+
+fn render_template(template: &templates::PolicyTemplate, format: TemplateFormat) -> String {
+    match format {
+        TemplateFormat::Dsl => templates::render_dsl(template).to_string(),
+        TemplateFormat::Yaml => templates::render_yaml(template),
+    }
 }
 
 async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {

@@ -1,17 +1,25 @@
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use serde_json::{Value, json};
 
 use crate::config::{
-    ResolvedPolicy, domain_summaries, feedback_paths, load_policy, resolve_policy,
+    AppendDeltaApprovalConfig, LoadedPolicy, ResolvedPolicy, domain_summaries, feedback_paths,
+    load_policy, resolve_policy,
 };
-use crate::dsl::ast::{Effect, Kind, Op, Policy};
+use crate::dsl::ast::{Clause, Cond, Effect, Expr, Kind, Op, Policy, Source};
 use crate::runtime::{have_bpf_caps, passwordless_sudo_available};
 use crate::setup::{codex_hook_has_actplane_command, project_mcp_auto_attach_ok};
 use crate::{Cli, Result, dsl};
 
-pub(crate) fn check_policy(cli: &Cli, json_output: bool) -> Result<i32> {
+pub(crate) fn check_policy(
+    cli: &Cli,
+    json_output: bool,
+    explain_output: bool,
+    explain_out: Option<&Path>,
+    explain_force: bool,
+) -> Result<i32> {
     let where_ = policy_ref_for_cli(cli);
     let loaded = match load_policy(cli) {
         Ok(loaded) => loaded,
@@ -69,6 +77,32 @@ pub(crate) fn check_policy(cli: &Cli, json_output: bool) -> Result<i32> {
             lsm_bpf,
             force_tracepoint,
         )?;
+        return Ok(0);
+    }
+    if explain_output {
+        let artifact = render_check_explain(
+            &where_,
+            &loaded,
+            &resolved,
+            &parsed,
+            &compiled,
+            &active_lsms,
+            lsm_bpf,
+            force_tracepoint,
+        );
+        if let Some(path) = explain_out {
+            if path.exists() && !explain_force {
+                return Err(format!(
+                    "{} already exists (use --force to overwrite)",
+                    path.display()
+                )
+                .into());
+            }
+            std::fs::write(path, artifact)?;
+            eprintln!("actplane: wrote policy review {}", path.display());
+        } else {
+            print!("{artifact}");
+        }
         return Ok(0);
     }
 
@@ -188,6 +222,250 @@ fn print_check_json(
     Ok(())
 }
 
+fn render_check_explain(
+    policy_ref: &str,
+    loaded: &LoadedPolicy,
+    resolved: &ResolvedPolicy,
+    parsed: &Policy,
+    compiled: &dsl::Compiled,
+    active_lsms: &str,
+    lsm_bpf: bool,
+    force_tracepoint: bool,
+) -> String {
+    let mut out = String::new();
+    writeln!(&mut out, "ActPlane policy review").unwrap();
+    writeln!(&mut out, "policy: {}", policy_ref).unwrap();
+    match &resolved.domain {
+        Some(domain) => {
+            writeln!(&mut out, "domain: {}", domain.name).unwrap();
+            if let Some(parent) = &domain.parent {
+                writeln!(&mut out, "parent: {}", parent).unwrap();
+            }
+            writeln!(
+                &mut out,
+                "locked rules: {}",
+                format_rule_list(&domain.locked)
+            )
+            .unwrap();
+            writeln!(
+                &mut out,
+                "default rules: {}",
+                format_rule_list(&domain.defaults)
+            )
+            .unwrap();
+            if !domain.disabled.is_empty() {
+                writeln!(
+                    &mut out,
+                    "disabled defaults: {}",
+                    format_rule_list(&domain.disabled)
+                )
+                .unwrap();
+            }
+        }
+        None => writeln!(&mut out, "domain: none (flat policy)").unwrap(),
+    }
+    writeln!(
+        &mut out,
+        "rules: {} DSL rule(s), {} lowered kernel matcher(s)",
+        parsed.rules.len(),
+        compiled.meta.len()
+    )
+    .unwrap();
+
+    writeln!(&mut out, "\nhost/backend:").unwrap();
+    writeln!(
+        &mut out,
+        "  - active LSMs: {}",
+        if active_lsms.trim().is_empty() {
+            "unknown"
+        } else {
+            active_lsms
+        }
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  - BPF-LSM pre-op block: {}",
+        if lsm_bpf { "available" } else { "unavailable" }
+    )
+    .unwrap();
+    if force_tracepoint {
+        writeln!(
+            &mut out,
+            "  - ACTPLANE_FORCE_TRACEPOINT: set, so BPF-LSM is treated as unavailable"
+        )
+        .unwrap();
+    }
+    writeln!(
+        &mut out,
+        "  - hook budget: policy-budgeted attach; runtime deltas cannot add hook classes after load"
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  - review scope: selected initial policy and current host support, not a live loaded-engine guarantee"
+    )
+    .unwrap();
+
+    writeln!(&mut out, "\nruntime delta admission:").unwrap();
+    append_append_delta_approval(&mut out, &loaded.config.runtime.approval.append_delta);
+
+    writeln!(&mut out, "\nlabels:").unwrap();
+    append_label_bits(&mut out, compiled);
+
+    writeln!(&mut out, "\nsources and flows:").unwrap();
+    if parsed.sources.is_empty() {
+        writeln!(&mut out, "  - none").unwrap();
+    } else {
+        for source in &parsed.sources {
+            let (supported, reason, limitations) =
+                source_support_detail(source.kind, &source.pattern);
+            writeln!(&mut out, "  - {}", source_summary(source)).unwrap();
+            writeln!(&mut out, "    flow: {}", source_flow_summary(source.kind)).unwrap();
+            writeln!(
+                &mut out,
+                "    support: {}; {}",
+                if supported {
+                    "supported"
+                } else {
+                    "unsupported"
+                },
+                reason
+            )
+            .unwrap();
+            if !limitations.is_empty() {
+                writeln!(&mut out, "    limitations: {}", limitations.join("; ")).unwrap();
+            }
+        }
+    }
+    writeln!(
+        &mut out,
+        "  - coverage note: ordinary flows are hook-budgeted; advanced mmap/mprotect, SCM_RIGHTS, Unix-socket IPC, pipe/socketpair, sendfile, copy_file_range, and splice coverage requires advanced hooks or the full hook profile"
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  - coverage note: shared memory, IPv6, hostname endpoint globs, batch UDP syscalls, and unbounded fd/provenance chains remain limited or unsupported"
+    )
+    .unwrap();
+
+    writeln!(&mut out, "\ntransforms:").unwrap();
+    if parsed.xforms.is_empty() {
+        writeln!(&mut out, "  - none").unwrap();
+    } else {
+        for xform in &parsed.xforms {
+            let verb = if xform.endorse {
+                "endorse"
+            } else {
+                "declassify"
+            };
+            let effect = if xform.endorse {
+                "adds the label when the gate exec matches"
+            } else {
+                "removes the label when the gate exec matches"
+            };
+            writeln!(
+                &mut out,
+                "  - {} {} by exec \"{}\" -> {}",
+                verb, xform.label, xform.gate, effect
+            )
+            .unwrap();
+        }
+        writeln!(
+            &mut out,
+            "  - runtime appended declassification still requires AUTH_DECLASSIFY and authority over the cleared local label bits"
+        )
+        .unwrap();
+    }
+
+    writeln!(&mut out, "\nrules:").unwrap();
+    for (rule_idx, rule) in parsed.rules.iter().enumerate() {
+        writeln!(&mut out, "  {}. rule {}", rule_idx + 1, rule.name).unwrap();
+        writeln!(&mut out, "     reason: {}", rule.reason).unwrap();
+        for clause in &rule.clauses {
+            let support = clause_support_detail(
+                clause.effect,
+                clause.op,
+                clause.target.kind,
+                &clause.target.pattern,
+                clause.target.arg.as_deref(),
+                lsm_bpf,
+            );
+            let lowered = lowered_clause_summary(compiled, &rule.name, clause.source_index);
+            writeln!(
+                &mut out,
+                "     clause {}: {}",
+                clause.source_index + 1,
+                clause_summary(clause)
+            )
+            .unwrap();
+            writeln!(
+                &mut out,
+                "       enforcement: {}; {}",
+                support.status, support.reason
+            )
+            .unwrap();
+            writeln!(
+                &mut out,
+                "       timing: {}",
+                enforcement_timing(clause.effect, &support)
+            )
+            .unwrap();
+            writeln!(
+                &mut out,
+                "       backend: {}; pre_op={}",
+                support.mode, support.pre_op
+            )
+            .unwrap();
+            if !support.limitations.is_empty() {
+                writeln!(
+                    &mut out,
+                    "       limitations: {}",
+                    support.limitations.join("; ")
+                )
+                .unwrap();
+            }
+            for warning in clause_condition_warnings(clause) {
+                writeln!(&mut out, "       condition warning: {}", warning.message).unwrap();
+            }
+            writeln!(&mut out, "       lowered: {}", lowered).unwrap();
+        }
+    }
+
+    writeln!(&mut out, "\nviolation event/audit semantics:").unwrap();
+    writeln!(
+        &mut out,
+        "  - reports exact lowered clause effect, declared op, kernel op, target kind, target pattern, and optional argv token"
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  - matched_label_details enumerates positive required label bits for the selected lowered matcher, not labels that appear only in `not` terms"
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  - causal_chain is a reported single-hop origin when available, not a complete provenance graph"
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  - reload is a trusted admin path; append-delta is the authority-checked append-only mutation path"
+    )
+    .unwrap();
+
+    let warns = backend_support_warnings(parsed, lsm_bpf);
+    if warns.is_empty() {
+        writeln!(&mut out, "\nwarnings: none").unwrap();
+    } else {
+        writeln!(&mut out, "\nwarnings:").unwrap();
+        for w in warns {
+            writeln!(&mut out, "  - {}: {}", w.code, w.message).unwrap();
+        }
+    }
+    out
+}
+
 fn domain_json(resolved: &ResolvedPolicy) -> Value {
     match &resolved.domain {
         Some(domain) => json!({
@@ -277,6 +555,15 @@ fn clause_support_json(policy: &Policy, lsm_bpf: bool) -> Vec<Value> {
                 clause.target.arg.as_deref(),
                 lsm_bpf,
             );
+            let condition_warnings = clause_condition_warnings(clause)
+                .into_iter()
+                .map(|w| {
+                    json!({
+                        "code": w.code,
+                        "message": w.message,
+                    })
+                })
+                .collect::<Vec<_>>();
             out.push(json!({
                 "rule": rule.name,
                 "clause_index": clause_index,
@@ -291,6 +578,7 @@ fn clause_support_json(policy: &Policy, lsm_bpf: bool) -> Vec<Value> {
                 "pre_op": support.pre_op,
                 "reason": support.reason,
                 "limitations": support.limitations,
+                "condition_warnings": condition_warnings,
             }));
         }
     }
@@ -333,6 +621,12 @@ struct SupportDetail {
 
 #[derive(Clone)]
 struct BackendWarning {
+    code: &'static str,
+    message: String,
+}
+
+#[derive(Clone)]
+struct ClauseConditionWarning {
     code: &'static str,
     message: String,
 }
@@ -477,6 +771,31 @@ fn backend_support_lines(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
     lines
 }
 
+fn clause_condition_warnings(clause: &Clause) -> Vec<ClauseConditionWarning> {
+    let mut warnings = Vec::new();
+    if matches!(clause.op, Op::Connect | Op::Recv)
+        && clause.target.kind == Kind::Endpoint
+        && let Some(Cond::Target { negate, pattern }) = &clause.unless
+        && !endpoint_pattern_is_numeric_ipv4(pattern)
+    {
+        let consequence = if *negate {
+            "a `target not` condition is evaluated after the non-numeric pattern matches nothing, which may suppress the rule more broadly than intended"
+        } else {
+            "the exception condition matches nothing; the rule will not exempt that endpoint"
+        };
+        warnings.push(ClauseConditionWarning {
+            code: "endpoint_target_condition_non_numeric_ipv4",
+            message: format!(
+                "unless target{} \"{}\" uses a hostname or IPv6 pattern; endpoint target conditions currently match numeric IPv4 only, and {}.",
+                if *negate { " not" } else { "" },
+                pattern,
+                consequence
+            ),
+        });
+    }
+    warnings
+}
+
 fn backend_support_warnings(policy: &Policy, lsm_bpf: bool) -> Vec<BackendWarning> {
     let mut warnings = Vec::new();
     for source in &policy.sources {
@@ -506,6 +825,14 @@ fn backend_support_warnings(policy: &Policy, lsm_bpf: bool) -> Vec<BackendWarnin
                     ),
                 });
             }
+            warnings.extend(
+                clause_condition_warnings(clause)
+                    .into_iter()
+                    .map(|warning| BackendWarning {
+                        code: warning.code,
+                        message: format!("{}: {}", rule.name, warning.message),
+                    }),
+            );
             if clause.effect == Effect::Block
                 && clause.op == Op::Exec
                 && clause.target.arg.is_some()
@@ -547,6 +874,190 @@ fn clause_support(
     } else {
         format!("{}, {}", detail.reason, detail.limitations.join(", "))
     }
+}
+
+fn append_append_delta_approval(out: &mut String, approval: &AppendDeltaApprovalConfig) {
+    if !approval.required {
+        writeln!(out, "  - append-delta approval: not required").unwrap();
+        writeln!(out, "  - admission model: metadata_only").unwrap();
+        return;
+    }
+
+    let mut fields = vec!["approved_by"];
+    if approval.require_approval_ref {
+        fields.push("approval_ref");
+    }
+    if approval.require_generated_by {
+        fields.push("generated_by");
+    }
+    writeln!(out, "  - append-delta approval: required").unwrap();
+    writeln!(out, "  - required metadata: {}", fields.join(", ")).unwrap();
+    if approval.allowed_approvers.is_empty() {
+        writeln!(out, "  - allowed approvers: any non-empty approved_by").unwrap();
+    } else {
+        writeln!(
+            out,
+            "  - allowed approvers: {}",
+            approval.allowed_approvers.join(", ")
+        )
+        .unwrap();
+    }
+    writeln!(out, "  - admission model: static_metadata_allowlist").unwrap();
+    writeln!(out, "  - external_verified=false, signature=null").unwrap();
+}
+
+fn append_label_bits(out: &mut String, compiled: &dsl::Compiled) {
+    if compiled.labels.is_empty() {
+        writeln!(out, "  - none").unwrap();
+        return;
+    }
+    let mut labels = compiled.labels.iter().collect::<Vec<_>>();
+    labels.sort_by_key(|(_, mask)| **mask);
+    for (name, mask) in labels {
+        writeln!(out, "  - {} = {:#x}", name, mask).unwrap();
+    }
+}
+
+fn source_summary(source: &Source) -> String {
+    format!(
+        "source {} = {} \"{}\"",
+        source.label,
+        kind_name(source.kind),
+        source.pattern
+    )
+}
+
+fn source_flow_summary(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Exec => "matching exec adds the label to the process and fork descendants",
+        Kind::File => {
+            "matching file carries the label; reads copy it into the process, writes copy process labels into the file"
+        }
+        Kind::Endpoint => {
+            "matching IPv4 endpoint carries the label; recv copies it into the process, connect records egress labels"
+        }
+    }
+}
+
+fn clause_summary(clause: &Clause) -> String {
+    let mut out = format!("{} {}", effect_name(clause.effect), op_name(clause.op));
+    match clause.target.kind {
+        Kind::Exec => {
+            out.push_str(&format!(" \"{}\"", clause.target.pattern));
+            if let Some(arg) = &clause.target.arg {
+                out.push_str(&format!(" \"{}\"", arg));
+            }
+        }
+        Kind::File | Kind::Endpoint => {
+            out.push_str(&format!(
+                " {} \"{}\"",
+                kind_name(clause.target.kind),
+                clause.target.pattern
+            ));
+        }
+    }
+    out.push_str(" if ");
+    out.push_str(&expr_summary(&clause.when));
+    if let Some(cond) = &clause.unless {
+        out.push_str(" unless ");
+        out.push_str(&cond_summary(cond));
+    }
+    out
+}
+
+fn expr_summary(expr: &Expr) -> String {
+    match expr {
+        Expr::True => "true".into(),
+        Expr::Label(label) => label.clone(),
+        Expr::Not(label) => format!("not {}", label),
+        Expr::And(left, right) => {
+            format!("({} and {})", expr_summary(left), expr_summary(right))
+        }
+        Expr::Or(left, right) => format!("({} or {})", expr_summary(left), expr_summary(right)),
+    }
+}
+
+fn cond_summary(cond: &Cond) -> String {
+    match cond {
+        Cond::Target { negate, pattern } => {
+            if *negate {
+                format!("target not \"{}\"", pattern)
+            } else {
+                format!("target \"{}\"", pattern)
+            }
+        }
+        Cond::LineageIncludes { exec } => format!("lineage-includes exec \"{}\"", exec),
+        Cond::After {
+            gate_op,
+            gate_pattern,
+            gate_exit,
+            since,
+        } => {
+            let mut out = format!("after {} \"{}\"", op_name(*gate_op), gate_pattern);
+            if let Some(exit) = gate_exit {
+                out.push_str(&format!(" exits {}", exit));
+            }
+            if !since.is_empty() {
+                let events = since
+                    .iter()
+                    .map(|(op, pattern, arg)| event_summary(*op, pattern, arg.as_deref()))
+                    .collect::<Vec<_>>();
+                out.push_str(" since ");
+                out.push_str(&events.join(" or "));
+            }
+            out
+        }
+    }
+}
+
+fn event_summary(op: Op, pattern: &str, arg: Option<&str>) -> String {
+    let mut out = format!("{} \"{}\"", op_name(op), pattern);
+    if let Some(arg) = arg {
+        out.push_str(&format!(" \"{}\"", arg));
+    }
+    out
+}
+
+fn enforcement_timing(effect: Effect, support: &SupportDetail) -> &'static str {
+    if !support.supported {
+        return "not enforceable by the current backend selection";
+    }
+    match effect {
+        Effect::Block if support.pre_op => "pre-operation denial before syscall commit",
+        Effect::Block => "block requested, but no pre-operation backend is available",
+        Effect::Notify => "post-event report; operation proceeds",
+        Effect::Kill => "post-event termination; the triggering syscall may already have completed",
+    }
+}
+
+fn lowered_clause_summary(
+    compiled: &dsl::Compiled,
+    rule_name: &str,
+    clause_source_index: usize,
+) -> String {
+    let mut rule_ids = Vec::new();
+    let mut kernel_ops = std::collections::BTreeSet::new();
+    for (idx, meta) in compiled.meta.iter().enumerate() {
+        if meta.name == rule_name && meta.clause_source_index == clause_source_index {
+            rule_ids.push(idx);
+            kernel_ops.insert(meta.kernel_op.clone());
+        }
+    }
+    if rule_ids.is_empty() {
+        return "0 kernel matcher(s)".into();
+    }
+    let ids = rule_ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ops = kernel_ops.into_iter().collect::<Vec<_>>().join(", ");
+    format!(
+        "{} kernel matcher(s), rule_id(s) [{}], kernel_op(s) [{}]",
+        rule_ids.len(),
+        ids,
+        ops
+    )
 }
 
 fn effect_name(effect: Effect) -> &'static str {
