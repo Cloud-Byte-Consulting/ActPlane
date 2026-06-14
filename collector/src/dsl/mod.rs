@@ -36,12 +36,16 @@ fn attach_source_meta(compiled: &mut Compiled, src: &str) {
     let spans = rule_source_spans(src);
     for meta in &mut compiled.meta {
         if let Some(span) = spans.iter().find(|span| span.name == meta.name) {
+            let clause = span.clauses.get(meta.clause_source_index);
             meta.source = Some(RuleSourceMeta {
                 source_ref: span.source_ref.clone(),
                 binding_mode: span.binding_mode.clone(),
                 start_line: span.start_line,
                 end_line: span.end_line,
                 text: span.text.clone(),
+                clause_start_line: clause.map(|c| c.start_line),
+                clause_end_line: clause.map(|c| c.end_line),
+                clause_text: clause.map(|c| c.text.clone()),
             });
         }
     }
@@ -51,6 +55,14 @@ struct RuleSourceSpan {
     name: String,
     source_ref: String,
     binding_mode: Option<String>,
+    start_line: usize,
+    end_line: usize,
+    text: String,
+    clauses: Vec<ClauseSourceSpan>,
+}
+
+#[derive(Clone)]
+struct ClauseSourceSpan {
     start_line: usize,
     end_line: usize,
     text: String,
@@ -96,10 +108,55 @@ fn rule_source_spans(src: &str) -> Vec<RuleSourceSpan> {
             start_line: start + 1,
             end_line: end,
             text: lines[start..end].join("\n"),
+            clauses: clause_source_spans(&lines, i, end),
         });
         i = end;
     }
     out
+}
+
+fn clause_source_spans(lines: &[&str], rule_decl: usize, rule_end: usize) -> Vec<ClauseSourceSpan> {
+    let mut out = Vec::new();
+    let mut current: Option<usize> = None;
+    let mut line = rule_decl + 1;
+    while line < rule_end {
+        let trimmed = lines[line].trim();
+        if is_clause_head(trimmed) {
+            if let Some(start) = current.take() {
+                out.push(make_clause_source_span(lines, start, line));
+            }
+            current = Some(line);
+        } else if trimmed.starts_with("because ") {
+            break;
+        }
+        line += 1;
+    }
+    if let Some(start) = current {
+        out.push(make_clause_source_span(lines, start, line));
+    }
+    out
+}
+
+fn make_clause_source_span(lines: &[&str], start: usize, end: usize) -> ClauseSourceSpan {
+    ClauseSourceSpan {
+        start_line: start + 1,
+        end_line: end,
+        text: lines[start..end].join("\n"),
+    }
+}
+
+fn is_clause_head(trimmed: &str) -> bool {
+    let mut words = trimmed.split_whitespace();
+    let Some(effect) = words.next() else {
+        return false;
+    };
+    if !matches!(effect, "notify" | "block" | "kill") {
+        return false;
+    }
+    matches!(
+        words.next(),
+        Some("exec" | "read" | "write" | "unlink" | "connect" | "recv" | "open")
+    )
 }
 
 fn parse_rule_source_marker(text: &str) -> (String, Option<String>) {
@@ -232,6 +289,12 @@ rule secret:
         assert_eq!(source.end_line, 6);
         assert!(source.text.contains("source SECRET"));
         assert!(source.text.contains("rule secret:"));
+        assert_eq!(source.clause_start_line, Some(5));
+        assert_eq!(source.clause_end_line, Some(5));
+        assert_eq!(
+            source.clause_text.as_deref(),
+            Some("  block exec \"git\" if SECRET")
+        );
     }
 
     #[test]
@@ -592,6 +655,24 @@ rule secret:
     }
 
     #[test]
+    fn duplicate_rule_names_are_rejected() {
+        let err = match compile_str(
+            r#"
+            rule same:
+              notify exec "git" if true
+              because "one"
+            rule same:
+              notify exec "make" if true
+              because "two"
+        "#,
+        ) {
+            Ok(_) => panic!("duplicate rule name compiled successfully"),
+            Err(err) => err,
+        };
+        assert!(err.contains("duplicate rule name `same`"));
+    }
+
+    #[test]
     fn implicit_basename_matching() {
         // `exec "git"` should be equivalent to `exec "**/git"` — both produce
         // the same compiled output.
@@ -622,5 +703,46 @@ rule secret:
         assert_eq!(c.meta[0].target_pattern, "**/git");
         assert_eq!(c.meta[1].effect, ast::Effect::Kill);
         assert_eq!(c.meta[1].target_pattern, "**/make");
+        assert_eq!(
+            c.meta[0]
+                .source
+                .as_ref()
+                .and_then(|source| source.clause_text.as_deref()),
+            Some("              notify exec \"git\" if A")
+        );
+        assert_eq!(
+            c.meta[1]
+                .source
+                .as_ref()
+                .and_then(|source| source.clause_text.as_deref()),
+            Some("              kill exec \"make\" if A")
+        );
+    }
+
+    #[test]
+    fn duplicate_clause_targets_keep_distinct_source_spans() {
+        let c = ok(r#"
+            rule repeated:
+              notify exec "git" if A
+              notify exec "git" if B
+              because "same operation, different label"
+        "#);
+        assert_eq!(c.meta.len(), 2);
+        assert_eq!(c.meta[0].clause_source_index, 0);
+        assert_eq!(c.meta[1].clause_source_index, 1);
+        assert_eq!(
+            c.meta[0]
+                .source
+                .as_ref()
+                .and_then(|source| source.clause_text.as_deref()),
+            Some("              notify exec \"git\" if A")
+        );
+        assert_eq!(
+            c.meta[1]
+                .source
+                .as_ref()
+                .and_then(|source| source.clause_text.as_deref()),
+            Some("              notify exec \"git\" if B")
+        );
     }
 }

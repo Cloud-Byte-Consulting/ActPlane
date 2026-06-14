@@ -93,7 +93,7 @@ enum Commands {
     },
     /// Validate the policy (no privileges): compile it, summarize each rule in
     /// plain language, and warn about anything that won't apply as written.
-    Check,
+    Check(CheckArgs),
     /// Diagnose policy discovery, kernel support, feedback hooks, and MCP setup.
     Doctor,
     /// List policy domains and their effective locked/default rules.
@@ -137,6 +137,13 @@ struct ChildRunArgs {
     /// Child command argv.
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     cmd: Vec<String>,
+}
+
+#[derive(Args)]
+struct CheckArgs {
+    /// Emit a stable machine-readable support matrix and warning report.
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -283,7 +290,7 @@ async fn main() -> Result<()> {
         Commands::Compile { out } => compile_policy(&cli, out).await?,
         Commands::Init { force } => setup::init_policy(*force)?,
         Commands::Setup { force } => setup::setup_project(*force)?,
-        Commands::Check => doctor::check_policy(&cli)?,
+        Commands::Check(args) => doctor::check_policy(&cli, args.json)?,
         Commands::Doctor => doctor::doctor(&cli)?,
         Commands::Domains => doctor::list_domains(&cli)?,
         Commands::Watch => runtime::watch_policy(&cli).await?,

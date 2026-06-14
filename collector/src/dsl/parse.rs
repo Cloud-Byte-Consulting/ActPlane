@@ -263,6 +263,7 @@ impl P {
             when,
             unless,
             effect,
+            source_index: 0,
         })
     }
 }
@@ -318,13 +319,18 @@ pub fn parse(src: &str) -> Result<Policy, String> {
                 let mut reason = String::new();
                 while let Some(Tok::Word(w)) = p.peek() {
                     if P::clause_effect(w).is_some() {
-                        clauses.push(p.clause()?);
+                        let mut clause = p.clause()?;
+                        clause.source_index = clauses.len();
+                        clauses.push(clause);
                     } else if w == "because" {
                         p.next();
                         reason = p.string()?;
                     } else {
                         break;
                     }
+                }
+                if pol.rules.iter().any(|rule| rule.name == name) {
+                    return Err(format!("duplicate rule name `{name}`"));
                 }
                 pol.rules.push(Rule {
                     name,

@@ -31,6 +31,7 @@ Write a policy and run an agent (or any command) under the harness:
 ```bash
 actplane init                                  # write a starter actplane.yaml
 actplane check                                 # validate rules (no privileges)
+actplane check --json                          # machine-readable support matrix for CI/review
 actplane doctor                                # diagnose hooks, MCP, kernel support
 
 codex                                         # MCP auto-attach tries passwordless sudo

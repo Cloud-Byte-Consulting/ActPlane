@@ -513,6 +513,33 @@ policy: |
     assert_eq!(audit["approved_by"], "test-reviewer");
     assert_eq!(audit["approval_ref"], "test-approval-1");
     assert_eq!(audit["generated_by"], "mcp-protocol-test");
+    assert_eq!(audit["approval_chain"]["approved_by"], "test-reviewer");
+    assert_eq!(audit["approval_chain"]["approval_ref"], "test-approval-1");
+    assert_eq!(audit["approval_chain"]["generated_by"], "mcp-protocol-test");
+    assert_eq!(audit["approval_chain"]["enforced"], false);
+    assert_eq!(audit["approval_chain"]["workflow"], "declarative_metadata");
+    assert!(
+        audit["actor_identity"]["stable_id"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("pid:")
+    );
+    assert!(
+        audit["caller_identity"]["stable_id"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("pid:")
+    );
+    assert_ne!(
+        audit["caller_identity"]["proc_start_time"],
+        serde_json::Value::Null
+    );
+    assert!(
+        audit["submitter_identity"]["stable_id"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("pid:")
+    );
 
     let launch_log_child = call_tool(
         &mut mcp,

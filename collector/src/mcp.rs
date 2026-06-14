@@ -408,13 +408,14 @@ impl ActPlaneMcp {
         &self,
         args: Option<serde_json::Map<String, Value>>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
-        self.do_append_policy_delta_for_actor(args, None)
+        self.do_append_policy_delta_for_actor(args, None, None)
     }
 
     fn do_append_policy_delta_for_actor(
         &self,
         args: Option<serde_json::Map<String, Value>>,
         actor_pid: Option<i32>,
+        actor_identity: Option<crate::audit::ProcessIdentity>,
     ) -> Result<CallToolResult, rmcp::ErrorData> {
         let control = self.control.as_ref().ok_or_else(|| {
             rmcp::ErrorData::new(
@@ -435,7 +436,13 @@ impl ActPlaneMcp {
         let audit_meta = policy_audit_meta_from_args(&args)?;
         let actor_pid = actor_pid.unwrap_or(control.submitter_pid());
         let (base, n_rules) = control
-            .append_policy_delta_dsl_for_actor_with_audit(actor_pid, target_id, policy, &audit_meta)
+            .append_policy_delta_dsl_for_actor_with_identity_and_audit(
+                actor_pid,
+                actor_identity,
+                target_id,
+                policy,
+                &audit_meta,
+            )
             .map_err(|e| {
                 rmcp::ErrorData::new(
                     ErrorCode::INTERNAL_ERROR,
@@ -1128,9 +1135,11 @@ impl ActPlaneMcp {
                         "error": "local control peer credentials are unavailable",
                     });
                 };
-                local_tool_response(
-                    self.do_append_policy_delta_for_actor(Some(args), Some(peer.pid)),
-                )
+                local_tool_response(self.do_append_policy_delta_for_actor(
+                    Some(args),
+                    Some(peer.pid),
+                    Some(peer.identity),
+                ))
             }
             "launch_child_domain" => {
                 if let Err(e) = self.ensure_local_parent_peer(peer) {

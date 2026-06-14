@@ -60,6 +60,107 @@ rule host-connect:
 }
 
 #[test]
+fn check_json_reports_backend_support_and_static_warnings() {
+    let policy = r#"
+source NET = endpoint "source.example.com"
+
+rule recv-soft:
+  notify recv endpoint "*" if true
+  because "recv notify"
+
+rule host-connect:
+  notify connect endpoint "api.example.com" if true
+  because "hostname connect"
+"#;
+    let output = run(&["--rule", policy, "check", "--json"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("check --json stdout");
+
+    assert_eq!(value["schema"], "actplane.check.v1");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["matrix_scope"], "static_initial_policy_host_support");
+    assert_eq!(value["rule_count"], 2);
+    assert_eq!(value["backend_support"]["sources"][0]["label"], "NET");
+    assert_eq!(value["backend_support"]["sources"][0]["supported"], false);
+
+    let clauses = value["backend_support"]["clauses"].as_array().unwrap();
+    assert!(clauses.iter().any(|clause| {
+        clause["rule"] == "recv-soft" && clause["op"] == "recv" && clause["supported"] == true
+    }));
+    assert!(clauses.iter().any(|clause| {
+        clause["rule"] == "host-connect"
+            && clause["op"] == "connect"
+            && clause["supported"] == false
+            && clause["reason"] == "endpoint target pattern is not numeric IPv4"
+    }));
+
+    let warning_codes: Vec<&str> = value["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .collect();
+    assert!(warning_codes.contains(&"endpoint_source_non_numeric_ipv4"));
+    assert!(warning_codes.contains(&"endpoint_target_non_numeric_ipv4"));
+}
+
+#[test]
+fn check_json_reports_policy_load_errors_as_json() {
+    let missing = "/tmp/actplane-definitely-missing-policy.yaml";
+    let output = run(&["--policy", missing, "check", "--json"]);
+    assert!(!output.status.success());
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("check --json error stdout");
+    assert_eq!(value["schema"], "actplane.check.v1");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["policy_ref"], missing);
+    assert!(
+        value["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("reading /tmp/actplane-definitely-missing-policy.yaml")
+    );
+}
+
+#[test]
+fn check_json_treats_invalid_ipv4_octets_as_unsupported() {
+    let policy = r#"
+source BAD = endpoint "999.1.1.1"
+
+rule bad-connect:
+  notify connect endpoint "999.1.1.1" if true
+  because "bad endpoint"
+"#;
+    let output = run(&["--rule", policy, "check", "--json"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("check --json stdout");
+    assert_eq!(value["backend_support"]["sources"][0]["supported"], false);
+    assert_eq!(value["backend_support"]["clauses"][0]["supported"], false);
+}
+
+#[test]
+fn check_json_reports_force_tracepoint_override_for_block_rules() {
+    let policy = r#"
+rule block-git:
+  block exec "git" if true
+  because "block git"
+"#;
+    let output = Command::new(actplane())
+        .env("ACTPLANE_FORCE_TRACEPOINT", "1")
+        .args(["--rule", policy, "check", "--json"])
+        .output()
+        .expect("run check --json");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("check --json stdout");
+    assert_eq!(value["host"]["force_tracepoint"], true);
+    assert_eq!(value["host"]["bpf_lsm_active"], false);
+    assert_eq!(value["backend_support"]["clauses"][0]["supported"], false);
+}
+
+#[test]
 fn domains_lists_effective_bindings_and_default_selection() {
     let policy = fixture("15_domain_bindings.yaml");
     let output = run(&["--policy", &policy, "domains"]);

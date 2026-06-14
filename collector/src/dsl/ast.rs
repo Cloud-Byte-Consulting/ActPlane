@@ -74,6 +74,9 @@ pub struct Clause {
     /// Effect declared by the action verb that starts the clause
     /// (`notify`/`block`/`kill`).
     pub effect: Effect,
+    /// Zero-based source clause index within the containing rule. This is
+    /// metadata only, used to connect lowered kernel rules back to source text.
+    pub source_index: usize,
 }
 
 /// Rule result. This is compiled into the kernel rule table and is the source

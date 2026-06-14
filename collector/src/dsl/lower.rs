@@ -596,6 +596,7 @@ pub struct RuleMeta {
     pub target_kind: Kind,
     pub target_pattern: String,
     pub target_arg: Option<String>,
+    pub clause_source_index: usize,
     pub source: Option<RuleSourceMeta>,
 }
 
@@ -606,6 +607,9 @@ pub struct RuleSourceMeta {
     pub start_line: usize,
     pub end_line: usize,
     pub text: String,
+    pub clause_start_line: Option<usize>,
+    pub clause_end_line: Option<usize>,
+    pub clause_text: Option<String>,
 }
 
 pub struct Compiled {
@@ -818,6 +822,7 @@ pub fn compile_with_labels(
                         target_kind: cl.target.kind,
                         target_pattern: cl.target.pattern.clone(),
                         target_arg: cl.target.arg.clone(),
+                        clause_source_index: cl.source_index,
                         source: None,
                     });
                     let mut cr = CRule {

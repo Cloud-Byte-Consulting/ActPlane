@@ -351,6 +351,19 @@ impl EngineControl {
         dsl_src: &str,
         audit_meta: &PolicyAuditMeta,
     ) -> Result<(usize, usize)> {
+        self.append_policy_delta_dsl_for_actor_with_identity_and_audit(
+            actor_pid, None, target_id, dsl_src, audit_meta,
+        )
+    }
+
+    pub(crate) fn append_policy_delta_dsl_for_actor_with_identity_and_audit(
+        &self,
+        actor_pid: i32,
+        actor_identity: Option<audit::ProcessIdentity>,
+        target_id: u32,
+        dsl_src: &str,
+        audit_meta: &PolicyAuditMeta,
+    ) -> Result<(usize, usize)> {
         let outcome = self.append_policy_delta_dsl_inner(actor_pid, target_id, dsl_src);
         match outcome {
             Ok(delta) => {
@@ -365,6 +378,9 @@ impl EngineControl {
                     "policy_hash": audit::policy_hash(dsl_src),
                     "rule_provenance": delta.rule_provenance,
                 });
+                if let Some(identity) = &actor_identity {
+                    record["caller_identity"] = identity.to_json();
+                }
                 apply_policy_audit_meta(&mut record, audit_meta);
                 self.audit(record)?;
                 Ok((delta.rule_id_base, delta.rule_count))
@@ -380,6 +396,9 @@ impl EngineControl {
                     "policy_hash": audit::policy_hash(dsl_src),
                     "error": msg,
                 });
+                if let Some(identity) = &actor_identity {
+                    record["caller_identity"] = identity.to_json();
+                }
                 apply_policy_audit_meta(&mut record, audit_meta);
                 self.audit(record)
                     .map_err(|audit_err| format!("{e}; audit write failed: {audit_err}"))?;
@@ -400,6 +419,26 @@ impl EngineControl {
                 .or_insert_with(|| json!(self.parent_domain_id));
             obj.entry("audit_context_id")
                 .or_insert_with(|| json!(audit_context_id(&self.audit_path, self.submitter_pid)));
+            if let Some(actor_pid) = obj.get("actor_pid").and_then(json_i32) {
+                obj.entry("actor_identity").or_insert_with(|| {
+                    audit::ProcessIdentity::capture(actor_pid, None, None).to_json()
+                });
+            }
+            if let Some(caller_pid) = obj.get("caller_pid").and_then(json_i32) {
+                obj.entry("caller_identity").or_insert_with(|| {
+                    audit::ProcessIdentity::capture(caller_pid, None, None).to_json()
+                });
+            }
+            if let Some(submitter_pid) = obj.get("submitter_pid").and_then(json_i32) {
+                obj.entry("submitter_identity").or_insert_with(|| {
+                    audit::ProcessIdentity::capture(submitter_pid, None, None).to_json()
+                });
+            }
+            if let Some(parent_pid) = obj.get("engine_parent_pid").and_then(json_i32) {
+                obj.entry("engine_parent_identity").or_insert_with(|| {
+                    audit::ProcessIdentity::capture(parent_pid, None, None).to_json()
+                });
+            }
             #[cfg(unix)]
             {
                 obj.entry("audit_writer_euid")
@@ -542,6 +581,10 @@ fn audit_context_id(path: &Path, submitter_pid: i32) -> String {
         .unwrap_or_else(|| format!("pid-{submitter_pid}"))
 }
 
+fn json_i32(value: &serde_json::Value) -> Option<i32> {
+    value.as_i64().and_then(|n| i32::try_from(n).ok())
+}
+
 fn rule_provenance_json(meta: &[dsl::RuleMeta], rule_id_base: usize) -> Vec<serde_json::Value> {
     meta.iter()
         .enumerate()
@@ -552,6 +595,7 @@ fn rule_provenance_json(meta: &[dsl::RuleMeta], rule_id_base: usize) -> Vec<serd
                 "effect": effect_name(rule.effect),
                 "ops": &rule.ops,
                 "clause_op": &rule.clause_op,
+                "clause_source_index": rule.clause_source_index,
                 "kernel_op": &rule.kernel_op,
                 "target_kind": kind_name(rule.target_kind),
                 "target_pattern": &rule.target_pattern,
@@ -564,6 +608,16 @@ fn rule_provenance_json(meta: &[dsl::RuleMeta], rule_id_base: usize) -> Vec<serd
                 value["source_end_line"] = json!(source.end_line);
                 value["source_hash"] = json!(audit::policy_hash(&source.text));
                 value["source_text"] = json!(&source.text);
+                if let Some(line) = source.clause_start_line {
+                    value["clause_start_line"] = json!(line);
+                }
+                if let Some(line) = source.clause_end_line {
+                    value["clause_end_line"] = json!(line);
+                }
+                if let Some(text) = &source.clause_text {
+                    value["clause_hash"] = json!(audit::policy_hash(text));
+                    value["clause_text"] = json!(text);
+                }
                 if let Some(mode) = &source.binding_mode {
                     value["binding_mode"] = json!(mode);
                 }
@@ -575,17 +629,31 @@ fn rule_provenance_json(meta: &[dsl::RuleMeta], rule_id_base: usize) -> Vec<serd
 }
 
 fn apply_policy_audit_meta(record: &mut serde_json::Value, meta: &PolicyAuditMeta) {
+    let mut approval_chain = json!({
+        "enforced": false,
+        "workflow": "declarative_metadata",
+    });
+    let mut has_approval_chain = false;
     if let Some(policy_ref) = &meta.policy_ref {
         record["policy_ref"] = json!(policy_ref);
     }
     if let Some(approved_by) = &meta.approved_by {
         record["approved_by"] = json!(approved_by);
+        approval_chain["approved_by"] = json!(approved_by);
+        has_approval_chain = true;
     }
     if let Some(approval_ref) = &meta.approval_ref {
         record["approval_ref"] = json!(approval_ref);
+        approval_chain["approval_ref"] = json!(approval_ref);
+        has_approval_chain = true;
     }
     if let Some(generated_by) = &meta.generated_by {
         record["generated_by"] = json!(generated_by);
+        approval_chain["generated_by"] = json!(generated_by);
+        has_approval_chain = true;
+    }
+    if has_approval_chain {
+        record["approval_chain"] = approval_chain;
     }
 }
 
@@ -1369,6 +1437,7 @@ mod tests {
             effect: dsl::ast::Effect::Block,
             ops: vec!["exec".to_string()],
             clause_op: "exec".to_string(),
+            clause_source_index: 0,
             kernel_op: "exec".to_string(),
             target_kind: dsl::ast::Kind::Exec,
             target_pattern: "git".to_string(),
@@ -1380,6 +1449,9 @@ mod tests {
                 end_line: 7,
                 text: "rule secret:\n  block exec \"git\"\n  because \"review secrets\""
                     .to_string(),
+                clause_start_line: Some(4),
+                clause_end_line: Some(4),
+                clause_text: Some("  block exec \"git\"".to_string()),
             }),
         }];
 
@@ -1389,6 +1461,14 @@ mod tests {
         assert_eq!(value[0]["binding_mode"], "locked");
         assert_eq!(value[0]["immutable"], true);
         assert_eq!(value[0]["source_start_line"], 3);
+        assert_eq!(value[0]["clause_start_line"], 4);
+        assert_eq!(value[0]["clause_text"], "  block exec \"git\"");
+        assert!(
+            value[0]["clause_hash"]
+                .as_str()
+                .unwrap()
+                .starts_with("fnv1a64:")
+        );
         assert!(
             value[0]["source_text"]
                 .as_str()

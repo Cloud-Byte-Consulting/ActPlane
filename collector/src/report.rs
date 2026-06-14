@@ -252,6 +252,7 @@ pub(crate) fn append_violation_event_context(
             "effect": effect_name(m.effect),
             "ops": &m.ops,
             "clause_op": &m.clause_op,
+            "clause_source_index": m.clause_source_index,
             "kernel_op": &m.kernel_op,
             "target_kind": kind_name(m.target_kind),
             "target_pattern": &m.target_pattern,
@@ -262,6 +263,16 @@ pub(crate) fn append_violation_event_context(
             rule["source_start_line"] = json!(source.start_line);
             rule["source_end_line"] = json!(source.end_line);
             rule["source_hash"] = json!(audit::policy_hash(&source.text));
+            if let Some(line) = source.clause_start_line {
+                rule["clause_start_line"] = json!(line);
+            }
+            if let Some(line) = source.clause_end_line {
+                rule["clause_end_line"] = json!(line);
+            }
+            if let Some(text) = &source.clause_text {
+                rule["clause_hash"] = json!(audit::policy_hash(text));
+                rule["clause_text"] = json!(text);
+            }
             if let Some(mode) = &source.binding_mode {
                 rule["binding_mode"] = json!(mode);
             }
@@ -376,6 +387,7 @@ mod tests {
                 effect: Effect::Notify,
                 ops: vec!["exec".to_string()],
                 clause_op: "exec".to_string(),
+                clause_source_index: 0,
                 kernel_op: "exec".to_string(),
                 target_kind: dsl::ast::Kind::Exec,
                 target_pattern: "git".to_string(),
@@ -431,6 +443,7 @@ mod tests {
                 effect: Effect::Kill,
                 ops: vec!["exec".to_string()],
                 clause_op: "exec".to_string(),
+                clause_source_index: 0,
                 kernel_op: "exec".to_string(),
                 target_kind: dsl::ast::Kind::Exec,
                 target_pattern: "git".to_string(),
@@ -442,6 +455,9 @@ mod tests {
                     end_line: 6,
                     text: "rule local-rule:\n  kill exec \"git\"\n  because \"local reason\""
                         .to_string(),
+                    clause_start_line: Some(5),
+                    clause_end_line: Some(5),
+                    clause_text: Some("  kill exec \"git\"".to_string()),
                 }),
             },
             labels,
@@ -478,6 +494,7 @@ mod tests {
         assert_eq!(value["rule"]["name"], "local-rule");
         assert_eq!(value["rule"]["reason"], "local reason");
         assert_eq!(value["rule"]["clause_op"], "exec");
+        assert_eq!(value["rule"]["clause_source_index"], 0);
         assert_eq!(value["rule"]["kernel_op"], "exec");
         assert_eq!(value["rule"]["target_kind"], "exec");
         assert_eq!(value["rule"]["target_pattern"], "git");
@@ -496,6 +513,14 @@ mod tests {
         assert_eq!(value["rule"]["binding_mode"], "locked");
         assert_eq!(value["rule"]["immutable"], true);
         assert_eq!(value["rule"]["source_start_line"], 4);
+        assert_eq!(value["rule"]["clause_start_line"], 5);
+        assert_eq!(value["rule"]["clause_text"], "  kill exec \"git\"");
+        assert!(
+            value["rule"]["clause_hash"]
+                .as_str()
+                .unwrap()
+                .starts_with("fnv1a64:")
+        );
         assert!(
             value["rule"]["source_hash"]
                 .as_str()

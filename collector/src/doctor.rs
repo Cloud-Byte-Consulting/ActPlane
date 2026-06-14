@@ -1,34 +1,77 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use crate::config::{domain_summaries, feedback_paths, load_policy, resolve_policy};
+use serde_json::{Value, json};
+
+use crate::config::{
+    ResolvedPolicy, domain_summaries, feedback_paths, load_policy, resolve_policy,
+};
 use crate::dsl::ast::{Effect, Kind, Op, Policy};
 use crate::runtime::{have_bpf_caps, passwordless_sudo_available};
 use crate::setup::{codex_hook_has_actplane_command, project_mcp_auto_attach_ok};
 use crate::{Cli, Result, dsl};
 
-pub(crate) fn check_policy(cli: &Cli) -> Result<i32> {
-    let loaded = load_policy(cli)?;
-    let resolved = resolve_policy(&loaded, cli.domain.as_deref())?;
-    let parsed = match dsl::parse::parse(&resolved.source) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("✗ policy does not compile: {}", e);
+pub(crate) fn check_policy(cli: &Cli, json_output: bool) -> Result<i32> {
+    let where_ = policy_ref_for_cli(cli);
+    let loaded = match load_policy(cli) {
+        Ok(loaded) => loaded,
+        Err(e) if json_output => {
+            print_check_error_json(&where_, None, &e.to_string())?;
             return Ok(1);
         }
+        Err(e) => return Err(e),
     };
-    let compiled = match dsl::compile(&parsed) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("✗ policy does not compile: {}", e);
+    let resolved = match resolve_policy(&loaded, cli.domain.as_deref()) {
+        Ok(resolved) => resolved,
+        Err(e) if json_output => {
+            print_check_error_json(&where_, None, &e.to_string())?;
             return Ok(1);
         }
+        Err(e) => return Err(e),
     };
     let where_ = loaded
         .path
         .as_ref()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "--rule".into());
+    let parsed = match dsl::parse::parse(&resolved.source) {
+        Ok(p) => p,
+        Err(e) => {
+            if json_output {
+                print_check_error_json(&where_, Some(&resolved), &e)?;
+            } else {
+                eprintln!("✗ policy does not compile: {}", e);
+            }
+            return Ok(1);
+        }
+    };
+    let compiled = match dsl::compile_str(&resolved.source) {
+        Ok(c) => c,
+        Err(e) => {
+            if json_output {
+                print_check_error_json(&where_, Some(&resolved), &e)?;
+            } else {
+                eprintln!("✗ policy does not compile: {}", e);
+            }
+            return Ok(1);
+        }
+    };
+    let active_lsms = active_lsms().unwrap_or_default();
+    let force_tracepoint = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT").is_some();
+    let lsm_bpf = lsm_list_has_bpf(&active_lsms) && !force_tracepoint;
+    if json_output {
+        print_check_json(
+            &where_,
+            &resolved,
+            &parsed,
+            &compiled,
+            &active_lsms,
+            lsm_bpf,
+            force_tracepoint,
+        )?;
+        return Ok(0);
+    }
+
     println!("✓ {}: {} rule(s) compile.\n", where_, compiled.meta.len());
     if let Some(domain) = &resolved.domain {
         println!("domain: {}", domain.name);
@@ -47,21 +90,17 @@ pub(crate) fn check_policy(cli: &Cli) -> Result<i32> {
         };
         println!("  {}. {} — {} {} ({})", i + 1, m.name, eff, ops, m.reason);
     }
-    let lsm_bpf = active_lsms().is_some_and(|s| lsm_list_has_bpf(&s));
     println!("\nbackend support:");
     for line in backend_support_lines(&parsed, lsm_bpf) {
         println!("  - {}", line);
     }
-    let mut warns: Vec<String> = Vec::new();
-    for warning in backend_support_warnings(&parsed, lsm_bpf) {
-        warns.push(warning);
-    }
+    let warns = backend_support_warnings(&parsed, lsm_bpf);
     if warns.is_empty() {
         println!("\n✓ no warnings.");
     } else {
         println!("\n⚠ {} warning(s):", warns.len());
         for w in &warns {
-            println!("  - {}", w);
+            println!("  - {}", w.message);
         }
     }
     if unsafe { libc::geteuid() } != 0 {
@@ -70,6 +109,349 @@ pub(crate) fn check_policy(cli: &Cli) -> Result<i32> {
         );
     }
     Ok(0)
+}
+
+fn policy_ref_for_cli(cli: &Cli) -> String {
+    cli.policy
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| {
+            if cli.rule.is_some() {
+                "--rule".to_string()
+            } else {
+                "auto-discovered policy".to_string()
+            }
+        })
+}
+
+fn print_check_error_json(
+    policy_ref: &str,
+    resolved: Option<&ResolvedPolicy>,
+    error: &str,
+) -> Result<()> {
+    let record = json!({
+        "schema": "actplane.check.v1",
+        "ok": false,
+        "policy_ref": policy_ref,
+        "domain": resolved.map(domain_json).unwrap_or(Value::Null),
+        "error": error,
+    });
+    println!("{}", serde_json::to_string_pretty(&record)?);
+    Ok(())
+}
+
+fn print_check_json(
+    policy_ref: &str,
+    resolved: &ResolvedPolicy,
+    parsed: &Policy,
+    compiled: &dsl::Compiled,
+    active_lsms: &str,
+    lsm_bpf: bool,
+    force_tracepoint: bool,
+) -> Result<()> {
+    let warnings = backend_support_warnings(parsed, lsm_bpf)
+        .into_iter()
+        .map(|w| {
+            json!({
+                "code": w.code,
+                "message": w.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    let record = json!({
+        "schema": "actplane.check.v1",
+        "ok": true,
+        "policy_ref": policy_ref,
+        "domain": domain_json(resolved),
+        "host": {
+            "active_lsms": active_lsms,
+            "bpf_lsm_active": lsm_bpf,
+            "force_tracepoint": force_tracepoint,
+        },
+        "matrix_scope": "static_initial_policy_host_support",
+        "matrix_note": "This reports static host/backend support for the selected initial policy. Runtime hook budgets can still reject later deltas that require hooks or matcher classes not reserved when the engine was loaded.",
+        "environment": {
+            "ACTPLANE_FORCE_TRACEPOINT": std::env::var("ACTPLANE_FORCE_TRACEPOINT").ok(),
+            "ACTPLANE_HOOK_PROFILE": std::env::var("ACTPLANE_HOOK_PROFILE").ok(),
+            "ACTPLANE_ENABLE_ADVANCED_HOOKS": std::env::var("ACTPLANE_ENABLE_ADVANCED_HOOKS").ok(),
+            "ACTPLANE_RESERVE_FILE_FLOW": std::env::var("ACTPLANE_RESERVE_FILE_FLOW").ok(),
+        },
+        "rule_count": compiled.meta.len(),
+        "rules": rule_meta_json(compiled),
+        "backend_support": {
+            "sources": source_support_json(parsed),
+            "clauses": clause_support_json(parsed, lsm_bpf),
+        },
+        "warnings": warnings,
+    });
+    println!("{}", serde_json::to_string_pretty(&record)?);
+    Ok(())
+}
+
+fn domain_json(resolved: &ResolvedPolicy) -> Value {
+    match &resolved.domain {
+        Some(domain) => json!({
+            "name": domain.name,
+            "parent": domain.parent,
+            "locked": domain.locked,
+            "default": domain.defaults,
+            "disabled": domain.disabled,
+        }),
+        None => Value::Null,
+    }
+}
+
+fn rule_meta_json(compiled: &dsl::Compiled) -> Vec<Value> {
+    compiled
+        .meta
+        .iter()
+        .enumerate()
+        .map(|(idx, rule)| {
+            let mut value = json!({
+                "rule_id": idx,
+                "name": rule.name,
+                "effect": effect_name(rule.effect),
+                "ops": rule.ops,
+                "clause_op": rule.clause_op,
+                "clause_source_index": rule.clause_source_index,
+                "kernel_op": rule.kernel_op,
+                "target_kind": kind_name(rule.target_kind),
+                "target_pattern": rule.target_pattern,
+                "target_arg": rule.target_arg,
+                "reason": rule.reason,
+            });
+            if let Some(source) = &rule.source {
+                value["source_ref"] = json!(source.source_ref);
+                value["source_start_line"] = json!(source.start_line);
+                value["source_end_line"] = json!(source.end_line);
+                value["source_hash"] = json!(crate::audit::policy_hash(&source.text));
+                value["source_text"] = json!(source.text);
+                if let Some(line) = source.clause_start_line {
+                    value["clause_start_line"] = json!(line);
+                }
+                if let Some(line) = source.clause_end_line {
+                    value["clause_end_line"] = json!(line);
+                }
+                if let Some(text) = &source.clause_text {
+                    value["clause_hash"] = json!(crate::audit::policy_hash(text));
+                    value["clause_text"] = json!(text);
+                }
+                if let Some(mode) = &source.binding_mode {
+                    value["binding_mode"] = json!(mode);
+                }
+                value["immutable"] = json!(source.binding_mode.as_deref() == Some("locked"));
+            }
+            value
+        })
+        .collect()
+}
+
+fn source_support_json(policy: &Policy) -> Vec<Value> {
+    policy
+        .sources
+        .iter()
+        .map(|source| {
+            let (supported, reason, limitations) =
+                source_support_detail(source.kind, &source.pattern);
+            json!({
+                "label": source.label,
+                "kind": kind_name(source.kind),
+                "pattern": source.pattern,
+                "supported": supported,
+                "reason": reason,
+                "limitations": limitations,
+            })
+        })
+        .collect()
+}
+
+fn clause_support_json(policy: &Policy, lsm_bpf: bool) -> Vec<Value> {
+    let mut out = Vec::new();
+    for rule in &policy.rules {
+        for (clause_index, clause) in rule.clauses.iter().enumerate() {
+            let support = clause_support_detail(
+                clause.effect,
+                clause.op,
+                clause.target.kind,
+                &clause.target.pattern,
+                clause.target.arg.as_deref(),
+                lsm_bpf,
+            );
+            out.push(json!({
+                "rule": rule.name,
+                "clause_index": clause_index,
+                "effect": effect_name(clause.effect),
+                "op": op_name(clause.op),
+                "target_kind": kind_name(clause.target.kind),
+                "target_pattern": clause.target.pattern,
+                "target_arg": clause.target.arg,
+                "supported": support.supported,
+                "status": support.status,
+                "mode": support.mode,
+                "pre_op": support.pre_op,
+                "reason": support.reason,
+                "limitations": support.limitations,
+            }));
+        }
+    }
+    out
+}
+
+fn source_support_detail(kind: Kind, pattern: &str) -> (bool, &'static str, Vec<&'static str>) {
+    match kind {
+        Kind::Exec => (
+            true,
+            "exec source labels are applied on process exec",
+            vec![],
+        ),
+        Kind::File => (
+            true,
+            "file source labels are applied through file open/read flow",
+            vec!["open-time file source handling is conservative"],
+        ),
+        Kind::Endpoint if endpoint_pattern_is_numeric_ipv4(pattern) => (
+            true,
+            "endpoint source labels match numeric IPv4 connect and recv paths",
+            vec!["IPv6 and hostname patterns are not enforced in-kernel"],
+        ),
+        Kind::Endpoint => (
+            false,
+            "endpoint source pattern is not numeric IPv4",
+            vec!["IPv6 and hostname patterns are not enforced in-kernel"],
+        ),
+    }
+}
+
+struct SupportDetail {
+    supported: bool,
+    status: &'static str,
+    mode: &'static str,
+    pre_op: bool,
+    reason: String,
+    limitations: Vec<&'static str>,
+}
+
+#[derive(Clone)]
+struct BackendWarning {
+    code: &'static str,
+    message: String,
+}
+
+fn clause_support_detail(
+    effect: Effect,
+    op: Op,
+    kind: Kind,
+    pattern: &str,
+    arg: Option<&str>,
+    lsm_bpf: bool,
+) -> SupportDetail {
+    if matches!(op, Op::Connect | Op::Recv)
+        && kind == Kind::Endpoint
+        && !endpoint_pattern_is_numeric_ipv4(pattern)
+    {
+        return SupportDetail {
+            supported: false,
+            status: "unsupported",
+            mode: "none",
+            pre_op: false,
+            reason: "endpoint target pattern is not numeric IPv4".into(),
+            limitations: vec!["IPv6 and hostname patterns are not enforced in-kernel"],
+        };
+    }
+
+    match effect {
+        Effect::Block => {
+            if op == Op::Exec && arg.is_some() {
+                SupportDetail {
+                    supported: false,
+                    status: "unsupported",
+                    mode: "none",
+                    pre_op: false,
+                    reason: "argv is only available after exec, so this cannot block pre-exec"
+                        .into(),
+                    limitations: vec!["use kill exec for post-exec termination"],
+                }
+            } else if !lsm_bpf {
+                SupportDetail {
+                    supported: false,
+                    status: "unsupported",
+                    mode: "none",
+                    pre_op: false,
+                    reason: "BPF-LSM is not active on this host".into(),
+                    limitations: vec!["notify and kill still use tracepoint paths where available"],
+                }
+            } else {
+                let (reason, limitations) = match op {
+                    Op::Exec => ("pre-op block via BPF-LSM bprm_check_security", vec![]),
+                    Op::Read | Op::Open | Op::Write | Op::Unlink => {
+                        ("pre-op block via BPF-LSM file/path hooks", vec![])
+                    }
+                    Op::Connect => (
+                        "pre-op block via BPF-LSM socket_connect",
+                        vec!["numeric IPv4 only"],
+                    ),
+                    Op::Recv => (
+                        "pre-op block via BPF-LSM socket_recvmsg",
+                        vec!["connected numeric IPv4 only"],
+                    ),
+                };
+                SupportDetail {
+                    supported: true,
+                    status: "supported",
+                    mode: "bpf-lsm",
+                    pre_op: true,
+                    reason: reason.into(),
+                    limitations,
+                }
+            }
+        }
+        Effect::Notify => {
+            let (reason, limitations) = match op {
+                Op::Recv => (
+                    "tracepoint report after recv",
+                    vec!["numeric IPv4 only", "post-receive in tracepoint mode"],
+                ),
+                Op::Exec => ("post-exec tracepoint report", vec![]),
+                Op::Read | Op::Open | Op::Write | Op::Unlink => ("tracepoint report", vec![]),
+                Op::Connect => ("connect tracepoint report", vec!["numeric IPv4 only"]),
+            };
+            SupportDetail {
+                supported: true,
+                status: "supported",
+                mode: "tracepoint",
+                pre_op: false,
+                reason: reason.into(),
+                limitations,
+            }
+        }
+        Effect::Kill => {
+            let (reason, limitations) = match op {
+                Op::Recv => (
+                    "tracepoint kill after recv",
+                    vec!["numeric IPv4 only", "post-receive in tracepoint mode"],
+                ),
+                Op::Exec => ("post-exec tracepoint kill", vec![]),
+                Op::Read | Op::Open | Op::Write | Op::Unlink => ("tracepoint kill", vec![]),
+                Op::Connect => ("connect tracepoint kill", vec!["numeric IPv4 only"]),
+            };
+            SupportDetail {
+                supported: true,
+                status: "supported",
+                mode: "tracepoint",
+                pre_op: false,
+                reason: reason.into(),
+                limitations,
+            }
+        }
+    }
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::File => "file",
+        Kind::Endpoint => "endpoint",
+        Kind::Exec => "exec",
+    }
 }
 
 fn backend_support_lines(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
@@ -84,6 +466,8 @@ fn backend_support_lines(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
                 clause_support(
                     clause.effect,
                     clause.op,
+                    clause.target.kind,
+                    &clause.target.pattern,
                     clause.target.arg.as_deref(),
                     lsm_bpf
                 )
@@ -93,14 +477,17 @@ fn backend_support_lines(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
     lines
 }
 
-fn backend_support_warnings(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
+fn backend_support_warnings(policy: &Policy, lsm_bpf: bool) -> Vec<BackendWarning> {
     let mut warnings = Vec::new();
     for source in &policy.sources {
         if source.kind == Kind::Endpoint && !endpoint_pattern_is_numeric_ipv4(&source.pattern) {
-            warnings.push(format!(
-                "source {} = endpoint \"{}\" uses a hostname or IPv6 pattern; endpoint sources currently match numeric IPv4 only.",
-                source.label, source.pattern
-            ));
+            warnings.push(BackendWarning {
+                code: "endpoint_source_non_numeric_ipv4",
+                message: format!(
+                    "source {} = endpoint \"{}\" uses a hostname or IPv6 pattern; endpoint sources currently match numeric IPv4 only.",
+                    source.label, source.pattern
+                ),
+            });
         }
     }
     for rule in &policy.rules {
@@ -109,66 +496,56 @@ fn backend_support_warnings(policy: &Policy, lsm_bpf: bool) -> Vec<String> {
                 && clause.target.kind == Kind::Endpoint
                 && !endpoint_pattern_is_numeric_ipv4(&clause.target.pattern)
             {
-                warnings.push(format!(
-                    "{} {} endpoint \"{}\" uses a hostname or IPv6 pattern; the kernel matches numeric IPv4 only, so this rule will not fire.",
-                    effect_name(clause.effect),
-                    op_name(clause.op),
-                    clause.target.pattern
-                ));
+                warnings.push(BackendWarning {
+                    code: "endpoint_target_non_numeric_ipv4",
+                    message: format!(
+                        "{} {} endpoint \"{}\" uses a hostname or IPv6 pattern; the kernel matches numeric IPv4 only, so this rule will not fire.",
+                        effect_name(clause.effect),
+                        op_name(clause.op),
+                        clause.target.pattern
+                    ),
+                });
             }
             if clause.effect == Effect::Block
                 && clause.op == Op::Exec
                 && clause.target.arg.is_some()
             {
-                warnings.push(format!(
-                    "{}: `block exec` with an argv token cannot block pre-exec because argv is only available after exec; use `kill exec` if termination after exec is acceptable.",
-                    rule.name
-                ));
+                warnings.push(BackendWarning {
+                    code: "argv_block_exec_post_exec_only",
+                    message: format!(
+                        "{}: `block exec` with an argv token cannot block pre-exec because argv is only available after exec; use `kill exec` if termination after exec is acceptable.",
+                        rule.name
+                    ),
+                });
             }
             if clause.effect == Effect::Block && !lsm_bpf {
-                warnings.push(format!(
-                    "{}: `block {}` is unsupported on this host until BPF-LSM is active.",
-                    rule.name,
-                    op_name(clause.op)
-                ));
+                warnings.push(BackendWarning {
+                    code: "bpf_lsm_inactive_for_block",
+                    message: format!(
+                        "{}: `block {}` is unsupported on this host until BPF-LSM is active.",
+                        rule.name,
+                        op_name(clause.op)
+                    ),
+                });
             }
         }
     }
     warnings
 }
 
-fn clause_support(effect: Effect, op: Op, arg: Option<&str>, lsm_bpf: bool) -> &'static str {
-    match effect {
-        Effect::Block => {
-            if op == Op::Exec && arg.is_some() {
-                "unsupported as pre-op block, argv is only available after exec"
-            } else if !lsm_bpf {
-                "unsupported on this host, BPF-LSM is not active"
-            } else {
-                match op {
-                    Op::Exec => "pre-op block via BPF-LSM bprm_check_security",
-                    Op::Read | Op::Open | Op::Write | Op::Unlink => {
-                        "pre-op block via BPF-LSM file/path hooks"
-                    }
-                    Op::Connect => "pre-op block via BPF-LSM socket_connect, numeric IPv4 only",
-                    Op::Recv => {
-                        "pre-op block via BPF-LSM socket_recvmsg, connected numeric IPv4 only"
-                    }
-                }
-            }
-        }
-        Effect::Notify => match op {
-            Op::Recv => "tracepoint report after recv, connected numeric IPv4 only",
-            Op::Exec => "post-exec tracepoint report",
-            Op::Read | Op::Open | Op::Write | Op::Unlink => "tracepoint report",
-            Op::Connect => "connect tracepoint report, numeric IPv4 only",
-        },
-        Effect::Kill => match op {
-            Op::Recv => "tracepoint kill after recv, connected numeric IPv4 only",
-            Op::Exec => "post-exec tracepoint kill",
-            Op::Read | Op::Open | Op::Write | Op::Unlink => "tracepoint kill",
-            Op::Connect => "connect tracepoint kill, numeric IPv4 only",
-        },
+fn clause_support(
+    effect: Effect,
+    op: Op,
+    kind: Kind,
+    pattern: &str,
+    arg: Option<&str>,
+    lsm_bpf: bool,
+) -> String {
+    let detail = clause_support_detail(effect, op, kind, pattern, arg, lsm_bpf);
+    if detail.limitations.is_empty() {
+        detail.reason
+    } else {
+        format!("{}, {}", detail.reason, detail.limitations.join(", "))
     }
 }
 
@@ -193,11 +570,18 @@ fn op_name(op: Op) -> &'static str {
 }
 
 fn endpoint_pattern_is_numeric_ipv4(pat: &str) -> bool {
-    pat == "*"
-        || pat
-            .trim_end_matches('.')
-            .split('.')
-            .all(|o| !o.is_empty() && o.chars().all(|c| c.is_ascii_digit()))
+    if pat == "*" {
+        return true;
+    }
+    let body = pat.trim_end_matches('.');
+    let mut count = 0usize;
+    for octet in body.split('.') {
+        if octet.is_empty() || octet.parse::<u8>().is_err() {
+            return false;
+        }
+        count += 1;
+    }
+    (1..=4).contains(&count)
 }
 
 pub(crate) fn doctor(cli: &Cli) -> Result<i32> {

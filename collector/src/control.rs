@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::Result;
+use crate::{Result, audit};
 
 const CONTROL_STATE_FILE: &str = ".actplane/control.json";
 
@@ -32,13 +32,14 @@ pub(crate) struct LocalControlGuard {
     state_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct PeerCred {
     pub(crate) pid: i32,
     #[allow(dead_code)]
     pub(crate) uid: u32,
     #[allow(dead_code)]
     pub(crate) gid: u32,
+    pub(crate) identity: audit::ProcessIdentity,
 }
 
 impl Drop for LocalControlGuard {
@@ -197,6 +198,7 @@ fn peer_credentials(stream: &std::os::unix::net::UnixStream) -> Option<PeerCred>
         pid: cred.pid,
         uid: cred.uid,
         gid: cred.gid,
+        identity: audit::ProcessIdentity::capture(cred.pid, Some(cred.uid), Some(cred.gid)),
     })
 }
 
@@ -288,9 +290,10 @@ mod tests {
             json!({
                 "ok": true,
                 "echo": request["op"],
-                "peer_pid": peer.map(|p| p.pid),
-                "peer_uid": peer.map(|p| p.uid),
-                "peer_gid": peer.map(|p| p.gid),
+                "peer_pid": peer.as_ref().map(|p| p.pid),
+                "peer_uid": peer.as_ref().map(|p| p.uid),
+                "peer_gid": peer.as_ref().map(|p| p.gid),
+                "peer_stable_id": peer.as_ref().map(|p| p.identity.stable_id.clone()),
             })
         })
         .expect("start control server");
@@ -301,6 +304,12 @@ mod tests {
         assert_eq!(
             response["peer_pid"].as_i64(),
             Some(std::process::id() as i64)
+        );
+        assert!(
+            response["peer_stable_id"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("pid:")
         );
         assert!(state_path(dir.path()).is_file());
 

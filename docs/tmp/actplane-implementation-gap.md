@@ -51,8 +51,10 @@ restart-limit blocked status, and a JSONL audit event when automatic relaunch is
 exhausted. After an MCP server restart, still-running registry records are
 adopted under polling-based supervision and can be relaunched when they later
 exit, with the limitation that exit code/signal precision is unavailable for
-adopted processes. Basic runtime audit context, source-level rule provenance,
-and optional append-delta approval/generator metadata are now present. Basic
+adopted processes. Basic runtime audit context, stable process identity for
+audit actors, parser-backed lowered-clause source provenance, machine-readable
+backend support reports, and structured
+append-delta approval/generator metadata are now present. Basic
 domain-local runtime declassification is now admitted by the kernel when the
 submitting domain has `AUTH_DECLASSIFY` and label authority for the cleared
 bits, which covers the paper's core "clear labels within an authoring domain"
@@ -254,8 +256,9 @@ Implemented:
   text feedback file. Each event records pid/ppid/comm, target, rule id,
   action, effect, matched label, rule metadata when available, and first-label
   provenance. Rule metadata now includes lowered-clause operation/effect/target
-  fields plus source ref, source line span, source hash, and locked/default
-  binding mode when those fields are known.
+  fields plus source ref, source line span, parser-backed lowered-clause source
+  index, exact lowered-clause line span and text, source/clause hashes, and
+  locked/default binding mode when those fields are known.
 
 Relevant code:
 
@@ -423,12 +426,11 @@ registry reconcile, and background relaunch for `on_exit` children. The core
 MCP JSON-RPC workflow is now covered, with explicit adopted-polling recovery
 across MCP server restarts. A declarative YAML-to-runtime-domain mapping would
 be a convenience layer, not a requirement for the current repo-scoped MVP. The
-remaining domain product gap is richer audit and approval provenance.
+remaining domain product gap is an enforced supervisor approval workflow.
 
 Minimum fix:
 
-- Extend audit records with stable actor/session identity and policy source
-  provenance.
+- Add an enforced supervisor approval workflow for runtime policy changes.
 - Keep root/admin rules globally inherited and immutable, and reserve
   whole-policy reload for trusted admin contexts.
 - Add product-level live tests for two sibling agents with conflicting local
@@ -506,18 +508,25 @@ Current state:
   are appended to a structured JSONL audit log. Records include event type,
   status, actor pid, target/child domain ids where applicable, rule-id base and
   rule count for accepted deltas, deterministic policy hash, rejection error
-  text, submitter pid, attached parent pid/domain, audit context id, and audit
-  writer euid/egid. Reload and append-delta audit records also include
+  text, submitter pid, attached parent pid/domain, audit context id, stable
+  `/proc`-backed process identities for actor/caller/submitter/engine parent,
+  and audit writer euid/egid. Local-control peer identity is captured when
+  `SO_PEERCRED` is read, before runtime audit writes the record, so caller
+  identity is not resampled after request handling. Reload and append-delta audit records also include
   per-rule provenance with rule id, name, effect, ops, reason, source ref,
   lowered clause operation, matched kernel operation, target kind, target
-  pattern, optional target argument, source start/end lines, source hash, source
-  text, and locked/default binding mode when the rule came from a YAML domain.
+  pattern, optional target argument, source start/end lines, parser clause
+  source index, exact lowered clause start/end lines, source and clause hashes,
+  source and clause text, and locked/default binding mode when the rule came
+  from a YAML domain.
   Locked inherited/admin rules are also marked `immutable=true` in audit and
   violation-event metadata.
   Append-delta requests can carry optional `policy_ref`, `approved_by`,
   `approval_ref`, and `generated_by` fields through MCP,
   `actplane control append-delta`, or `actplane delta add`, and those fields
-  are written to the JSONL audit record.
+  are written both as flat fields and as an `approval_chain` object in the JSONL
+  audit record. The approval chain is explicitly marked `enforced=false`
+  because it is provenance metadata, not yet a supervisor-enforced workflow.
 - Structured violation events now carry the matched runtime domain id, session
   root pid, exact matched kernel operation, declared effect, full matched
   required-label mask, and per-lowered-rule clause/target metadata. Human
@@ -530,10 +539,11 @@ Current state:
 Missing:
 
 - Audit records are useful but still incomplete. They now include runtime
-  context fields, source-level rule provenance, and optional append-delta
-  approval/generator metadata, but the approval chain is still declarative
-  metadata rather than an enforced supervisor workflow, and whole-policy reload
-  remains trusted-admin functionality.
+  context fields, stable process identities, source/clause-level rule
+  provenance, and structured append-delta approval/generator metadata, but the
+  approval chain is still declarative metadata rather than an enforced
+  supervisor workflow, and whole-policy reload remains trusted-admin
+  functionality.
 - `reload_policy` is powerful: it can replace the whole active table and should
   be treated as trusted-admin functionality, not ordinary agent
   self-restriction.
@@ -544,8 +554,8 @@ Missing:
 
 Minimum fix:
 
-- Extend audit records with stable actor/session identity, policy/rule source
-  provenance, and supervisor approval metadata.
+- Add an enforced supervisor approval workflow on top of the existing
+  `approval_chain` provenance fields.
 - Add end-to-end MCP tests that bind a child domain, append a local delta, and
   verify feedback metadata for the appended rule.
 - Surface feature-gate rejections as actionable feedback, and either restart
@@ -590,7 +600,12 @@ Current state:
 - `actplane check` prints a backend support matrix per rule clause and emits
   static warnings for BPF-LSM-only `block`, argv-sensitive `block exec`, and
   hostname/IPv6 endpoint patterns that cannot match the kernel's numeric IPv4
-  enforcement.
+  enforcement. `actplane check --json` emits the same facts as schema
+  `actplane.check.v1`, including host LSM state, source support, per-clause
+  support status, support reason, limitations, compiled rule metadata,
+  environment override fields such as `ACTPLANE_FORCE_TRACEPOINT`, structured
+  warning codes, and JSON-formatted load/compile errors for CI and
+  policy-review tools.
 - The Rust/aya loader and the C skeleton loader now use the same load-time hook
   budget. Core domain hooks (`sched_process_fork`, `sched_process_exec`,
   `sched_process_exit`) and the runtime control drain tick are always attached.
@@ -633,8 +648,6 @@ Missing:
 
 Minimum fix:
 
-- Extend the backend matrix into a stable machine-readable `check --json` or
-  `check --explain` surface.
 - Add userspace DNS/SNI/IP expansion for host policies, or restrict the DSL docs
   to numeric IPv4 for enforcement claims.
 
@@ -765,8 +778,8 @@ Missing:
 Minimum fix:
 
 - Add a template catalog with parameterized policies.
-- Add a `check --explain` or `plan` command that prints the concrete OS-level
-  interpretation of each rule.
+- Extend `check --json` into a richer `check --explain` or `plan` command that
+  prints the concrete OS-level interpretation of each rule.
 - Add a policy review artifact that can be committed or attached to CI.
 
 ### P1: Audit And Feedback Need Structured State
@@ -781,7 +794,20 @@ Current state:
 - Rule source metadata and per-lowered-rule clause metadata are carried into
   violation events when available, so an event can identify the YAML rule entry
   or inline DSL rule plus the lowered clause operation/effect/target that
-  generated the matched kernel rule.
+  generated the matched kernel rule. The same records now include the parser
+  clause source index, exact lowered-clause source line span, clause text, and
+  clause hash when source metadata is available.
+- `actplane check --json` emits a stable host/backend support matrix with
+  per-source and per-clause support status, support reason, limitations, and
+  warning codes. It also reports policy load/compile failures as
+  `actplane.check.v1` JSON and accounts for `ACTPLANE_FORCE_TRACEPOINT` when
+  reporting BPF-LSM block support.
+- Runtime audit records include stable actor/caller/submitter process
+  identities built from pid plus `/proc` start time, uid/gid, comm, and exe
+  where available. Local-control caller identity is snapshotted at peer-credential
+  capture time. Append-delta audit records include an explicit
+  `approval_chain` object for approved-by, approval-ref, and generated-by
+  provenance.
 - Kernel provenance lookup covers both process labels and stored file/endpoint
   object labels. This matters for pre-flow sink events such as an `open` rule
   matching a label stored on the file object before that label is copied into
@@ -789,31 +815,23 @@ Current state:
 
 Missing:
 
-- Policy/rule provenance is still incomplete for generator, approver, domain,
-  and activation-time metadata.
-- Structured records include the backend action, including unsupported block
-  requests, but they do not yet include a host support matrix or exact backend
-  support reason.
-- Multi-clause rules now report exact lowered-clause operation, effect, kernel
-  operation, and target metadata, but they do not yet preserve exact
-  clause-source line/provenance for each lowered clause because the parser does
-  not track clause spans inside a rule block.
+- Policy/rule provenance still lacks a supervisor-enforced approval workflow
+  and richer activation-time state transitions.
 - Provenance reports one required label origin, not the full causal chain.
   Stored file/endpoint object labels now have a fallback provenance lookup, but
   events still do not include every matched label's origin or a multi-hop chain.
 
 Minimum fix:
 
-- Add policy hash, rule hash, exact clause-source provenance, support status,
-  and richer causal provenance fields.
+- Add enforced approval-chain state and richer causal provenance fields.
 - Keep human feedback as a formatted view over the structured event.
 
 ### P1: Evaluation Coverage Is Not Yet CI-Grade
 
 Verified in this snapshot:
 
-- `cargo test --locked -p actplane --tests`: 72 unit tests passed, 1 ignored,
-  plus 12 CLI UX tests passed, 2 default MCP JSON-RPC e2e tests passed with 5
+- `cargo test --locked -p actplane --tests`: 77 unit tests passed, 1 ignored,
+  plus 16 CLI UX tests passed, 2 default MCP JSON-RPC e2e tests passed with 5
   privileged MCP tests ignored, and 2 privileged watch/control e2e tests
   ignored.
 - `cargo test --locked -p actplane --test mcp_protocol -- --ignored
@@ -1167,7 +1185,8 @@ Minimum fix:
      inheritance before making that claim.
 2. Fix the enforcement support matrix:
    - Keep argv-sensitive `block exec` documented and warned as unsupported.
-   - Promote the backend matrix to `check --json` or `check --explain`.
+   - Keep `check --json` as the stable backend matrix surface and add richer
+     human explanations where useful.
 3. Cover remaining file-flow bypasses: tracepoint mmap subrange and
    beyond-eight-mapping precision, SCM_RIGHTS batches beyond the bounded parser,
    shared memory, and rename/link alias precision.
@@ -1175,10 +1194,9 @@ Minimum fix:
 
 ### P1: Make It Useful For Real Users
 
-1. Extend structured JSONL audit logs with enforced approval-chain provenance
-   and exact per-clause source provenance across reload, append, launch,
-   restart, and violation paths.
-2. Add templates and `check --explain`.
+1. Add an enforced supervisor approval workflow on top of the existing
+   `approval_chain` provenance fields.
+2. Add templates and a richer `check --explain` or `plan` command.
 3. Extend templates, review, and supervisor-grade recovery semantics for
    long-lived subagents.
 4. Add privileged CI/e2e coverage for BPF-LSM and tracepoint modes.
