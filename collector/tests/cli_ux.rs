@@ -4,6 +4,8 @@ use std::process::{Command, Output};
 #[cfg(unix)]
 use std::io::{BufRead, Write};
 #[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::os::unix::net::UnixListener;
 #[cfg(unix)]
 use std::time::Duration;
@@ -373,6 +375,113 @@ rule block-git:
 }
 
 #[test]
+fn rollout_prints_plan_and_writes_observe_policy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let observe = tmp.path().join("observe.yaml");
+    let policy = r#"
+source AGENT = exec "**"
+
+rule no-network:
+  block connect endpoint "*" if AGENT unless target "127."
+  because "network rollout"
+
+rule no-branch:
+  kill exec "git" "branch" if AGENT
+  because "branch rollout"
+"#;
+    let output = run(&[
+        "--rule",
+        policy,
+        "rollout",
+        "--observe-policy-out",
+        observe.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stderr(&output).contains("wrote observe-first policy"));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("ActPlane rollout plan"));
+    assert!(stdout.contains("recommended rollout sequence"));
+    assert!(stdout.contains("rule no-network"));
+    assert!(stdout.contains("observe stage: use notify-only observe policy"));
+    assert!(stdout.contains("promotion: eligible for block"));
+    assert!(stdout.contains("rule no-branch"));
+    assert!(stdout.contains("promote to kill only after manual review"));
+
+    let observe_policy = fs::read_to_string(&observe).unwrap();
+    assert!(observe_policy.contains("ActPlane observe-first policy"));
+    assert!(observe_policy.contains("notify connect endpoint \"*\""));
+    assert!(observe_policy.contains("notify exec \"**/git\" \"branch\""));
+    assert!(!observe_policy.contains("block connect"));
+    assert!(!observe_policy.contains("kill exec"));
+
+    let check = run(&["--policy", observe.to_str().unwrap(), "check"]);
+    assert!(check.status.success(), "stderr: {}", stderr(&check));
+}
+
+#[test]
+fn rollout_writes_plan_and_observe_policy_atomically() {
+    let tmp = tempfile::tempdir().unwrap();
+    let plan = tmp.path().join("rollout.txt");
+    let observe = tmp.path().join("observe.yaml");
+    let policy = r#"
+rule block-git:
+  block exec "git" if true
+  because "block git"
+"#;
+    let output = run(&[
+        "--rule",
+        policy,
+        "rollout",
+        "--out",
+        plan.to_str().unwrap(),
+        "--observe-policy-out",
+        observe.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(output.stdout.is_empty());
+    assert!(
+        fs::read_to_string(&plan)
+            .unwrap()
+            .contains("ActPlane rollout plan")
+    );
+    assert!(
+        fs::read_to_string(&observe)
+            .unwrap()
+            .contains("notify exec \"**/git\"")
+    );
+
+    let output = run(&[
+        "--rule",
+        policy,
+        "rollout",
+        "--out",
+        plan.to_str().unwrap(),
+        "--observe-policy-out",
+        plan.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--out and --observe-policy-out must be different"));
+}
+
+#[test]
+fn rollout_reports_unsupported_block_before_promotion() {
+    let policy = r#"
+source AGENT = exec "**"
+
+rule argv-block:
+  block exec "git" "push" if AGENT
+  because "argv block"
+"#;
+    let output = run(&["--rule", policy, "rollout"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("do not deploy as block yet"));
+    assert!(stdout.contains("argv is only available after exec"));
+    assert!(stdout.contains("static warnings to resolve before promotion"));
+}
+
+#[test]
 fn templates_list_and_json_expose_catalog() {
     let output = run(&["templates", "list"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
@@ -415,6 +524,75 @@ fn templates_show_prints_dsl_and_yaml() {
 }
 
 #[test]
+fn templates_show_and_json_expose_parameters() {
+    let output = run(&[
+        "templates",
+        "show",
+        "test-before-commit",
+        "--set",
+        "test_exec=**/pnpm",
+        "--set",
+        "changed_paths=packages/**,src/**",
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("after exec \"**/pnpm\""));
+    assert!(stdout.contains("write \"packages/**\" or write \"src/**\""));
+
+    let output = run(&["templates", "list", "--json"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("templates list --json stdout");
+    let templates = value["templates"].as_array().unwrap();
+    let no_network = templates
+        .iter()
+        .find(|template| template["id"] == "no-network")
+        .expect("no-network template");
+    let params: Vec<&str> = no_network["params"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|param| param["name"].as_str())
+        .collect();
+    assert!(params.contains(&"agent_exec"));
+    assert!(params.contains(&"loopback_endpoint"));
+}
+
+#[test]
+fn templates_reject_policy_selection_globals() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("actplane.yaml");
+    let review = tmp.path().join("review.txt");
+    let output = run(&[
+        "--domain",
+        "review",
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        out.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("does not read --policy, --rule, or --domain"));
+    assert!(!out.exists());
+    assert!(!review.exists());
+
+    let policy = tmp.path().join("existing.yaml");
+    fs::write(&policy, "version: 1\npolicy: |\n").unwrap();
+    let output = run(&[
+        "--policy",
+        policy.to_str().unwrap(),
+        "templates",
+        "show",
+        "no-network",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("does not read --policy, --rule, or --domain"));
+}
+
+#[test]
 fn templates_write_outputs_checkable_yaml_and_respects_force() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("actplane.yaml");
@@ -453,6 +631,434 @@ fn templates_write_outputs_checkable_yaml_and_respects_force() {
         "--force",
     ]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
+}
+
+#[test]
+fn templates_write_applies_parameters_and_rejects_bad_parameters() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("actplane.yaml");
+    let output = run(&[
+        "templates",
+        "write",
+        "workspace-confinement",
+        "--set",
+        "agent_exec=codex",
+        "--set",
+        "writable_path=/repo/**",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let written = fs::read_to_string(&out).unwrap();
+    assert!(written.contains("# Parameter writable_path: /repo/**"));
+    assert!(written.contains("source AGENT = exec \"codex\""));
+    assert!(written.contains("unless target \"/repo/**\""));
+
+    let bad = tmp.path().join("bad.yaml");
+    let output = run(&[
+        "templates",
+        "write",
+        "workspace-confinement",
+        "--set",
+        "missing=value",
+        "--out",
+        bad.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("unknown parameter `missing`"));
+    assert!(!bad.exists());
+
+    let output = run(&[
+        "templates",
+        "write",
+        "workspace-confinement",
+        "--set",
+        "writable_path=bad\"quote",
+        "--out",
+        bad.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("unsupported by the current DSL string syntax"));
+    assert!(!bad.exists());
+}
+
+#[test]
+fn templates_review_writes_policy_and_review_artifact() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    let review = tmp.path().join("review.txt");
+    let output = run(&[
+        "templates",
+        "review",
+        "no-secret-egress",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stderr(&output).contains("wrote template `no-secret-egress`"));
+    assert!(stderr(&output).contains("wrote policy review"));
+
+    let written_policy = fs::read_to_string(&policy).unwrap();
+    assert!(written_policy.contains("version: 1"));
+    assert!(written_policy.contains("rule no-secret-egress:"));
+
+    let artifact = fs::read_to_string(&review).unwrap();
+    assert!(artifact.contains("ActPlane policy review"));
+    assert!(artifact.contains(&format!("policy: {}", policy.display())));
+    assert!(artifact.contains("rule no-secret-egress"));
+    assert!(artifact.contains("review scope: selected initial policy"));
+}
+
+#[test]
+fn templates_review_applies_parameters_to_policy_and_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    let review = tmp.path().join("review.txt");
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--set",
+        "agent_exec=codex",
+        "--set",
+        "loopback_endpoint=10.",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let written_policy = fs::read_to_string(&policy).unwrap();
+    assert!(written_policy.contains("# Parameter agent_exec: codex"));
+    assert!(written_policy.contains("source AGENT = exec \"codex\""));
+    assert!(written_policy.contains("unless target \"10.\""));
+
+    let artifact = fs::read_to_string(&review).unwrap();
+    assert!(artifact.contains("source AGENT = exec \"codex\""));
+    assert!(artifact.contains("unless target \"10.\""));
+}
+
+#[test]
+fn templates_review_refuses_existing_outputs_without_partial_write() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    let review = tmp.path().join("review.txt");
+    fs::write(&review, "keep review").unwrap();
+
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("already exists"));
+    assert!(
+        !policy.exists(),
+        "policy should not be written after preflight failure"
+    );
+    assert_eq!(fs::read_to_string(&review).unwrap(), "keep review");
+
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(
+        fs::read_to_string(&policy)
+            .unwrap()
+            .contains("rule no-network:")
+    );
+    assert!(
+        fs::read_to_string(&review)
+            .unwrap()
+            .contains("rule no-network")
+    );
+}
+
+#[test]
+fn templates_review_preflights_parent_dirs_before_writing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    let review = tmp.path().join("missing").join("review.txt");
+
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("parent directory"));
+    assert!(
+        !policy.exists(),
+        "policy should not be written after preflight failure"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn templates_review_does_not_write_policy_when_review_temp_fails() {
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+
+    let tmp = tempfile::tempdir().unwrap();
+    let policy_dir = tmp.path().join("policy");
+    let review_dir = tmp.path().join("review");
+    fs::create_dir(&policy_dir).unwrap();
+    fs::create_dir(&review_dir).unwrap();
+    let policy = policy_dir.join("actplane.yaml");
+    let review = review_dir.join("review.txt");
+
+    let mut perms = fs::metadata(&review_dir).unwrap().permissions();
+    perms.set_mode(0o500);
+    fs::set_permissions(&review_dir, perms).unwrap();
+
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+    ]);
+
+    let mut perms = fs::metadata(&review_dir).unwrap().permissions();
+    perms.set_mode(0o700);
+    fs::set_permissions(&review_dir, perms).unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        !policy.exists(),
+        "policy should not be written when review temp creation fails"
+    );
+    assert!(!review.exists());
+}
+
+#[test]
+fn templates_review_requires_distinct_output_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("actplane.yaml");
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        out.to_str().unwrap(),
+        "--review-out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--policy-out and --review-out must be different"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn templates_review_rejects_same_output_file_with_different_path_syntax() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("actplane.yaml");
+    let output = Command::new(actplane())
+        .current_dir(tmp.path())
+        .args([
+            "templates",
+            "review",
+            "no-network",
+            "--policy-out",
+            "actplane.yaml",
+            "--review-out",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run templates review");
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--policy-out and --review-out must be different"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn templates_review_rejects_directory_targets_even_with_force() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    let review_dir = tmp.path().join("review-dir");
+    fs::create_dir(&review_dir).unwrap();
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review_dir.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("is a directory"));
+    assert!(
+        !policy.exists(),
+        "policy should not be written after preflight failure"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn templates_review_rejects_symlink_output_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let target = tmp.path().join("target.yaml");
+    let symlink = tmp.path().join("policy.yaml");
+    std::os::unix::fs::symlink(&target, &symlink).unwrap();
+
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        symlink.to_str().unwrap(),
+        "--review-out",
+        target.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("is a symlink"));
+    assert!(!target.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn templates_review_rejects_hardlinked_existing_outputs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("policy.yaml");
+    let review = tmp.path().join("review.txt");
+    fs::write(&policy, "old").unwrap();
+    std::fs::hard_link(&policy, &review).unwrap();
+
+    let output = run(&[
+        "templates",
+        "review",
+        "no-network",
+        "--policy-out",
+        policy.to_str().unwrap(),
+        "--review-out",
+        review.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--policy-out and --review-out must be different"));
+    assert_eq!(fs::read_to_string(&policy).unwrap(), "old");
+}
+
+#[test]
+fn templates_generate_writes_candidate_policy_and_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(
+        tmp.path().join("AGENTS.md"),
+        "Do not run git branch or git worktree. Run pytest before committing. Keep secrets safe.",
+    )
+    .unwrap();
+    fs::create_dir(tmp.path().join("src")).unwrap();
+    fs::create_dir(tmp.path().join("tests")).unwrap();
+    let policy = tmp.path().join("candidate.yaml");
+    let review = tmp.path().join("candidate-review.txt");
+
+    let output = Command::new(actplane())
+        .current_dir(tmp.path())
+        .args([
+            "templates",
+            "generate",
+            "--policy-out",
+            policy.to_str().unwrap(),
+            "--review-out",
+            review.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run templates generate");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stderr(&output).contains("selected no-git-branch"));
+    assert!(stderr(&output).contains("selected test-before-commit"));
+    assert!(stderr(&output).contains("selected no-secret-egress"));
+
+    let written = fs::read_to_string(&policy).unwrap();
+    assert!(written.contains("ActPlane candidate policy generated"));
+    assert!(written.contains("# template: no-git-branch"));
+    assert!(written.contains("rule no-git-branch:"));
+    assert!(written.contains("rule test-before-commit:"));
+    assert!(written.contains("source SECRET = file"));
+
+    let artifact = fs::read_to_string(&review).unwrap();
+    assert!(artifact.contains("ActPlane policy review"));
+    assert!(artifact.contains("rule no-git-branch"));
+    assert!(artifact.contains("rule test-before-commit"));
+}
+
+#[test]
+fn templates_generate_uses_task_hint_without_instruction_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("candidate.yaml");
+    let review = tmp.path().join("candidate-review.txt");
+    let output = Command::new(actplane())
+        .current_dir(tmp.path())
+        .args([
+            "templates",
+            "generate",
+            "--task",
+            "offline read-only review",
+            "--policy-out",
+            policy.to_str().unwrap(),
+            "--review-out",
+            review.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run templates generate");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let written = fs::read_to_string(&policy).unwrap();
+    assert!(written.contains("# template: no-network"));
+    assert!(written.contains("rule no-network:"));
+    assert!(written.contains("# template: readonly-review"));
+    assert!(written.contains("rule readonly-review:"));
+}
+
+#[test]
+fn templates_generate_discovers_project_root_from_subdirectory() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("actplane.yaml"), "version: 1\npolicy: |\n").unwrap();
+    fs::write(tmp.path().join("AGENTS.md"), "Do not run git branch.").unwrap();
+    let subdir = tmp.path().join("nested");
+    fs::create_dir(&subdir).unwrap();
+    let policy = subdir.join("candidate.yaml");
+    let review = subdir.join("candidate-review.txt");
+    let output = Command::new(actplane())
+        .current_dir(&subdir)
+        .args([
+            "templates",
+            "generate",
+            "--policy-out",
+            policy.to_str().unwrap(),
+            "--review-out",
+            review.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run templates generate");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let written = fs::read_to_string(&policy).unwrap();
+    assert!(written.contains("# Project root: "));
+    assert!(written.contains(tmp.path().to_str().unwrap()));
+    assert!(written.contains("# Instructions considered:"));
+    assert!(written.contains("AGENTS.md"));
+    assert!(written.contains("rule no-git-branch:"));
 }
 
 #[test]

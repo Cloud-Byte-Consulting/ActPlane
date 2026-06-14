@@ -8,6 +8,10 @@
 //! rule match with the corrective-feedback payload.
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::ffi::OsString;
+use std::io::Write as _;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 mod audit;
@@ -21,6 +25,7 @@ mod mcp;
 mod report;
 mod runtime;
 mod setup;
+mod template_generate;
 mod templates;
 
 type AnyError = Box<dyn std::error::Error + Send + Sync>;
@@ -33,7 +38,13 @@ type Result<T> = std::result::Result<T, AnyError>;
       actplane init  &&  actplane doctor\n\n  \
       # inspect or write a built-in policy template\n  \
       actplane templates list\n  \
-      actplane templates write no-secret-egress --out /tmp/no-secret-policy.yaml\n\n  \
+      actplane templates write no-git-branch --format dsl --out /tmp/no-git-branch.dsl\n\n  \
+      # generate a template policy and its static review artifact in one step\n  \
+      actplane templates review no-secret-egress --policy-out /tmp/no-secret-policy.yaml --review-out /tmp/no-secret-review.txt\n\n  \
+      # infer a candidate policy from project instructions and manifests\n  \
+      actplane templates generate --policy-out /tmp/actplane-candidate.yaml --review-out /tmp/actplane-candidate-review.txt\n\n  \
+      # plan observe-first rollout for the selected policy\n  \
+      actplane --policy actplane.yaml rollout --out docs/actplane-rollout.txt --observe-policy-out /tmp/actplane-observe.yaml\n\n  \
       # apply a one-line policy around a command (needs sudo for the eBPF load)\n  \
       sudo -E actplane --rule 'source COMMAND = exec \"**\"\n                       rule no-git-branch:\n                         kill exec \"git\" \"branch\" if COMMAND\n                         because \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
@@ -98,6 +109,8 @@ enum Commands {
     /// Validate the policy (no privileges): compile it, summarize each rule in
     /// plain language, and warn about anything that won't apply as written.
     Check(CheckArgs),
+    /// Produce an observe-first rollout plan for the selected policy.
+    Rollout(RolloutArgs),
     /// Diagnose policy discovery, kernel support, feedback hooks, and MCP setup.
     Doctor,
     /// List policy domains and their effective locked/default rules.
@@ -175,6 +188,19 @@ struct CheckArgs {
     out: Option<PathBuf>,
     /// Overwrite an existing --out policy review artifact.
     #[arg(long, requires = "out")]
+    force: bool,
+}
+
+#[derive(Args)]
+struct RolloutArgs {
+    /// Write the rollout plan artifact to a file instead of stdout.
+    #[arg(long, value_name = "FILE")]
+    out: Option<PathBuf>,
+    /// Write a notify-only observe-first YAML policy for the selected policy/domain.
+    #[arg(long, value_name = "FILE")]
+    observe_policy_out: Option<PathBuf>,
+    /// Overwrite existing rollout output files.
+    #[arg(short, long)]
     force: bool,
 }
 
@@ -297,6 +323,10 @@ enum TemplateCommands {
     Show(TemplateShowArgs),
     /// Write one built-in template to a file.
     Write(TemplateWriteArgs),
+    /// Write one YAML template and its policy review artifact.
+    Review(TemplateReviewArgs),
+    /// Infer a candidate policy from project instructions and manifests.
+    Generate(TemplateGenerateArgs),
 }
 
 #[derive(Args)]
@@ -306,6 +336,9 @@ struct TemplateShowArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = TemplateFormat::Dsl)]
     format: TemplateFormat,
+    /// Override a declared template parameter, as key=value. Repeat for multiple parameters.
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    params: Vec<String>,
 }
 
 #[derive(Args)]
@@ -318,7 +351,47 @@ struct TemplateWriteArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = TemplateFormat::Yaml)]
     format: TemplateFormat,
+    /// Override a declared template parameter, as key=value. Repeat for multiple parameters.
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    params: Vec<String>,
     /// Overwrite an existing output file.
+    #[arg(short, long)]
+    force: bool,
+}
+
+#[derive(Args)]
+struct TemplateReviewArgs {
+    /// Template id, for example `no-secret-egress`.
+    name: String,
+    /// Output YAML policy file path.
+    #[arg(long, value_name = "FILE")]
+    policy_out: PathBuf,
+    /// Output human-readable policy review file path.
+    #[arg(long, value_name = "FILE")]
+    review_out: PathBuf,
+    /// Override a declared template parameter, as key=value. Repeat for multiple parameters.
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    params: Vec<String>,
+    /// Overwrite existing output files.
+    #[arg(short, long)]
+    force: bool,
+}
+
+#[derive(Args)]
+struct TemplateGenerateArgs {
+    /// Instruction file to inspect. Defaults to project AGENTS.md/CLAUDE.md.
+    #[arg(long = "instructions", value_name = "FILE")]
+    instructions: Vec<PathBuf>,
+    /// Optional task hint to include in template selection.
+    #[arg(long)]
+    task: Option<String>,
+    /// Output YAML candidate policy file path.
+    #[arg(long, value_name = "FILE")]
+    policy_out: PathBuf,
+    /// Output human-readable policy review file path.
+    #[arg(long, value_name = "FILE")]
+    review_out: PathBuf,
+    /// Overwrite existing output files.
     #[arg(short, long)]
     force: bool,
 }
@@ -389,6 +462,7 @@ async fn main() -> Result<()> {
             args.out.as_deref(),
             args.force,
         )?,
+        Commands::Rollout(args) => rollout_command(args, &cli)?,
         Commands::Doctor => doctor::doctor(&cli)?,
         Commands::Domains => doctor::list_domains(&cli)?,
         Commands::Watch => runtime::watch_policy(&cli).await?,
@@ -409,7 +483,7 @@ async fn main() -> Result<()> {
         }
         Commands::Control { command } => control_command(&cli, command).await?,
         Commands::Delta { command } => delta_command(&cli, command).await?,
-        Commands::Templates { command } => template_command(command)?,
+        Commands::Templates { command } => template_command(&cli, command)?,
     };
     if code != 0 {
         std::process::exit(code);
@@ -417,7 +491,48 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn template_command(command: &TemplateCommands) -> Result<i32> {
+fn rollout_command(args: &RolloutArgs, cli: &Cli) -> Result<i32> {
+    let artifacts = doctor::render_rollout_artifacts(cli)?;
+    match (&args.out, &args.observe_policy_out) {
+        (Some(plan_path), Some(observe_path)) => {
+            write_pair_output_files(
+                plan_path,
+                &artifacts.plan,
+                observe_path,
+                &artifacts.observe_policy_yaml,
+                args.force,
+                "--out and --observe-policy-out must be different",
+            )?;
+            eprintln!("actplane: wrote rollout plan {}", plan_path.display());
+            eprintln!(
+                "actplane: wrote observe-first policy {}",
+                observe_path.display()
+            );
+        }
+        (Some(plan_path), None) => {
+            write_output_file(plan_path, &artifacts.plan, args.force)?;
+            eprintln!("actplane: wrote rollout plan {}", plan_path.display());
+        }
+        (None, Some(observe_path)) => {
+            write_output_file(observe_path, &artifacts.observe_policy_yaml, args.force)?;
+            eprintln!(
+                "actplane: wrote observe-first policy {}",
+                observe_path.display()
+            );
+            print!("{}", artifacts.plan);
+        }
+        (None, None) => print!("{}", artifacts.plan),
+    }
+    Ok(0)
+}
+
+fn template_command(cli: &Cli, command: &TemplateCommands) -> Result<i32> {
+    if cli.policy.is_some() || cli.rule.is_some() || cli.domain.is_some() {
+        return Err(
+            "`actplane templates` does not read --policy, --rule, or --domain; use `actplane check` to review an existing policy"
+                .into(),
+        );
+    }
     match command {
         TemplateCommands::List { json } => {
             if *json {
@@ -435,32 +550,327 @@ fn template_command(command: &TemplateCommands) -> Result<i32> {
         }
         TemplateCommands::Show(args) => {
             let template = templates::get(&args.name)?;
-            print!("{}", render_template(template, args.format));
+            print!("{}", render_template(template, args.format, &args.params)?);
         }
         TemplateCommands::Write(args) => {
             let template = templates::get(&args.name)?;
-            if args.out.exists() && !args.force {
-                return Err(format!(
-                    "{} already exists (use --force to overwrite)",
-                    args.out.display()
-                )
-                .into());
-            }
-            std::fs::write(&args.out, render_template(template, args.format))?;
+            write_output_file(
+                &args.out,
+                &render_template(template, args.format, &args.params)?,
+                args.force,
+            )?;
             eprintln!(
                 "actplane: wrote template `{}` to {}",
                 template.id,
                 args.out.display()
             );
         }
+        TemplateCommands::Review(args) => {
+            let template = templates::get(&args.name)?;
+            let policy_yaml = templates::render_yaml(template, &args.params)?;
+            let review = render_policy_review_for_yaml(
+                &policy_yaml,
+                &args.policy_out,
+                &format!("template `{}` generated invalid YAML", template.id),
+            )?;
+            write_pair_output_files(
+                &args.policy_out,
+                &policy_yaml,
+                &args.review_out,
+                &review,
+                args.force,
+                "--policy-out and --review-out must be different",
+            )?;
+            eprintln!(
+                "actplane: wrote template `{}` to {}",
+                template.id,
+                args.policy_out.display()
+            );
+            eprintln!(
+                "actplane: wrote policy review {}",
+                args.review_out.display()
+            );
+        }
+        TemplateCommands::Generate(args) => {
+            let root = template_project_root()?;
+            let generated =
+                template_generate::generate(&root, &args.instructions, args.task.as_deref())?;
+            let policy_yaml = template_generate::render_yaml(&generated)?;
+            let review = render_policy_review_for_yaml(
+                &policy_yaml,
+                &args.policy_out,
+                "generated candidate policy is invalid YAML",
+            )?;
+            write_pair_output_files(
+                &args.policy_out,
+                &policy_yaml,
+                &args.review_out,
+                &review,
+                args.force,
+                "--policy-out and --review-out must be different",
+            )?;
+            eprintln!(
+                "actplane: generated {} template-backed policy rule set(s)",
+                generated.templates.len()
+            );
+            for line in template_generate::summary(&generated) {
+                eprintln!("actplane: selected {line}");
+            }
+            eprintln!(
+                "actplane: wrote candidate policy {}",
+                args.policy_out.display()
+            );
+            eprintln!(
+                "actplane: wrote policy review {}",
+                args.review_out.display()
+            );
+        }
     }
     Ok(0)
 }
 
-fn render_template(template: &templates::PolicyTemplate, format: TemplateFormat) -> String {
+fn write_output_file(path: &Path, contents: &str, force: bool) -> Result<()> {
+    preflight_output_file(path, force)?;
+    std::fs::write(path, contents)?;
+    Ok(())
+}
+
+fn write_pair_output_files(
+    first_path: &Path,
+    first_contents: &str,
+    second_path: &Path,
+    second_contents: &str,
+    force: bool,
+    same_path_error: &str,
+) -> Result<()> {
+    let first_key = preflight_output_file(first_path, force)?;
+    let second_key = preflight_output_file(second_path, force)?;
+    if first_key == second_key {
+        return Err(same_path_error.to_string().into());
+    }
+
+    let first_tmp = write_temp_output(first_path, first_contents)?;
+    let second_tmp = write_temp_output(second_path, second_contents)?;
+
+    let mut backups = Vec::new();
+    match backup_existing_output(first_path) {
+        Ok(backup) => backups.push((first_path.to_path_buf(), backup)),
+        Err(e) => return Err(e),
+    }
+    match backup_existing_output(second_path) {
+        Ok(backup) => backups.push((second_path.to_path_buf(), backup)),
+        Err(e) => {
+            restore_output_backups(&backups);
+            return Err(e);
+        }
+    }
+
+    if let Err(e) = persist_temp_output(first_tmp, first_path) {
+        restore_output_backups(&backups);
+        return Err(e);
+    }
+    if let Err(e) = persist_temp_output(second_tmp, second_path) {
+        let _ = std::fs::remove_file(first_path);
+        restore_output_backups(&backups);
+        return Err(e);
+    }
+    remove_output_backups(&backups);
+    Ok(())
+}
+
+fn write_temp_output(path: &Path, contents: &str) -> Result<tempfile::NamedTempFile> {
+    let mut file = tempfile::Builder::new()
+        .prefix(".actplane-output-")
+        .tempfile_in(output_parent(path))?;
+    file.write_all(contents.as_bytes())?;
+    file.flush()?;
+    file.as_file().sync_all()?;
+    Ok(file)
+}
+
+fn persist_temp_output(file: tempfile::NamedTempFile, path: &Path) -> Result<()> {
+    file.persist(path)
+        .map(|_| ())
+        .map_err(|e| format!("writing {}: {}", path.display(), e.error).into())
+}
+
+fn backup_existing_output(path: &Path) -> Result<Option<PathBuf>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => {
+            let backup = unique_backup_path(path)?;
+            std::fs::rename(path, &backup).map_err(|e| {
+                format!(
+                    "preparing backup for {} at {}: {}",
+                    path.display(),
+                    backup.display(),
+                    e
+                )
+            })?;
+            Ok(Some(backup))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("reading metadata for {}: {}", path.display(), e).into()),
+    }
+}
+
+fn unique_backup_path(path: &Path) -> Result<PathBuf> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| format!("{} is not a valid output file path", path.display()))?;
+    for attempt in 0..1000u32 {
+        let mut name = OsString::from(format!(
+            ".actplane-backup-{}-{attempt}-",
+            std::process::id()
+        ));
+        name.push(file_name);
+        let candidate = output_parent(path).join(name);
+        match std::fs::symlink_metadata(&candidate) {
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(candidate),
+            Err(e) => {
+                return Err(format!("reading metadata for {}: {}", candidate.display(), e).into());
+            }
+        }
+    }
+    Err(format!("could not allocate a backup path for {}", path.display()).into())
+}
+
+fn restore_output_backups(backups: &[(PathBuf, Option<PathBuf>)]) {
+    for (target, backup) in backups.iter().rev() {
+        if let Some(backup) = backup {
+            let _ = std::fs::remove_file(target);
+            let _ = std::fs::rename(backup, target);
+        }
+    }
+}
+
+fn remove_output_backups(backups: &[(PathBuf, Option<PathBuf>)]) {
+    for (_, backup) in backups {
+        if let Some(backup) = backup {
+            let _ = std::fs::remove_file(backup);
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum OutputPathKey {
+    #[cfg(unix)]
+    ExistingFile {
+        dev: u64,
+        ino: u64,
+    },
+    Path(PathBuf),
+}
+
+fn preflight_output_file(path: &Path, force: bool) -> Result<OutputPathKey> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                return Err(format!(
+                    "{} is a symlink; use the resolved target path instead",
+                    path.display()
+                )
+                .into());
+            }
+            if meta.is_dir() {
+                return Err(
+                    format!("{} is a directory, not an output file", path.display()).into(),
+                );
+            }
+            if !meta.is_file() {
+                return Err(format!("{} is not a regular output file", path.display()).into());
+            }
+            if !force {
+                return Err(format!(
+                    "{} already exists (use --force to overwrite)",
+                    path.display()
+                )
+                .into());
+            }
+            #[cfg(unix)]
+            {
+                return Ok(OutputPathKey::ExistingFile {
+                    dev: meta.dev(),
+                    ino: meta.ino(),
+                });
+            }
+            #[cfg(not(unix))]
+            {
+                return Ok(OutputPathKey::Path(std::fs::canonicalize(path)?));
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(format!("reading metadata for {}: {}", path.display(), e).into());
+        }
+    }
+
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if !parent.is_dir() {
+        return Err(format!(
+            "parent directory for {} does not exist or is not a directory",
+            path.display()
+        )
+        .into());
+    }
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| format!("{} is not a valid output file path", path.display()))?;
+    Ok(OutputPathKey::Path(
+        std::fs::canonicalize(parent)?.join(file_name),
+    ))
+}
+
+fn output_parent(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn template_project_root() -> Result<PathBuf> {
+    let cwd = std::env::current_dir()?;
+    if let Some(policy) = config::discover_policy(&cwd) {
+        return Ok(policy
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| cwd.clone()));
+    }
+    let mut dir = Some(cwd.as_path());
+    while let Some(candidate) = dir {
+        if candidate.join(".git").exists() {
+            return Ok(candidate.to_path_buf());
+        }
+        dir = candidate.parent();
+    }
+    Ok(cwd)
+}
+
+fn render_policy_review_for_yaml(
+    policy_yaml: &str,
+    policy_path: &Path,
+    yaml_error_context: &str,
+) -> Result<String> {
+    let config: config::FileConfig =
+        serde_yaml::from_str(policy_yaml).map_err(|e| format!("{yaml_error_context}: {e}"))?;
+    let loaded = config::LoadedPolicy {
+        config,
+        root: std::env::current_dir()?,
+        path: Some(policy_path.to_path_buf()),
+    };
+    doctor::render_policy_review_for_loaded(&loaded, None)
+}
+
+fn render_template(
+    template: &templates::PolicyTemplate,
+    format: TemplateFormat,
+    params: &[String],
+) -> Result<String> {
     match format {
-        TemplateFormat::Dsl => templates::render_dsl(template).to_string(),
-        TemplateFormat::Yaml => templates::render_yaml(template),
+        TemplateFormat::Dsl => templates::render_dsl(template, params),
+        TemplateFormat::Yaml => templates::render_yaml(template, params),
     }
 }
 

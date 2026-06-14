@@ -145,6 +145,440 @@ pub(crate) fn check_policy(
     Ok(0)
 }
 
+pub(crate) fn render_policy_review_for_loaded(
+    loaded: &LoadedPolicy,
+    domain: Option<&str>,
+) -> Result<String> {
+    let resolved = resolve_policy(loaded, domain)?;
+    let where_ = loaded
+        .path
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "--rule".into());
+    let parsed =
+        dsl::parse::parse(&resolved.source).map_err(|e| format!("policy does not compile: {e}"))?;
+    let compiled =
+        dsl::compile_str(&resolved.source).map_err(|e| format!("policy does not compile: {e}"))?;
+    let active_lsms = active_lsms().unwrap_or_default();
+    let force_tracepoint = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT").is_some();
+    let lsm_bpf = lsm_list_has_bpf(&active_lsms) && !force_tracepoint;
+    Ok(render_check_explain(
+        &where_,
+        loaded,
+        &resolved,
+        &parsed,
+        &compiled,
+        &active_lsms,
+        lsm_bpf,
+        force_tracepoint,
+    ))
+}
+
+pub(crate) struct RolloutArtifacts {
+    pub(crate) plan: String,
+    pub(crate) observe_policy_yaml: String,
+}
+
+pub(crate) fn render_rollout_artifacts(cli: &Cli) -> Result<RolloutArtifacts> {
+    let loaded = load_policy(cli)?;
+    let resolved = resolve_policy(&loaded, cli.domain.as_deref())?;
+    let where_ = loaded
+        .path
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "--rule".into());
+    let parsed =
+        dsl::parse::parse(&resolved.source).map_err(|e| format!("policy does not compile: {e}"))?;
+    let compiled =
+        dsl::compile_str(&resolved.source).map_err(|e| format!("policy does not compile: {e}"))?;
+    let active_lsms = active_lsms().unwrap_or_default();
+    let force_tracepoint = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT").is_some();
+    let lsm_bpf = lsm_list_has_bpf(&active_lsms) && !force_tracepoint;
+    Ok(RolloutArtifacts {
+        plan: render_rollout_plan(
+            &where_,
+            &resolved,
+            &parsed,
+            &compiled,
+            &active_lsms,
+            lsm_bpf,
+            force_tracepoint,
+        ),
+        observe_policy_yaml: render_observe_policy_yaml(&where_, &resolved, &parsed),
+    })
+}
+
+fn render_rollout_plan(
+    policy_ref: &str,
+    resolved: &ResolvedPolicy,
+    parsed: &Policy,
+    compiled: &dsl::Compiled,
+    active_lsms: &str,
+    lsm_bpf: bool,
+    force_tracepoint: bool,
+) -> String {
+    let mut out = String::new();
+    writeln!(&mut out, "ActPlane rollout plan").unwrap();
+    writeln!(&mut out, "policy: {}", policy_ref).unwrap();
+    match &resolved.domain {
+        Some(domain) => {
+            writeln!(&mut out, "domain: {}", domain.name).unwrap();
+            if let Some(parent) = &domain.parent {
+                writeln!(&mut out, "parent: {}", parent).unwrap();
+            }
+            writeln!(
+                &mut out,
+                "locked rules: {}",
+                format_rule_list(&domain.locked)
+            )
+            .unwrap();
+            writeln!(
+                &mut out,
+                "default rules: {}",
+                format_rule_list(&domain.defaults)
+            )
+            .unwrap();
+        }
+        None => writeln!(&mut out, "domain: none (flat policy)").unwrap(),
+    }
+    writeln!(
+        &mut out,
+        "rules: {} DSL rule(s), {} lowered kernel matcher(s)",
+        parsed.rules.len(),
+        compiled.meta.len()
+    )
+    .unwrap();
+    writeln!(&mut out, "\nhost/backend:").unwrap();
+    writeln!(
+        &mut out,
+        "  - active LSMs: {}",
+        if active_lsms.trim().is_empty() {
+            "unknown"
+        } else {
+            active_lsms
+        }
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  - BPF-LSM pre-op block: {}",
+        if lsm_bpf { "available" } else { "unavailable" }
+    )
+    .unwrap();
+    if force_tracepoint {
+        writeln!(
+            &mut out,
+            "  - ACTPLANE_FORCE_TRACEPOINT: set, so BPF-LSM is treated as unavailable"
+        )
+        .unwrap();
+    }
+
+    writeln!(&mut out, "\nrecommended rollout sequence:").unwrap();
+    writeln!(
+        &mut out,
+        "  1. Static review: run `actplane check --explain --out <review.txt>` and inspect warnings."
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  2. Observe first: run the generated observe-first policy; every clause is downgraded to notify."
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  3. Promote narrowly: restore block/kill only for clauses with stable event volume, clear ownership, and backend support."
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "  4. Fail closed only after proving the policy and hook budget on the deployment host."
+    )
+    .unwrap();
+
+    writeln!(&mut out, "\nrule rollout recommendations:").unwrap();
+    if parsed.rules.is_empty() {
+        writeln!(&mut out, "  - none").unwrap();
+    }
+    for (rule_idx, rule) in parsed.rules.iter().enumerate() {
+        writeln!(&mut out, "  {}. rule {}", rule_idx + 1, rule.name).unwrap();
+        writeln!(&mut out, "     reason: {}", rule.reason).unwrap();
+        for clause in &rule.clauses {
+            let current = clause_support_detail(
+                clause.effect,
+                clause.op,
+                clause.target.kind,
+                &clause.target.pattern,
+                clause.target.arg.as_deref(),
+                lsm_bpf,
+            );
+            let block = clause_support_detail(
+                Effect::Block,
+                clause.op,
+                clause.target.kind,
+                &clause.target.pattern,
+                clause.target.arg.as_deref(),
+                lsm_bpf,
+            );
+            writeln!(
+                &mut out,
+                "     clause {}: {}",
+                clause.source_index + 1,
+                clause_summary(clause)
+            )
+            .unwrap();
+            writeln!(
+                &mut out,
+                "       current: {}; {}; timing={}",
+                effect_name(clause.effect),
+                current.status,
+                enforcement_timing(clause.effect, &current)
+            )
+            .unwrap();
+            for warning in clause_condition_warnings(clause) {
+                writeln!(&mut out, "       condition warning: {}", warning.message).unwrap();
+            }
+            let (stage, promote, risk) = rollout_recommendation(clause, &current, &block);
+            writeln!(&mut out, "       observe stage: {}", stage).unwrap();
+            writeln!(&mut out, "       promotion: {}", promote).unwrap();
+            writeln!(&mut out, "       residual risk: {}", risk).unwrap();
+        }
+    }
+
+    let warns = backend_support_warnings(parsed, lsm_bpf);
+    if !warns.is_empty() {
+        writeln!(&mut out, "\nstatic warnings to resolve before promotion:").unwrap();
+        for warning in warns {
+            writeln!(&mut out, "  - {}: {}", warning.code, warning.message).unwrap();
+        }
+    }
+    out
+}
+
+fn rollout_recommendation(
+    clause: &Clause,
+    current: &SupportDetail,
+    block: &SupportDetail,
+) -> (String, String, String) {
+    let observe = "use notify-only observe policy for this clause before enforcement".to_string();
+    match clause.effect {
+        Effect::Notify => {
+            if block.supported {
+                (
+                    "already notify; collect baseline event volume".into(),
+                    "eligible for later block if the observed events are all unwanted".into(),
+                    "promotion changes timing from post-event report to pre-operation denial"
+                        .into(),
+                )
+            } else {
+                (
+                    "already notify; keep as observe/report-only".into(),
+                    format!("do not promote to block yet: {}", block.reason),
+                    "promotion would overclaim backend support".into(),
+                )
+            }
+        }
+        Effect::Block => {
+            if current.supported {
+                (
+                    observe,
+                    "eligible for block after observe period and false-positive review".into(),
+                    "block denies before syscall commit only on hosts with matching BPF-LSM and hook budget".into(),
+                )
+            } else {
+                (
+                    observe,
+                    format!("do not deploy as block yet: {}", current.reason),
+                    "the declared block effect is not enforceable by the current backend selection"
+                        .into(),
+                )
+            }
+        }
+        Effect::Kill => (
+            observe,
+            "promote to kill only after manual review; kill is post-event termination".into(),
+            "the triggering syscall may already have completed before termination".into(),
+        ),
+    }
+}
+
+fn render_observe_policy_yaml(
+    policy_ref: &str,
+    resolved: &ResolvedPolicy,
+    parsed: &Policy,
+) -> String {
+    let mut out = String::new();
+    writeln!(
+        &mut out,
+        "# ActPlane observe-first policy generated from {}.",
+        policy_ref
+    )
+    .unwrap();
+    writeln!(
+        &mut out,
+        "# Every rule clause is downgraded to notify for rollout observation."
+    )
+    .unwrap();
+    if let Some(domain) = &resolved.domain {
+        writeln!(
+            &mut out,
+            "# Source domain: {} (flattened selected policy).",
+            domain.name
+        )
+        .unwrap();
+    }
+    writeln!(&mut out, "version: 1").unwrap();
+    writeln!(&mut out, "policy: |").unwrap();
+    for line in render_observe_dsl(parsed).trim_end().lines() {
+        if !line.is_empty() {
+            out.push_str("  ");
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn render_observe_dsl(parsed: &Policy) -> String {
+    let mut out = String::new();
+    for source in &parsed.sources {
+        writeln!(
+            &mut out,
+            "source {} = {} \"{}\"",
+            source.label,
+            kind_name(source.kind),
+            dsl_literal(&source.pattern)
+        )
+        .unwrap();
+    }
+    if !parsed.sources.is_empty() {
+        out.push('\n');
+    }
+    for xform in &parsed.xforms {
+        writeln!(
+            &mut out,
+            "{} {} by exec \"{}\"",
+            if xform.endorse {
+                "endorse"
+            } else {
+                "declassify"
+            },
+            xform.label,
+            dsl_literal(&xform.gate)
+        )
+        .unwrap();
+    }
+    if !parsed.xforms.is_empty() {
+        out.push('\n');
+    }
+    for rule in &parsed.rules {
+        writeln!(&mut out, "rule {}:", rule.name).unwrap();
+        for clause in &rule.clauses {
+            writeln!(&mut out, "  {}", render_observe_clause(clause)).unwrap();
+        }
+        let reason = if rule.reason.trim().is_empty() {
+            "Observe-first rollout for original policy.".to_string()
+        } else {
+            format!("Observe-first rollout for original policy: {}", rule.reason)
+        };
+        writeln!(&mut out, "  because \"{}\"", dsl_literal(&reason)).unwrap();
+        out.push('\n');
+    }
+    out
+}
+
+fn render_observe_clause(clause: &Clause) -> String {
+    let mut out = format!("notify {}", op_name(clause.op));
+    match clause.target.kind {
+        Kind::Exec => {
+            out.push_str(&format!(" \"{}\"", dsl_literal(&clause.target.pattern)));
+            if let Some(arg) = &clause.target.arg {
+                out.push_str(&format!(" \"{}\"", dsl_literal(arg)));
+            }
+        }
+        Kind::File | Kind::Endpoint => {
+            out.push_str(&format!(
+                " {} \"{}\"",
+                kind_name(clause.target.kind),
+                dsl_literal(&clause.target.pattern)
+            ));
+        }
+    }
+    if !matches!(clause.when, Expr::True) {
+        out.push_str(" if ");
+        out.push_str(&render_dsl_expr(&clause.when));
+    }
+    if let Some(cond) = &clause.unless {
+        out.push_str(" unless ");
+        out.push_str(&render_dsl_cond(cond));
+    }
+    out
+}
+
+fn render_dsl_expr(expr: &Expr) -> String {
+    match expr {
+        Expr::True => "true".into(),
+        Expr::Label(label) => label.clone(),
+        Expr::Not(label) => format!("not {}", label),
+        Expr::And(left, right) => {
+            format!("{} and {}", render_dsl_expr(left), render_dsl_expr(right))
+        }
+        Expr::Or(left, right) => format!("{} or {}", render_dsl_expr(left), render_dsl_expr(right)),
+    }
+}
+
+fn render_dsl_cond(cond: &Cond) -> String {
+    match cond {
+        Cond::Target { negate, pattern } => {
+            if *negate {
+                format!("target not \"{}\"", dsl_literal(pattern))
+            } else {
+                format!("target \"{}\"", dsl_literal(pattern))
+            }
+        }
+        Cond::LineageIncludes { exec } => {
+            format!("lineage-includes exec \"{}\"", dsl_literal(exec))
+        }
+        Cond::After {
+            gate_op,
+            gate_pattern,
+            gate_exit,
+            since,
+        } => {
+            let mut out = format!(
+                "after {} \"{}\"",
+                op_name(*gate_op),
+                dsl_literal(gate_pattern)
+            );
+            if let Some(exit) = gate_exit {
+                out.push_str(&format!(" exits {}", exit));
+            }
+            if !since.is_empty() {
+                out.push_str(" since ");
+                out.push_str(
+                    &since
+                        .iter()
+                        .map(|(op, pattern, arg)| render_dsl_event(*op, pattern, arg.as_deref()))
+                        .collect::<Vec<_>>()
+                        .join(" or "),
+                );
+            }
+            out
+        }
+    }
+}
+
+fn render_dsl_event(op: Op, pattern: &str, arg: Option<&str>) -> String {
+    let mut out = format!("{} \"{}\"", op_name(op), dsl_literal(pattern));
+    if let Some(arg) = arg {
+        out.push_str(&format!(" \"{}\"", dsl_literal(arg)));
+    }
+    out
+}
+
+fn dsl_literal(value: &str) -> String {
+    value.replace(['\n', '\r'], " ").replace('"', "'")
+}
+
 fn policy_ref_for_cli(cli: &Cli) -> String {
     cli.policy
         .as_ref()

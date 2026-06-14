@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde_json::{Value, json};
 
 use crate::Result;
@@ -10,8 +12,105 @@ pub(crate) struct PolicyTemplate {
     pub(crate) effect: &'static str,
     pub(crate) summary: &'static str,
     pub(crate) notes: &'static [&'static str],
+    pub(crate) params: &'static [TemplateParam],
     pub(crate) dsl: &'static str,
 }
+
+#[derive(Debug)]
+pub(crate) struct TemplateParam {
+    pub(crate) name: &'static str,
+    pub(crate) value_name: &'static str,
+    pub(crate) default: &'static str,
+    pub(crate) description: &'static str,
+}
+
+static PARAM_AGENT_EXEC: &[TemplateParam] = &[TemplateParam {
+    name: "agent_exec",
+    value_name: "EXEC_GLOB",
+    default: "**",
+    description: "exec glob that identifies the protected agent/process tree",
+}];
+
+static PARAM_NO_SECRET_EGRESS: &[TemplateParam] = &[
+    TemplateParam {
+        name: "secret_paths",
+        value_name: "GLOB[,GLOB...]",
+        default: "**/.env,**/.npmrc,**/.pypirc,**/secrets/**",
+        description: "comma-separated file globs that seed the SECRET label",
+    },
+    TemplateParam {
+        name: "redactor_exec",
+        value_name: "EXEC_GLOB",
+        default: "**/redact",
+        description: "exec glob for the command allowed to declassify SECRET",
+    },
+];
+
+static PARAM_TEST_BEFORE_COMMIT: &[TemplateParam] = &[
+    TemplateParam {
+        name: "agent_exec",
+        value_name: "EXEC_GLOB",
+        default: "**",
+        description: "exec glob that identifies the protected agent/process tree",
+    },
+    TemplateParam {
+        name: "test_exec",
+        value_name: "EXEC_GLOB",
+        default: "**/pytest",
+        description: "exec glob for the successful test command",
+    },
+    TemplateParam {
+        name: "changed_paths",
+        value_name: "GLOB[,GLOB...]",
+        default: "src/**,tests/**",
+        description: "comma-separated file globs whose writes require a fresh test",
+    },
+];
+
+static PARAM_WORKSPACE_CONFINEMENT: &[TemplateParam] = &[
+    TemplateParam {
+        name: "agent_exec",
+        value_name: "EXEC_GLOB",
+        default: "**",
+        description: "exec glob that identifies the protected agent/process tree",
+    },
+    TemplateParam {
+        name: "writable_path",
+        value_name: "FILE_GLOB",
+        default: "/work/**",
+        description: "file glob that remains writable",
+    },
+];
+
+static PARAM_NO_NETWORK: &[TemplateParam] = &[
+    TemplateParam {
+        name: "agent_exec",
+        value_name: "EXEC_GLOB",
+        default: "**",
+        description: "exec glob that identifies the protected agent/process tree",
+    },
+    TemplateParam {
+        name: "loopback_endpoint",
+        value_name: "IP_PREFIX",
+        default: "127.",
+        description: "numeric IPv4 prefix exempted from the no-network rule",
+    },
+];
+
+static PARAM_PROD_DB: &[TemplateParam] = &[
+    TemplateParam {
+        name: "database_path",
+        value_name: "FILE_GLOB",
+        default: "**/prod.db",
+        description: "file glob for the protected database or resource",
+    },
+    TemplateParam {
+        name: "mediator_exec",
+        value_name: "EXEC_GLOB",
+        default: "**/migrate",
+        description: "exec glob for the required mediation tool",
+    },
+];
 
 const TEMPLATES: &[PolicyTemplate] = &[
     PolicyTemplate {
@@ -25,7 +124,8 @@ const TEMPLATES: &[PolicyTemplate] = &[
             "Good default for repos where branch/worktree management should stay with the human/operator.",
             "With `actplane run` or `watch`, the protected root is also seeded with the COMMAND label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
-        dsl: r#"source COMMAND = exec "**"
+        params: PARAM_AGENT_EXEC,
+        dsl: r#"source COMMAND = exec "{{agent_exec}}"
 
 rule no-git-branch:
   kill exec "git" "branch"   if COMMAND
@@ -43,16 +143,14 @@ rule no-git-branch:
             "Endpoint matching is numeric IPv4-oriented in the kernel. Use `actplane check --explain` to review host support.",
             "Edit the source paths and redactor command for the project before enforcing broadly.",
         ],
-        dsl: r#"source SECRET = file "**/.env"
-source SECRET = file "**/.npmrc"
-source SECRET = file "**/.pypirc"
-source SECRET = file "**/secrets/**"
+        params: PARAM_NO_SECRET_EGRESS,
+        dsl: r#"{{secret_source_lines}}
 
 rule no-secret-egress:
   block connect endpoint "*" if SECRET
   because "Data derived from local secrets must not leave the host. Redact or declassify first."
 
-declassify SECRET by exec "**/redact"
+declassify SECRET by exec "{{redactor_exec}}"
 "#,
     },
     PolicyTemplate {
@@ -66,12 +164,13 @@ declassify SECRET by exec "**/redact"
             "Replace pytest and path globs with the repo's real test command and source roots.",
             "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
-        dsl: r#"source AGENT = exec "**"
+        params: PARAM_TEST_BEFORE_COMMIT,
+        dsl: r#"source AGENT = exec "{{agent_exec}}"
 
 rule test-before-commit:
   kill exec "git" "commit" if AGENT
-    unless after exec "**/pytest" exits 0 since write "src/**" or write "tests/**"
-  because "Source or test files changed since the last successful test run. Run pytest before committing."
+    unless after exec "{{test_exec}}" exits 0 since {{changed_write_events}}
+  because "Source or test files changed since the last successful test run. Run {{test_exec}} before committing."
 "#,
     },
     PolicyTemplate {
@@ -85,12 +184,13 @@ rule test-before-commit:
             "Run `actplane check --explain` before rollout. Without BPF-LSM, block rules are reported as unsupported.",
             "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
-        dsl: r#"source AGENT = exec "**"
+        params: PARAM_WORKSPACE_CONFINEMENT,
+        dsl: r#"source AGENT = exec "{{agent_exec}}"
 
 rule workspace-confinement:
-  block write file "/**"  if AGENT unless target "/work/**"
-  block unlink file "/**" if AGENT unless target "/work/**"
-  because "Modify only files under /work, or ask the user to approve a different writable path."
+  block write file "/**"  if AGENT unless target "{{writable_path}}"
+  block unlink file "/**" if AGENT unless target "{{writable_path}}"
+  because "Modify only files matching {{writable_path}}, or ask the user to approve a different writable path."
 "#,
     },
     PolicyTemplate {
@@ -105,7 +205,8 @@ rule workspace-confinement:
             "Run `actplane check --explain` before rollout. Without BPF-LSM, block rules are reported as unsupported.",
             "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
-        dsl: r#"source AGENT = exec "**"
+        params: PARAM_AGENT_EXEC,
+        dsl: r#"source AGENT = exec "{{agent_exec}}"
 
 rule readonly-review:
   block write file "/**"  if AGENT
@@ -125,10 +226,11 @@ rule readonly-review:
             "Run `actplane check --explain` before rollout. Without BPF-LSM, block rules are reported as unsupported.",
             "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
-        dsl: r#"source AGENT = exec "**"
+        params: PARAM_NO_NETWORK,
+        dsl: r#"source AGENT = exec "{{agent_exec}}"
 
 rule no-network:
-  block connect endpoint "*" if AGENT unless target "127."
+  block connect endpoint "*" if AGENT unless target "{{loopback_endpoint}}"
   because "This domain cannot use external network egress."
 "#,
     },
@@ -142,9 +244,10 @@ rule no-network:
             "This is intended as a BPF-LSM block policy. Check host support before relying on pre-op denial.",
             "Replace prod.db and migrate with the project's real protected resource and access tool.",
         ],
+        params: PARAM_PROD_DB,
         dsl: r#"rule prod-db-via-migrate:
-  block open file "**/prod.db" if true unless lineage-includes exec "**/migrate"
-  because "Access prod.db only through the migration tool."
+  block open file "{{database_path}}" if true unless lineage-includes exec "{{mediator_exec}}"
+  because "Access {{database_path}} only through {{mediator_exec}}."
 "#,
     },
 ];
@@ -186,14 +289,60 @@ fn template_json(template: &PolicyTemplate) -> Value {
         "effect": template.effect,
         "summary": template.summary,
         "notes": template.notes,
+        "params": template.params.iter().map(param_json).collect::<Vec<_>>(),
     })
 }
 
-pub(crate) fn render_dsl(template: &PolicyTemplate) -> &str {
-    template.dsl
+fn param_json(param: &TemplateParam) -> Value {
+    json!({
+        "name": param.name,
+        "value_name": param.value_name,
+        "default": param.default,
+        "description": param.description,
+    })
 }
 
-pub(crate) fn render_yaml(template: &PolicyTemplate) -> String {
+pub(crate) fn render_dsl(template: &PolicyTemplate, overrides: &[String]) -> Result<String> {
+    let values = template_values(template, overrides)?;
+    let mut replacements = values.clone();
+    if let Some(secret_paths) = values.get("secret_paths") {
+        replacements.insert(
+            "secret_source_lines".into(),
+            split_list(secret_paths)?
+                .into_iter()
+                .map(|path| format!("source SECRET = file \"{path}\""))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
+    if let Some(changed_paths) = values.get("changed_paths") {
+        replacements.insert(
+            "changed_write_events".into(),
+            split_list(changed_paths)?
+                .into_iter()
+                .map(|path| format!("write \"{path}\""))
+                .collect::<Vec<_>>()
+                .join(" or "),
+        );
+    }
+
+    let mut out = template.dsl.to_string();
+    for (key, value) in replacements {
+        out = out.replace(&format!("{{{{{key}}}}}"), &value);
+    }
+    if out.contains("{{") || out.contains("}}") {
+        return Err(format!(
+            "template `{}` contains an unresolved parameter",
+            template.id
+        )
+        .into());
+    }
+    Ok(out)
+}
+
+pub(crate) fn render_yaml(template: &PolicyTemplate, overrides: &[String]) -> Result<String> {
+    let dsl = render_dsl(template, overrides)?;
+    let values = template_values(template, overrides)?;
     let mut out = String::new();
     out.push_str("# ActPlane policy generated from template `");
     out.push_str(template.id);
@@ -206,15 +355,104 @@ pub(crate) fn render_yaml(template: &PolicyTemplate) -> String {
         out.push_str(note);
         out.push('\n');
     }
+    for param in template.params {
+        if let Some(value) = values.get(param.name) {
+            out.push_str("# Parameter ");
+            out.push_str(param.name);
+            out.push_str(": ");
+            out.push_str(value);
+            out.push('\n');
+        }
+    }
     out.push_str("version: 1\npolicy: |\n");
-    for line in template.dsl.trim_end().lines() {
+    for line in dsl.trim_end().lines() {
         if !line.is_empty() {
             out.push_str("  ");
             out.push_str(line);
         }
         out.push('\n');
     }
-    out
+    Ok(out)
+}
+
+fn template_values(
+    template: &PolicyTemplate,
+    overrides: &[String],
+) -> Result<BTreeMap<String, String>> {
+    let mut values = template
+        .params
+        .iter()
+        .map(|param| (param.name.to_string(), param.default.to_string()))
+        .collect::<BTreeMap<_, _>>();
+    let allowed = template
+        .params
+        .iter()
+        .map(|param| param.name)
+        .collect::<BTreeSet<_>>();
+    let mut seen = BTreeSet::new();
+    for raw in overrides {
+        let (key, value) = raw
+            .split_once('=')
+            .ok_or_else(|| format!("template parameter `{raw}` must use key=value"))?;
+        if key.trim() != key || key.is_empty() {
+            return Err(format!("invalid template parameter key `{key}`").into());
+        }
+        if !allowed.contains(key) {
+            return Err(format!(
+                "unknown parameter `{}` for template `{}` (available: {})",
+                key,
+                template.id,
+                template
+                    .params
+                    .iter()
+                    .map(|param| param.name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+            .into());
+        }
+        if !seen.insert(key.to_string()) {
+            return Err(format!("parameter `{key}` was provided more than once").into());
+        }
+        validate_value(key, value)?;
+        if key == "secret_paths" || key == "changed_paths" {
+            let _ = split_list(value)?;
+        }
+        values.insert(key.to_string(), value.to_string());
+    }
+    for (key, value) in &values {
+        validate_value(key, value)?;
+        if key == "secret_paths" || key == "changed_paths" {
+            let _ = split_list(value)?;
+        }
+    }
+    Ok(values)
+}
+
+fn validate_value(key: &str, value: &str) -> Result<()> {
+    if value.is_empty() {
+        return Err(format!("parameter `{key}` must not be empty").into());
+    }
+    if value.contains('"')
+        || value.contains('\n')
+        || value.contains('\r')
+        || value.contains('{')
+        || value.contains('}')
+    {
+        return Err(format!(
+            "parameter `{key}` contains characters unsupported by the current DSL string syntax"
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn split_list(value: &str) -> Result<Vec<&str>> {
+    let items = value.split(',').map(str::trim).collect::<Vec<_>>();
+    if items.iter().any(|item| item.is_empty()) {
+        return Err("comma-separated template parameters must not contain empty items".into());
+    }
+    Ok(items)
 }
 
 #[cfg(test)]
@@ -228,10 +466,13 @@ mod tests {
     fn all_templates_compile_as_dsl_and_yaml() {
         assert!(all().len() >= 6);
         for template in all() {
-            dsl::compile_str(template.dsl)
+            let rendered = render_dsl(template, &[])
+                .unwrap_or_else(|e| panic!("template {} render DSL: {e}", template.id));
+            dsl::compile_str(&rendered)
                 .unwrap_or_else(|e| panic!("template {} DSL compile: {e}", template.id));
 
-            let yaml = render_yaml(template);
+            let yaml = render_yaml(template, &[])
+                .unwrap_or_else(|e| panic!("template {} render YAML: {e}", template.id));
             let config: FileConfig = serde_yaml::from_str(&yaml)
                 .unwrap_or_else(|e| panic!("template {} YAML parse: {e}", template.id));
             let loaded = LoadedPolicy {
@@ -251,5 +492,42 @@ mod tests {
         let err = get("missing-template").unwrap_err().to_string();
         assert!(err.contains("unknown template `missing-template`"));
         assert!(err.contains("no-secret-egress"));
+    }
+
+    #[test]
+    fn template_parameters_render_and_compile() {
+        let rendered = render_dsl(
+            get("test-before-commit").unwrap(),
+            &[
+                "agent_exec=codex".into(),
+                "test_exec=**/pnpm".into(),
+                "changed_paths=packages/**,src/**".into(),
+            ],
+        )
+        .unwrap();
+        assert!(rendered.contains("source AGENT = exec \"codex\""));
+        assert!(rendered.contains("after exec \"**/pnpm\""));
+        assert!(rendered.contains("write \"packages/**\" or write \"src/**\""));
+        dsl::compile_str(&rendered).unwrap();
+    }
+
+    #[test]
+    fn template_parameters_reject_unknown_duplicate_and_unsafe_values() {
+        let template = get("no-network").unwrap();
+        let err = render_dsl(template, &["missing=value".into()])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown parameter `missing`"));
+        let err = render_dsl(
+            template,
+            &["agent_exec=codex".into(), "agent_exec=claude".into()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("provided more than once"));
+        let err = render_dsl(template, &["agent_exec=bad\"quote".into()])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unsupported by the current DSL string syntax"));
     }
 }

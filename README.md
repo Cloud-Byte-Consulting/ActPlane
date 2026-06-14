@@ -32,9 +32,21 @@ Write a policy and run an agent (or any command) under the harness:
 actplane init                                  # write a starter actplane.yaml
 actplane templates list                        # discover built-in policy templates
 actplane templates show no-secret-egress       # inspect template DSL
-actplane check                                 # validate rules (no privileges)
+actplane templates review no-secret-egress \
+  --set 'secret_paths=**/.env,**/secrets/**' \
+  --set 'redactor_exec=**/redact' \
+  --policy-out /tmp/no-secret-policy.yaml \
+  --review-out /tmp/no-secret-review.txt       # write a candidate policy + review
+actplane templates generate \
+  --policy-out /tmp/actplane-candidate.yaml \
+  --review-out /tmp/actplane-candidate-review.txt
+actplane --policy /tmp/actplane-candidate.yaml check  # validate the generated candidate
+actplane check                                 # validate the active project policy
 actplane check --explain                       # human-readable policy review artifact
 actplane check --explain --out docs/actplane-review.txt
+actplane rollout \
+  --out docs/actplane-rollout.txt \
+  --observe-policy-out /tmp/actplane-observe.yaml
 actplane check --json                          # machine-readable support matrix for CI/review
 actplane doctor                                # diagnose hooks, MCP, kernel support
 
@@ -42,8 +54,15 @@ codex                                         # MCP auto-attach tries passwordle
 sudo -E actplane run claude -p "review this repo"
 ```
 
-`check --explain --out` refuses to overwrite an existing artifact unless you
-add `--force`.
+`templates review` and `check --explain --out` refuse to overwrite existing
+artifacts unless you add `--force`. Built-in templates declare parameters that
+can be overridden with repeated `--set key=value` flags; `templates list --json`
+shows the available keys and defaults. `templates generate` scans project
+instructions and common manifests to emit a deterministic candidate policy plus
+the same review artifact; it is a review aid, not an automatic rollout.
+`rollout` produces an observe-first plan and can emit a notify-only policy for
+measuring rule matches before promoting selected clauses back to `block` or
+`kill`.
 
 When a rule matches, ActPlane kills the action and tells the agent why:
 

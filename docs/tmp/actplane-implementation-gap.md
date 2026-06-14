@@ -797,7 +797,10 @@ Current state:
   fresh tests before commit, workspace write confinement, read-only review
   domains, no external network, and mediated prod database access. Templates
   can be rendered as DSL for deltas or as a flat YAML policy file, and every
-  built-in template is compile-tested in both forms.
+  built-in template is compile-tested in both forms. `templates list --json`
+  exposes each template's declared parameters, defaults, and descriptions, and
+  `templates show/write/review --set key=value` can override project-specific
+  paths, commands, and endpoint prefixes without hand-editing emitted YAML.
 - `actplane check` validates and summarizes rules.
 - `actplane check --explain` emits a human-readable policy review artifact for
   the selected policy/domain. It connects sources, runtime append-delta approval
@@ -805,28 +808,49 @@ Current state:
   enforcement timing, lowered kernel matcher counts, and provenance/audit
   boundaries. `actplane check --explain --out FILE` writes the same artifact to
   a file for CI upload or repository review.
+- `actplane templates review TEMPLATE --policy-out FILE --review-out FILE`
+  ties the built-in template catalog to the policy review surface. It renders a
+  flat YAML policy, validates and reviews that generated policy using the same
+  `check --explain` renderer, and writes both artifacts in one step with
+  overwrite protection.
+- `actplane templates generate --policy-out FILE --review-out FILE` is a
+  deterministic candidate-policy generator. It scans project instruction files
+  such as `AGENTS.md`/`CLAUDE.md`, accepts an optional task hint, inspects common
+  source/test/manifest layout, selects matching built-in templates, fills
+  declared parameters, writes a candidate flat YAML policy, and writes the same
+  review artifact. It remains a review aid and does not apply the policy.
+- `actplane rollout --out FILE --observe-policy-out FILE` produces a
+  human-readable observe-first rollout plan for the selected policy/domain and
+  can write a flattened notify-only policy. The plan reports host/backend
+  support, per-clause observe-stage guidance, promotion guidance for
+  block/kill/notify clauses, and static warnings that should be resolved before
+  promotion.
 - The repository contains evaluation-time policy corpora and generated policies.
 
 Missing:
 
-- No built-in generator from `AGENTS.md`, `CLAUDE.md`, project config, and the
-  current task.
-- Templates are not yet parameterized by project paths, commands, branch names,
-  or dependency managers. Users still edit emitted DSL/YAML before rollout.
+- The built-in generator is heuristic and template-backed. It does not yet use
+  a richer parser or model-assisted synthesis over arbitrary project
+  instructions.
+- Template parameters cover common paths, commands, and endpoint prefixes, but
+  they do not yet infer values from the repository or model branch/dependency
+  manager choices directly.
 - The catalog does not yet cover dependency-update gates, protected-branch push
   rules, or organization-specific release workflows.
-- No template-backed review workflow that starts from natural-language project
-  instructions, generates candidate DSL, writes the selected policy, and runs
-  the explicit review artifact step as one command.
-- No dry-run/observe-first rollout helper that recommends which rules are safe
-  to promote from notify to block/kill.
+- No interactive natural-language guided workflow that lets a user approve,
+  reject, or edit each generated choice before writing artifacts.
+- Rollout planning is still static. It does not yet ingest observed event
+  volume, false-positive annotations, or audit history to automatically rank
+  promotion candidates after an observe period.
 
 Minimum fix:
 
-- Add a generator/review command that ties templates, generated DSL, policy
-  writing, and `check --explain --out` into one guided workflow.
-- Add template parameters for common project-specific paths, commands, branch
-  names, and dependency managers.
+- Improve the generator beyond deterministic heuristics, including richer
+  instruction parsing and user confirmation/editing before writing artifacts.
+- Extend the template catalog and parameters for branch names, dependency
+  managers, and protected release workflows.
+- Add an event-backed promotion workflow that reads observe-mode audit logs and
+  recommends which clauses are safe to promote from notify to block/kill.
 
 ### P1: Audit And Feedback Need Structured State
 
@@ -1264,15 +1288,17 @@ Minimum fix:
 
 ### P1: Make It Useful For Real Users
 
-1. Add template parameters and a guided generator/review workflow around
-   `check --explain --out`.
+1. Improve the project-instruction-aware generator with richer inference,
+   branch/dependency-manager parameters, and an interactive review/edit step on
+   top of the existing `templates generate`, `templates review`, and
+   `check --explain --out` surfaces.
 2. Extend templates, review, and supervisor-grade recovery semantics for
    long-lived subagents.
 3. Decide whether deployments need signed approval tokens or external
    ticket-system verification on top of the static approval allowlist gate.
 4. Add privileged CI/e2e coverage for BPF-LSM and tracepoint modes.
-5. Add safe rollout modes: observe-only, warn, block selected rules, fail closed
-   for high-severity rules.
+5. Add event-backed promotion from observe-only to warn, block selected rules,
+   and fail closed for high-severity rules.
 
 ### P2: Clean Up Surface Area
 
