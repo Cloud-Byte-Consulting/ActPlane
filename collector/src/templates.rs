@@ -31,6 +31,27 @@ static PARAM_AGENT_EXEC: &[TemplateParam] = &[TemplateParam {
     description: "exec glob that identifies the protected agent/process tree",
 }];
 
+static PARAM_NO_GIT_PUSH: &[TemplateParam] = &[
+    TemplateParam {
+        name: "agent_exec",
+        value_name: "EXEC_GLOB",
+        default: "**",
+        description: "exec glob that identifies the protected agent/process tree",
+    },
+    TemplateParam {
+        name: "git_exec",
+        value_name: "EXEC_GLOB",
+        default: "git",
+        description: "exec glob for the git executable or approved wrapper",
+    },
+    TemplateParam {
+        name: "push_arg",
+        value_name: "ARGV_TOKEN",
+        default: "push",
+        description: "argv token that identifies a push command",
+    },
+];
+
 static PARAM_NO_SECRET_EGRESS: &[TemplateParam] = &[
     TemplateParam {
         name: "secret_paths",
@@ -64,6 +85,72 @@ static PARAM_TEST_BEFORE_COMMIT: &[TemplateParam] = &[
         value_name: "GLOB[,GLOB...]",
         default: "src/**,tests/**",
         description: "comma-separated file globs whose writes require a fresh test",
+    },
+];
+
+static PARAM_DEPENDENCY_UPDATE_GATE: &[TemplateParam] = &[
+    TemplateParam {
+        name: "agent_exec",
+        value_name: "EXEC_GLOB",
+        default: "**",
+        description: "exec glob that identifies the protected agent/process tree",
+    },
+    TemplateParam {
+        name: "test_exec",
+        value_name: "EXEC_GLOB",
+        default: "**/pytest",
+        description: "exec glob for the successful validation command",
+    },
+    TemplateParam {
+        name: "dependency_paths",
+        value_name: "GLOB[,GLOB...]",
+        default: "Cargo.lock,package-lock.json,pnpm-lock.yaml,yarn.lock,go.sum,requirements*.txt,pyproject.toml",
+        description: "comma-separated dependency manifest or lockfile globs",
+    },
+    TemplateParam {
+        name: "git_exec",
+        value_name: "EXEC_GLOB",
+        default: "git",
+        description: "exec glob for the git executable or approved wrapper",
+    },
+    TemplateParam {
+        name: "commit_arg",
+        value_name: "ARGV_TOKEN",
+        default: "commit",
+        description: "argv token that identifies a commit command",
+    },
+];
+
+static PARAM_PROTECTED_BRANCH_PUSH: &[TemplateParam] = &[
+    TemplateParam {
+        name: "agent_exec",
+        value_name: "EXEC_GLOB",
+        default: "**",
+        description: "exec glob that identifies the protected agent/process tree",
+    },
+    TemplateParam {
+        name: "git_exec",
+        value_name: "EXEC_GLOB",
+        default: "git",
+        description: "exec glob for the git executable or approved wrapper",
+    },
+    TemplateParam {
+        name: "push_arg",
+        value_name: "ARGV_TOKEN",
+        default: "push",
+        description: "argv token that identifies a push command",
+    },
+    TemplateParam {
+        name: "protected_ref",
+        value_name: "REF_NAME",
+        default: "main",
+        description: "protected branch or ref name used in generated guidance",
+    },
+    TemplateParam {
+        name: "approval_exec",
+        value_name: "EXEC_GLOB",
+        default: "**/approve-push",
+        description: "exec glob for the command that records explicit push approval",
     },
 ];
 
@@ -134,6 +221,25 @@ rule no-git-branch:
 "#,
     },
     PolicyTemplate {
+        id: "no-git-push",
+        title: "Prevent agent-created git pushes",
+        category: "process",
+        effect: "kill",
+        summary: "Terminates git push attempts from the protected process tree.",
+        notes: &[
+            "Uses kill rather than block because argv-sensitive exec predicates are observed after exec.",
+            "Good default for repos where network publication must stay with the human/operator.",
+            "With `actplane run` or `watch`, the protected root is also seeded with the COMMAND label. Standalone users can narrow `exec \"**\"` to their agent executable.",
+        ],
+        params: PARAM_NO_GIT_PUSH,
+        dsl: r#"source COMMAND = exec "{{agent_exec}}"
+
+rule no-git-push:
+  kill exec "{{git_exec}}" "{{push_arg}}" if COMMAND
+  because "This workspace forbids agent-run git push. Ask the user or release operator to publish changes."
+"#,
+    },
+    PolicyTemplate {
         id: "no-secret-egress",
         title: "Stop local secret-derived data from reaching the network",
         category: "ifc",
@@ -171,6 +277,50 @@ rule test-before-commit:
   kill exec "git" "commit" if AGENT
     unless after exec "{{test_exec}}" exits 0 since {{changed_write_events}}
   because "Source or test files changed since the last successful test run. Run {{test_exec}} before committing."
+"#,
+    },
+    PolicyTemplate {
+        id: "dependency-update-gate",
+        title: "Require validation before dependency-aware commits",
+        category: "causal",
+        effect: "kill",
+        summary: "Terminates git commit until validation exits 0, with dependency manifest or lockfile writes making that validation stale.",
+        notes: &[
+            "Uses kill for the argv-sensitive git commit predicate.",
+            "This is conservative: commits require a successful validation command, and dependency manifest or lockfile writes make that validation stale.",
+            "ActPlane's current DSL cannot express branch/content-aware dependency commits, so this template avoids missing direct lockfile writes.",
+            "Replace the dependency path list and validation command with the repo's real dependency-update workflow.",
+            "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
+        ],
+        params: PARAM_DEPENDENCY_UPDATE_GATE,
+        dsl: r#"source AGENT = exec "{{agent_exec}}"
+
+rule dependency-update-gate:
+  kill exec "{{git_exec}}" "{{commit_arg}}" if AGENT
+    unless after exec "{{test_exec}}" exits 0 since {{dependency_write_events}}
+  because "A commit needs successful validation, and dependency manifests or lockfiles make validation stale. Run {{test_exec}} before committing."
+"#,
+    },
+    PolicyTemplate {
+        id: "protected-branch-push",
+        title: "Require session approval before protected push",
+        category: "vcs",
+        effect: "kill",
+        summary: "Terminates git push from the protected process tree unless a push approval command succeeded earlier in the session.",
+        notes: &[
+            "Uses kill rather than block because argv-sensitive exec predicates are observed after exec.",
+            "Approval is latching for the session. Single-shot approvals require a repository-specific wrapper or future pre-tokenized argv invalidators.",
+            "The current DSL matches one argv token, so this template gates push commands and names the protected ref in feedback rather than enforcing the ref directly.",
+            "Set git_exec to a repository-specific push wrapper if branch-exact enforcement is required.",
+            "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
+        ],
+        params: PARAM_PROTECTED_BRANCH_PUSH,
+        dsl: r#"source AGENT = exec "{{agent_exec}}"
+
+rule protected-branch-push:
+  kill exec "{{git_exec}}" "{{push_arg}}" if AGENT
+    unless after exec "{{approval_exec}}" exits 0
+  because "Pushes that may update protected ref {{protected_ref}} require a successful {{approval_exec}} approval in this session."
 "#,
     },
     PolicyTemplate {
@@ -325,6 +475,16 @@ pub(crate) fn render_dsl(template: &PolicyTemplate, overrides: &[String]) -> Res
                 .join(" or "),
         );
     }
+    if let Some(dependency_paths) = values.get("dependency_paths") {
+        replacements.insert(
+            "dependency_write_events".into(),
+            split_list(dependency_paths)?
+                .into_iter()
+                .map(|path| format!("write \"{path}\""))
+                .collect::<Vec<_>>()
+                .join(" or "),
+        );
+    }
 
     let mut out = template.dsl.to_string();
     for (key, value) in replacements {
@@ -415,14 +575,14 @@ fn template_values(
             return Err(format!("parameter `{key}` was provided more than once").into());
         }
         validate_value(key, value)?;
-        if key == "secret_paths" || key == "changed_paths" {
+        if key == "secret_paths" || key == "changed_paths" || key == "dependency_paths" {
             let _ = split_list(value)?;
         }
         values.insert(key.to_string(), value.to_string());
     }
     for (key, value) in &values {
         validate_value(key, value)?;
-        if key == "secret_paths" || key == "changed_paths" {
+        if key == "secret_paths" || key == "changed_paths" || key == "dependency_paths" {
             let _ = split_list(value)?;
         }
     }
@@ -508,6 +668,43 @@ mod tests {
         assert!(rendered.contains("source AGENT = exec \"codex\""));
         assert!(rendered.contains("after exec \"**/pnpm\""));
         assert!(rendered.contains("write \"packages/**\" or write \"src/**\""));
+        dsl::compile_str(&rendered).unwrap();
+    }
+
+    #[test]
+    fn dependency_and_protected_push_templates_apply_parameters() {
+        let rendered = render_dsl(
+            get("dependency-update-gate").unwrap(),
+            &[
+                "agent_exec=codex".into(),
+                "test_exec=**/cargo".into(),
+                "dependency_paths=Cargo.lock,Cargo.toml".into(),
+                "git_exec=git".into(),
+                "commit_arg=commit".into(),
+            ],
+        )
+        .unwrap();
+        assert!(rendered.contains("source AGENT = exec \"codex\""));
+        assert!(rendered.contains("kill exec \"git\" \"commit\" if AGENT"));
+        assert!(rendered.contains("write \"Cargo.lock\" or write \"Cargo.toml\""));
+        assert!(rendered.contains("after exec \"**/cargo\" exits 0"));
+        dsl::compile_str(&rendered).unwrap();
+
+        let rendered = render_dsl(
+            get("protected-branch-push").unwrap(),
+            &[
+                "agent_exec=codex".into(),
+                "git_exec=git".into(),
+                "push_arg=push".into(),
+                "protected_ref=main".into(),
+                "approval_exec=**/approve-release".into(),
+            ],
+        )
+        .unwrap();
+        assert!(rendered.contains("kill exec \"git\" \"push\" if AGENT"));
+        assert!(rendered.contains("after exec \"**/approve-release\" exits 0"));
+        assert!(!rendered.contains("since exec \"git\" \"push\""));
+        assert!(rendered.contains("protected ref main"));
         dsl::compile_str(&rendered).unwrap();
     }
 

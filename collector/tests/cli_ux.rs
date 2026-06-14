@@ -629,6 +629,9 @@ fn templates_list_and_json_expose_catalog() {
     assert!(stdout.contains("no-secret-egress"));
     assert!(stdout.contains("test-before-commit"));
     assert!(stdout.contains("prod-db-via-migrate"));
+    assert!(stdout.contains("no-git-push"));
+    assert!(stdout.contains("dependency-update-gate"));
+    assert!(stdout.contains("protected-branch-push"));
 
     let output = run(&["templates", "list", "--json"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
@@ -643,6 +646,9 @@ fn templates_list_and_json_expose_catalog() {
         .collect();
     assert!(ids.contains(&"no-network"));
     assert!(ids.contains(&"readonly-review"));
+    assert!(ids.contains(&"no-git-push"));
+    assert!(ids.contains(&"dependency-update-gate"));
+    assert!(ids.contains(&"protected-branch-push"));
 }
 
 #[test]
@@ -1168,6 +1174,46 @@ fn templates_generate_uses_task_hint_without_instruction_files() {
     assert!(written.contains("rule no-network:"));
     assert!(written.contains("# template: readonly-review"));
     assert!(written.contains("rule readonly-review:"));
+}
+
+#[test]
+fn templates_generate_infers_dependency_and_protected_push_policies() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(
+        tmp.path().join("AGENTS.md"),
+        "Dependency updates require cargo test before committing. Do not git push to main without approval.",
+    )
+    .unwrap();
+    fs::write(tmp.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+    fs::write(tmp.path().join("Cargo.lock"), "").unwrap();
+    let policy = tmp.path().join("candidate.yaml");
+    let review = tmp.path().join("candidate-review.txt");
+
+    let output = Command::new(actplane())
+        .current_dir(tmp.path())
+        .args([
+            "templates",
+            "generate",
+            "--policy-out",
+            policy.to_str().unwrap(),
+            "--review-out",
+            review.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run templates generate");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stderr(&output).contains("selected dependency-update-gate"));
+    assert!(stderr(&output).contains("selected protected-branch-push"));
+
+    let written = fs::read_to_string(&policy).unwrap();
+    assert!(written.contains("# template: dependency-update-gate"));
+    assert!(written.contains("write \"Cargo.lock\" or write \"Cargo.toml\""));
+    assert!(written.contains("# template: protected-branch-push"));
+    assert!(written.contains("protected ref main"));
+
+    let artifact = fs::read_to_string(&review).unwrap();
+    assert!(artifact.contains("rule dependency-update-gate"));
+    assert!(artifact.contains("rule protected-branch-push"));
 }
 
 #[test]

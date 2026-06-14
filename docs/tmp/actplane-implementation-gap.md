@@ -803,13 +803,16 @@ Current state:
 - `actplane init` writes a starter policy.
 - `actplane templates list/show/write` exposes a built-in template catalog for
   common policies: no agent-created git branches/worktrees, no secret egress,
-  fresh tests before commit, workspace write confinement, read-only review
-  domains, no external network, and mediated prod database access. Templates
+  fresh tests before commit, dependency-aware commit validation, no agent-run git
+  push, conservative protected-push session approval, workspace write
+  confinement, read-only review domains, no external network, and mediated prod
+  database access. Templates
   can be rendered as DSL for deltas or as a flat YAML policy file, and every
   built-in template is compile-tested in both forms. `templates list --json`
   exposes each template's declared parameters, defaults, and descriptions, and
   `templates show/write/review --set key=value` can override project-specific
-  paths, commands, and endpoint prefixes without hand-editing emitted YAML.
+  paths, commands, endpoint prefixes, dependency manifests/lockfiles, protected
+  refs, and approval commands without hand-editing emitted YAML.
 - `actplane check` validates and summarizes rules.
 - `actplane check --explain` emits a human-readable policy review artifact for
   the selected policy/domain. It connects sources, runtime append-delta approval
@@ -826,8 +829,11 @@ Current state:
   deterministic candidate-policy generator. It scans project instruction files
   such as `AGENTS.md`/`CLAUDE.md`, accepts an optional task hint, inspects common
   source/test/manifest layout, selects matching built-in templates, fills
-  declared parameters, writes a candidate flat YAML policy, and writes the same
-  review artifact. It remains a review aid and does not apply the policy.
+  declared parameters, infers dependency manifest/lockfile lists from the
+  repository when dependency-update instructions are present, infers protected
+  push guidance refs from instruction text or `.git/HEAD`, writes a candidate
+  flat YAML policy, and writes the same review artifact. It remains a review aid
+  and does not apply the policy.
 - `actplane rollout --out FILE --observe-policy-out FILE --events FILE`
   produces a human-readable observe-first rollout plan for the selected
   policy/domain and can write a flattened notify-only policy. The plan reports
@@ -847,11 +853,17 @@ Missing:
 - The built-in generator is heuristic and template-backed. It does not yet use
   a richer parser or model-assisted synthesis over arbitrary project
   instructions.
-- Template parameters cover common paths, commands, and endpoint prefixes, but
-  they do not yet infer values from the repository or model branch/dependency
-  manager choices directly.
-- The catalog does not yet cover dependency-update gates, protected-branch push
-  rules, or organization-specific release workflows.
+- Template parameters cover common paths, commands, endpoint prefixes,
+  dependency manifests/lockfiles, protected refs, and approval commands. The
+  built-in generator now infers basic dependency paths and protected-ref guidance
+  from project text and manifests, but it still does not parse arbitrary
+  organization-specific release workflows or synthesize new policies beyond the
+  fixed catalog.
+- The catalog covers dependency-aware commit validation, absolute no-push
+  policies, and conservative protected-push approval gates. It does not yet
+  cover organization-specific release workflows. Branch-exact push enforcement
+  still requires a project-specific git wrapper because the current DSL matches
+  only one argv token, and approval is session-latching rather than single-shot.
 - No interactive natural-language guided workflow that lets a user approve,
   reject, or edit each generated choice before writing artifacts.
 - Rollout planning can ingest observe-mode event volume, but it does not yet
@@ -863,8 +875,8 @@ Minimum fix:
 
 - Improve the generator beyond deterministic heuristics, including richer
   instruction parsing and user confirmation/editing before writing artifacts.
-- Extend the template catalog and parameters for branch names, dependency
-  managers, and protected release workflows.
+- Extend the template catalog and parameters for organization-specific protected
+  release workflows and richer dependency-manager conventions.
 - Add false-positive annotation input and multi-window audit history so rollout
   can rank promotion candidates across observe periods rather than only
   summarizing the supplied event log.

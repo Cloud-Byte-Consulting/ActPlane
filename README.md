@@ -57,9 +57,15 @@ sudo -E actplane run claude -p "review this repo"
 `templates review` and `check --explain --out` refuse to overwrite existing
 artifacts unless you add `--force`. Built-in templates declare parameters that
 can be overridden with repeated `--set key=value` flags; `templates list --json`
-shows the available keys and defaults. `templates generate` scans project
-instructions and common manifests to emit a deterministic candidate policy plus
-the same review artifact; it is a review aid, not an automatic rollout.
+shows the available keys and defaults. The catalog includes repository
+guardrails such as no agent-created branches/worktrees, tests before commit,
+dependency-aware commit validation, no agent-run git push, conservative
+protected-push session approval, secret egress, read-only review domains,
+network isolation, workspace confinement, and mediated production-resource
+access. `templates generate`
+scans project instructions and common manifests to emit a deterministic
+candidate policy plus the same review artifact; it is a review aid, not an
+automatic rollout.
 `rollout` produces an observe-first plan, can emit a notify-only policy for
 measuring rule matches, and can read observe-mode event logs with `--events` to
 add conservative per-clause promotion guidance before selected clauses move
