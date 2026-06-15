@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source RUST = file "**/*.rs"
-  
-  rule targeted-tests-before-finish:
-    notify exec "git" "commit" if RUST unless after exec "cargo" since write "**/*.rs"
-    because "Run the most targeted tests or checks that cover the change."

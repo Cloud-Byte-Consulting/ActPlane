@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-inline-http:
-    block connect endpoint "*" if AGENT
-    because "inline HTTP calls such as fetch or requests are blocked; use ctx_execute so only stdout enters context"

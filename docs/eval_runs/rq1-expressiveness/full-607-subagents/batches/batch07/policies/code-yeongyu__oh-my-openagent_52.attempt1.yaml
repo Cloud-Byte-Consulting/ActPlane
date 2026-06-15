@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule background-cancel-by-task:
-    notify write file "**/*.ts" if AGENT
-    because "Never use background_cancel(all=true); cancel background work by taskId individually."

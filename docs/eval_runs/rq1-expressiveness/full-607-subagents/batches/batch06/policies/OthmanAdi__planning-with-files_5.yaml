@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-noverify-or-force-master:
-    kill exec "git" "--no-verify" if AGENT
-    kill exec "git" "--force" if AGENT
-    kill exec "git" "--force-with-lease" if AGENT
-    because "Do not use --no-verify, and do not force-push master except tag ref updates."

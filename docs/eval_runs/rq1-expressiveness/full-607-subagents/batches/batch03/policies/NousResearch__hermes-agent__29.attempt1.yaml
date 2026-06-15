@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule skill-assets-layout:
-    notify write file "skills/**/SKILL.md" if AGENT
-    notify write file "skills/**" if AGENT
-    because "Skill helper assets should live in scripts, references, or templates and be referenced from SKILL.md."

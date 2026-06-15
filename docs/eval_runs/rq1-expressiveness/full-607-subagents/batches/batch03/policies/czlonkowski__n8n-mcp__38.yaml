@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule typecheck-and-lint:
-    block exec "git" "commit" if AGENT unless after exec "tsc" since write "src/**"
-    block exec "git" "commit" if AGENT unless after exec "eslint" since write "src/**"
-    because "Run typecheck and lint after every code change before committing."

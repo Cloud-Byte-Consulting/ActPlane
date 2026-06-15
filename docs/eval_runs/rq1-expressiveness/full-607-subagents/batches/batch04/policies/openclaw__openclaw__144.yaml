@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-node-modules-edits:
-    block write file "node_modules/**" if AGENT
-    block write file "**/node_modules/**" if AGENT
-    because "never edit node_modules"

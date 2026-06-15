@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule memory-before-asking:
-    notify exec "ask_user" if AGENT unless after exec "ctx_search"
-    notify exec "ctx_search" if AGENT
-    because "on resume, search persistent memory before asking the user"

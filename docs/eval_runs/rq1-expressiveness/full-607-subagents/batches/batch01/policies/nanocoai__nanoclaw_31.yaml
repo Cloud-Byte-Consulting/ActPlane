@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule agent-runner-pin-deps:
-    kill exec "bun" "update" if AGENT
-    notify write file "container/agent-runner/package.json" if AGENT
-    because "Check npm release dates and pin agent-runner runtime dependency bumps deliberately; never bun update blindly."

@@ -4,13 +4,6 @@
 [submodule "bpftool"]
 	path = bpftool
 	url = https://github.com/libbpf/bpftool.git
-[submodule "docs/OctoBench/mini-vela"]
-	path = docs/OctoBench/mini-vela
-	url = https://github.com/eunomia-bpf/mini-vela
-	branch = actplane
 [submodule "docs/papers"]
 	path = docs/papers
 	url = https://github.com/yunwei37/actplane-atc
-[submodule "docs/OpenAgentSafety/OpenAgentSafety"]
-	path = docs/OpenAgentSafety/OpenAgentSafety
-	url = https://github.com/Open-Agent-Safety/OpenAgentSafety.git

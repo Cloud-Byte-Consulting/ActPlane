@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule bug-repro-coverage:
-    block exec "git" "commit" if AGENT unless after exec "xcodebuild" since write "cmuxTests/**"
-    notify write file "cmuxTests/**" if AGENT
-    because "When tests missed a bug, add behavior-level coverage for the exact repro before calling the fix complete."

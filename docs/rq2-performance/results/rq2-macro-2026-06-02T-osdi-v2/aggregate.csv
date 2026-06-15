@@ -1,7 +1,0 @@
-workload,config,repeats,median_elapsed_s,median_user_s,median_sys_s,median_stressng_total_bogo_ops,elapsed_overhead_pct
-agent-trace,ap-100,3,2.75,2.21,0.55,0.0,3.7735849056603765
-agent-trace,ap-32,3,2.7,2.2,0.51,0.0,1.8867924528301883
-agent-trace,baseline,3,2.65,2.21,0.44,0.0,0.0
-linux-build,ap-100,3,86.18,1192.89,225.45,0.0,8.429793658782092
-linux-build,ap-32,3,84.65,1194.77,213.5,0.0,6.504781077000499
-linux-build,baseline,3,79.48,1185.6,201.4,0.0,0.0

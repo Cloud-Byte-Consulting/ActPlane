@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule avoid-upstream-restructure:
-    notify write file "packages/opencode/**" if AGENT unless target "packages/opencode/src/kilocode/**"
-    notify unlink file "packages/opencode/**" if AGENT
-    because "Avoid refactoring or reorganizing upstream opencode code unless absolutely necessary."

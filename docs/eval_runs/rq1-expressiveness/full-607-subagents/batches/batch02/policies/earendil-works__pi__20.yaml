@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule no-full-vitest:
-    kill exec "vitest" if AGENT
-    kill exec "npx" "vitest" if AGENT
-    because "Never run the full vitest suite directly; use ./test.sh or a specific package-root test command."

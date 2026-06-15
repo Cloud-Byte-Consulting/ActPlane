@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule github-gh-cli:
-    notify exec "gh" if AGENT
-    notify exec "git" if AGENT
-    notify connect endpoint "github.com" if AGENT
-    because "Use the authenticated gh CLI for GitHub issues, PRs, branches, and labels."

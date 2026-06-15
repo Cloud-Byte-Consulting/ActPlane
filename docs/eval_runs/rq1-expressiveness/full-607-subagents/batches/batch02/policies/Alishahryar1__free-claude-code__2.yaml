@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule install-uv:
-    notify exec "curl" "https://astral.sh/uv/install.sh" if AGENT
-    notify exec "uv" if AGENT
-    because "Install or update astral uv with the documented installer before relying on uv."

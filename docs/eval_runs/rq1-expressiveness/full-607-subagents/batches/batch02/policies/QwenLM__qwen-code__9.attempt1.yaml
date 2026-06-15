@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule avoid-whole-suite:
-    notify exec "npm" "test" if AGENT
-    notify exec "vitest" if AGENT
-    because "Avoid the whole test suite unless it is necessary, such as final PR verification."

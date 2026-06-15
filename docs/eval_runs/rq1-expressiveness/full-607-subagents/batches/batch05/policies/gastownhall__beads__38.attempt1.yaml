@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule bd-agent-workflow:
-    notify write file "**" if AGENT unless after exec "bd"
-    block exec "git" "commit" if AGENT unless after exec "bd" since write "**"
-    because "AI-agent workflow is bd ready, inspect metadata, claim, work, create linked issues, and close done work"

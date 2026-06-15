@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source GITGUIDE = file ".agents/skills/adk-git/SKILL.md"
-  source AGENT = exec "**"
-  
-  rule use-adk-git-skill:
-    notify exec "git" if AGENT and not GITGUIDE
-    because "Use the adk-git skill for git operations and its commit and branch guidelines."

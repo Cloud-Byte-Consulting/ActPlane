@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule no-product-docs-folder:
-    block write file "docs/**" if AGENT
-    because "Do not add general product or user-facing docs under docs; app-server API docs are the exception elsewhere."

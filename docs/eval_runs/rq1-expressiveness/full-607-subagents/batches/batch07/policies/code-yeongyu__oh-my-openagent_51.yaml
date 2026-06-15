@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source READ = file "**"
-  
-  rule read-before-existing-write:
-    notify write file "**" if AGENT and not READ
-    because "Never write to an existing file without reading it first."

@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule node-essentials:
-    notify write file "**/*.ts" if AGENT
-    because "Prefer get_node_essentials over get_node_info for faster responses."

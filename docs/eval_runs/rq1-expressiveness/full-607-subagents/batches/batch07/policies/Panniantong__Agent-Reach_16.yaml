@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule cookie-editor-auth-only:
-    notify write file "config/**" if AGENT
-    notify write file ".env" if AGENT
-    because "For Twitter and XHS cookie auth, use Cookie-Editor browser export only; do not use QR scan."

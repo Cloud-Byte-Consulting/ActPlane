@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule nx-project-details-first:
-    notify write file "packages/**" if AGENT
-    notify write file "apps/**" if AGENT
-    because "When working in an individual project, use nx_project_details first to understand structure and dependencies."

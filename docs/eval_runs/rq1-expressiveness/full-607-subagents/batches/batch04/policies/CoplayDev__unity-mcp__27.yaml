@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-direct-main-commit:
-    block exec "git" "commit" if AGENT
-    because "do not commit directly on main; branch from beta for PRs"

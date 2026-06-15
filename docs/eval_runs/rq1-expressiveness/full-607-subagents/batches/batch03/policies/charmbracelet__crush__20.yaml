@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule lint-task:
-    block exec "golangci-lint" if AGENT
-    notify exec "task" "lint:fix" if AGENT
-    because "Use task lint:fix for lint fixes."

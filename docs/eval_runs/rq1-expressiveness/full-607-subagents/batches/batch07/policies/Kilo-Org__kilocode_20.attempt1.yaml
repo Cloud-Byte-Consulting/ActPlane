@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source CHANGE = file "packages/**"
-  
-  rule smallest-relevant-checks:
-    notify exec "git" "commit" if CHANGE unless after exec "bun" since write "packages/**"
-    because "Before saying ready, run the smallest relevant lint, typecheck, and test checks for touched packages."

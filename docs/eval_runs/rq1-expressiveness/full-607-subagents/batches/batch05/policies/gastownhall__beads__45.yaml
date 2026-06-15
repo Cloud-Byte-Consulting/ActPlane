@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-external-trackers:
-    block exec "gh" "issue" if AGENT
-    block exec "jira" if AGENT
-    block exec "linear" if AGENT
-    because "do not use external issue trackers; use bd"

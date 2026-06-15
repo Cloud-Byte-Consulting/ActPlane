@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule privacy-public-artifacts:
-    notify write file "docs/**" if AGENT
-    notify write file "llms.txt" if AGENT
-    notify write file "llms-full.txt" if AGENT
-    because "Do not commit real people, company, or fund names into public artifacts; use generic placeholders."

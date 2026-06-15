@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule verify-charts-workflow:
-    notify write file "projects/**" if AGENT unless after exec "verify-charts"
-    notify exec "verify-charts" if AGENT
-    because "decks containing data charts need verify-charts before post-processing"

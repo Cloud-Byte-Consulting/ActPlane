@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-concurrent-vitest:
-    notify exec "pnpm" "test" if AGENT
-    notify exec "vitest" if AGENT
-    because "do not run independent pnpm test or Vitest commands concurrently; group one command or use a distinct cache path"

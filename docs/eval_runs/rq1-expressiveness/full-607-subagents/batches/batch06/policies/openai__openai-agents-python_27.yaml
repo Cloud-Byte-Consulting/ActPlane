@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source STATE = file "src/agents/run_state.py"
-  
-  rule runstate-schema-version:
-    notify write file "src/agents/run_state.py" if AGENT
-    block exec "git" "commit" if STATE unless after exec "pytest" since write "src/agents/run_state.py"
-    because "If serialized RunState shape changes, update CURRENT_SCHEMA_VERSION plus serialization and deserialization while keeping released schema versions readable."

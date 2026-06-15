@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source SERVER = file "packages/opencode/src/server/**"
-  
-  rule sdk-regen-after-server:
-    notify exec "git" "commit" if SERVER unless after exec "generate.ts" since write "packages/opencode/src/server/**"
-    because "After server endpoint changes, run ./script/generate.ts from root to regenerate packages/sdk/js."

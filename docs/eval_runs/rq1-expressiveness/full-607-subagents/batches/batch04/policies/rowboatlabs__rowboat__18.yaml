@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule shared-type-deps:
-    block exec "git" "commit" if AGENT unless after exec "npm" since write "apps/x/packages/shared/src/**"
-    because "after editing shared types, run cd apps/x && npm run deps"

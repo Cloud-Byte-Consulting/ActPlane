@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule next-api-platform-only:
-    block write file "apps/web/pages/api/**" if AGENT
-    block write file "apps/web/app/api/**" if AGENT
-    because "Next.js APIs belong only under apps/web/platform."

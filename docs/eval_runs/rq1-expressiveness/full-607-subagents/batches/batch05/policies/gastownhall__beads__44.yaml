@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-markdown-todos:
-    block write file "**/TODO*.md" if AGENT
-    block write file "**/todo*.md" if AGENT
-    because "do not create markdown TODO lists"

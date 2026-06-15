@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-direct-master-push:
-    notify exec "git" "push" if AGENT
-    notify exec "gh" "pr" if AGENT
-    because "Work from a non-master branch, open a PR to master, and do not push directly."

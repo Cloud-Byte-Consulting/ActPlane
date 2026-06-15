@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule unit-test-ci-preferred:
-    notify exec "xcodebuild" "cmux-unit" if AGENT
-    because "The cmux-unit xcodebuild scheme is safe because it does not launch the app, but CI is preferred."

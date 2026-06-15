@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule bun-runtime-only:
-    kill exec "npm" if AGENT
-    kill exec "yarn" if AGENT
-    kill exec "pnpm" if AGENT
-    because "Runtime is Bun only; never use npm, yarn, or pnpm."

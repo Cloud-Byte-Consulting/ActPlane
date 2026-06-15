@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule avoid-new-files:
-    notify write file "**" if AGENT
-    because "Create files only when they are absolutely necessary for the goal."

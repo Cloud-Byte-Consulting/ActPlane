@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule github-ref-clean-first:
-    notify exec "gh" if AGENT
-    notify exec "git" "push" if AGENT
-    notify exec "git" "pull" if AGENT
-    because "for pasted GitHub issue or PR, run git status -sb first, yell if dirty, then git push and git pull --ff-only"

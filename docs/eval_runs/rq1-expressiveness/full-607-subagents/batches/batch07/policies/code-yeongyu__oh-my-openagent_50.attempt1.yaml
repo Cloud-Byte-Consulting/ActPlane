@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-local-package-version-edit:
-    block write file "package.json" if AGENT
-    because "Never modify package.json version locally; the publish workflow handles it."

@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-proactive-docs:
-    block write file "README.md" if AGENT
-    block write file "**/README.md" if AGENT
-    notify write file "*.md" if AGENT
-    because "Do not proactively create documentation or README files unless the user explicitly asks."

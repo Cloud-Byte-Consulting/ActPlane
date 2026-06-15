@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule pr-hygiene-review:
-    block exec "gh" "pr" if AGENT unless after exec "git" since write "**"
-    because "Before PR creation, show git diff upstream/main --stat HEAD and git log upstream/main..HEAD --oneline, then wait for approval."

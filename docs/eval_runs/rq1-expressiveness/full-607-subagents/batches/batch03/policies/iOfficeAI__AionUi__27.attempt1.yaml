@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule prek-before-pr:
-    block exec "gh" "pr" if AGENT unless after exec "prek" since write "**"
-    block exec "git" "push" if AGENT unless after exec "prek" since write "**"
-    because "Before every PR, run prek from origin/main to HEAD and fix issues before pushing or opening the PR."

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source CONFIG = file "packages/opencode/src/config/config.ts"
-  
-  rule mirror-config-cloud-schema:
-    notify exec "git" "commit" if CONFIG
-    notify write file "packages/opencode/src/config/config.ts" if CONFIG
-    because "When adding a kilocode_change Config.Info key, also mirror it to the cloud config JSON schema."

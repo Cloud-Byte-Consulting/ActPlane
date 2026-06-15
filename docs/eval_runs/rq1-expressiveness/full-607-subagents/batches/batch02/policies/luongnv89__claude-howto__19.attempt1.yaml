@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule no-no-verify:
-    kill exec "git" "--no-verify" if AGENT
-    because "If a quality check fails, fix the underlying issue; do not bypass with --no-verify."

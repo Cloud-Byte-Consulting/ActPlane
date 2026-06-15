@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule socket-no-focus-steal:
-    block exec "open" if AGENT
-    notify exec "cmux-debug-cli.sh" if AGENT
-    because "Socket and CLI commands must not activate the app, raise windows, or steal focus."

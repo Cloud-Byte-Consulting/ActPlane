@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule build-before-testing:
-    block exec "npm" "test" if AGENT unless after exec "tsc" since write "src/**" or write "package.json"
-    because "Run npm run build before testing changes."

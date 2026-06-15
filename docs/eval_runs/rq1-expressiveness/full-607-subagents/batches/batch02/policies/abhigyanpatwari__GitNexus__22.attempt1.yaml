@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule no-commit-without-detect:
-    block exec "git" "commit" if AGENT unless after exec "gitnexus_detect_changes" since write "gitnexus/**" or write "gitnexus-web/**"
-    because "Never commit changes without running gitnexus_detect_changes to check affected scope."

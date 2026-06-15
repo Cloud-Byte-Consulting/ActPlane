@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule config-defaults:
-    notify write file "hermes_cli/config.py" if AGENT
-    block exec "git" "commit" if AGENT unless after exec "python" since write "hermes_cli/config.py"
-    because "Config changes must update DEFAULT_CONFIG and only bump _config_version for real migrations."

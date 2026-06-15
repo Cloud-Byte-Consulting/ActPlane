@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule cargo-clippy-command:
-    notify exec "cargo" "clippy" if AGENT
-    because "Lint with cargo clippy --workspace --all-targets --all-features."

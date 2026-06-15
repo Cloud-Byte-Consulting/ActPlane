@@ -1,8 +1,0 @@
-version: 1
-rules:
-- id: no-platform-bin-write
-  effect: kill
-  op: write
-  pattern: (?:^|.*/)packages/oh\-my\-opencode\-[^/]*/bin/.*$
-  if: AGENT
-  reason: Do not hand-edit generated platform binary artifacts.

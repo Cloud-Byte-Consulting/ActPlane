@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule dev-task:
-    notify exec "task" "dev" if AGENT
-    because "Use task dev for profiling-enabled development runs."

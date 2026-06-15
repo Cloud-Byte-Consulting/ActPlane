@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule drizzle-generate-only:
-    notify write file "packages/db/src/schema/**" if AGENT
-    notify exec "bunx" "drizzle-kit" if AGENT
-    notify exec "drizzle-kit" "generate" if AGENT
-    because "create migrations by changing drizzle schema and running bunx drizzle-kit generate with a snake_case name"

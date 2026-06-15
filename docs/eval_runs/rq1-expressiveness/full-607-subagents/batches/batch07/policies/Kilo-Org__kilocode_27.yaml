@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source GUIDE = file "packages/kilo-jetbrains/AGENTS.md"
-  source AGENT = exec "**"
-  
-  rule jetbrains-guide-first:
-    notify write file "packages/kilo-jetbrains/**" if AGENT and not GUIDE
-    because "Read packages/kilo-jetbrains/AGENTS.md before planning or editing JetBrains plugin work."

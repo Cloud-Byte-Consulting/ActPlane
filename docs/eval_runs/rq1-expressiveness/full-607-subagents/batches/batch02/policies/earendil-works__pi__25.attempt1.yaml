@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule no-commit-unless-asked:
-    block exec "git" "commit" if AGENT
-    because "Never commit unless the user asks."

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule download-template-first:
-    notify write file "package.json" if AGENT unless lineage-includes exec "download-template"
-    notify write file "src/**" if AGENT unless lineage-includes exec "download-template"
-    because "Start installation by using the download-template MCP tool with backend URL and anon key."

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule no-edit-without-impact:
-    block write file "gitnexus/**" if AGENT unless after exec "gitnexus_impact"
-    block write file "gitnexus-web/**" if AGENT unless after exec "gitnexus_impact"
-    because "Never edit a function, class, or method without first running gitnexus_impact."

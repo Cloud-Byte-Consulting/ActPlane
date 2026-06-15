@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule bd-remember-not-memory:
-    notify exec "bd" "remember" if AGENT
-    block write file "MEMORY.md" if AGENT
-    block write file "**/MEMORY.md" if AGENT
-    because "Use bd remember for persistent knowledge; do not write MEMORY.md files."

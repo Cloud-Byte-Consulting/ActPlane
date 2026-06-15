@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule before-finishing-doc-check:
-    notify exec "git" "commit" if AGENT
-    because "Before finishing, confirm whether FEATURE_PARITY.md, specs, API docs, or CHANGELOG.md need updates."

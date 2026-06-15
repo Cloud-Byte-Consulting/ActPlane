@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule regression-test-location:
-    notify write file "packages/coding-agent/test/suite/regressions/**" if AGENT
-    because "Put issue-specific regressions under packages/coding-agent/test/suite/regressions with issue-number short-slug names."

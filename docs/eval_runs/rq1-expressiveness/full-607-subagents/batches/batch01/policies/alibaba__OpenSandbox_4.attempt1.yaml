@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source SDK_GUIDE = file "sdks/AGENTS.md"
-  
-  rule sdk-guide-routing:
-    notify write file "sdks/**" if AGENT and not SDK_GUIDE
-    because "Read sdks/AGENTS.md before SDK generation, handwritten adapters, or cross-language SDK alignment work."

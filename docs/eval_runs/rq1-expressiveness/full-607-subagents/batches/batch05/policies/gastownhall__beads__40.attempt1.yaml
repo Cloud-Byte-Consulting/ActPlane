@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule use-bd-tracking:
-    block exec "gh" "issue" if AGENT
-    block write file "**/TODO*.md" if AGENT
-    notify exec "bd" if AGENT
-    because "use bd for all task tracking"

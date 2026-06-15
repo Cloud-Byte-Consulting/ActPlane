@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source KUBE_GUIDE = file "kubernetes/AGENTS.md"
-  
-  rule kubernetes-guide-routing:
-    notify write file "kubernetes/**" if AGENT and not KUBE_GUIDE
-    because "Read kubernetes/AGENTS.md before CRD, controller, Helm, Kustomize, pool, snapshot, or Kind e2e work."

@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-git-worktree:
-    kill exec "git" "worktree" if AGENT
-    because "Do not create, remove, or modify git worktree checkouts unless explicitly requested."

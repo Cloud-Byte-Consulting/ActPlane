@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source PYCODE = file "**/*.py"
-  
-  rule tests-for-behavior-change:
-    notify exec "git" "commit" if PYCODE unless after exec "pytest" since write "**/*.py"
-    because "Update tests when behavior changes or bugs are fixed."

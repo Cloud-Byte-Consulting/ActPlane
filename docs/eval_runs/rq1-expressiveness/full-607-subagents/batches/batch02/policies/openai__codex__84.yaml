@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule validate-app-server-protocol:
-    notify exec "git" "commit" if AGENT unless after exec "just" since write "codex-rs/app-server-protocol/**"
-    because "Validate app-server protocol changes with just test -p codex-app-server-protocol."

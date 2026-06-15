@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-stop-before-push:
-    notify exec "git" "commit" if AGENT
-    notify exec "git" "push" if AGENT
-    because "never stop before pushing; otherwise work remains stranded locally"

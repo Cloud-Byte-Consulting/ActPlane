@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule new-agent-checklist:
-    notify write file "agent/**" if AGENT
-    notify write file "cmd/cc-connect/**" if AGENT
-    because "A new agent needs agent implementation, core registration in init, plugin CLI wiring, config, docs, tests, and i18n."

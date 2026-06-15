@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule app-server-v2-only:
-    block write file "codex-rs/app-server-protocol/src/protocol/v1.rs" if AGENT
-    block write file "codex-rs/app-server/src/v1/**" if AGENT
-    because "All active API development should happen in app-server v2; do not add new API surface to v1."

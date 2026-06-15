@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule respect-dirty-worktree:
-    kill exec "git" "reset" if AGENT
-    kill exec "git" "checkout" if AGENT
-    kill exec "git" "restore" if AGENT
-    because "Respect a dirty worktree and never revert user changes you did not make."

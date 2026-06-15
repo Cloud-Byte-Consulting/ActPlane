@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule commit-own-files-only:
-    notify exec "git" "add" if AGENT
-    notify exec "git" "commit" if AGENT
-    because "Only stage and commit files you changed in this session."

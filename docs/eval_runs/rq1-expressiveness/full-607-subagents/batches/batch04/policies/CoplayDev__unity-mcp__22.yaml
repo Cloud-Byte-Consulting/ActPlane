@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule new-tool-parity:
-    block exec "git" "commit" if AGENT unless after exec "pytest" since write "Server/src/services/tools/**" or write "Server/src/cli/commands/**" or write "MCPForUnity/Editor/Tools/**" or write "Server/tests/**"
-    notify write file "Server/src/services/tools/manage_*" if AGENT
-    notify write file "MCPForUnity/Editor/Tools/Manage*" if AGENT
-    because "new Unity MCP tools need Python MCP, CLI, CSharp implementation, Python tests, and Unity tests"

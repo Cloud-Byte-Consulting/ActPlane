@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-root-tests:
-    block exec "pnpm" "test" if AGENT
-    block exec "bun" "test" if AGENT
-    because "tests cannot run from repo root; run from package directories such as packages/opencode"

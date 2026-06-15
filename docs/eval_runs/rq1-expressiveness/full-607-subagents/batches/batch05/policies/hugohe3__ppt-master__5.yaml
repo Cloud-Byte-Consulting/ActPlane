@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule resume-execute-workflow:
-    notify write file "projects/**" if AGENT unless after exec "resume-execute"
-    notify exec "resume-execute" if AGENT
-    because "fresh-chat continuation of projects/x should enter Phase B via resume-execute"

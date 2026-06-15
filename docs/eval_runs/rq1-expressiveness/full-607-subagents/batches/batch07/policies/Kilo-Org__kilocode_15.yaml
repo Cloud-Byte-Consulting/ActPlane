@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source LINKS = file "packages/kilo-vscode/**"
-  source LINKS = file "packages/kilo-vscode/webview-ui/**"
-  source LINKS = file "packages/opencode/src/**"
-  
-  rule source-links-refresh:
-    notify exec "git" "commit" if LINKS unless after exec "bun" since write "packages/kilo-vscode/**" or write "packages/kilo-vscode/webview-ui/**" or write "packages/opencode/src/**"
-    because "After URL changes, run bun run script/extract-source-links.ts and commit packages/kilo-docs/source-links.md."

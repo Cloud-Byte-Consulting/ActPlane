@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-stash-branch-worktree:
-    block exec "git" "stash" if AGENT
-    block exec "git" "branch" if AGENT
-    block exec "git" "worktree" if AGENT
-    because "no manual stash or branch/worktree changes unless explicitly requested"

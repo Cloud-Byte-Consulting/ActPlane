@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-manual-drizzle-edits:
-    block write file "packages/db/drizzle/**" if AGENT
-    because "never manually edit generated drizzle migrations, journal, or snapshot files; modify schema and ask the user to generate"

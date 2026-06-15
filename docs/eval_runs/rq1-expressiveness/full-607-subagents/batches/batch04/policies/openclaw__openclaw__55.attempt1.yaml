@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule local-proof-healthy-checkout:
-    notify exec "pnpm" "test" if AGENT
-    notify exec "pnpm" "check" if AGENT
-    notify exec "pnpm" "format" if AGENT
-    because "small tests, lints, format checks, and type probes are local only in a healthy normal checkout"

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule bash-use-sandbox:
-    notify exec "bash" if AGENT
-    notify exec "sh" if AGENT
-    because "for bash that would produce large output, use ctx_batch_execute or ctx_execute shell sandbox; keep direct bash to allowed simple commands"

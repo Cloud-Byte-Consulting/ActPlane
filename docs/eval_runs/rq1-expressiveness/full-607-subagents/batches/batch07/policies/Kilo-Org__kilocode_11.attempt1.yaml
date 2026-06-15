@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule opencode-single-test:
-    notify exec "bun" "tool-define.test.ts" if AGENT
-    because "Run the single test from packages/opencode: bun test ./test/tool/tool-define.test.ts."

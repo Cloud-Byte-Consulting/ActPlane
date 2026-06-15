@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule reload-before-mcp-test:
-    notify exec "npm" "test" if AGENT
-    notify exec "node" if AGENT
-    because "After MCP server changes, ask the user to reload the server before testing."

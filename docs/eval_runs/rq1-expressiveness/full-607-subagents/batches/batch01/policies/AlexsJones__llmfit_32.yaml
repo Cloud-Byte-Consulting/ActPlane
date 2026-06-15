@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule keep-sysinfo:
-    notify write file "Cargo.toml" if AGENT
-    notify write file "**/*.rs" if AGENT
-    because "Keep sysinfo as the system detection crate; do not replace it with raw platform calls."

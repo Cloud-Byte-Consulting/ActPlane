@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule opencode-shared-last-resort:
-    notify write file "packages/opencode/**" if AGENT unless target "packages/opencode/src/kilocode/**"
-    because "Prefer Kilo-specific paths and minimize changes to shared OpenCode files."

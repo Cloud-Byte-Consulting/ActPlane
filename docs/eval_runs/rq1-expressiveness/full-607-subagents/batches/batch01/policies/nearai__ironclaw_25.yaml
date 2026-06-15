@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule setup-readme-with-onboarding:
-    notify write file "src/setup/**" if AGENT
-    notify exec "git" "commit" if AGENT unless after exec "git" since write "src/setup/README.md"
-    because "If onboarding or setup behavior changes, update src/setup/README.md in the same branch."

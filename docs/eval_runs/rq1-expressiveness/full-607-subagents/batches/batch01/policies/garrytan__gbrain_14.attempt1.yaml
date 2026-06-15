@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule fork-llms-regeneration:
-    notify exec "git" "push" if AGENT unless after exec "bun" since write "llms.txt"
-    notify exec "git" "push" if AGENT unless after exec "bun" since write "llms-full.txt"
-    because "If publishing a fork, regenerate llms.txt and llms-full.txt with your own LLMS_REPO_BASE first."

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule install-skills-before-compositions:
-    block write file "**/*.html" if AGENT unless after exec "skills"
-    notify exec "npx" "skills" if AGENT
-    because "Install the heygen-com hyperframes skills before writing compositions."

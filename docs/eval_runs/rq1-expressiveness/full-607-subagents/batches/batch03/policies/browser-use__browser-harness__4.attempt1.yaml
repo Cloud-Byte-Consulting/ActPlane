@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule agent-workspace-only:
-    block write file "**" if AGENT unless target "agent-workspace/**"
-    because "Harness agents may edit only agent-workspace, including agent_helpers.py and domain-skills."

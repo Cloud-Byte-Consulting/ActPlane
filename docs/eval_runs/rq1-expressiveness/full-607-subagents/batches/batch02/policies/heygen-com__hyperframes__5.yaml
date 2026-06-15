@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule validate-html-compositions:
-    block exec "git" "commit" if AGENT unless after exec "hyperframes" since write "**/*.html"
-    notify exec "npx" "hyperframes" if AGENT
-    because "After editing an HTML composition, run hyperframes lint and validate before previewing or considering work complete."

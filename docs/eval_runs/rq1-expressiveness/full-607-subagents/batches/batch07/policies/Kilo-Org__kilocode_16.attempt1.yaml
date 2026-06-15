@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source KILO = file "packages/kilo-vscode/**"
-  source KILO = file "packages/kilo-ui/**"
-  
-  rule kilocode-change-marker-check:
-    notify exec "git" "push" if KILO unless after exec "bun" since write "packages/kilo-vscode/**" or write "packages/kilo-ui/**"
-    because "Run check-kilocode-change and remove kilocode_change markers from Kilo-owned packages before pushing."

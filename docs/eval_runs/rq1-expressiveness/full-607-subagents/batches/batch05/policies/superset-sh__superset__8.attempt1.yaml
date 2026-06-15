@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule biome-root-lint:
-    notify exec "biome" if AGENT
-    notify exec "bun" "lint:fix" if AGENT
-    notify exec "bun" "lint" if AGENT
-    because "Biome runs at root level; use bun run lint:fix for auto-fixes and bun run lint for checks"

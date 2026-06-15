@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule db-backend-parity:
-    notify write file "src/db/**" if AGENT
-    notify write file "crates/**/db/**" if AGENT
-    because "New persistence behavior must support both PostgreSQL and libSQL."

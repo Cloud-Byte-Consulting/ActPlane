@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule vitest-before-commit:
-    block exec "git" "commit" if AGENT unless after exec "vitest" since write "src/**" or write "tests/**"
-    because "Run bun run test with Vitest before every commit and keep coverage at the target."

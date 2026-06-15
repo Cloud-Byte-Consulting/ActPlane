@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source VSCODE = file "packages/kilo-vscode/**"
-  
-  rule knip-before-push:
-    notify exec "git" "push" if VSCODE unless after exec "bun" since write "packages/kilo-vscode/**"
-    because "Run bun run knip from packages/kilo-vscode and remove or unexport unused exports before pushing."

@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source RUST = file "**/*.rs"
-  
-  rule common-cargo-tasks:
-    notify exec "git" "commit" if RUST unless after exec "cargo" since write "**/*.rs"
-    notify write file "data/hf_models.json" if AGENT unless lineage-includes exec "python*"
-    because "Use the documented cargo build/run/check/fmt/clippy flow and refresh hf_models through the scraper."

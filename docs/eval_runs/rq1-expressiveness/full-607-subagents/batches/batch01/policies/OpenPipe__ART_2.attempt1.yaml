@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source PYCODE = file "**/*.py"
-  
-  rule tests-before-commit:
-    block exec "git" "commit" if PYCODE unless after exec "uv" since write "**/*.py"
-    because "Run uv run prek run --all-files before committing changes."

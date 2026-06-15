@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule do-not-skip-clawhub-upload:
-    notify exec "gh" "release" if AGENT
-    notify open file "clawhub-upload/SKILL.md" if AGENT
-    notify connect endpoint "clawhub.io" if AGENT
-    because "Do not skip the ClawHub upload after a release."

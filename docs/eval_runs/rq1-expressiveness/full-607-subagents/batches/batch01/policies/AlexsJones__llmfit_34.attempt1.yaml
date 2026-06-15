@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule clap-derive-cli:
-    notify write file "main.rs" if AGENT
-    notify write file "Cargo.toml" if AGENT
-    because "Use clap with derive for CLI parsing; do not introduce manual argument parsing."

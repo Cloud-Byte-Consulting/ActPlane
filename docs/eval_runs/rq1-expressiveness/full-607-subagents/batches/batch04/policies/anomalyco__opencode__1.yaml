@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule regenerate-js-sdk:
-    block exec "git" "commit" if AGENT unless after exec "build.ts" since write "packages/sdk/js/**"
-    because "regenerate the JavaScript SDK with packages/sdk/js/script/build.ts after SDK edits"

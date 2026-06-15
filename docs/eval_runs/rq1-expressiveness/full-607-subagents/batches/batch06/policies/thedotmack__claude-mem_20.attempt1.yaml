@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule npm-audit-fix:
-    notify exec "npm" "audit" if AGENT
-    because "Run npm audit fix to resolve advisories."

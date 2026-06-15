@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule graph-tools-before-file-scans:
-    notify exec "rg" if AGENT
-    notify exec "grep" if AGENT
-    notify exec "git" "grep" if AGENT
-    because "Use code-review-graph MCP tools before Grep, Glob, or Read to explore code; fall back only when the graph does not cover the need."

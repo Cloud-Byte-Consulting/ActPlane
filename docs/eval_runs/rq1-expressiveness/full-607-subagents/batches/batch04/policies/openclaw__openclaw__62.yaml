@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-landing-failing-gates:
-    block exec "git" "push" if AGENT unless after exec "pnpm" since write "src/**" or write "ui/**" or write "extensions/**" or write "test/**"
-    because "do not land related failing format, lint, type, build, or tests; prove unrelated failures separately"

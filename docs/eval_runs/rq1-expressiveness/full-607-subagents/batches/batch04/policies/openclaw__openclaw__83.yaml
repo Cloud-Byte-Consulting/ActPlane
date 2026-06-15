@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-pr-assets-commit:
-    block write file ".github/pr-assets/**" if AGENT
-    because "attach PR artifacts or screenshots externally; do not commit .github/pr-assets"

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule delete-not-deprecate:
-    block write file "*_unused" if AGENT
-    notify write file "**" if AGENT
-    because "when removing functionality, delete it instead of unused renames, removed comments, or internal compat shims"

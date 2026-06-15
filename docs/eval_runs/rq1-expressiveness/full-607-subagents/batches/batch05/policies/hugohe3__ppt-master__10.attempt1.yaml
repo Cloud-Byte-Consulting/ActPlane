@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule create-brand-workflow:
-    block write file "skills/ppt-master/templates/brands/**" if AGENT unless after exec "create-brand"
-    notify exec "create-brand" if AGENT
-    because "brand setup or brand extraction must use the create-brand workflow and output to templates/brands/id"

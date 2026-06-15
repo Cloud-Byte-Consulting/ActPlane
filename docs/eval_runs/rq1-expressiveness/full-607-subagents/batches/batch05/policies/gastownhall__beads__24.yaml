@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule brew-no-auto-update:
-    notify exec "brew" if AGENT
-    because "set HOMEBREW_NO_AUTO_UPDATE=1 when running brew"

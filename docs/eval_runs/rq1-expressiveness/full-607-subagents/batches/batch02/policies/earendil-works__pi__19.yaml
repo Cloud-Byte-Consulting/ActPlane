@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule no-build-or-npm-test:
-    block exec "npm" "build" if AGENT
-    block exec "npm" "test" if AGENT
-    because "Never run npm run build or npm test unless the user requested it."

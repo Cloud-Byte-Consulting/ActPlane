@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule issue-close-proof:
-    notify exec "gh" "close" if AGENT
-    notify exec "gh" "comment" if AGENT
-    because "issue fixed on main needs proof comment with commit or PR before close"

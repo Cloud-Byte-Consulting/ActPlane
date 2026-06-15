@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule bun-build-test:
-    block exec "pnpm" if AGENT
-    notify exec "bun" if AGENT
-    because "Use bun install, bun run build, and bun run test for this project."

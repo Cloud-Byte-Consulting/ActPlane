@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule detect-changes-for-review:
-    notify exec "git" "diff" if AGENT
-    notify exec "rg" if AGENT
-    because "For code review, use detect_changes and get_review_context instead of reading entire files."

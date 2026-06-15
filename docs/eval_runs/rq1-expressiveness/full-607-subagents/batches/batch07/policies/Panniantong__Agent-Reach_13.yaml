@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source VERSION = file "pyproject.toml"
-  source VERSION = file "agent_reach/__init__.py"
-  source VERSION = file "tests/test_cli.py"
-  
-  rule version-three-place-match:
-    notify exec "git" "commit" if VERSION
-    because "Keep the version matched in pyproject.toml, agent_reach/__init__.py, and tests/test_cli.py."

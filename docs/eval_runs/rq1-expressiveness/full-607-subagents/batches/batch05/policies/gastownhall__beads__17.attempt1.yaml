@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule icu-test-command:
-    notify exec "go" "test" if AGENT
-    notify exec "make" "test-icu-path" if AGENT
-    because "use make test-icu-path or ./scripts/test-icu-path.sh for the opt-in ICU regex path"

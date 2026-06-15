@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule test-before-pr:
-    block exec "git" "push" if AGENT unless after exec "pytest" since write "Server/src/**" or write "MCPForUnity/**"
-    block exec "gh" "pr" if AGENT unless after exec "pytest" since write "Server/src/**" or write "MCPForUnity/**"
-    because "new features need tests and those tests should run before PRs"

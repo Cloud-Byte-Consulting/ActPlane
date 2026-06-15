@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source PYCODE = file "**/*.py"
-  
-  rule goal-driven-checks:
-    notify exec "git" "commit" if PYCODE unless after exec "pytest" since write "**/*.py"
-    because "Define success criteria, add focused tests for behavior changes, and loop until checks pass or blockers are clear."

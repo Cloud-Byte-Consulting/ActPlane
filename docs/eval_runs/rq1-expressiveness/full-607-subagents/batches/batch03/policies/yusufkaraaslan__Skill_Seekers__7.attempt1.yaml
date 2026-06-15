@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule editable-install-before-tests:
-    block exec "pytest" if AGENT unless after exec "pip" since write "pyproject.toml" or write "setup.py"
-    block exec "python" "pytest" if AGENT unless after exec "pip" since write "pyproject.toml" or write "setup.py"
-    because "Install the package in editable mode before running tests so skill_seekers is importable."

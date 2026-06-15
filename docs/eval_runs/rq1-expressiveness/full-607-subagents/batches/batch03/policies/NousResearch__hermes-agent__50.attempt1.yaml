@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule pytest-wrapper-only:
-    block exec "pytest" if AGENT
-    block exec "python" "pytest" if AGENT
-    because "Use scripts/run_tests.sh instead of direct pytest for CI-parity isolation and environment scrubbing."

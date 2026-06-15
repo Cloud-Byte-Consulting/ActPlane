@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule npm-build-for-tsc:
-    block exec "tsc" if AGENT
-    block exec "vite" if AGENT
-    because "Use npm run build to run tsc and the test build."

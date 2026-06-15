@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule prefer-dev-diffs:
-    notify exec "git" "main" if AGENT
-    because "local main may not exist; use dev or origin/dev for diffs"

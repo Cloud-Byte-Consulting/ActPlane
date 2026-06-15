@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule agents-md-only:
-    block write file "**/CLAUDE.md" if AGENT
-    notify write file "**/AGENTS.md" if AGENT
-    because "new AGENTS.md needs a sibling CLAUDE.md symlink; edit AGENTS.md only"

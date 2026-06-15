@@ -1,9 +1,0 @@
-version: 1
-rules:
-- id: prefer-edit-over-create
-  effect: notify
-  op: write
-  tool: Write
-  pattern: .*
-  if: AGENT
-  reason: Prefer editing an existing file over creating a new one; verify the file already exists before writing

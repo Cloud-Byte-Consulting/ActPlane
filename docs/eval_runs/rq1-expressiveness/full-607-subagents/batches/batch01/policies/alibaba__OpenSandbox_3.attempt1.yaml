@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source SERVER_GUIDE = file "server/AGENTS.md"
-  
-  rule server-guide-routing:
-    notify write file "server/**" if AGENT and not SERVER_GUIDE
-    because "Read server/AGENTS.md before server, lifecycle, sandbox creation, or user-visible server config changes."

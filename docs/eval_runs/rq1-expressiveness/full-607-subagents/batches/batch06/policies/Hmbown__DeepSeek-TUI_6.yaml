@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule deepseek-dispatcher-entrypoint:
-    block exec "deepseek-tui" if AGENT
-    notify exec "deepseek" if AGENT
-    because "Use the deepseek dispatcher binary for every flow; do not invoke deepseek-tui directly."

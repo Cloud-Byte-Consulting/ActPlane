@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule regression-two-commit:
-    notify exec "git" "commit" if AGENT
-    notify write file "cmuxTests/**" if AGENT
-    because "Regression tests for bug fixes should use a failing-test commit followed by the fix commit so CI proves the test."

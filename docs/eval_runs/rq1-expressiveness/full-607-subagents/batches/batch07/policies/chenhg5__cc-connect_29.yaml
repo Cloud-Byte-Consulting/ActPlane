@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source CODE = file "**/*.go"
-  
-  rule go-test-before-commit:
-    notify exec "git" "commit" if CODE unless after exec "go" since write "**/*.go"
-    because "Run go test ./... before committing; tests must pass."

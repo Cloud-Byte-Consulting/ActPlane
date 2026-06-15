@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule committer-wrapper-only:
-    block exec "git" "commit" if AGENT
-    notify exec "scripts/committer" if AGENT
-    because "commit via scripts/committer with intended files only"

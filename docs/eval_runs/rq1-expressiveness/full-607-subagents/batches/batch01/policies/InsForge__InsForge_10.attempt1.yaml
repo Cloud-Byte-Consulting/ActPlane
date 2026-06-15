@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule infrastructure-mcp-tools:
-    notify exec "npm" "create" if AGENT
-    notify exec "psql" if AGENT
-    notify exec "supabase" if AGENT
-    because "Use InsForge MCP tools for scaffolding, backend metadata, schema, storage, and functions."

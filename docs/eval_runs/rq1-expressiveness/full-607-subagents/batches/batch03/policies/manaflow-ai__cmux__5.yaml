@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-tmp-app-links:
-    block write file "/tmp/cmux-*/**" if AGENT
-    notify exec "reload.sh" if AGENT
-    because "Never use /tmp/cmux-tag app links in chat output; use the reload.sh App path output."

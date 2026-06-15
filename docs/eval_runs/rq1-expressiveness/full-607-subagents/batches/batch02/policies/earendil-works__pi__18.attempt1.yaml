@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule npm-check-before-commit:
-    block exec "git" "commit" if AGENT unless after exec "npm" since write "packages/**" or write "scripts/**"
-    because "After code changes, run npm run check with full output and fix all errors, warnings, and infos before committing."

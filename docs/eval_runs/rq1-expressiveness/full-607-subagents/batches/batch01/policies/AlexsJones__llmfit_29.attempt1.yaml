@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule cli-subcommand-touchpoints:
-    notify write file "main.rs" if AGENT
-    notify write file "display.rs" if AGENT
-    because "New CLI subcommands need a Commands variant, dispatch arm, and display.rs output helpers."

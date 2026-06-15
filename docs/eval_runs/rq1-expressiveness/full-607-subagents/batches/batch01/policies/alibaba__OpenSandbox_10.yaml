@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source TEST_GUIDE = file "tests/**/README.md"
-  
-  rule e2e-readme-before-tests:
-    notify write file "tests/**" if AGENT and not TEST_GUIDE
-    because "For cross-language e2e tests, read the language-local README and align assumptions with current server and SDK behavior."

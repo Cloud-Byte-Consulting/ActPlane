@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule ci-before-merge:
-    block exec "gh" "merge" if AGENT unless after exec "pytest" since write "**/*.py" or write "tests/**"
-    because "All CI checks must pass before merge; failing checks block merge."

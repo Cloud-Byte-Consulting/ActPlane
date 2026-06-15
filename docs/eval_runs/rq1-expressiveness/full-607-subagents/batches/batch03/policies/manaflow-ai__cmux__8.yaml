@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule tagged-derived-data-build:
-    notify exec "xcodebuild" "build" if AGENT
-    because "For compile-only verification, use xcodebuild with a tagged derivedDataPath under /tmp/cmux-tag."

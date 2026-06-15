@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source USER_CHANGE = file "packages/**"
-  
-  rule changeset-required:
-    notify exec "git" "commit" if USER_CHANGE unless after exec "bunx" since write "packages/**"
-    because "User-facing features, fixes, or breaking changes require a changeset file before commit."

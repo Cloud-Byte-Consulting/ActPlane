@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source PROMETHEUS = exec "prometheus"
-  
-  rule prometheus-md-only:
-    block write file "src/**" if PROMETHEUS
-    block write file "package.json" if PROMETHEUS
-    block write file "*.config.*" if PROMETHEUS
-    because "Prometheus may only edit markdown files; src, package.json, and config files are forbidden."

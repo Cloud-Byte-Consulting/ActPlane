@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule duplicates-before-close:
-    notify exec "gh" "close" if AGENT
-    notify exec "gh" "search" if AGENT
-    because "after landing or requested close/sweep, search duplicates and comment proof plus canonical commit, PR, or release before closing"

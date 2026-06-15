@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule use-uv-package-manager:
-    kill exec "pip*" if AGENT
-    notify exec "python*" if AGENT
-    notify write file "pyproject.toml" if AGENT
-    because "Use uv add for dependencies, uv run for scripts, and pyproject.toml for dependency review."

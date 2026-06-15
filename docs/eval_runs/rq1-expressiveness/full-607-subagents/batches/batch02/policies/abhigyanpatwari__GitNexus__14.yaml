@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule impact-before-symbol-edit:
-    block write file "gitnexus/**" if AGENT unless after exec "gitnexus_impact"
-    block write file "gitnexus-web/**" if AGENT unless after exec "gitnexus_impact"
-    because "Run gitnexus_impact upstream and report blast radius before editing a function, class, or method."

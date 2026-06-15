@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule approval-before-commit:
-    block exec "git" "commit" if AGENT unless after exec "ask_user" since write "**"
-    notify write file "**" if AGENT
-    because "multi-file changes need explicit user approval for the full changeset"

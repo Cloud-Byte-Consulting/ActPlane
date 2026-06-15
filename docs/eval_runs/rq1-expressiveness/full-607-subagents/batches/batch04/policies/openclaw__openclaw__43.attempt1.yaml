@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule sharp-libvips-install:
-    notify exec "pnpm" "install" if AGENT
-    because "if Sharp or Homebrew libvips source build fails, rerun with SHARP_IGNORE_GLOBAL_LIBVIPS=1 pnpm install"

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule go-test-commands:
-    notify exec "task" "test" if AGENT
-    notify exec "go" "test" if AGENT
-    because "Use task test or go test ./... for tests, with -run for a single Go test."

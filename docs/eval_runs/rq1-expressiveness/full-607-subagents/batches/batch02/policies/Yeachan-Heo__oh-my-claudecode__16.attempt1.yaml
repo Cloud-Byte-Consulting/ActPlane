@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule verifier-before-concluding:
-    notify exec "git" "commit" if AGENT unless after exec "verifier" since write "**/*"
-    because "Before concluding, ensure zero pending tasks, tests passing, and verifier evidence collected."

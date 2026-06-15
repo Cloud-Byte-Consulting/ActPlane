@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule bd-ready-before-asking:
-    notify exec "ask_user" if AGENT unless after exec "bd"
-    notify exec "bd" "ready" if AGENT
-    because "check bd ready before asking what to work on"

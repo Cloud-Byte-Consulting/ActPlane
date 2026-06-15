@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule carbon-owner-only:
-    block exec "pnpm" "@buape/carbon" if AGENT
-    block exec "npm" "@buape/carbon" if AGENT
-    block exec "bun" "@buape/carbon" if AGENT
-    because "do not change @buape/carbon unless Shadow asks and is verified by gh"

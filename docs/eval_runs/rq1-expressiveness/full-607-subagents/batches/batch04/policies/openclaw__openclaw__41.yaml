@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule repo-default-runtime:
-    block exec "npm" "install" if AGENT
-    block exec "yarn" if AGENT
-    block exec "bun" "install" if AGENT
-    because "use repo default package manager and runtime; no swaps without approval"

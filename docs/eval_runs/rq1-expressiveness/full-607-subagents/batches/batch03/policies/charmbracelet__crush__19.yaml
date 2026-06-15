@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule golden-update-via-go:
-    block write file "*.golden" if AGENT unless lineage-includes exec "go"
-    notify exec "go" "-update" if AGENT
-    because "Regenerate golden files through go test -update, optionally scoped to the package."

@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule scp-batch-mode:
-    notify exec "scp" if AGENT
-    because "Use scp -o BatchMode=yes for non-interactive scp."

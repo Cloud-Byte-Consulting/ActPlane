@@ -1,8 +1,0 @@
-version: 1
-rules:
-- id: no-version-py-edit
-  effect: kill
-  op: write
-  pattern: (?:^|.*/)src/skill_seekers/_version\.py$
-  if: AGENT
-  reason: Change package version in pyproject.toml only.

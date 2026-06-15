@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule ask-user-tool:
-    notify exec "ask_user" if AGENT
-    because "ask every user question through the ask_user tool so the UI surfaces the interactive overlay"

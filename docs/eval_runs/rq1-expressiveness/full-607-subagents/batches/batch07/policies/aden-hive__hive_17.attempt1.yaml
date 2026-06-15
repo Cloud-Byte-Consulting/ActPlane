@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule formatting-only-diffs:
-    notify exec "git" "commit" if AGENT
-    because "If staged and unstaged diffs are formatting-only, resolve them without asking."

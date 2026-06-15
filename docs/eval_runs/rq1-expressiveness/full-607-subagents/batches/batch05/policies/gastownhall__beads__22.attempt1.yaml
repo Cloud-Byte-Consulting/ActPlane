@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule ssh-batchmode:
-    notify exec "ssh" if AGENT
-    because "use ssh -o BatchMode=yes so it fails instead of prompting"

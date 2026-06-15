@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule bd-reference-with-dolt-push:
-    notify exec "bd" if AGENT
-    notify exec "bd" "dolt" if AGENT
-    because "Use bd ready, show, update --claim, close, and bd dolt push for beads data."

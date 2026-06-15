@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-upstream-source-edits:
-    block write file "vendor/**" if AGENT
-    block write file "third_party/**" if AGENT
-    block write file "external/**" if AGENT
-    because "Never modify upstream open source project source code."

@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-proactive-docs:
-    notify write file "docs/**" if AGENT
-    because "Do what was asked and do not proactively create documentation files unless explicitly requested."

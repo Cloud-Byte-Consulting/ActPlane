@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule changelog-released-immutable:
-    notify write file "**/CHANGELOG.md" if AGENT
-    because "Released changelog version sections are immutable; only update Unreleased sections."

@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  source SUITE = file "packages/coding-agent/test/suite/**"
-  
-  rule suite-no-real-provider:
-    block connect endpoint "*" if AGENT and SUITE
-    because "For coding-agent suite tests, use the harness and faux provider; no real provider APIs, keys, or paid tokens."

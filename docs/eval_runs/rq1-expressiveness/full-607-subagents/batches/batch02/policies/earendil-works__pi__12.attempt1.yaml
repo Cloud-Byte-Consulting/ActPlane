@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule upgrade-dep-not-downgrade-code:
-    notify write file "package.json" if AGENT
-    notify write file "package-lock.json" if AGENT
-    because "For type errors from outdated dependencies, upgrade the dependency instead of removing or downgrading code."

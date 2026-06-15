@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule untrusted-containers-services:
-    notify exec "docker" if AGENT
-    notify connect endpoint "*" if AGENT
-    because "Treat Docker containers and external services as untrusted."

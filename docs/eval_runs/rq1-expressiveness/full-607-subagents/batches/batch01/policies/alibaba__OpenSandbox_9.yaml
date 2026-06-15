@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source CLI_README = file "cli/README.md"
-  
-  rule cli-readme-and-help:
-    notify write file "cli/**" if AGENT and not CLI_README
-    notify exec "git" "commit" if CLI_README unless after exec "pytest" since write "cli/**"
-    because "For CLI changes, read cli/README.md and verify command help/output behavior with unit tests."

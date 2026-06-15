@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule external-integrations-mcp:
-    notify connect endpoint "*" if AGENT
-    notify write file "src/tools/**" if AGENT
-    because "Use MCP for external server integrations when the capability belongs outside the main binary."

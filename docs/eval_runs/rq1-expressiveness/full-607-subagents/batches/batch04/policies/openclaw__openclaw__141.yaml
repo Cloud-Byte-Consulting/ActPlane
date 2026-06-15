@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule clawsweeper-ops:
-    notify exec "clawsweeper" if AGENT
-    notify exec "openclaw" "message" if AGENT
-    because "ClawSweeper ops use the clawsweeper skill; deployed hook message tool replies must be exactly NO_REPLY unless actionable"

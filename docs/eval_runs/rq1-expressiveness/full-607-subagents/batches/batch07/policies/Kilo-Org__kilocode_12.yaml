@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source BUILD = file "packages/opencode/**"
-  
-  rule kilo-artifact-size-check:
-    notify exec "git" "commit" if BUILD unless after exec "du" since write "packages/opencode/**"
-    because "After the single CLI build, check dist output with du -h dist/*/*/bin/kilo."

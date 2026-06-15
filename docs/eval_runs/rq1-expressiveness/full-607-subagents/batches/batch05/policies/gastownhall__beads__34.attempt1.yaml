@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule bd-update-json:
-    notify exec "bd" "update" if AGENT
-    because "claim and update issues with bd update --claim or field flags and --json"

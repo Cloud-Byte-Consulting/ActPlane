@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule bd-close-json:
-    notify exec "bd" "close" if AGENT
-    because "complete work with bd close --reason and --json"

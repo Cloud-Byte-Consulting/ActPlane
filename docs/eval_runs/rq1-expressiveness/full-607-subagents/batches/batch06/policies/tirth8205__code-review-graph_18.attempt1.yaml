@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule retry-failed-push:
-    notify exec "git" "push" if AGENT
-    because "If push fails, resolve the failure and retry until it succeeds."

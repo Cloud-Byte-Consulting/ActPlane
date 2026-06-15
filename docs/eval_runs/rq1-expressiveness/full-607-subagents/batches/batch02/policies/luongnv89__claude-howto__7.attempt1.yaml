@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule activate-venv-before-python:
-    notify exec "python" if AGENT
-    notify exec "python3" if AGENT
-    because "Activate .venv, venv, or env before running Python scripts."

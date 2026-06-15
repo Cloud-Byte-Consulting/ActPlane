@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule npm-test-before-commit:
-    block exec "git" "commit" if AGENT unless after exec "npm" since write "src/**" or write "tests/**"
-    because "Run npm run test after source or test changes before committing."

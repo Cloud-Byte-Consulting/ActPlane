@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule kv-scope-consistency:
-    notify write file "src/state/schema.ts" if AGENT
-    notify write file "src/types.ts" if AGENT
-    block exec "git" "commit" if AGENT unless after exec "npm" since write "src/state/schema.ts" or write "src/types.ts"
-    because "new KV scopes require schema and matching TypeScript interfaces"

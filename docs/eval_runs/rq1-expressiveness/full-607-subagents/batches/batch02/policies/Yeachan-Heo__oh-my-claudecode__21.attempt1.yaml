@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule omc-setup-before-state:
-    notify write file ".omc/**" if AGENT unless after exec "omc-setup"
-    because "Say setup omc or run the oh-my-claudecode setup command before using OMC state."

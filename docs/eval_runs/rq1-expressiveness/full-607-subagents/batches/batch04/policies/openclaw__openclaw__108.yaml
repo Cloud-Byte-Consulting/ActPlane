@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule test-worker-cap:
-    notify exec "pnpm" "test" if AGENT
-    because "test workers must stay at or below 16; use OPENCLAW_VITEST_MAX_WORKERS=1 under memory pressure"

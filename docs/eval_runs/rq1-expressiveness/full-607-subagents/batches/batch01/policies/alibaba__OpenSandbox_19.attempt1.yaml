@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source SPEC = file "specs/**"
-  
-  rule specs-consumer-alignment:
-    notify exec "git" "commit" if SPEC unless after exec "pytest" since write "specs/**"
-    notify write file "specs/**" if AGENT
-    because "When changing specs, update or verify affected server, SDK, docs, and release outputs."

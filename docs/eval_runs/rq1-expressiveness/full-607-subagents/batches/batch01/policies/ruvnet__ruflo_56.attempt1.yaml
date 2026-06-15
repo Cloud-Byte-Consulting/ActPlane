@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule self-learning-search-first:
-    notify write file "**" if AGENT unless lineage-includes exec "memory_search"
-    because "Before starting a task, search memory patterns with memory_search in the patterns namespace."

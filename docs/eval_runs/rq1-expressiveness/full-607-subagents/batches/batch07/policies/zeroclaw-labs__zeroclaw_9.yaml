@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule docs-and-bootstrap-checks:
-    notify write file "docs/**" if AGENT
-    notify write file "install.sh" if AGENT
-    because "Docs-only changes need markdown lint and link checks; touching install.sh needs bash -n install.sh."

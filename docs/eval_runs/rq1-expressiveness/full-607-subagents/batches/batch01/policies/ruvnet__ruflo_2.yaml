@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule mcp-workflow-memory:
-    notify write file "**" if AGENT unless lineage-includes exec "memory_search"
-    notify exec "git" "commit" if AGENT unless lineage-includes exec "memory_store"
-    because "Use memory_search before work, swarm_init for coordination, then memory_store after successful execution."

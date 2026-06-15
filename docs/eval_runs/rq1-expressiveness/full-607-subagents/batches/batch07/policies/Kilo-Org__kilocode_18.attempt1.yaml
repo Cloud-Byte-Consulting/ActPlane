@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule workflow-allowlist:
-    notify write file ".github/workflows/**" if AGENT
-    notify unlink file ".github/workflows/**" if AGENT
-    because "Reflect workflow additions or removals in script/check-workflows.ts."

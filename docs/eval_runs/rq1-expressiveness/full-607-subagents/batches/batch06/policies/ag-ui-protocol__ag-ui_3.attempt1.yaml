@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule nx-workspace-before-questions:
-    notify exec "rg" if AGENT
-    notify exec "grep" if AGENT
-    because "Before answering repository architecture questions, use the nx_workspace tool first where applicable."

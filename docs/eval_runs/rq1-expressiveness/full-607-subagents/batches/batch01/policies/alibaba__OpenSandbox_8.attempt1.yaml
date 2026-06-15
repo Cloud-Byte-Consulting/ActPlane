@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source COMPONENT_DOC = file "components/**/README.md"
-  source COMPONENT_DOC = file "components/**/DEVELOPMENT.md"
-  
-  rule component-local-docs:
-    notify write file "components/**" if AGENT and not COMPONENT_DOC
-    because "For runtime component changes, read the nearest README.md or DEVELOPMENT.md and keep APIs aligned with specs and SDKs."

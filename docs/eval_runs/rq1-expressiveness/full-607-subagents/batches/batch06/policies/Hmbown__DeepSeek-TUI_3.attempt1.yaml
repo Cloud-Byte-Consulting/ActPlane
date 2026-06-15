@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule cargo-workspace-tests:
-    notify exec "cargo" "test" if AGENT
-    because "Run cargo test --workspace --all-features for tests."

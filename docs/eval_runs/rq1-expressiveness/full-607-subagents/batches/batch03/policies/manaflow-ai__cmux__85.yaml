@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule manual-release-guard:
-    block exec "git" "tag" if AGENT unless after exec "release-pretag-guard.sh" since write "**"
-    notify exec "git" "push" if AGENT
-    notify exec "gh" "watch" if AGENT
-    because "Manual release must run the pretag guard, tag, push, and watch the GitHub run."

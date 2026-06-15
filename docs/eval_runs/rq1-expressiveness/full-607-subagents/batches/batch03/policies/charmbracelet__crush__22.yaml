@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule modernize-task:
-    notify exec "task" "modernize" if AGENT
-    because "Use task modernize for code simplification passes."

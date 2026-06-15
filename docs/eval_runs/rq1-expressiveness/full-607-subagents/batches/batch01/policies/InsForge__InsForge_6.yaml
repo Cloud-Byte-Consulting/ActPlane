@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule fetch-docs-before-code:
-    block write file "**/*.ts" if AGENT unless lineage-includes exec "fetch-docs"
-    block write file "**/*.tsx" if AGENT unless lineage-includes exec "fetch-docs"
-    because "Fetch the latest InsForge SDK docs before writing or editing integration code."

@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule dashboard-routes:
-    notify write file "agent/dashboard/routes.py" if AGENT
-    because "new dashboard endpoints belong in agent/dashboard/routes.py, which is auto-mounted"

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule audit-operation-consistency:
-    notify write file "src/types.ts" if AGENT
-    block exec "git" "commit" if AGENT unless after exec "npm" since write "src/types.ts"
-    because "new audit operations must be added to AuditEntry.operation in src/types.ts"

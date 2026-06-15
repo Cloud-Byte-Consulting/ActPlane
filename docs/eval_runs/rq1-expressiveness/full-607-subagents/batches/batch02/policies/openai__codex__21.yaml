@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule bazel-lock-check-after-deps:
-    block exec "git" "commit" if AGENT unless after exec "just" since write "Cargo.toml" or write "Cargo.lock"
-    because "After dependency changes, run just bazel-lock-check from the repo root before CI."

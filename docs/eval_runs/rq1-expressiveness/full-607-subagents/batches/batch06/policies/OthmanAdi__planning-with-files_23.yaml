@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-continue-gemini-bump:
-    block write file ".continue/**" if AGENT
-    block write file ".gemini/**" if AGENT
-    because "Do not bump .continue or .gemini without explicit instruction."

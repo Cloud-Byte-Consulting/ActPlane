@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule single-source-of-truth:
-    notify write file "src/**" if AGENT
-    notify write file "crates/**/src/**" if AGENT
-    notify write file "**/*config*" if AGENT
-    because "No duplicate state: reference the canonical source of truth instead of copying facts into new fields, structs, config, schema, or caches."

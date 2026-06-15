@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule upstream-public-api-only:
-    notify write file "**/site-packages/**" if AGENT
-    notify write file "vendor/**" if AGENT
-    because "Call upstream tools through public APIs or CLIs; do not hack internals."

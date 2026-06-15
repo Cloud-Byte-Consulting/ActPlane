@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-bd-edit:
-    kill exec "bd" "edit" if AGENT
-    notify exec "bd" "update" if AGENT
-    notify exec "bd" "create" if AGENT
-    because "bd edit is interactive; use bd update or bd create with flags or stdin"

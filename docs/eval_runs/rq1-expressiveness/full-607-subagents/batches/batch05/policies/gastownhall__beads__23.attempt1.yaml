@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule apt-get-yes:
-    notify exec "apt-get" if AGENT
-    because "use apt-get with the -y flag for non-interactive operation"

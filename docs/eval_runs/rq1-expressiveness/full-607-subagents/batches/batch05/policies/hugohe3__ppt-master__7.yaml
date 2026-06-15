@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule generate-audio-workflow:
-    notify exec "generate-audio" if AGENT
-    notify write file "projects/**" if AGENT
-    because "recorded narration or video export should run generate-audio after post-processing"

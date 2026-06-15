@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule deps-approval-required:
-    block write file "pnpm-workspace.yaml" if AGENT
-    block write file "patches/**" if AGENT
-    block write file "vendor/**" if AGENT
-    because "dependency patches, overrides, and vendor changes need explicit approval; pnpm-workspace patched dependencies use exact versions only"

@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule reload-tag-local-dev:
-    kill exec "xcodebuild" if AGENT
-    kill exec "open" if AGENT
-    notify exec "reload.sh" if AGENT
-    because "After code changes, build the Debug app with scripts/reload.sh --tag rather than bare xcodebuild or open."

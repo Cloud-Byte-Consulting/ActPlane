@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule prefer-kilocode-directories:
-    notify write file "packages/opencode/src/**" if AGENT unless target "packages/opencode/src/kilocode/**"
-    notify write file "packages/opencode/test/**" if AGENT unless target "packages/opencode/test/kilocode/**"
-    because "Place Kilo-specific source and tests in kilocode directories whenever possible."

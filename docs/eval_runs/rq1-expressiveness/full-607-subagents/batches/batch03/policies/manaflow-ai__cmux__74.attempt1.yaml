@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule focus-intent-only:
-    notify exec "cmux-debug-cli.sh" "send" if AGENT
-    because "Only explicit focus-intent commands may mutate in-app focus or selection."

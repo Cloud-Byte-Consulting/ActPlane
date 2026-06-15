@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule branch-protection-checks:
-    notify exec "gh" "api" if AGENT
-    notify exec "gh" "edit" if AGENT
-    because "When changing branch protection, require the exact status check labels and remove the old ci gate."

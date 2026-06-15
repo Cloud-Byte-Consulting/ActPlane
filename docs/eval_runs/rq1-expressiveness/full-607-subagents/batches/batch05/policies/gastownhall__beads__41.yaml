@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule bd-json-programmatic:
-    notify exec "bd" if AGENT
-    because "always include --json for programmatic bd use"

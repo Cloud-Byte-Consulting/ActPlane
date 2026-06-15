@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source CODE = file "src/**"
-  source CODE = file "crates/**"
-  
-  rule dry-check-before-push:
-    notify exec "git" "push" if CODE unless after exec "ci.sh" since write "src/**" or write "crates/**"
-    because "Duplicate state is automatic-revert-on-detect; run dev/ci.sh dry-check before pushing."

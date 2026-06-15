@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule new-filter-touchpoints:
-    notify write file "tui_app.rs" if AGENT
-    notify write file "tui_events.rs" if AGENT
-    notify write file "tui_ui.rs" if AGENT
-    because "When adding a filter, update App state, filtering, keybinding, UI widget, and status help together."

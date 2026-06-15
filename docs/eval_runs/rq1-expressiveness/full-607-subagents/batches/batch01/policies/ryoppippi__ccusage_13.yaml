@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule avoid-amend-by-default:
-    block exec "git" "--amend" if AGENT
-    because "Prefer stacked, small, revertable follow-up commits over git commit --amend unless explicitly requested."

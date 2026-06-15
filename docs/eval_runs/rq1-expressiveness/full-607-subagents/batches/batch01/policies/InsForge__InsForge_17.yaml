@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule tailwind-v3-lock:
-    notify write file "package.json" if AGENT
-    notify write file "package-lock.json" if AGENT
-    notify write file "pnpm-lock.yaml" if AGENT
-    because "Keep Tailwind CSS locked to 3.4; do not upgrade to v4."

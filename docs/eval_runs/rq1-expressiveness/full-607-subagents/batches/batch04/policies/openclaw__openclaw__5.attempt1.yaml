@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule triage-proof-required:
-    notify exec "git" "commit" if AGENT
-    notify exec "gh" "pr" if AGENT
-    because "fix or triage answers need source, tests, current or shipped behavior, and dependency contract proof"

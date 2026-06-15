@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule ci-polling-minimal:
-    notify exec "gh" "run" if AGENT
-    notify exec "gh" "api" if AGENT
-    because "CI polling should use exact SHA, relevant checks only, minimal fields, and logs only after failure/completion or concrete need"

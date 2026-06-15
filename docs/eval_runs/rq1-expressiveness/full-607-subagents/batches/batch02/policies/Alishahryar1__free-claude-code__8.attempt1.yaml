@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule pytest-before-commit:
-    block exec "git" "commit" if AGENT unless after exec "pytest" since write "**/*.py" or write "tests/**"
-    because "Add tests for changes, including edge cases, then run uv run pytest before committing."

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule route-registration-pair:
-    notify write file "**/server.rs" if AGENT
-    notify write file "**/routes.rs" if AGENT
-    because "New routes must be registered in server.rs and implemented in routes.rs."

@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule missing-deps-install:
-    notify exec "pnpm" "install" if AGENT
-    because "when dependencies are missing, run pnpm install, retry once, then report the first actionable error"

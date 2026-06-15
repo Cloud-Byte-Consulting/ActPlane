@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-silent-security-weakening:
-    notify write file "crates/zeroclaw-runtime/src/security/**" if AGENT
-    notify write file "crates/zeroclaw-gateway/**" if AGENT
-    notify write file "**/*access*" if AGENT
-    because "Do not silently weaken security policy or access constraints."

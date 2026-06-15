@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule live-test-steps:
-    kill exec "openfang.exe" "daemon" if AGENT
-    notify exec "cargo" "openfang-cli" if AGENT
-    notify exec "curl" if AGENT
-    because "Follow the live integration test flow: stop daemon, build release CLI, start with start, curl endpoints, verify side effects, then clean up."

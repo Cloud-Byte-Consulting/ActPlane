@@ -1,9 +1,0 @@
-[llm.local_qwen]
-model = "openai/Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M.gguf"
-base_url = "http://127.0.0.1:18080/v1"
-api_key = "local"
-
-[llm.local_qwen_env]
-model = "openai/Qwen.Qwen3.6-27B.f16.gguf.Q4_K_M.gguf"
-base_url = "http://127.0.0.1:18080/v1"
-api_key = "local"

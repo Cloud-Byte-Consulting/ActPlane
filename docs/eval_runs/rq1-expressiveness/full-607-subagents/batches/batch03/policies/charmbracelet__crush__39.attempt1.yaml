@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule format-go-before-commit:
-    block exec "git" "commit" if AGENT unless after exec "gofumpt" since write "*.go"
-    because "Format Go code with gofumpt first, falling back to goimports or gofmt only if needed."

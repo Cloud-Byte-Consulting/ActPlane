@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule scraper-stdlib-only:
-    kill exec "pip*" if AGENT
-    notify write file "scripts/scrape_hf_models.py" if AGENT
-    because "The Python scraper must stay stdlib-only; do not add pip dependencies."

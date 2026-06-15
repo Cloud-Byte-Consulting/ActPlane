@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-curl-wget:
-    kill exec "curl" if AGENT
-    kill exec "wget" if AGENT
-    because "curl and wget are blocked; use ctx_fetch_and_index or ctx_execute with fetch"

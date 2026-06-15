@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule venv-before-python:
-    notify exec "python" if AGENT
-    notify exec "pip" if AGENT
-    notify exec "pytest" if AGENT
-    because "Prefer .venv, then venv, before Python commands; scripts/run_tests.sh probes the supported venvs."

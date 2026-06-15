@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source CODE = file "src/**"
-  source CODE = file "crates/**"
-  
-  rule zeroclaw-workflow:
-    notify write file "**" if CODE
-    notify exec "git" "commit" if CODE unless after exec "cargo" since write "src/**" or write "crates/**"
-    because "Follow the workflow: read before write, keep one concern per PR, make a minimal patch, validate by risk, document impact, and keep queue hygiene."

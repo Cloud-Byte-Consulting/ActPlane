@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule detect-changes-before-commit:
-    block exec "git" "commit" if AGENT unless after exec "gitnexus_detect_changes" since write "gitnexus/**" or write "gitnexus-web/**"
-    because "Run gitnexus_detect_changes before committing to verify expected symbols and flows."

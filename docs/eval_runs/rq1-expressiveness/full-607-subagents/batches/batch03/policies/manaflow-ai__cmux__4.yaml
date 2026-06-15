@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule reload-app-path-link:
-    notify exec "reload.sh" if AGENT
-    because "Use the App path line from reload.sh output to build the cmd-clickable file URL; do not hardcode the path."

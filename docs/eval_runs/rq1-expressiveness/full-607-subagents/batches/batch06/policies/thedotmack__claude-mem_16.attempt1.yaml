@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule generated-changelog:
-    block write file "CHANGELOG.md" if AGENT
-    block write file "changelog.md" if AGENT
-    because "Do not edit the changelog; it is generated automatically."

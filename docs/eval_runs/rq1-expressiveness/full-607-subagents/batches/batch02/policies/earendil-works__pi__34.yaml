@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule git-status-before-commit:
-    notify exec "git" "commit" if AGENT
-    because "Before committing, run git status and verify you are only staging your files."

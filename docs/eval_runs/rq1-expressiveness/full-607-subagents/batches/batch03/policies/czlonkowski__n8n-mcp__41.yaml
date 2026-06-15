@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule prefer-existing-files:
-    notify write file "**" if AGENT
-    because "Prefer editing an existing file over creating a new one."

@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule read-analysis-sandbox:
-    notify open file "**" if AGENT
-    because "when reading for analysis or summarization, use ctx_execute_file instead of loading raw file data into context"

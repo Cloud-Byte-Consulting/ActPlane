@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule no-root-folder-saves:
-    notify write file "*" if AGENT
-    because "Never save new work to the repository root folder; place files in the proper project area."

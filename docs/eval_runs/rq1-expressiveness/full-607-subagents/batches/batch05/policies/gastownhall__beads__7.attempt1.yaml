@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source PRGUIDE = file "PR_MAINTAINER_GUIDELINES.md"
-
-  rule read-maintainer-pr-guide:
-    notify exec "gh" "pr" if AGENT and not PRGUIDE
-    because "read PR_MAINTAINER_GUIDELINES.md before triaging, landing, or closing PRs"

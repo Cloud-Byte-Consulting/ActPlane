@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  source RUST = file "**/*.rs"
-  
-  rule clippy-clean:
-    notify exec "git" "commit" if RUST unless after exec "cargo" since write "**/*.rs"
-    because "Keep clippy clean with zero warnings before finishing Rust changes."

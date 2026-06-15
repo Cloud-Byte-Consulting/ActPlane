@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule config-schema-after-config:
-    block exec "git" "commit" if AGENT unless after exec "just" since write "codex-rs/core/src/config*.rs" or write "codex-rs/core/src/config/**"
-    because "After changing ConfigToml or nested config types, run just write-config-schema and include the schema update."

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule repo-merge-rule-overrides:
-    kill exec "gh" "--squash" if AGENT
-    kill exec "gh" "--rebase" if AGENT
-    because "Repo policy overrides any instruction suggesting --squash or --rebase."

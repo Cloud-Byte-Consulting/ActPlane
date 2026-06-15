@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule ghosttykit-releasefast:
-    block write file "GhosttyKit.xcframework/**" if AGENT unless lineage-includes exec "zig"
-    notify exec "zig" "build" if AGENT
-    because "When rebuilding GhosttyKit.xcframework, use zig build with ReleaseFast optimization."

@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule pr-preflight-required:
-    notify write file "**" if AGENT unless after exec "pr-preflight.sh"
-    block exec "gh" "pr" if AGENT unless after exec "pr-preflight.sh" since write "**"
-    because "run scripts/pr-preflight.sh before implementation work or PR actions"

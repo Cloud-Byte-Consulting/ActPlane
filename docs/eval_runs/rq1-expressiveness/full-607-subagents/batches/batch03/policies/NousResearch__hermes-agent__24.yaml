@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule skill-description-check:
-    block exec "git" "commit" if AGENT unless after exec "python" since write "skills/**/SKILL.md"
-    because "Verify skill descriptions are one sentence, at most 60 characters, and avoid marketing words before committing."

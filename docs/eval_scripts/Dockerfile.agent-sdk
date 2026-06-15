@@ -1,5 +1,0 @@
-FROM debian:bookworm-slim
-
-COPY docker_eval_entrypoint.sh /usr/local/bin/actplane-docker-eval
-
-ENTRYPOINT ["/bin/sh", "/usr/local/bin/actplane-docker-eval"]

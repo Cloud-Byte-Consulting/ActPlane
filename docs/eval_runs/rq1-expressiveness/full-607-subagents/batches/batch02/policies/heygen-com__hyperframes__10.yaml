@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule bun-package-manager:
-    block exec "pnpm" if AGENT
-    block exec "npm" if AGENT
-    because "Use bun for workspace operations, not pnpm or npm."

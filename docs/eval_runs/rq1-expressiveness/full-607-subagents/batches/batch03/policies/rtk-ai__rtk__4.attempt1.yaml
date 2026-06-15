@@ -1,8 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule prefer-rtk-wrapper:
-    notify exec "git" if AGENT
-    notify exec "cargo" if AGENT
-    because "If rtk is installed, prefer rtk subcommands over raw commands for token-optimized output."

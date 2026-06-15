@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule install-required-tools:
-    notify exec "cargo" "install" if AGENT
-    notify exec "just" if AGENT
-    notify exec "rg" if AGENT
-    because "Install required commands such as just, rg, or cargo-insta if they are missing before running repo instructions."

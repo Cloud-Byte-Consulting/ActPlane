@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**/*"
-  
-  rule generated-models-allowed:
-    notify exec "git" "add" if AGENT
-    because "packages/ai/src/models.generated.ts may be included alongside your files when staging."

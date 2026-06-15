@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-  
-  rule ccusage-skills-routing:
-    notify write file "**/*.ts" if AGENT
-    notify write file "**/*.tsx" if AGENT
-    notify write file "**/*.rs" if AGENT
-    because "Use the relevant ccusage skills before repository work, including package, Rust, TypeScript, testing, docs, and PR skills."

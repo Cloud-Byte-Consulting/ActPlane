@@ -1,9 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule no-run-migration-yourself:
-    block exec "drizzle-kit" "migrate" if AGENT
-    block exec "drizzle" "migrate" if AGENT
-    notify exec "bunx" "drizzle-kit" if AGENT
-    because "use drizzle to manage migrations but do not run migrations yourself"

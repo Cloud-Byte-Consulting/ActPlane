@@ -1,7 +1,0 @@
-version: 1
-policy: |
-  source AGENT = exec "**"
-
-  rule windows-npm-ci-local:
-    block exec "npm" "ci" if AGENT
-    because "for Windows validation clone into C:/dev/codegraph and run npm ci there, not against the shared Mac repo"
