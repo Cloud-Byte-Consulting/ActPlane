@@ -46,7 +46,7 @@ suggested path instead of retrying the same operation unchanged.
 
 const STARTER_POLICY: &str = r#"# ActPlane project policy. Constraints are applied in the kernel (eBPF), below
 # the tool layer, so they hold across any tool / subprocess / direct syscall.
-# Validate any time with:  actplane check
+# Validate any time with:  actplane compile
 # Apply around an agent:  sudo -E actplane run <your agent command>
 # DSL reference: docs/rule-language.md
 version: 1
@@ -103,29 +103,26 @@ domains:
         mode: locked
 "#;
 
-pub(crate) fn init_policy(force: bool) -> Result<i32> {
-    let path = std::env::current_dir()?.join("actplane.yaml");
-    if path.exists() && !force {
-        eprintln!(
-            "actplane: keeping existing {} (use --force to overwrite).",
-            path.display()
-        );
-    } else {
-        std::fs::write(&path, STARTER_POLICY)?;
-        eprintln!("actplane: wrote {}", path.display());
-    }
-    setup_project(force)?;
-    eprintln!(
-        "Next:\n  actplane check\n  actplane doctor\n  codex   # MCP auto-attach will try passwordless sudo"
-    );
-    Ok(0)
+pub(crate) fn starter_policy() -> &'static str {
+    STARTER_POLICY
 }
 
-pub(crate) fn setup_project(force: bool) -> Result<i32> {
+pub(crate) fn setup_project_integrations(
+    force: bool,
+    with_codex: bool,
+    with_mcp: bool,
+    with_agents: bool,
+) -> Result<i32> {
     let root = std::env::current_dir()?;
-    setup_codex_hook(&root, force)?;
-    setup_project_mcp(&root, force)?;
-    setup_agents_doc(&root, force)?;
+    if with_codex {
+        setup_codex_hook(&root, force)?;
+    }
+    if with_mcp {
+        setup_project_mcp(&root, force)?;
+    }
+    if with_agents {
+        setup_agents_doc(&root, force)?;
+    }
     eprintln!("actplane: project integration ready in {}", root.display());
     Ok(0)
 }
@@ -147,7 +144,7 @@ fn setup_codex_hook(root: &Path, force: bool) -> Result<()> {
             );
         } else {
             eprintln!(
-                "actplane: keeping existing {} (run `actplane setup --force` to replace it)",
+                "actplane: keeping existing {} (run `actplane init --with-codex --force` to replace it)",
                 path.display()
             );
             return Ok(());
@@ -176,7 +173,7 @@ fn setup_project_mcp(root: &Path, force: bool) -> Result<()> {
         }
         Err(e) => {
             eprintln!(
-                "actplane: keeping invalid {} ({}, run `actplane setup --force` to replace it)",
+                "actplane: keeping invalid {} ({}, run `actplane init --with-mcp --force` to replace it)",
                 path.display(),
                 e
             );
@@ -188,7 +185,7 @@ fn setup_project_mcp(root: &Path, force: bool) -> Result<()> {
             std::fs::write(&path, PROJECT_MCP_JSON)?;
         } else {
             eprintln!(
-                "actplane: keeping non-object {} (run `actplane setup --force` to replace it)",
+                "actplane: keeping non-object {} (run `actplane init --with-mcp --force` to replace it)",
                 path.display()
             );
         }

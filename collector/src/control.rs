@@ -64,6 +64,13 @@ pub(crate) fn state_path(project_dir: &Path) -> PathBuf {
     project_dir.join(CONTROL_STATE_FILE)
 }
 
+pub(crate) fn read_state(project_dir: &Path) -> Result<ControlState> {
+    let path = state_path(project_dir);
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()).into())
+}
+
 pub(crate) fn start_server<F>(
     project_dir: &Path,
     parent_pid: i32,
@@ -137,10 +144,7 @@ where
 
 pub(crate) fn send_request(project_dir: &Path, request: Value) -> Result<Value> {
     let path = state_path(project_dir);
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let state: ControlState =
-        serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
+    let state = read_state(project_dir)?;
     if !control_process_matches(&state) {
         return Err(format!(
             "stale ActPlane control state in {}; start `actplane mcp --auto-attach-parent` again",

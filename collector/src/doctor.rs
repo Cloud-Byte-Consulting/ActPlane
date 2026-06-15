@@ -18,14 +18,15 @@ pub(crate) fn check_policy(
     cli: &Cli,
     json_output: bool,
     explain_output: bool,
-    explain_out: Option<&Path>,
-    explain_force: bool,
+    report_out: Option<&Path>,
+    report_force: bool,
 ) -> Result<i32> {
     let where_ = policy_ref_for_cli(cli);
     let loaded = match load_policy(cli) {
         Ok(loaded) => loaded,
         Err(e) if json_output => {
-            print_check_error_json(&where_, None, &e.to_string())?;
+            let report = render_check_error_json(&where_, None, &e.to_string())?;
+            emit_check_report(&report, report_out, report_force, "compile report")?;
             return Ok(1);
         }
         Err(e) => return Err(e),
@@ -33,7 +34,8 @@ pub(crate) fn check_policy(
     let resolved = match resolve_policy(&loaded, cli.domain.as_deref()) {
         Ok(resolved) => resolved,
         Err(e) if json_output => {
-            print_check_error_json(&where_, None, &e.to_string())?;
+            let report = render_check_error_json(&where_, None, &e.to_string())?;
+            emit_check_report(&report, report_out, report_force, "compile report")?;
             return Ok(1);
         }
         Err(e) => return Err(e),
@@ -47,7 +49,8 @@ pub(crate) fn check_policy(
         Ok(p) => p,
         Err(e) => {
             if json_output {
-                print_check_error_json(&where_, Some(&resolved), &e)?;
+                let report = render_check_error_json(&where_, Some(&resolved), &e)?;
+                emit_check_report(&report, report_out, report_force, "compile report")?;
             } else {
                 eprintln!("✗ policy does not compile: {}", e);
             }
@@ -58,7 +61,8 @@ pub(crate) fn check_policy(
         Ok(c) => c,
         Err(e) => {
             if json_output {
-                print_check_error_json(&where_, Some(&resolved), &e)?;
+                let report = render_check_error_json(&where_, Some(&resolved), &e)?;
+                emit_check_report(&report, report_out, report_force, "compile report")?;
             } else {
                 eprintln!("✗ policy does not compile: {}", e);
             }
@@ -69,7 +73,7 @@ pub(crate) fn check_policy(
     let force_tracepoint = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT").is_some();
     let lsm_bpf = lsm_list_has_bpf(&active_lsms) && !force_tracepoint;
     if json_output {
-        print_check_json(
+        let report = render_check_json(
             &where_,
             &resolved,
             &parsed,
@@ -78,6 +82,7 @@ pub(crate) fn check_policy(
             lsm_bpf,
             force_tracepoint,
         )?;
+        emit_check_report(&report, report_out, report_force, "compile report")?;
         return Ok(0);
     }
     if explain_output {
@@ -91,19 +96,7 @@ pub(crate) fn check_policy(
             lsm_bpf,
             force_tracepoint,
         );
-        if let Some(path) = explain_out {
-            if path.exists() && !explain_force {
-                return Err(format!(
-                    "{} already exists (use --force to overwrite)",
-                    path.display()
-                )
-                .into());
-            }
-            std::fs::write(path, artifact)?;
-            eprintln!("actplane: wrote policy review {}", path.display());
-        } else {
-            print!("{artifact}");
-        }
+        emit_check_report(&artifact, report_out, report_force, "policy review")?;
         return Ok(0);
     }
 
@@ -140,12 +133,13 @@ pub(crate) fn check_policy(
     }
     if unsafe { libc::geteuid() } != 0 {
         println!(
-            "\n(note: `check` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)"
+            "\n(note: `compile` needs no privileges; applying policies needs `sudo -E actplane run/watch`.)"
         );
     }
     Ok(0)
 }
 
+#[allow(dead_code)]
 pub(crate) fn render_policy_review_for_loaded(
     loaded: &LoadedPolicy,
     domain: Option<&str>,
@@ -175,14 +169,17 @@ pub(crate) fn render_policy_review_for_loaded(
     ))
 }
 
+#[allow(dead_code)]
 pub(crate) struct RolloutArtifacts {
     pub(crate) plan: String,
     pub(crate) observe_policy_yaml: String,
 }
 
+#[allow(dead_code)]
 pub(crate) fn render_rollout_artifacts(
     cli: &Cli,
     event_paths: &[PathBuf],
+    annotation_paths: &[PathBuf],
 ) -> Result<RolloutArtifacts> {
     let loaded = load_policy(cli)?;
     let resolved = resolve_policy(&loaded, cli.domain.as_deref())?;
@@ -198,7 +195,7 @@ pub(crate) fn render_rollout_artifacts(
     let active_lsms = active_lsms().unwrap_or_default();
     let force_tracepoint = std::env::var_os("ACTPLANE_FORCE_TRACEPOINT").is_some();
     let lsm_bpf = lsm_list_has_bpf(&active_lsms) && !force_tracepoint;
-    let evidence = load_rollout_evidence(event_paths, &parsed)?;
+    let evidence = load_rollout_evidence(event_paths, annotation_paths, &parsed)?;
     Ok(RolloutArtifacts {
         plan: render_rollout_plan(
             &where_,
@@ -215,22 +212,30 @@ pub(crate) fn render_rollout_artifacts(
 }
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct RolloutEvidence {
-    paths: Vec<PathBuf>,
+    event_paths: Vec<PathBuf>,
+    annotation_paths: Vec<PathBuf>,
     total_events: usize,
+    total_annotations: usize,
     ignored_lines: usize,
+    ignored_annotations: usize,
     warnings: Vec<String>,
     clauses: BTreeMap<(String, usize), ClauseObservation>,
 }
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct ClauseObservation {
     count: usize,
     actions: BTreeMap<String, usize>,
     targets: Vec<String>,
     domains: BTreeMap<String, usize>,
+    annotations: BTreeMap<String, usize>,
+    annotation_notes: Vec<String>,
 }
 
+#[allow(dead_code)]
 struct ClauseEventSignature {
     clause_op: &'static str,
     target_kind: &'static str,
@@ -240,6 +245,7 @@ struct ClauseEventSignature {
     clause_hash: String,
 }
 
+#[allow(dead_code)]
 fn render_rollout_plan(
     policy_ref: &str,
     resolved: &ResolvedPolicy,
@@ -310,7 +316,7 @@ fn render_rollout_plan(
     writeln!(&mut out, "\nrecommended rollout sequence:").unwrap();
     writeln!(
         &mut out,
-        "  1. Static review: run `actplane check --explain --out <review.txt>` and inspect warnings."
+        "  1. Static review: run `actplane compile --explain --report-out <review.txt>` and inspect warnings."
     )
     .unwrap();
     writeln!(
@@ -397,13 +403,19 @@ fn render_rollout_plan(
     out
 }
 
-fn load_rollout_evidence(paths: &[PathBuf], parsed: &Policy) -> Result<RolloutEvidence> {
+#[allow(dead_code)]
+fn load_rollout_evidence(
+    event_paths: &[PathBuf],
+    annotation_paths: &[PathBuf],
+    parsed: &Policy,
+) -> Result<RolloutEvidence> {
     let mut evidence = RolloutEvidence {
-        paths: paths.to_vec(),
+        event_paths: event_paths.to_vec(),
+        annotation_paths: annotation_paths.to_vec(),
         ..RolloutEvidence::default()
     };
     let signatures = rollout_clause_signatures(parsed);
-    for path in paths {
+    for path in event_paths {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("reading rollout event log {}: {}", path.display(), e))?;
         for (line_idx, line) in text.lines().enumerate() {
@@ -535,9 +547,139 @@ fn load_rollout_evidence(paths: &[PathBuf], parsed: &Policy) -> Result<RolloutEv
             }
         }
     }
+    for path in annotation_paths {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("reading rollout annotation log {}: {}", path.display(), e))?;
+        for (line_idx, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let value: Value = match serde_json::from_str(trimmed) {
+                Ok(value) => value,
+                Err(e) => {
+                    evidence.ignored_annotations += 1;
+                    push_evidence_warning(
+                        &mut evidence,
+                        format!(
+                            "{}:{} annotation is not JSON: {}",
+                            path.display(),
+                            line_idx + 1,
+                            e
+                        ),
+                    );
+                    continue;
+                }
+            };
+            if value.get("schema").and_then(Value::as_str) != Some("actplane.rollout.annotation.v1")
+            {
+                evidence.ignored_annotations += 1;
+                continue;
+            }
+            let classification = value
+                .get("classification")
+                .or_else(|| value.get("class"))
+                .and_then(Value::as_str)
+                .map(normalize_rollout_classification);
+            let Some(classification) = classification else {
+                evidence.ignored_annotations += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} annotation has no classification",
+                        path.display(),
+                        line_idx + 1
+                    ),
+                );
+                continue;
+            };
+            let Some(rule) = value
+                .get("rule")
+                .and_then(|rule| rule.get("name"))
+                .and_then(Value::as_str)
+            else {
+                evidence.ignored_annotations += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} annotation has no rule.name; it cannot be matched to a clause",
+                        path.display(),
+                        line_idx + 1
+                    ),
+                );
+                continue;
+            };
+            let Some(clause_index) = value
+                .get("rule")
+                .and_then(|rule| rule.get("clause_source_index"))
+                .and_then(Value::as_u64)
+                .and_then(|idx| usize::try_from(idx).ok())
+            else {
+                evidence.ignored_annotations += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} annotation for rule `{}` has no clause_source_index",
+                        path.display(),
+                        line_idx + 1,
+                        rule
+                    ),
+                );
+                continue;
+            };
+            let Some(signature) = signatures.get(&(rule.to_string(), clause_index)) else {
+                evidence.ignored_annotations += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} ignored annotation for rule `{}` clause {}; no matching clause exists in the selected policy",
+                        path.display(),
+                        line_idx + 1,
+                        rule,
+                        clause_index + 1
+                    ),
+                );
+                continue;
+            };
+            if !annotation_rule_matches_signature(&value, signature) {
+                evidence.ignored_annotations += 1;
+                push_evidence_warning(
+                    &mut evidence,
+                    format!(
+                        "{}:{} ignored stale annotation for rule `{}` clause {}; rule metadata does not match the selected policy",
+                        path.display(),
+                        line_idx + 1,
+                        rule,
+                        clause_index + 1
+                    ),
+                );
+                continue;
+            }
+            evidence.total_annotations += 1;
+            let observation = evidence
+                .clauses
+                .entry((rule.to_string(), clause_index))
+                .or_default();
+            *observation
+                .annotations
+                .entry(classification.to_string())
+                .or_default() += 1;
+            if let Some(note) = value.get("note").and_then(Value::as_str)
+                && !note.is_empty()
+                && observation.annotation_notes.len() < 3
+                && !observation
+                    .annotation_notes
+                    .iter()
+                    .any(|existing| existing == note)
+            {
+                observation.annotation_notes.push(note.to_string());
+            }
+        }
+    }
     Ok(evidence)
 }
 
+#[allow(dead_code)]
 fn rollout_clause_signatures(policy: &Policy) -> BTreeMap<(String, usize), ClauseEventSignature> {
     let mut out = BTreeMap::new();
     for rule in &policy.rules {
@@ -561,6 +703,7 @@ fn rollout_clause_signatures(policy: &Policy) -> BTreeMap<(String, usize), Claus
     out
 }
 
+#[allow(dead_code)]
 fn event_rule_matches_signature(value: &Value, signature: &ClauseEventSignature) -> bool {
     let Some(rule) = value.get("rule") else {
         return false;
@@ -582,6 +725,31 @@ fn event_rule_matches_signature(value: &Value, signature: &ClauseEventSignature)
         && event_clause_identity_matches(rule, signature)
 }
 
+#[allow(dead_code)]
+fn annotation_rule_matches_signature(value: &Value, signature: &ClauseEventSignature) -> bool {
+    let Some(rule) = value.get("rule") else {
+        return false;
+    };
+    if let Some(effect) = rule.get("effect").and_then(Value::as_str)
+        && effect != "notify"
+    {
+        return false;
+    }
+    if rule.get("clause_op").and_then(Value::as_str) != Some(signature.clause_op) {
+        return false;
+    }
+    if rule.get("target_kind").and_then(Value::as_str) != Some(signature.target_kind) {
+        return false;
+    }
+    if rule.get("target_pattern").and_then(Value::as_str) != Some(signature.target_pattern.as_str())
+    {
+        return false;
+    }
+    rule.get("target_arg").and_then(Value::as_str) == signature.target_arg.as_deref()
+        && event_clause_identity_matches(rule, signature)
+}
+
+#[allow(dead_code)]
 fn event_clause_identity_matches(rule: &Value, signature: &ClauseEventSignature) -> bool {
     if let Some(hash) = rule.get("clause_hash").and_then(Value::as_str) {
         return hash == signature.clause_hash;
@@ -592,6 +760,21 @@ fn event_clause_identity_matches(rule: &Value, signature: &ClauseEventSignature)
     false
 }
 
+#[allow(dead_code)]
+fn normalize_rollout_classification(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "tp" | "true-positive" | "true_positive" | "wanted_block" | "wanted_kill" | "unwanted" => {
+            "true_positive"
+        }
+        "fp" | "false-positive" | "false_positive" => "false_positive",
+        "allowed" | "expected" | "benign" => "allowed",
+        "noise" | "irrelevant" => "noise",
+        "unknown" | "needs-review" | "needs_review" | "review" => "needs_review",
+        _ => "needs_review",
+    }
+}
+
+#[allow(dead_code)]
 fn push_evidence_warning(evidence: &mut RolloutEvidence, warning: String) {
     if evidence.warnings.len() < 8 {
         evidence.warnings.push(warning);
@@ -602,23 +785,33 @@ fn push_evidence_warning(evidence: &mut RolloutEvidence, warning: String) {
     }
 }
 
+#[allow(dead_code)]
 fn append_rollout_evidence_summary(out: &mut String, evidence: &RolloutEvidence) {
     writeln!(out, "\nobserve evidence:").unwrap();
-    if evidence.paths.is_empty() {
+    if evidence.event_paths.is_empty() && evidence.annotation_paths.is_empty() {
         writeln!(
             out,
-            "  - no event log supplied; pass --events .actplane/events.jsonl after an observe run for event-backed promotion guidance"
+            "  - no event or annotation log supplied; pass --events .actplane/events.jsonl after an observe run and --annotations <annotations.jsonl> after classification"
         )
         .unwrap();
         return;
     }
-    for path in &evidence.paths {
+    for path in &evidence.event_paths {
         writeln!(out, "  - event log: {}", path.display()).unwrap();
+    }
+    for path in &evidence.annotation_paths {
+        writeln!(out, "  - annotation log: {}", path.display()).unwrap();
     }
     writeln!(
         out,
         "  - parsed violation events: {}",
         evidence.total_events
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "  - parsed rollout annotations: {}",
+        evidence.total_annotations
     )
     .unwrap();
     if evidence.ignored_lines > 0 {
@@ -629,45 +822,74 @@ fn append_rollout_evidence_summary(out: &mut String, evidence: &RolloutEvidence)
         )
         .unwrap();
     }
+    if evidence.ignored_annotations > 0 {
+        writeln!(
+            out,
+            "  - ignored malformed or stale annotations: {}",
+            evidence.ignored_annotations
+        )
+        .unwrap();
+    }
     for warning in &evidence.warnings {
         writeln!(out, "  - warning: {}", warning).unwrap();
     }
 }
 
+#[allow(dead_code)]
 fn append_clause_observation(
     out: &mut String,
     evidence: &RolloutEvidence,
     observation: Option<&ClauseObservation>,
 ) {
-    if evidence.paths.is_empty() {
+    if evidence.event_paths.is_empty() && evidence.annotation_paths.is_empty() {
         return;
     }
     match observation {
         Some(observation) => {
-            writeln!(
-                out,
-                "       observed events: {}; actions={}; domains={}; targets={}",
-                observation.count,
-                format_count_map(&observation.actions),
-                format_count_map(&observation.domains),
-                format_sample_list(&observation.targets)
-            )
-            .unwrap();
+            if !evidence.event_paths.is_empty() {
+                writeln!(
+                    out,
+                    "       observed events: {}; actions={}; domains={}; targets={}",
+                    observation.count,
+                    format_count_map(&observation.actions),
+                    format_count_map(&observation.domains),
+                    format_sample_list(&observation.targets)
+                )
+                .unwrap();
+            }
+            if !evidence.annotation_paths.is_empty() {
+                writeln!(
+                    out,
+                    "       annotations: {}; notes={}",
+                    format_count_map(&observation.annotations),
+                    format_sample_list(&observation.annotation_notes)
+                )
+                .unwrap();
+            }
         }
         None => {
-            writeln!(out, "       observed events: 0 in supplied logs").unwrap();
+            if !evidence.event_paths.is_empty() {
+                writeln!(out, "       observed events: 0 in supplied logs").unwrap();
+            }
+            if !evidence.annotation_paths.is_empty() {
+                writeln!(out, "       annotations: none for this clause").unwrap();
+            }
         }
     }
 }
 
+#[allow(dead_code)]
 fn event_backed_promotion_note(
     evidence: &RolloutEvidence,
     observation: Option<&ClauseObservation>,
     effect: Effect,
     block_supported: bool,
 ) -> Option<String> {
-    if evidence.paths.is_empty() {
+    if evidence.event_paths.is_empty() && evidence.annotation_paths.is_empty() {
         return None;
+    }
+    if let Some(note) = annotation_backed_promotion_note(evidence, observation, effect) {
+        return Some(note);
     }
     if effect == Effect::Kill {
         return match observation {
@@ -698,6 +920,69 @@ fn event_backed_promotion_note(
     }
 }
 
+#[allow(dead_code)]
+fn annotation_backed_promotion_note(
+    evidence: &RolloutEvidence,
+    observation: Option<&ClauseObservation>,
+    effect: Effect,
+) -> Option<String> {
+    if evidence.annotation_paths.is_empty() {
+        return None;
+    }
+    let Some(observation) = observation else {
+        return Some(
+            "no annotations for this clause; keep observe mode until examples are classified"
+                .into(),
+        );
+    };
+    if observation.annotations.is_empty() {
+        return Some(
+            "no annotations for this clause; keep observe mode until examples are classified"
+                .into(),
+        );
+    }
+    let false_positive = annotation_count(observation, "false_positive");
+    let allowed = annotation_count(observation, "allowed");
+    let noise = annotation_count(observation, "noise");
+    if false_positive + allowed + noise > 0 {
+        return Some(format!(
+            "do not promote yet; annotations include false_positive={}, allowed={}, noise={}",
+            false_positive, allowed, noise
+        ));
+    }
+    let needs_review = annotation_count(observation, "needs_review");
+    if needs_review > 0 {
+        return Some(format!(
+            "keep notify; {} annotated example(s) still need review",
+            needs_review
+        ));
+    }
+    let true_positive = annotation_count(observation, "true_positive");
+    if true_positive > 0 {
+        return Some(match effect {
+            Effect::Kill => format!(
+                "{} annotated true_positive example(s); candidate for limited kill promotion after workload coverage review",
+                true_positive
+            ),
+            _ => format!(
+                "{} annotated true_positive example(s); candidate for limited promotion after backend and workload coverage review",
+                true_positive
+            ),
+        });
+    }
+    Some("annotations use no recognized promotion class; keep observe mode".into())
+}
+
+#[allow(dead_code)]
+fn annotation_count(observation: &ClauseObservation, key: &str) -> usize {
+    observation
+        .annotations
+        .get(key)
+        .copied()
+        .unwrap_or_default()
+}
+
+#[allow(dead_code)]
 fn format_count_map(map: &BTreeMap<String, usize>) -> String {
     if map.is_empty() {
         return "none".into();
@@ -708,6 +993,7 @@ fn format_count_map(map: &BTreeMap<String, usize>) -> String {
         .join(",")
 }
 
+#[allow(dead_code)]
 fn format_sample_list(values: &[String]) -> String {
     if values.is_empty() {
         return "none".into();
@@ -715,6 +1001,7 @@ fn format_sample_list(values: &[String]) -> String {
     values.join(",")
 }
 
+#[allow(dead_code)]
 fn rollout_recommendation(
     clause: &Clause,
     current: &SupportDetail,
@@ -762,6 +1049,7 @@ fn rollout_recommendation(
     }
 }
 
+#[allow(dead_code)]
 fn render_observe_policy_yaml(
     policy_ref: &str,
     resolved: &ResolvedPolicy,
@@ -799,6 +1087,7 @@ fn render_observe_policy_yaml(
     out
 }
 
+#[allow(dead_code)]
 fn render_observe_dsl(parsed: &Policy) -> String {
     let mut out = String::new();
     for source in &parsed.sources {
@@ -847,6 +1136,7 @@ fn render_observe_dsl(parsed: &Policy) -> String {
     out
 }
 
+#[allow(dead_code)]
 fn render_observe_clause(clause: &Clause) -> String {
     let mut out = format!("notify {}", op_name(clause.op));
     match clause.target.kind {
@@ -875,6 +1165,7 @@ fn render_observe_clause(clause: &Clause) -> String {
     out
 }
 
+#[allow(dead_code)]
 fn render_dsl_expr(expr: &Expr) -> String {
     match expr {
         Expr::True => "true".into(),
@@ -887,6 +1178,7 @@ fn render_dsl_expr(expr: &Expr) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn render_dsl_cond(cond: &Cond) -> String {
     match cond {
         Cond::Target { negate, pattern } => {
@@ -928,6 +1220,7 @@ fn render_dsl_cond(cond: &Cond) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn render_dsl_event(op: Op, pattern: &str, arg: Option<&str>) -> String {
     let mut out = format!("{} \"{}\"", op_name(op), dsl_literal(pattern));
     if let Some(arg) = arg {
@@ -936,6 +1229,7 @@ fn render_dsl_event(op: Op, pattern: &str, arg: Option<&str>) -> String {
     out
 }
 
+#[allow(dead_code)]
 fn dsl_literal(value: &str) -> String {
     value.replace(['\n', '\r'], " ").replace('"', "'")
 }
@@ -953,23 +1247,39 @@ fn policy_ref_for_cli(cli: &Cli) -> String {
         })
 }
 
-fn print_check_error_json(
+fn emit_check_report(contents: &str, out: Option<&Path>, force: bool, label: &str) -> Result<()> {
+    if let Some(path) = out {
+        if path.exists() && !force {
+            return Err(format!(
+                "{} already exists (use --force to overwrite)",
+                path.display()
+            )
+            .into());
+        }
+        std::fs::write(path, contents)?;
+        eprintln!("actplane: wrote {label} {}", path.display());
+    } else {
+        print!("{contents}");
+    }
+    Ok(())
+}
+
+fn render_check_error_json(
     policy_ref: &str,
     resolved: Option<&ResolvedPolicy>,
     error: &str,
-) -> Result<()> {
+) -> Result<String> {
     let record = json!({
-        "schema": "actplane.check.v1",
+        "schema": "actplane.compile.v1",
         "ok": false,
         "policy_ref": policy_ref,
         "domain": resolved.map(domain_json).unwrap_or(Value::Null),
         "error": error,
     });
-    println!("{}", serde_json::to_string_pretty(&record)?);
-    Ok(())
+    Ok(serde_json::to_string_pretty(&record)? + "\n")
 }
 
-fn print_check_json(
+fn render_check_json(
     policy_ref: &str,
     resolved: &ResolvedPolicy,
     parsed: &Policy,
@@ -977,7 +1287,7 @@ fn print_check_json(
     active_lsms: &str,
     lsm_bpf: bool,
     force_tracepoint: bool,
-) -> Result<()> {
+) -> Result<String> {
     let warnings = backend_support_warnings(parsed, lsm_bpf)
         .into_iter()
         .map(|w| {
@@ -988,7 +1298,7 @@ fn print_check_json(
         })
         .collect::<Vec<_>>();
     let record = json!({
-        "schema": "actplane.check.v1",
+        "schema": "actplane.compile.v1",
         "ok": true,
         "policy_ref": policy_ref,
         "domain": domain_json(resolved),
@@ -1013,8 +1323,7 @@ fn print_check_json(
         },
         "warnings": warnings,
     });
-    println!("{}", serde_json::to_string_pretty(&record)?);
-    Ok(())
+    Ok(serde_json::to_string_pretty(&record)? + "\n")
 }
 
 fn render_check_explain(
@@ -1245,7 +1554,7 @@ fn render_check_explain(
     .unwrap();
     writeln!(
         &mut out,
-        "  - reload is a trusted admin path; append-delta is the authority-checked append-only mutation path"
+        "  - reload is a trusted admin path; append policy delta is the authority-checked append-only mutation path"
     )
     .unwrap();
 
@@ -1673,7 +1982,7 @@ fn clause_support(
 
 fn append_append_delta_approval(out: &mut String, approval: &AppendDeltaApprovalConfig) {
     if !approval.required {
-        writeln!(out, "  - append-delta approval: not required").unwrap();
+        writeln!(out, "  - append policy delta approval: not required").unwrap();
         writeln!(out, "  - admission model: metadata_only").unwrap();
         return;
     }
@@ -1685,7 +1994,7 @@ fn append_append_delta_approval(out: &mut String, approval: &AppendDeltaApproval
     if approval.require_generated_by {
         fields.push("generated_by");
     }
-    writeln!(out, "  - append-delta approval: required").unwrap();
+    writeln!(out, "  - append policy delta approval: required").unwrap();
     writeln!(out, "  - required metadata: {}", fields.join(", ")).unwrap();
     if approval.allowed_approvers.is_empty() {
         writeln!(out, "  - allowed approvers: any non-empty approved_by").unwrap();
@@ -1969,7 +2278,7 @@ pub(crate) fn doctor(cli: &Cli) -> Result<i32> {
     }
 
     println!("\nNext commands:");
-    println!("  actplane check");
+    println!("  actplane compile");
     println!("  codex");
     println!("  sudo -E actplane run -- <agent-or-command>");
 
@@ -2050,7 +2359,7 @@ fn doctor_agent_files(root: &Path, problems: &mut usize) {
         } else {
             *problems += 1;
             println!(
-                "✗ Codex hook: {} exists but is not wired to `actplane feedback-hook`; run `actplane setup --force`",
+                "✗ Codex hook: {} exists but is not wired to `actplane feedback-hook`; run `actplane init --with-codex --force`",
                 codex_hooks.display()
             );
         }
@@ -2085,7 +2394,7 @@ fn doctor_agent_files(root: &Path, problems: &mut usize) {
         } else {
             *problems += 1;
             println!(
-                "✗ project MCP config: {} does not auto-attach with PATH `actplane`; run `actplane setup`",
+                "✗ project MCP config: {} does not auto-attach with PATH `actplane`; run `actplane init --with-mcp`",
                 mcp.display()
             );
         }

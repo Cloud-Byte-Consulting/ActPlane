@@ -7,9 +7,7 @@
 //! kernel ABI, runs the embedded eBPF engine, and reports every kernel-detected
 //! rule match with the corrective-feedback payload.
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
-use std::ffi::OsString;
-use std::io::Write as _;
+use clap::{Args, Parser, Subcommand};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -32,33 +30,28 @@ type AnyError = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, AnyError>;
 
 #[derive(Parser)]
-#[command(author, version, about = "ActPlane: OS-level agent harness", long_about = None,
+#[command(author, version, about = "ActPlane: OS-level policy engine for agent processes", long_about = None,
     after_help = "EXAMPLES:\n  \
-      # get started: write a starter policy, wire agent hooks/MCP, then diagnose\n  \
+      # get started: write a starter policy, then diagnose host support\n  \
       actplane init  &&  actplane doctor\n\n  \
-      # inspect or write a built-in policy template\n  \
-      actplane templates list\n  \
-      actplane templates write no-git-branch --format dsl --out /tmp/no-git-branch.dsl\n\n  \
-      # generate a template policy and its static review artifact in one step\n  \
-      actplane templates review no-secret-egress --policy-out /tmp/no-secret-policy.yaml --review-out /tmp/no-secret-review.txt\n\n  \
+      # write a starter policy from a built-in template\n  \
+      actplane init --template no-git-branch --out actplane.yaml\n\n  \
       # infer a candidate policy from project instructions and manifests\n  \
-      actplane templates generate --policy-out /tmp/actplane-candidate.yaml --review-out /tmp/actplane-candidate-review.txt\n\n  \
-      # plan observe-first rollout for the selected policy\n  \
-      actplane --policy actplane.yaml rollout --out docs/actplane-rollout.txt --observe-policy-out /tmp/actplane-observe.yaml\n\n  \
-      # after an observe run, include event logs for promotion guidance\n  \
-      actplane --policy actplane.yaml rollout --events .actplane/events.jsonl\n\n  \
+      actplane init --generate --out actplane.yaml\n\n  \
+      # compile/validate a policy and emit a review artifact (no privileges needed)\n  \
+      actplane compile --explain --report-out docs/actplane-review.txt\n\n  \
       # apply a one-line policy around a command (needs sudo for the eBPF load)\n  \
       sudo -E actplane --rule 'source COMMAND = exec \"**\"\n                       rule no-git-branch:\n                         kill exec \"git\" \"branch\" if COMMAND\n                         because \"create a branch via the host, not the agent\"' run claude -p '...'\n\n  \
       # use a project policy file (auto-discovered as ./actplane.yaml upward)\n  \
       sudo -E actplane run <your agent command>\n\n  \
       # serve MCP resources and auto-attach to the parent agent when Codex starts it\n  \
       actplane mcp --auto-attach-parent\n\n  \
-      # just compile/validate a policy (no privileges needed)\n  \
+      # compile a policy blob for the low-level loader\n  \
       actplane --policy actplane.yaml compile --out /tmp/policy.bin\n\n  \
       # attach to the parent agent/shell and report violations without launching a child\n  \
       actplane --policy actplane.yaml watch\n\n  \
       # append a scoped runtime delta to an already-running watch/MCP engine\n  \
-      actplane delta add --target-id <domain-id> --delta policy-delta.dsl\n\n\
+      actplane control delta add --target-id <domain-id> --delta policy-delta.dsl\n\n\
     See docs/rule-language.md for the policy language.")]
 pub(crate) struct Cli {
     /// Project policy YAML. Defaults to discovering actplane.yaml upward from cwd.
@@ -84,42 +77,17 @@ pub(crate) struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Run a command under the policy harness.
-    Run {
-        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-        cmd: Vec<String>,
-    },
-    /// Run a command as a child runtime policy domain.
-    #[command(name = "child-run")]
-    ChildRun(ChildRunArgs),
-    /// Compile the policy to the kernel config blob.
-    Compile {
-        #[arg(short, long)]
-        out: PathBuf,
-    },
-    /// Write a starter actplane.yaml (commented guardrail template) in the cwd.
-    Init {
-        /// Overwrite an existing actplane.yaml.
-        #[arg(short, long)]
-        force: bool,
-    },
-    /// Wire project-local Codex hooks, MCP config, and AGENTS.md.
-    Setup {
-        /// Overwrite ActPlane-managed project integration files.
-        #[arg(short, long)]
-        force: bool,
-    },
-    /// Validate the policy (no privileges): compile it, summarize each rule in
-    /// plain language, and warn about anything that won't apply as written.
-    Check(CheckArgs),
-    /// Produce an observe-first rollout plan for the selected policy.
-    Rollout(RolloutArgs),
+    Run(RunArgs),
+    /// Compile, validate, review, or emit a kernel config blob.
+    Compile(CompileArgs),
+    /// Initialize a project policy and optional agent integrations.
+    Init(InitArgs),
     /// Diagnose policy discovery, kernel support, feedback hooks, and MCP setup.
     Doctor,
-    /// List policy domains and their effective locked/default rules.
-    Domains,
     /// Load the policy and report violations without starting a child command.
-    Watch,
+    Watch(WatchArgs),
     /// Hook adapter: forward new feedback-file bytes as agent additionalContext.
+    #[command(hide = true)]
     FeedbackHook,
     /// Run as an MCP (Model Context Protocol) server over stdio.
     Mcp {
@@ -132,81 +100,106 @@ enum Commands {
         #[command(subcommand)]
         command: ControlCommands,
     },
-    /// Manage runtime policy deltas through the repo-local control socket.
-    Delta {
-        #[command(subcommand)]
-        command: DeltaCommands,
-    },
-    /// List, inspect, and write built-in policy templates.
-    Templates {
-        #[command(subcommand)]
-        command: TemplateCommands,
-    },
 }
 
 #[derive(Args)]
-struct ChildRunArgs {
-    /// Optional runtime domain id for the child. Defaults to the launched pid.
+struct RunArgs {
+    /// Run directly in the selected parent/global policy domain.
+    #[arg(long)]
+    parent_domain: bool,
+    /// Optional runtime domain id when launching with runtime deltas. Defaults to the launched pid.
     #[arg(long)]
     child_id: Option<u32>,
-    /// Optional narrower scope id for the child domain.
+    /// Optional narrower scope id when launching with runtime deltas.
     #[arg(long, default_value_t = 0)]
     scope_id: u32,
-    /// Append-only ActPlane DSL fragment file installed into the child before resume.
+    /// Append-only ActPlane DSL fragment file installed before resume.
     #[arg(long = "delta", value_name = "FILE")]
     deltas: Vec<PathBuf>,
-    /// Inline append-only ActPlane DSL fragment installed into the child before resume.
+    /// Inline append-only ActPlane DSL fragment installed before resume.
     #[arg(long = "delta-text", value_name = "DSL")]
     delta_text: Vec<String>,
-    /// Optional approval metadata for child policy deltas.
+    /// Optional approval metadata for runtime policy deltas.
     #[arg(long)]
     approved_by: Option<String>,
-    /// Optional ticket, review, or decision id for child policy deltas.
+    /// Optional ticket, review, or decision id for runtime policy deltas.
     #[arg(long)]
     approval_ref: Option<String>,
-    /// Optional tool or agent identity that generated child policy deltas.
+    /// Optional tool or agent identity that generated runtime policy deltas.
     #[arg(long)]
     generated_by: Option<String>,
-    /// Child command argv.
+    /// Command argv.
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     cmd: Vec<String>,
 }
 
 #[derive(Args)]
-struct CheckArgs {
-    /// Emit a stable machine-readable support matrix and warning report.
+struct CompileArgs {
+    /// Write the kernel config blob to a file.
+    #[arg(short, long, value_name = "FILE", conflicts_with_all = ["json", "explain", "domains"])]
+    out: Option<PathBuf>,
+    /// Emit a stable machine-readable compile/support report.
     #[arg(long)]
     json: bool,
     /// Emit a human-readable policy review explaining enforcement timing and limits.
     #[arg(long, conflicts_with = "json")]
     explain: bool,
-    /// Write the --explain policy review artifact to a file instead of stdout.
-    #[arg(
-        long,
-        value_name = "FILE",
-        requires = "explain",
-        conflicts_with = "json"
-    )]
-    out: Option<PathBuf>,
-    /// Overwrite an existing --out policy review artifact.
-    #[arg(long, requires = "out")]
+    /// Emit policy domains and their effective locked/default rules.
+    #[arg(long, conflicts_with_all = ["out", "json", "explain"])]
+    domains: bool,
+    /// Write the compile report artifact to a file instead of stdout.
+    #[arg(long, value_name = "FILE")]
+    report_out: Option<PathBuf>,
+    /// Overwrite an existing output file.
+    #[arg(short, long)]
     force: bool,
 }
 
 #[derive(Args)]
-struct RolloutArgs {
-    /// Write the rollout plan artifact to a file instead of stdout.
+struct InitArgs {
+    /// Output policy path. Defaults to actplane.yaml unless --print or --list-templates is used.
     #[arg(long, value_name = "FILE")]
     out: Option<PathBuf>,
-    /// Write a notify-only observe-first YAML policy for the selected policy/domain.
-    #[arg(long, value_name = "FILE")]
-    observe_policy_out: Option<PathBuf>,
-    /// Read observe-mode violation JSONL events and include event-backed promotion guidance.
-    #[arg(long = "events", value_name = "FILE")]
-    events: Vec<PathBuf>,
-    /// Overwrite existing rollout output files.
+    /// Write a policy from a built-in template id.
+    #[arg(long, conflicts_with_all = ["generate", "list_templates"])]
+    template: Option<String>,
+    /// Override a declared template parameter, as key=value. Repeat for multiple parameters.
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    params: Vec<String>,
+    /// Infer a candidate policy from project instructions and manifests.
+    #[arg(long, conflicts_with_all = ["template", "list_templates"])]
+    generate: bool,
+    /// Instruction file to inspect for --generate. Defaults to project AGENTS.md/CLAUDE.md.
+    #[arg(long = "instructions", value_name = "FILE")]
+    instructions: Vec<PathBuf>,
+    /// Optional task hint to include in --generate template selection.
+    #[arg(long)]
+    task: Option<String>,
+    /// List built-in templates and exit.
+    #[arg(long, conflicts_with_all = ["template", "generate", "out", "print"])]
+    list_templates: bool,
+    /// Print the generated policy/template instead of writing a file.
+    #[arg(long, conflicts_with = "out")]
+    print: bool,
+    /// Wire project-local Codex feedback hook and AGENTS.md guidance.
+    #[arg(long)]
+    with_codex: bool,
+    /// Wire project-local MCP auto-attach config.
+    #[arg(long)]
+    with_mcp: bool,
+    /// Write the policy and all project integrations.
+    #[arg(long)]
+    all: bool,
+    /// Overwrite ActPlane-managed output files.
     #[arg(short, long)]
     force: bool,
+}
+
+#[derive(Args)]
+struct WatchArgs {
+    /// Attach directly in the selected parent/global policy domain.
+    #[arg(long)]
+    parent_domain: bool,
 }
 
 #[derive(Subcommand)]
@@ -214,6 +207,7 @@ enum ControlCommands {
     /// Show the currently reachable local control server.
     Status,
     /// Hot-reload actplane.yaml into the already-running engine.
+    #[command(name = "reload")]
     ReloadPolicy,
     /// Bind an already-started subagent root pid to a child runtime domain.
     BindChild {
@@ -228,7 +222,10 @@ enum ControlCommands {
         scope_id: u32,
     },
     /// Append an ActPlane DSL delta to an existing runtime domain.
-    AppendDelta(DeltaAddArgs),
+    Delta {
+        #[command(subcommand)]
+        command: DeltaCommands,
+    },
     /// Launch a stopped child process in the running engine, attach policy, then resume.
     LaunchChild {
         /// Optional runtime domain id. Defaults to the launched pid.
@@ -266,8 +263,10 @@ enum ControlCommands {
         cmd: Vec<String>,
     },
     /// List child domains known to the running control server.
+    #[command(name = "children")]
     ListChildren,
     /// Read detached stdout/stderr logs for a launched child domain.
+    #[command(name = "logs")]
     ReadLogs {
         /// Child runtime domain id.
         #[arg(long, conflicts_with = "domain_id")]
@@ -283,6 +282,7 @@ enum ControlCommands {
         max_bytes: usize,
     },
     /// Terminate the process group for a launched child domain.
+    #[command(name = "stop")]
     TerminateChild {
         /// Child runtime domain id.
         #[arg(long, conflicts_with = "domain_id")]
@@ -292,6 +292,7 @@ enum ControlCommands {
         domain_id: Option<u32>,
     },
     /// Restart a launched child domain in a fresh runtime domain.
+    #[command(name = "restart")]
     RestartChild {
         /// Existing child runtime domain id.
         #[arg(long, conflicts_with = "domain_id")]
@@ -307,6 +308,7 @@ enum ControlCommands {
         terminate_existing: bool,
     },
     /// Reconcile child registry state against live Linux processes.
+    #[command(hide = true)]
     ReconcileChildren,
 }
 
@@ -314,97 +316,6 @@ enum ControlCommands {
 enum DeltaCommands {
     /// Append an ActPlane DSL delta to an existing runtime domain.
     Add(DeltaAddArgs),
-}
-
-#[derive(Subcommand)]
-enum TemplateCommands {
-    /// List built-in policy templates.
-    List {
-        /// Emit machine-readable template metadata.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Print one built-in template.
-    Show(TemplateShowArgs),
-    /// Write one built-in template to a file.
-    Write(TemplateWriteArgs),
-    /// Write one YAML template and its policy review artifact.
-    Review(TemplateReviewArgs),
-    /// Infer a candidate policy from project instructions and manifests.
-    Generate(TemplateGenerateArgs),
-}
-
-#[derive(Args)]
-struct TemplateShowArgs {
-    /// Template id, for example `no-secret-egress`.
-    name: String,
-    /// Output format.
-    #[arg(long, value_enum, default_value_t = TemplateFormat::Dsl)]
-    format: TemplateFormat,
-    /// Override a declared template parameter, as key=value. Repeat for multiple parameters.
-    #[arg(long = "set", value_name = "KEY=VALUE")]
-    params: Vec<String>,
-}
-
-#[derive(Args)]
-struct TemplateWriteArgs {
-    /// Template id, for example `no-secret-egress`.
-    name: String,
-    /// Output file path.
-    #[arg(short, long)]
-    out: PathBuf,
-    /// Output format.
-    #[arg(long, value_enum, default_value_t = TemplateFormat::Yaml)]
-    format: TemplateFormat,
-    /// Override a declared template parameter, as key=value. Repeat for multiple parameters.
-    #[arg(long = "set", value_name = "KEY=VALUE")]
-    params: Vec<String>,
-    /// Overwrite an existing output file.
-    #[arg(short, long)]
-    force: bool,
-}
-
-#[derive(Args)]
-struct TemplateReviewArgs {
-    /// Template id, for example `no-secret-egress`.
-    name: String,
-    /// Output YAML policy file path.
-    #[arg(long, value_name = "FILE")]
-    policy_out: PathBuf,
-    /// Output human-readable policy review file path.
-    #[arg(long, value_name = "FILE")]
-    review_out: PathBuf,
-    /// Override a declared template parameter, as key=value. Repeat for multiple parameters.
-    #[arg(long = "set", value_name = "KEY=VALUE")]
-    params: Vec<String>,
-    /// Overwrite existing output files.
-    #[arg(short, long)]
-    force: bool,
-}
-
-#[derive(Args)]
-struct TemplateGenerateArgs {
-    /// Instruction file to inspect. Defaults to project AGENTS.md/CLAUDE.md.
-    #[arg(long = "instructions", value_name = "FILE")]
-    instructions: Vec<PathBuf>,
-    /// Optional task hint to include in template selection.
-    #[arg(long)]
-    task: Option<String>,
-    /// Output YAML candidate policy file path.
-    #[arg(long, value_name = "FILE")]
-    policy_out: PathBuf,
-    /// Output human-readable policy review file path.
-    #[arg(long, value_name = "FILE")]
-    review_out: PathBuf,
-    /// Overwrite existing output files.
-    #[arg(short, long)]
-    force: bool,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum TemplateFormat {
-    Dsl,
-    Yaml,
 }
 
 #[derive(Args)]
@@ -438,39 +349,11 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let code = match &cli.command {
-        Commands::Run { cmd } => runtime::run_command(&cli, cmd).await?,
-        Commands::ChildRun(args) => {
-            let audit_meta = policy_audit_meta_from_fields(
-                None,
-                &args.approved_by,
-                &args.approval_ref,
-                &args.generated_by,
-            );
-            runtime::run_child_command(
-                &cli,
-                args.child_id,
-                args.scope_id,
-                &args.deltas,
-                &args.delta_text,
-                &audit_meta,
-                &args.cmd,
-            )
-            .await?
-        }
-        Commands::Compile { out } => compile_policy(&cli, out).await?,
-        Commands::Init { force } => setup::init_policy(*force)?,
-        Commands::Setup { force } => setup::setup_project(*force)?,
-        Commands::Check(args) => doctor::check_policy(
-            &cli,
-            args.json,
-            args.explain,
-            args.out.as_deref(),
-            args.force,
-        )?,
-        Commands::Rollout(args) => rollout_command(args, &cli)?,
+        Commands::Run(args) => run_command(&cli, args).await?,
+        Commands::Compile(args) => compile_policy(&cli, args).await?,
+        Commands::Init(args) => init_command(args)?,
         Commands::Doctor => doctor::doctor(&cli)?,
-        Commands::Domains => doctor::list_domains(&cli)?,
-        Commands::Watch => runtime::watch_policy(&cli).await?,
+        Commands::Watch(args) => runtime::watch_policy(&cli, args.parent_domain).await?,
         Commands::FeedbackHook => {
             hook::feedback_hook().await?;
             0
@@ -487,8 +370,6 @@ async fn main() -> Result<()> {
             0
         }
         Commands::Control { command } => control_command(&cli, command).await?,
-        Commands::Delta { command } => delta_command(&cli, command).await?,
-        Commands::Templates { command } => template_command(&cli, command)?,
     };
     if code != 0 {
         std::process::exit(code);
@@ -496,141 +377,105 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn rollout_command(args: &RolloutArgs, cli: &Cli) -> Result<i32> {
-    let artifacts = doctor::render_rollout_artifacts(cli, &args.events)?;
-    match (&args.out, &args.observe_policy_out) {
-        (Some(plan_path), Some(observe_path)) => {
-            write_pair_output_files(
-                plan_path,
-                &artifacts.plan,
-                observe_path,
-                &artifacts.observe_policy_yaml,
-                args.force,
-                "--out and --observe-policy-out must be different",
-            )?;
-            eprintln!("actplane: wrote rollout plan {}", plan_path.display());
-            eprintln!(
-                "actplane: wrote observe-first policy {}",
-                observe_path.display()
-            );
-        }
-        (Some(plan_path), None) => {
-            write_output_file(plan_path, &artifacts.plan, args.force)?;
-            eprintln!("actplane: wrote rollout plan {}", plan_path.display());
-        }
-        (None, Some(observe_path)) => {
-            write_output_file(observe_path, &artifacts.observe_policy_yaml, args.force)?;
-            eprintln!(
-                "actplane: wrote observe-first policy {}",
-                observe_path.display()
-            );
-            print!("{}", artifacts.plan);
-        }
-        (None, None) => print!("{}", artifacts.plan),
+async fn run_command(cli: &Cli, args: &RunArgs) -> Result<i32> {
+    let child_mode = args.child_id.is_some()
+        || args.scope_id != 0
+        || !args.deltas.is_empty()
+        || !args.delta_text.is_empty()
+        || args.approved_by.is_some()
+        || args.approval_ref.is_some()
+        || args.generated_by.is_some();
+    if args.parent_domain && child_mode {
+        return Err("--parent-domain cannot be combined with child runtime delta options".into());
     }
-    Ok(0)
+    if child_mode {
+        let audit_meta = policy_audit_meta_from_fields(
+            None,
+            &args.approved_by,
+            &args.approval_ref,
+            &args.generated_by,
+        );
+        return runtime::run_child_command(
+            cli,
+            args.child_id,
+            args.scope_id,
+            &args.deltas,
+            &args.delta_text,
+            &audit_meta,
+            &args.cmd,
+        )
+        .await;
+    }
+    runtime::run_command(cli, &args.cmd, args.parent_domain).await
 }
 
-fn template_command(cli: &Cli, command: &TemplateCommands) -> Result<i32> {
-    if cli.policy.is_some() || cli.rule.is_some() || cli.domain.is_some() {
-        return Err(
-            "`actplane templates` does not read --policy, --rule, or --domain; use `actplane check` to review an existing policy"
-                .into(),
-        );
+fn init_command(args: &InitArgs) -> Result<i32> {
+    if !args.generate && (!args.instructions.is_empty() || args.task.is_some()) {
+        return Err("--instructions and --task require --generate".into());
     }
-    match command {
-        TemplateCommands::List { json } => {
-            if *json {
-                println!("{}", serde_json::to_string_pretty(&templates::json())?);
-            } else {
-                println!("ActPlane policy templates");
-                for template in templates::all() {
-                    println!(
-                        "  {:<24} {:<12} {:<6} {}",
-                        template.id, template.category, template.effect, template.title
-                    );
-                }
-                println!("\nUse `actplane templates show <id>` to inspect DSL.");
-            }
-        }
-        TemplateCommands::Show(args) => {
-            let template = templates::get(&args.name)?;
-            print!("{}", render_template(template, args.format, &args.params)?);
-        }
-        TemplateCommands::Write(args) => {
-            let template = templates::get(&args.name)?;
-            write_output_file(
-                &args.out,
-                &render_template(template, args.format, &args.params)?,
-                args.force,
-            )?;
-            eprintln!(
-                "actplane: wrote template `{}` to {}",
-                template.id,
-                args.out.display()
+    if args.list_templates {
+        if !args.params.is_empty() || args.with_codex || args.with_mcp || args.all || args.force {
+            return Err(
+                "--list-templates cannot be combined with write or integration flags".into(),
             );
         }
-        TemplateCommands::Review(args) => {
-            let template = templates::get(&args.name)?;
-            let policy_yaml = templates::render_yaml(template, &args.params)?;
-            let review = render_policy_review_for_yaml(
-                &policy_yaml,
-                &args.policy_out,
-                &format!("template `{}` generated invalid YAML", template.id),
-            )?;
-            write_pair_output_files(
-                &args.policy_out,
-                &policy_yaml,
-                &args.review_out,
-                &review,
-                args.force,
-                "--policy-out and --review-out must be different",
-            )?;
-            eprintln!(
-                "actplane: wrote template `{}` to {}",
-                template.id,
-                args.policy_out.display()
-            );
-            eprintln!(
-                "actplane: wrote policy review {}",
-                args.review_out.display()
+        println!("ActPlane policy templates");
+        for template in templates::all() {
+            println!(
+                "  {:<24} {:<12} {:<6} {}",
+                template.id, template.category, template.effect, template.title
             );
         }
-        TemplateCommands::Generate(args) => {
-            let root = template_project_root()?;
-            let generated =
-                template_generate::generate(&root, &args.instructions, args.task.as_deref())?;
-            let policy_yaml = template_generate::render_yaml(&generated)?;
-            let review = render_policy_review_for_yaml(
-                &policy_yaml,
-                &args.policy_out,
-                "generated candidate policy is invalid YAML",
-            )?;
-            write_pair_output_files(
-                &args.policy_out,
-                &policy_yaml,
-                &args.review_out,
-                &review,
-                args.force,
-                "--policy-out and --review-out must be different",
-            )?;
-            eprintln!(
-                "actplane: generated {} template-backed policy rule set(s)",
+        return Ok(0);
+    }
+    if args.print && (args.with_codex || args.with_mcp || args.all) {
+        return Err("--print cannot be combined with integration setup flags".into());
+    }
+
+    let (policy_yaml, source_label) = if let Some(name) = &args.template {
+        let template = templates::get(name)?;
+        (
+            templates::render_yaml(template, &args.params)?,
+            format!("template `{}`", template.id),
+        )
+    } else if args.generate {
+        let root = template_project_root()?;
+        let generated =
+            template_generate::generate(&root, &args.instructions, args.task.as_deref())?;
+        for line in template_generate::summary(&generated) {
+            eprintln!("actplane: selected {line}");
+        }
+        (
+            template_generate::render_yaml(&generated)?,
+            format!(
+                "{} generated template-backed rule set(s)",
                 generated.templates.len()
-            );
-            for line in template_generate::summary(&generated) {
-                eprintln!("actplane: selected {line}");
-            }
-            eprintln!(
-                "actplane: wrote candidate policy {}",
-                args.policy_out.display()
-            );
-            eprintln!(
-                "actplane: wrote policy review {}",
-                args.review_out.display()
-            );
+            ),
+        )
+    } else {
+        if !args.params.is_empty() {
+            return Err("--set requires --template".into());
         }
+        (setup::starter_policy().to_string(), "starter policy".into())
+    };
+
+    if args.print {
+        print!("{policy_yaml}");
+    } else {
+        let out = args
+            .out
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("actplane.yaml"));
+        write_output_file(&out, &policy_yaml, args.force)?;
+        eprintln!("actplane: wrote {source_label} to {}", out.display());
     }
+
+    let with_codex = args.all || args.with_codex;
+    let with_mcp = args.all || args.with_mcp;
+    if with_codex || with_mcp {
+        setup::setup_project_integrations(args.force, with_codex, with_mcp, with_codex)?;
+    }
+    eprintln!("Next:\n  actplane compile\n  actplane doctor");
     Ok(0)
 }
 
@@ -640,121 +485,10 @@ fn write_output_file(path: &Path, contents: &str, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn write_pair_output_files(
-    first_path: &Path,
-    first_contents: &str,
-    second_path: &Path,
-    second_contents: &str,
-    force: bool,
-    same_path_error: &str,
-) -> Result<()> {
-    let first_key = preflight_output_file(first_path, force)?;
-    let second_key = preflight_output_file(second_path, force)?;
-    if first_key == second_key {
-        return Err(same_path_error.to_string().into());
-    }
-
-    let first_tmp = write_temp_output(first_path, first_contents)?;
-    let second_tmp = write_temp_output(second_path, second_contents)?;
-
-    let mut backups = Vec::new();
-    match backup_existing_output(first_path) {
-        Ok(backup) => backups.push((first_path.to_path_buf(), backup)),
-        Err(e) => return Err(e),
-    }
-    match backup_existing_output(second_path) {
-        Ok(backup) => backups.push((second_path.to_path_buf(), backup)),
-        Err(e) => {
-            restore_output_backups(&backups);
-            return Err(e);
-        }
-    }
-
-    if let Err(e) = persist_temp_output(first_tmp, first_path) {
-        restore_output_backups(&backups);
-        return Err(e);
-    }
-    if let Err(e) = persist_temp_output(second_tmp, second_path) {
-        let _ = std::fs::remove_file(first_path);
-        restore_output_backups(&backups);
-        return Err(e);
-    }
-    remove_output_backups(&backups);
+fn write_binary_output_file(path: &Path, contents: &[u8], force: bool) -> Result<()> {
+    preflight_output_file(path, force)?;
+    std::fs::write(path, contents)?;
     Ok(())
-}
-
-fn write_temp_output(path: &Path, contents: &str) -> Result<tempfile::NamedTempFile> {
-    let mut file = tempfile::Builder::new()
-        .prefix(".actplane-output-")
-        .tempfile_in(output_parent(path))?;
-    file.write_all(contents.as_bytes())?;
-    file.flush()?;
-    file.as_file().sync_all()?;
-    Ok(file)
-}
-
-fn persist_temp_output(file: tempfile::NamedTempFile, path: &Path) -> Result<()> {
-    file.persist(path)
-        .map(|_| ())
-        .map_err(|e| format!("writing {}: {}", path.display(), e.error).into())
-}
-
-fn backup_existing_output(path: &Path) -> Result<Option<PathBuf>> {
-    match std::fs::symlink_metadata(path) {
-        Ok(_) => {
-            let backup = unique_backup_path(path)?;
-            std::fs::rename(path, &backup).map_err(|e| {
-                format!(
-                    "preparing backup for {} at {}: {}",
-                    path.display(),
-                    backup.display(),
-                    e
-                )
-            })?;
-            Ok(Some(backup))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("reading metadata for {}: {}", path.display(), e).into()),
-    }
-}
-
-fn unique_backup_path(path: &Path) -> Result<PathBuf> {
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| format!("{} is not a valid output file path", path.display()))?;
-    for attempt in 0..1000u32 {
-        let mut name = OsString::from(format!(
-            ".actplane-backup-{}-{attempt}-",
-            std::process::id()
-        ));
-        name.push(file_name);
-        let candidate = output_parent(path).join(name);
-        match std::fs::symlink_metadata(&candidate) {
-            Ok(_) => continue,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(candidate),
-            Err(e) => {
-                return Err(format!("reading metadata for {}: {}", candidate.display(), e).into());
-            }
-        }
-    }
-    Err(format!("could not allocate a backup path for {}", path.display()).into())
-}
-
-fn restore_output_backups(backups: &[(PathBuf, Option<PathBuf>)]) {
-    for (target, backup) in backups.iter().rev() {
-        if let Some(backup) = backup {
-            let _ = std::fs::remove_file(target);
-            let _ = std::fs::rename(backup, target);
-        }
-    }
-}
-
-fn remove_output_backups(backups: &[(PathBuf, Option<PathBuf>)]) {
-    for (_, backup) in backups {
-        if let Some(backup) = backup {
-            let _ = std::fs::remove_file(backup);
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -829,12 +563,6 @@ fn preflight_output_file(path: &Path, force: bool) -> Result<OutputPathKey> {
     ))
 }
 
-fn output_parent(path: &Path) -> &Path {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-}
-
 fn template_project_root() -> Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     if let Some(policy) = config::discover_policy(&cwd) {
@@ -853,34 +581,9 @@ fn template_project_root() -> Result<PathBuf> {
     Ok(cwd)
 }
 
-fn render_policy_review_for_yaml(
-    policy_yaml: &str,
-    policy_path: &Path,
-    yaml_error_context: &str,
-) -> Result<String> {
-    let config: config::FileConfig =
-        serde_yaml::from_str(policy_yaml).map_err(|e| format!("{yaml_error_context}: {e}"))?;
-    let loaded = config::LoadedPolicy {
-        config,
-        root: std::env::current_dir()?,
-        path: Some(policy_path.to_path_buf()),
-    };
-    doctor::render_policy_review_for_loaded(&loaded, None)
-}
-
-fn render_template(
-    template: &templates::PolicyTemplate,
-    format: TemplateFormat,
-    params: &[String],
-) -> Result<String> {
-    match format {
-        TemplateFormat::Dsl => templates::render_dsl(template, params),
-        TemplateFormat::Yaml => templates::render_yaml(template, params),
-    }
-}
-
 async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
     let project_dir = control_project_dir(cli)?;
+    reject_parent_domain_control_mutation(&project_dir, command)?;
     let responses = match command {
         ControlCommands::Status => {
             vec![control::send_request(
@@ -907,9 +610,11 @@ async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
             }
             vec![control::send_request(&project_dir, request)?]
         }
-        ControlCommands::AppendDelta(args) => {
-            append_delta_control_requests(&project_dir, args, "control append-delta")?
-        }
+        ControlCommands::Delta { command } => match command {
+            DeltaCommands::Add(args) => {
+                append_delta_control_requests(&project_dir, args, "control delta add")?
+            }
+        },
         ControlCommands::LaunchChild {
             child_id,
             scope_id,
@@ -957,7 +662,7 @@ async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
         } => {
             let child_id = child_id
                 .or(*domain_id)
-                .ok_or("control read-logs requires --child-id or --domain-id")?;
+                .ok_or("control logs requires --child-id or --domain-id")?;
             vec![control::send_request(
                 &project_dir,
                 serde_json::json!({
@@ -974,7 +679,7 @@ async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
         } => {
             let child_id = child_id
                 .or(*domain_id)
-                .ok_or("control terminate-child requires --child-id or --domain-id")?;
+                .ok_or("control stop requires --child-id or --domain-id")?;
             vec![control::send_request(
                 &project_dir,
                 serde_json::json!({
@@ -991,7 +696,7 @@ async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
         } => {
             let child_id = child_id
                 .or(*domain_id)
-                .ok_or("control restart-child requires --child-id or --domain-id")?;
+                .ok_or("control restart requires --child-id or --domain-id")?;
             let mut request = serde_json::json!({
                 "op": "restart_child_domain",
                 "child_id": child_id,
@@ -1013,15 +718,40 @@ async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {
     Ok(0)
 }
 
-async fn delta_command(cli: &Cli, command: &DeltaCommands) -> Result<i32> {
-    let project_dir = control_project_dir(cli)?;
-    let responses = match command {
-        DeltaCommands::Add(args) => append_delta_control_requests(&project_dir, args, "delta add")?,
+fn reject_parent_domain_control_mutation(
+    project_dir: &Path,
+    command: &ControlCommands,
+) -> Result<()> {
+    let unsupported_operation = match command {
+        ControlCommands::BindChild { .. } => Some("bind child domain"),
+        ControlCommands::LaunchChild { .. } => Some("launch child domain"),
+        ControlCommands::Delta {
+            command: DeltaCommands::Add(args),
+        } if args
+            .target_id
+            .or(args.domain_id)
+            .is_none_or(|target_id| target_id == ebpf_ifc_engine::GLOBAL_ACTIVE_DOMAIN_ID) =>
+        {
+            Some("append policy delta")
+        }
+        _ => None,
     };
-    for response in responses {
-        print_control_response(response)?;
+    let Some(operation) = unsupported_operation else {
+        return Ok(());
+    };
+    let state = control::read_state(project_dir)?;
+    if state.parent_domain_id == ebpf_ifc_engine::GLOBAL_ACTIVE_DOMAIN_ID {
+        return Err(parent_domain_control_mutation_error(operation).into());
     }
-    Ok(0)
+    Ok(())
+}
+
+fn parent_domain_control_mutation_error(operation: &str) -> String {
+    format!(
+        "{operation} is unavailable in --parent-domain mode; start watch without \
+         --parent-domain, or use mcp --auto-attach-parent, to create an authority-bearing \
+         runtime parent domain"
+    )
 }
 
 fn append_delta_control_requests(
@@ -1162,11 +892,29 @@ fn print_control_response(response: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-async fn compile_policy(cli: &Cli, out: &Path) -> Result<i32> {
+async fn compile_policy(cli: &Cli, args: &CompileArgs) -> Result<i32> {
+    if args.report_out.is_some() && !(args.json || args.explain) {
+        return Err("--report-out requires --json or --explain".into());
+    }
+    if args.domains {
+        return doctor::list_domains(cli);
+    }
+    if args.json || args.explain {
+        return doctor::check_policy(
+            cli,
+            args.json,
+            args.explain,
+            args.report_out.as_deref(),
+            args.force,
+        );
+    }
+    let Some(out) = &args.out else {
+        return doctor::check_policy(cli, false, false, None, false);
+    };
     let loaded = config::load_policy(cli)?;
     let resolved = config::resolve_policy(&loaded, cli.domain.as_deref())?;
     let compiled = dsl::compile_str(&resolved.source)?;
-    std::fs::write(out, &compiled.bytes)?;
+    write_binary_output_file(out, &compiled.bytes, args.force)?;
     if let Some(domain) = &resolved.domain {
         eprintln!(
             "ActPlane: domain `{}` (locked: {}; default: {})",

@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::{Value, json};
-
 use crate::Result;
 
 #[derive(Debug)]
@@ -17,6 +15,7 @@ pub(crate) struct PolicyTemplate {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) struct TemplateParam {
     pub(crate) name: &'static str,
     pub(crate) value_name: &'static str,
@@ -246,7 +245,7 @@ rule no-git-push:
         effect: "block",
         summary: "Labels common secret files and denies network egress after secret-derived reads when BPF-LSM block support is active.",
         notes: &[
-            "Endpoint matching is numeric IPv4-oriented in the kernel. Use `actplane check --explain` to review host support.",
+            "Endpoint matching is numeric IPv4-oriented in the kernel. Use `actplane compile --explain` to review host support.",
             "Edit the source paths and redactor command for the project before enforcing broadly.",
         ],
         params: PARAM_NO_SECRET_EGRESS,
@@ -331,7 +330,7 @@ rule protected-branch-push:
         summary: "Denies writes and deletes outside /work when BPF-LSM block support is active.",
         notes: &[
             "Change /work/** to the repo or task-specific writable area before use.",
-            "Run `actplane check --explain` before rollout. Without BPF-LSM, block rules are reported as unsupported.",
+            "Run `actplane compile --explain` before enforcing. Without BPF-LSM, block rules are reported as unsupported.",
             "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
         params: PARAM_WORKSPACE_CONFINEMENT,
@@ -352,7 +351,7 @@ rule workspace-confinement:
         notes: &[
             "Useful for review-only subagents or untrusted tool invocations.",
             "Pair with runtime domains when multiple agents share one host workspace.",
-            "Run `actplane check --explain` before rollout. Without BPF-LSM, block rules are reported as unsupported.",
+            "Run `actplane compile --explain` before enforcing. Without BPF-LSM, block rules are reported as unsupported.",
             "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
         params: PARAM_AGENT_EXEC,
@@ -373,7 +372,7 @@ rule readonly-review:
         notes: &[
             "Loopback is allowed with target prefix 127.; remove the exception for stricter isolation.",
             "Hostname and IPv6 endpoint globs are not kernel-enforced today.",
-            "Run `actplane check --explain` before rollout. Without BPF-LSM, block rules are reported as unsupported.",
+            "Run `actplane compile --explain` before enforcing. Without BPF-LSM, block rules are reported as unsupported.",
             "With `actplane run` or `watch`, the protected root is also seeded with the AGENT label. Standalone users can narrow `exec \"**\"` to their agent executable.",
         ],
         params: PARAM_NO_NETWORK,
@@ -422,34 +421,6 @@ pub(crate) fn get(id: &str) -> Result<&'static PolicyTemplate> {
             )
             .into()
         })
-}
-
-pub(crate) fn json() -> Value {
-    json!({
-        "schema": "actplane.templates.v1",
-        "templates": TEMPLATES.iter().map(template_json).collect::<Vec<_>>(),
-    })
-}
-
-fn template_json(template: &PolicyTemplate) -> Value {
-    json!({
-        "id": template.id,
-        "title": template.title,
-        "category": template.category,
-        "effect": template.effect,
-        "summary": template.summary,
-        "notes": template.notes,
-        "params": template.params.iter().map(param_json).collect::<Vec<_>>(),
-    })
-}
-
-fn param_json(param: &TemplateParam) -> Value {
-    json!({
-        "name": param.name,
-        "value_name": param.value_name,
-        "default": param.default,
-        "description": param.description,
-    })
 }
 
 pub(crate) fn render_dsl(template: &PolicyTemplate, overrides: &[String]) -> Result<String> {

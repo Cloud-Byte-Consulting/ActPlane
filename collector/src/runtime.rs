@@ -9,7 +9,9 @@ use ebpf_ifc_engine::capability::{
     AUTH_ADD_LABEL, AUTH_BIND_RULE, AUTH_DECLASSIFY, AUTH_DELEGATE, AUTH_NARROW_SCOPE,
     AUTH_REQUIRE_GATE, CapState, TARGET_CHILD, TARGET_SELF,
 };
-use ebpf_ifc_engine::{ChildDomainSpec, DomainHandle, HookReserve, Loader, ReloadHandle};
+use ebpf_ifc_engine::{
+    ChildDomainSpec, DomainHandle, GLOBAL_ACTIVE_DOMAIN_ID, HookReserve, Loader, ReloadHandle,
+};
 use serde_json::json;
 use tokio::process::{Child, Command};
 
@@ -28,7 +30,7 @@ use crate::{Cli, Result, audit, dsl};
 
 const ATTACH_PID_ENV: &str = "ACTPLANE_ATTACH_PID";
 
-pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
+pub(crate) async fn watch_policy(cli: &Cli, parent_domain: bool) -> Result<i32> {
     let attach_pid = attach_pid_from_env_or_parent();
     if attach_pid <= 1 {
         return Err(format!("invalid parent pid for watch attach: {attach_pid}").into());
@@ -68,11 +70,21 @@ pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
                     return;
                 }
             };
-        if let Err(e) = loader.seed_label(attach_pid, agent_label) {
-            let _ = ready_tx.send(Err(format!("seed watch pid {attach_pid}: {e}")));
+        let seeded = if parent_domain {
+            loader.seed_global_label(attach_pid, agent_label)
+        } else {
+            loader.seed_label(attach_pid, agent_label)
+        };
+        if let Err(e) = seeded {
+            let mode = if parent_domain {
+                "parent/global watch pid"
+            } else {
+                "watch pid"
+            };
+            let _ = ready_tx.send(Err(format!("seed {mode} {attach_pid}: {e}")));
             return;
         }
-        if submitter_pid != attach_pid {
+        if !parent_domain && submitter_pid != attach_pid {
             if let Err(e) = loader.bind_state(
                 submitter_pid,
                 attach_pid as u32,
@@ -117,6 +129,11 @@ pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
             return Err("engine thread exited before readiness".into());
         }
     };
+    let parent_domain_id = if parent_domain {
+        GLOBAL_ACTIVE_DOMAIN_ID
+    } else {
+        attach_pid as u32
+    };
     let control = Arc::new(EngineControl {
         reload_handle: Arc::new(reload_handle),
         domain_handle: Arc::new(domain_handle),
@@ -125,7 +142,7 @@ pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
         audit_path: feedback.audit.clone(),
         approval_policy: RwLock::new(RuntimeApprovalPolicy::from_loaded_policy(&loaded)),
         parent_pid: attach_pid,
-        parent_domain_id: attach_pid as u32,
+        parent_domain_id,
         submitter_pid,
     });
     let project_dir = watch_project_dir(&loaded);
@@ -138,9 +155,14 @@ pub(crate) async fn watch_policy(cli: &Cli) -> Result<i32> {
         }
     };
     eprintln!(
-        "ActPlane: watching pid {} under COMMAND label 0x{:x}; feedback {}; control {}\n",
+        "ActPlane: watching pid {} under COMMAND label 0x{:x}{}; feedback {}; control {}\n",
         attach_pid,
         agent_label,
+        if parent_domain {
+            " in parent/global domain"
+        } else {
+            ""
+        },
         feedback.feedback.display(),
         crate::control::state_path(&project_dir).display()
     );
@@ -443,6 +465,18 @@ impl EngineControl {
 
     pub(crate) fn submitter_pid(&self) -> i32 {
         self.submitter_pid
+    }
+
+    pub(crate) fn parent_domain_allows_runtime_mutation(&self) -> bool {
+        self.parent_domain_id != GLOBAL_ACTIVE_DOMAIN_ID
+    }
+
+    pub(crate) fn parent_domain_mutation_error(&self, operation: &str) -> String {
+        format!(
+            "{operation} is unavailable in --parent-domain mode; start watch without \
+             --parent-domain, or use mcp --auto-attach-parent, to create an authority-bearing \
+             runtime parent domain"
+        )
     }
 
     pub(crate) fn ensure_parent_or_external_control_actor(&self, actor_pid: i32) -> Result<()> {
@@ -1090,7 +1124,7 @@ fn require_bpf_caps_or_elevate_with_env(
     }
 }
 
-pub(crate) async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
+pub(crate) async fn run_command(cli: &Cli, cmd: &[String], parent_domain: bool) -> Result<i32> {
     require_bpf_caps_or_elevate(cli.internal_elevated)?;
     let loaded = load_policy(cli)?;
     let policy = policy_source(&loaded, cli.domain.as_deref())?;
@@ -1129,8 +1163,18 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
                 return;
             }
         };
-        if let Err(e) = loader.seed_label(target_pid as i32, agent_label) {
-            let _ = ready_tx.send(Err(format!("seed pid: {e}")));
+        let seeded = if parent_domain {
+            loader.seed_global_label(target_pid as i32, agent_label)
+        } else {
+            loader.seed_label(target_pid as i32, agent_label)
+        };
+        if let Err(e) = seeded {
+            let mode = if parent_domain {
+                "parent/global pid"
+            } else {
+                "pid"
+            };
+            let _ = ready_tx.send(Err(format!("seed {mode}: {e}")));
             return;
         }
         let _ = ready_tx.send(Ok(()));
@@ -1155,9 +1199,14 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String]) -> Result<i32> {
     }
 
     eprintln!(
-        "ActPlane: running pid {} under COMMAND label 0x{:x}; feedback {}\n",
+        "ActPlane: running pid {} under COMMAND label 0x{:x}{}; feedback {}\n",
         target_pid,
         agent_label,
+        if parent_domain {
+            " in parent/global domain"
+        } else {
+            ""
+        },
         feedback.feedback.display()
     );
     send_signal(target_pid, libc::SIGCONT)?;
@@ -1180,7 +1229,7 @@ pub(crate) async fn run_child_command(
 ) -> Result<i32> {
     require_bpf_caps_or_elevate(cli.internal_elevated)?;
     if cmd.is_empty() {
-        return Err("child-run requires a command".into());
+        return Err("run requires a command".into());
     }
 
     let loaded = load_policy(cli)?;
@@ -1188,7 +1237,7 @@ pub(crate) async fn run_child_command(
     let compiled = dsl::compile_str(&policy)?;
     let agent_label = runner_label(&compiled)?;
     let deltas = load_child_policy_deltas(delta_paths, delta_texts)?;
-    let feedback = scoped_feedback_paths(&feedback_paths(&loaded), "child-run");
+    let feedback = scoped_feedback_paths(&feedback_paths(&loaded), "run-child");
     let target_owner = target_user(cli.run_as_root);
     prepare_feedback_files(&feedback, target_owner)?;
 

@@ -28,6 +28,7 @@ use capability::{
 
 const BPF_ANY: u64 = 0;
 const BPF_NOEXIST: u64 = 1;
+pub const GLOBAL_ACTIVE_DOMAIN_ID: u32 = u32::MAX;
 
 // ---- prebuilt eBPF object, 8-byte aligned for aya's ELF parser ----
 #[repr(align(8))]
@@ -1398,38 +1399,57 @@ impl Loader {
         self.domain_handle()?.bind_child_domain(spec)
     }
 
-    /// Seed `pid` and its future descendants with an initial label.
-    pub fn seed_label(&mut self, pid: i32, label: u64) -> io::Result<()> {
+    fn seed_global_proc_state(&mut self, pid: i32, label: u64) -> io::Result<()> {
         if pid <= 0 || label == 0 {
             return Err(err("pid and label must both be set"));
         }
-        {
-            let mut proc: HashMap<_, i32, ProcState> = HashMap::try_from(
-                self.bpf
-                    .map_mut("ts_proc")
-                    .ok_or_else(|| err("ts_proc missing"))?,
-            )
-            .map_err(|e| err(format!("ts_proc: {e}")))?;
-            proc.insert(
-                pid,
-                ProcState {
-                    labels: label,
-                    lin_gates: 0,
-                },
-                0,
-            )
-            .map_err(|e| err(format!("seed ts_proc: {e}")))?;
-        }
-        {
-            let mut root: HashMap<_, i32, i32> = HashMap::try_from(
-                self.bpf
-                    .map_mut("ts_root")
-                    .ok_or_else(|| err("ts_root missing"))?,
-            )
-            .map_err(|e| err(format!("ts_root: {e}")))?;
-            root.insert(pid, pid, 0)
-                .map_err(|e| err(format!("seed ts_root: {e}")))?;
-        }
+
+        let mut proc: HashMap<_, i32, ProcState> = HashMap::try_from(
+            self.bpf
+                .map_mut("ts_proc")
+                .ok_or_else(|| err("ts_proc missing"))?,
+        )
+        .map_err(|e| err(format!("ts_proc: {e}")))?;
+        proc.insert(
+            pid,
+            ProcState {
+                labels: label,
+                lin_gates: 0,
+            },
+            0,
+        )
+        .map_err(|e| err(format!("seed ts_proc: {e}")))?;
+
+        let mut root: HashMap<_, i32, i32> = HashMap::try_from(
+            self.bpf
+                .map_mut("ts_root")
+                .ok_or_else(|| err("ts_root missing"))?,
+        )
+        .map_err(|e| err(format!("ts_root: {e}")))?;
+        root.insert(pid, pid, 0)
+            .map_err(|e| err(format!("seed ts_root: {e}")))?;
+        Ok(())
+    }
+
+    /// Seed `pid` and its future descendants with an initial global label, but
+    /// do not create a mutable runtime domain for policy deltas.
+    pub fn seed_global_label(&mut self, pid: i32, label: u64) -> io::Result<()> {
+        self.seed_global_proc_state(pid, label)?;
+        let mut pid_map: HashMap<_, i32, u32> = HashMap::try_from(
+            self.bpf
+                .map_mut("cap_task")
+                .ok_or_else(|| err("cap_task missing"))?,
+        )
+        .map_err(|e| err(format!("cap_task: {e}")))?;
+        pid_map
+            .insert(pid, GLOBAL_ACTIVE_DOMAIN_ID, 0)
+            .map_err(|e| err(format!("seed cap_task: {e}")))?;
+        Ok(())
+    }
+
+    /// Seed `pid` and its future descendants with an initial label.
+    pub fn seed_label(&mut self, pid: i32, label: u64) -> io::Result<()> {
+        self.seed_global_proc_state(pid, label)?;
         self.bind_state(
             pid,
             pid as u32,

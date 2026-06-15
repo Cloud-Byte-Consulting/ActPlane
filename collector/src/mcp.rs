@@ -364,6 +364,11 @@ impl ActPlaneMcp {
                 None::<Value>,
             )
         })?;
+        if !control.parent_domain_allows_runtime_mutation() {
+            return Err(invalid_params(
+                control.parent_domain_mutation_error("bind child domain"),
+            ));
+        }
         let args = args.unwrap_or_default();
         let pid = json_i32(&args, "pid")?;
         if pid <= 0 {
@@ -425,6 +430,12 @@ impl ActPlaneMcp {
         };
         if target_id == 0 {
             return Err(invalid_params("target_id must be nonzero"));
+        }
+        if target_id == control.parent_domain_id && !control.parent_domain_allows_runtime_mutation()
+        {
+            return Err(invalid_params(
+                control.parent_domain_mutation_error("append policy delta"),
+            ));
         }
         let policy = json_string(&args, "policy")?;
         let audit_meta = policy_audit_meta_from_args(&args)?;
@@ -510,6 +521,11 @@ impl ActPlaneMcp {
                 None::<Value>,
             )
         })?;
+        if !control.parent_domain_allows_runtime_mutation() {
+            return Err(invalid_params(
+                control.parent_domain_mutation_error("launch child domain"),
+            ));
+        }
         let launch_id = child_launch_id();
         let log_dir = self
             .project_dir

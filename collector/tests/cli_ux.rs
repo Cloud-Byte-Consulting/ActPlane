@@ -4,8 +4,6 @@ use std::process::{Command, Output};
 #[cfg(unix)]
 use std::io::{BufRead, Write};
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
 use std::os::unix::net::UnixListener;
 #[cfg(unix)]
 use std::time::Duration;
@@ -26,9 +24,56 @@ fn run(args: &[&str]) -> Output {
 }
 
 #[test]
-fn check_prints_domain_summary() {
+fn top_level_help_is_engine_focused() {
+    let output = run(&["--help"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    for command in [
+        "run", "compile", "init", "doctor", "watch", "mcp", "control",
+    ] {
+        assert!(
+            stdout.contains(command),
+            "missing {command} in help:\n{stdout}"
+        );
+    }
+    for removed in [
+        "check",
+        "templates",
+        "setup",
+        "domains",
+        "rollout",
+        "child-run",
+    ] {
+        assert!(
+            !stdout.contains(&format!("  {removed}")),
+            "removed command {removed} still appears in help:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn removed_top_level_commands_are_not_accepted() {
+    for command in [
+        "check",
+        "templates",
+        "setup",
+        "domains",
+        "rollout",
+        "delta",
+        "child-run",
+    ] {
+        let output = run(&[command, "--help"]);
+        assert!(
+            !output.status.success(),
+            "removed command {command} unexpectedly succeeded"
+        );
+    }
+}
+
+#[test]
+fn compile_default_prints_domain_summary() {
     let policy = fixture("15_domain_bindings.yaml");
-    let output = run(&["--policy", &policy, "--domain", "review", "check"]);
+    let output = run(&["--policy", &policy, "--domain", "review", "compile"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let stdout = stdout(&output);
     assert!(stdout.contains("domain: review"));
@@ -39,30 +84,7 @@ fn check_prints_domain_summary() {
 }
 
 #[test]
-fn check_prints_backend_support_matrix_and_static_warnings() {
-    let policy = r#"
-source NET = endpoint "source.example.com"
-
-rule recv-soft:
-  notify recv endpoint "*" if true
-  because "recv notify"
-
-rule host-connect:
-  block connect endpoint "api.example.com" if true
-  because "hostname connect"
-"#;
-    let output = run(&["--rule", policy, "check"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("backend support:"));
-    assert!(stdout.contains("recv-soft: notify recv -> tracepoint report after recv"));
-    assert!(stdout.contains("host-connect: block connect ->"));
-    assert!(stdout.contains("connect endpoint \"api.example.com\" uses a hostname"));
-    assert!(stdout.contains("source NET = endpoint \"source.example.com\" uses a hostname"));
-}
-
-#[test]
-fn check_json_reports_backend_support_and_static_warnings() {
+fn compile_json_reports_backend_support_and_static_warnings() {
     let policy = r#"
 source NET = endpoint "source.example.com"
 
@@ -74,47 +96,27 @@ rule host-connect:
   notify connect endpoint "api.example.com" if true
   because "hostname connect"
 "#;
-    let output = run(&["--rule", policy, "check", "--json"]);
+    let output = run(&["--rule", policy, "compile", "--json"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("check --json stdout");
+        serde_json::from_slice(&output.stdout).expect("compile --json stdout");
 
-    assert_eq!(value["schema"], "actplane.check.v1");
+    assert_eq!(value["schema"], "actplane.compile.v1");
     assert_eq!(value["ok"], true);
     assert_eq!(value["matrix_scope"], "static_initial_policy_host_support");
     assert_eq!(value["rule_count"], 2);
     assert_eq!(value["backend_support"]["sources"][0]["label"], "NET");
     assert_eq!(value["backend_support"]["sources"][0]["supported"], false);
-
-    let clauses = value["backend_support"]["clauses"].as_array().unwrap();
-    assert!(clauses.iter().any(|clause| {
-        clause["rule"] == "recv-soft" && clause["op"] == "recv" && clause["supported"] == true
-    }));
-    assert!(clauses.iter().any(|clause| {
-        clause["rule"] == "host-connect"
-            && clause["op"] == "connect"
-            && clause["supported"] == false
-            && clause["reason"] == "endpoint target pattern is not numeric IPv4"
-    }));
-
-    let warning_codes: Vec<&str> = value["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|warning| warning["code"].as_str())
-        .collect();
-    assert!(warning_codes.contains(&"endpoint_source_non_numeric_ipv4"));
-    assert!(warning_codes.contains(&"endpoint_target_non_numeric_ipv4"));
 }
 
 #[test]
-fn check_json_reports_policy_load_errors_as_json() {
+fn compile_json_reports_policy_load_errors_as_json() {
     let missing = "/tmp/actplane-definitely-missing-policy.yaml";
-    let output = run(&["--policy", missing, "check", "--json"]);
+    let output = run(&["--policy", missing, "compile", "--json"]);
     assert!(!output.status.success());
     let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("check --json error stdout");
-    assert_eq!(value["schema"], "actplane.check.v1");
+        serde_json::from_slice(&output.stdout).expect("compile --json error stdout");
+    assert_eq!(value["schema"], "actplane.compile.v1");
     assert_eq!(value["ok"], false);
     assert_eq!(value["policy_ref"], missing);
     assert!(
@@ -126,140 +128,7 @@ fn check_json_reports_policy_load_errors_as_json() {
 }
 
 #[test]
-fn check_json_treats_invalid_ipv4_octets_as_unsupported() {
-    let policy = r#"
-source BAD = endpoint "999.1.1.1"
-
-rule bad-connect:
-  notify connect endpoint "999.1.1.1" if true
-  because "bad endpoint"
-"#;
-    let output = run(&["--rule", policy, "check", "--json"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("check --json stdout");
-    assert_eq!(value["backend_support"]["sources"][0]["supported"], false);
-    assert_eq!(value["backend_support"]["clauses"][0]["supported"], false);
-}
-
-#[test]
-fn check_json_reports_force_tracepoint_override_for_block_rules() {
-    let policy = r#"
-rule block-git:
-  block exec "git" if true
-  because "block git"
-"#;
-    let output = Command::new(actplane())
-        .env("ACTPLANE_FORCE_TRACEPOINT", "1")
-        .args(["--rule", policy, "check", "--json"])
-        .output()
-        .expect("run check --json");
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("check --json stdout");
-    assert_eq!(value["host"]["force_tracepoint"], true);
-    assert_eq!(value["host"]["bpf_lsm_active"], false);
-    assert_eq!(value["backend_support"]["clauses"][0]["supported"], false);
-}
-
-#[test]
-fn check_reports_endpoint_target_condition_hostname_warning() {
-    let policy = r#"
-source AGENT = exec "**"
-
-rule host-exception:
-  notify connect endpoint "*" if AGENT unless target "api.example.com"
-  because "hostname exception"
-"#;
-    let output = run(&["--rule", policy, "check", "--json"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("check --json stdout");
-    let clause = &value["backend_support"]["clauses"][0];
-    assert_eq!(clause["supported"], true);
-    assert_eq!(
-        clause["condition_warnings"][0]["code"],
-        "endpoint_target_condition_non_numeric_ipv4"
-    );
-    let warning_codes: Vec<&str> = value["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|warning| warning["code"].as_str())
-        .collect();
-    assert!(warning_codes.contains(&"endpoint_target_condition_non_numeric_ipv4"));
-
-    let output = run(&["--rule", policy, "check", "--explain"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("condition warning:"));
-    assert!(stdout.contains("unless target \"api.example.com\" uses a hostname"));
-}
-
-#[test]
-fn check_help_exposes_explain_output() {
-    let output = run(&["check", "--help"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("--json"));
-    assert!(stdout.contains("--explain"));
-    assert!(stdout.contains("--out"));
-    assert!(stdout.contains("--force"));
-}
-
-#[test]
-fn check_explain_emits_policy_review_artifact() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("actplane.yaml");
-    fs::write(
-        &policy,
-        r#"
-version: 1
-runtime:
-  approval:
-    append_delta:
-      required: true
-      require_approval_ref: true
-      require_generated_by: true
-      allowed_approvers:
-        - repo-supervisor
-policy: |
-  source SECRET = file "secrets/**"
-  source NET = endpoint "source.example.com"
-
-  rule argv-block:
-    block exec "git" "push" if SECRET
-    because "no secret push"
-
-  rule hostname-connect:
-    notify connect endpoint "api.example.com" if true
-    because "hostname connect"
-"#,
-    )
-    .unwrap();
-
-    let output = run(&["--policy", policy.to_str().unwrap(), "check", "--explain"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("ActPlane policy review"));
-    assert!(stdout.contains("append-delta approval: required"));
-    assert!(stdout.contains("allowed approvers: repo-supervisor"));
-    assert!(stdout.contains("admission model: static_metadata_allowlist"));
-    assert!(stdout.contains("external_verified=false, signature=null"));
-    assert!(stdout.contains("source SECRET = file \"secrets/**\""));
-    assert!(stdout.contains("source NET = endpoint \"source.example.com\""));
-    assert!(stdout.contains("clause 1: block exec \"**/git\" \"push\" if SECRET"));
-    assert!(stdout.contains("argv is only available after exec"));
-    assert!(stdout.contains("not enforceable by the current backend selection"));
-    assert!(stdout.contains("endpoint target pattern is not numeric IPv4"));
-    assert!(stdout.contains("positive required label bits for the selected lowered matcher"));
-    assert!(stdout.contains("causal_chain is a reported single-hop origin"));
-    assert!(stdout.contains("shared memory, IPv6, hostname endpoint globs"));
-    assert!(stdout.contains("lowered:"));
-}
-
-#[test]
-fn check_explain_writes_policy_review_artifact_file() {
+fn compile_explain_writes_report_artifact() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("review.txt");
     let policy = r#"
@@ -272,15 +141,15 @@ rule no-network:
     let output = run(&[
         "--rule",
         policy,
-        "check",
+        "compile",
         "--explain",
-        "--out",
+        "--report-out",
         out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert!(
         output.stdout.is_empty(),
-        "stdout should be empty when writing --out: {}",
+        "stdout should be empty when writing --report-out: {}",
         stdout(&output)
     );
     assert!(stderr(&output).contains("wrote policy review"));
@@ -291,45 +160,7 @@ rule no-network:
 }
 
 #[test]
-fn check_explain_out_refuses_existing_file_without_force() {
-    let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("review.txt");
-    fs::write(&out, "keep me").unwrap();
-    let policy = r#"
-rule noop:
-  notify exec "git" if true
-  because "noop"
-"#;
-
-    let output = run(&[
-        "--rule",
-        policy,
-        "check",
-        "--explain",
-        "--out",
-        out.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("already exists"));
-    assert_eq!(fs::read_to_string(&out).unwrap(), "keep me");
-
-    let output = run(&[
-        "--rule",
-        policy,
-        "check",
-        "--explain",
-        "--out",
-        out.to_str().unwrap(),
-        "--force",
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let artifact = fs::read_to_string(&out).unwrap();
-    assert!(artifact.contains("ActPlane policy review"));
-    assert!(artifact.contains("rule noop"));
-}
-
-#[test]
-fn check_out_requires_explain() {
+fn compile_report_out_requires_report_mode() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("review.txt");
     let policy = r#"
@@ -337,919 +168,21 @@ rule noop:
   notify exec "git" if true
   because "noop"
 "#;
-    let output = run(&["--rule", policy, "check", "--out", out.to_str().unwrap()]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("required"));
-}
-
-#[test]
-fn check_json_and_explain_are_mutually_exclusive() {
-    let policy = r#"
-rule noop:
-  notify exec "git" if true
-  because "noop"
-"#;
-    let output = run(&["--rule", policy, "check", "--json", "--explain"]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("cannot be used with"));
-}
-
-#[test]
-fn check_explain_reports_force_tracepoint_block_limit() {
-    let policy = r#"
-rule block-git:
-  block exec "git" if true
-  because "block git"
-"#;
-    let output = Command::new(actplane())
-        .env("ACTPLANE_FORCE_TRACEPOINT", "1")
-        .args(["--rule", policy, "check", "--explain"])
-        .output()
-        .expect("run check --explain");
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("ACTPLANE_FORCE_TRACEPOINT: set"));
-    assert!(stdout.contains("BPF-LSM pre-op block: unavailable"));
-    assert!(stdout.contains("not enforceable by the current backend selection"));
-    assert!(stdout.contains("bpf_lsm_inactive_for_block"));
-}
-
-#[test]
-fn rollout_prints_plan_and_writes_observe_policy() {
-    let tmp = tempfile::tempdir().unwrap();
-    let observe = tmp.path().join("observe.yaml");
-    let policy = r#"
-source AGENT = exec "**"
-
-rule no-network:
-  block connect endpoint "*" if AGENT unless target "127."
-  because "network rollout"
-
-rule no-branch:
-  kill exec "git" "branch" if AGENT
-  because "branch rollout"
-"#;
     let output = run(&[
         "--rule",
         policy,
-        "rollout",
-        "--observe-policy-out",
-        observe.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stderr(&output).contains("wrote observe-first policy"));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("ActPlane rollout plan"));
-    assert!(stdout.contains("recommended rollout sequence"));
-    assert!(stdout.contains("rule no-network"));
-    assert!(stdout.contains("observe stage: use notify-only observe policy"));
-    assert!(stdout.contains("promotion: eligible for block"));
-    assert!(stdout.contains("rule no-branch"));
-    assert!(stdout.contains("promote to kill only after manual review"));
-
-    let observe_policy = fs::read_to_string(&observe).unwrap();
-    assert!(observe_policy.contains("ActPlane observe-first policy"));
-    assert!(observe_policy.contains("notify connect endpoint \"*\""));
-    assert!(observe_policy.contains("notify exec \"**/git\" \"branch\""));
-    assert!(!observe_policy.contains("block connect"));
-    assert!(!observe_policy.contains("kill exec"));
-
-    let check = run(&["--policy", observe.to_str().unwrap(), "check"]);
-    assert!(check.status.success(), "stderr: {}", stderr(&check));
-}
-
-#[test]
-fn rollout_writes_plan_and_observe_policy_atomically() {
-    let tmp = tempfile::tempdir().unwrap();
-    let plan = tmp.path().join("rollout.txt");
-    let observe = tmp.path().join("observe.yaml");
-    let policy = r#"
-rule block-git:
-  block exec "git" if true
-  because "block git"
-"#;
-    let output = run(&[
-        "--rule",
-        policy,
-        "rollout",
-        "--out",
-        plan.to_str().unwrap(),
-        "--observe-policy-out",
-        observe.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(output.stdout.is_empty());
-    assert!(
-        fs::read_to_string(&plan)
-            .unwrap()
-            .contains("ActPlane rollout plan")
-    );
-    assert!(
-        fs::read_to_string(&observe)
-            .unwrap()
-            .contains("notify exec \"**/git\"")
-    );
-
-    let output = run(&[
-        "--rule",
-        policy,
-        "rollout",
-        "--out",
-        plan.to_str().unwrap(),
-        "--observe-policy-out",
-        plan.to_str().unwrap(),
-        "--force",
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("--out and --observe-policy-out must be different"));
-}
-
-#[test]
-fn rollout_reports_unsupported_block_before_promotion() {
-    let policy = r#"
-source AGENT = exec "**"
-
-rule argv-block:
-  block exec "git" "push" if AGENT
-  because "argv block"
-"#;
-    let output = run(&["--rule", policy, "rollout"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("do not deploy as block yet"));
-    assert!(stdout.contains("argv is only available after exec"));
-    assert!(stdout.contains("static warnings to resolve before promotion"));
-}
-
-#[test]
-fn rollout_uses_observe_event_log_for_promotion_guidance() {
-    let tmp = tempfile::tempdir().unwrap();
-    let events = tmp.path().join("events.jsonl");
-    let event = serde_json::json!({
-        "schema": "actplane.violation.v1",
-        "event": "taint_violation",
-        "rule": {
-            "name": "no-network",
-            "effect": "notify",
-            "clause_op": "connect",
-            "clause_source_index": 0,
-            "target_kind": "endpoint",
-            "target_pattern": "*",
-            "target_arg": null,
-            "clause_text": "  notify connect endpoint \"*\" if AGENT unless target \"127.\""
-        },
-        "action": "report",
-        "effect": "notify",
-        "target": "8.8.8.8",
-        "domain_id": 42
-    });
-    let non_observe = serde_json::json!({
-        "schema": "actplane.violation.v1",
-        "event": "taint_violation",
-        "rule": {
-            "name": "no-network",
-            "effect": "block",
-            "clause_op": "connect",
-            "clause_source_index": 0,
-            "target_kind": "endpoint",
-            "target_pattern": "*",
-            "target_arg": null
-        },
-        "action": "block",
-        "effect": "block",
-        "target": "1.1.1.1"
-    });
-    let stale_condition = serde_json::json!({
-        "schema": "actplane.violation.v1",
-        "event": "taint_violation",
-        "rule": {
-            "name": "no-network",
-            "effect": "notify",
-            "clause_op": "connect",
-            "clause_source_index": 0,
-            "target_kind": "endpoint",
-            "target_pattern": "*",
-            "target_arg": null,
-            "clause_text": "  notify connect endpoint \"*\" if AGENT unless target \"10.\""
-        },
-        "action": "report",
-        "effect": "notify",
-        "target": "10.0.0.1"
-    });
-    fs::write(
-        &events,
-        format!("{event}\n{non_observe}\n{stale_condition}\n"),
-    )
-    .unwrap();
-
-    let policy = r#"
-source AGENT = exec "**"
-
-rule no-network:
-  block connect endpoint "*" if AGENT unless target "127."
-  because "network rollout"
-
-rule no-branch:
-  kill exec "git" "branch" if AGENT
-  because "branch rollout"
-"#;
-    let output = run(&[
-        "--rule",
-        policy,
-        "rollout",
-        "--events",
-        events.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("observe evidence:"));
-    assert!(stdout.contains("parsed violation events: 1"));
-    assert!(stdout.contains("ignored non-violation or malformed lines: 2"));
-    assert!(stdout.contains("ignored non-observe event action=block effect=block"));
-    assert!(stdout.contains("ignored stale event for rule `no-network` clause 1"));
-    assert!(stdout.contains("rule no-network"));
-    assert!(stdout.contains("observed events: 1; actions=report=1; domains=42=1; targets=8.8.8.8"));
-    assert!(
-        stdout.contains("observed 1 matching event(s); keep notify until examples are classified")
-    );
-    assert!(stdout.contains("rule no-branch"));
-    assert!(stdout.contains("observed events: 0 in supplied logs"));
-}
-
-#[test]
-fn rollout_event_guidance_for_kill_clause_does_not_talk_about_block() {
-    let tmp = tempfile::tempdir().unwrap();
-    let events = tmp.path().join("events.jsonl");
-    let event = serde_json::json!({
-        "schema": "actplane.violation.v1",
-        "event": "taint_violation",
-        "rule": {
-            "name": "no-branch",
-            "effect": "notify",
-            "clause_op": "exec",
-            "clause_source_index": 0,
-            "target_kind": "exec",
-            "target_pattern": "**/git",
-            "target_arg": "branch",
-            "clause_text": "  notify exec \"**/git\" \"branch\" if AGENT"
-        },
-        "action": "report",
-        "effect": "notify",
-        "target": "git",
-        "domain_id": 7
-    });
-    fs::write(&events, format!("{event}\n")).unwrap();
-
-    let policy = r#"
-source AGENT = exec "**"
-
-rule no-branch:
-  kill exec "git" "branch" if AGENT
-  because "branch rollout"
-"#;
-    let output = run(&[
-        "--rule",
-        policy,
-        "rollout",
-        "--events",
-        events.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("promote to kill only if every observed class should terminate"));
-    assert!(!stdout.contains("do not promote to block"));
-}
-
-#[test]
-fn templates_list_and_json_expose_catalog() {
-    let output = run(&["templates", "list"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("ActPlane policy templates"));
-    assert!(stdout.contains("no-secret-egress"));
-    assert!(stdout.contains("test-before-commit"));
-    assert!(stdout.contains("prod-db-via-migrate"));
-    assert!(stdout.contains("no-git-push"));
-    assert!(stdout.contains("dependency-update-gate"));
-    assert!(stdout.contains("protected-branch-push"));
-
-    let output = run(&["templates", "list", "--json"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("templates list --json stdout");
-    assert_eq!(value["schema"], "actplane.templates.v1");
-    let ids: Vec<&str> = value["templates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|template| template["id"].as_str())
-        .collect();
-    assert!(ids.contains(&"no-network"));
-    assert!(ids.contains(&"readonly-review"));
-    assert!(ids.contains(&"no-git-push"));
-    assert!(ids.contains(&"dependency-update-gate"));
-    assert!(ids.contains(&"protected-branch-push"));
-}
-
-#[test]
-fn templates_show_prints_dsl_and_yaml() {
-    let output = run(&["templates", "show", "no-secret-egress"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let dsl_stdout = stdout(&output);
-    assert!(dsl_stdout.contains("source SECRET = file"));
-    assert!(dsl_stdout.contains("rule no-secret-egress:"));
-    assert!(!dsl_stdout.contains("version: 1"));
-
-    let output = run(&["templates", "show", "no-network", "--format", "yaml"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let yaml_stdout = stdout(&output);
-    assert!(yaml_stdout.contains("version: 1"));
-    assert!(yaml_stdout.contains("policy: |"));
-    assert!(yaml_stdout.contains("rule no-network:"));
-}
-
-#[test]
-fn templates_show_and_json_expose_parameters() {
-    let output = run(&[
-        "templates",
-        "show",
-        "test-before-commit",
-        "--set",
-        "test_exec=**/pnpm",
-        "--set",
-        "changed_paths=packages/**,src/**",
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("after exec \"**/pnpm\""));
-    assert!(stdout.contains("write \"packages/**\" or write \"src/**\""));
-
-    let output = run(&["templates", "list", "--json"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let value: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("templates list --json stdout");
-    let templates = value["templates"].as_array().unwrap();
-    let no_network = templates
-        .iter()
-        .find(|template| template["id"] == "no-network")
-        .expect("no-network template");
-    let params: Vec<&str> = no_network["params"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|param| param["name"].as_str())
-        .collect();
-    assert!(params.contains(&"agent_exec"));
-    assert!(params.contains(&"loopback_endpoint"));
-}
-
-#[test]
-fn templates_reject_policy_selection_globals() {
-    let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("actplane.yaml");
-    let review = tmp.path().join("review.txt");
-    let output = run(&[
-        "--domain",
-        "review",
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        out.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("does not read --policy, --rule, or --domain"));
-    assert!(!out.exists());
-    assert!(!review.exists());
-
-    let policy = tmp.path().join("existing.yaml");
-    fs::write(&policy, "version: 1\npolicy: |\n").unwrap();
-    let output = run(&[
-        "--policy",
-        policy.to_str().unwrap(),
-        "templates",
-        "show",
-        "no-network",
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("does not read --policy, --rule, or --domain"));
-}
-
-#[test]
-fn templates_write_outputs_checkable_yaml_and_respects_force() {
-    let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("actplane.yaml");
-    let output = run(&[
-        "templates",
-        "write",
-        "no-network",
-        "--out",
-        out.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let written = fs::read_to_string(&out).unwrap();
-    assert!(written.contains("ActPlane policy generated from template `no-network`"));
-    assert!(written.contains("rule no-network:"));
-
-    let check = run(&["--policy", out.to_str().unwrap(), "check", "--explain"]);
-    assert!(check.status.success(), "stderr: {}", stderr(&check));
-    assert!(stdout(&check).contains("rule no-network"));
-
-    let output = run(&[
-        "templates",
-        "write",
-        "no-network",
-        "--out",
+        "compile",
+        "--report-out",
         out.to_str().unwrap(),
     ]);
     assert!(!output.status.success());
-    assert!(stderr(&output).contains("already exists"));
-
-    let output = run(&[
-        "templates",
-        "write",
-        "no-network",
-        "--out",
-        out.to_str().unwrap(),
-        "--force",
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stderr(&output).contains("--report-out requires --json or --explain"));
 }
 
 #[test]
-fn templates_write_applies_parameters_and_rejects_bad_parameters() {
-    let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("actplane.yaml");
-    let output = run(&[
-        "templates",
-        "write",
-        "workspace-confinement",
-        "--set",
-        "agent_exec=codex",
-        "--set",
-        "writable_path=/repo/**",
-        "--out",
-        out.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let written = fs::read_to_string(&out).unwrap();
-    assert!(written.contains("# Parameter writable_path: /repo/**"));
-    assert!(written.contains("source AGENT = exec \"codex\""));
-    assert!(written.contains("unless target \"/repo/**\""));
-
-    let bad = tmp.path().join("bad.yaml");
-    let output = run(&[
-        "templates",
-        "write",
-        "workspace-confinement",
-        "--set",
-        "missing=value",
-        "--out",
-        bad.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("unknown parameter `missing`"));
-    assert!(!bad.exists());
-
-    let output = run(&[
-        "templates",
-        "write",
-        "workspace-confinement",
-        "--set",
-        "writable_path=bad\"quote",
-        "--out",
-        bad.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("unsupported by the current DSL string syntax"));
-    assert!(!bad.exists());
-}
-
-#[test]
-fn templates_review_writes_policy_and_review_artifact() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("actplane.yaml");
-    let review = tmp.path().join("review.txt");
-    let output = run(&[
-        "templates",
-        "review",
-        "no-secret-egress",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stderr(&output).contains("wrote template `no-secret-egress`"));
-    assert!(stderr(&output).contains("wrote policy review"));
-
-    let written_policy = fs::read_to_string(&policy).unwrap();
-    assert!(written_policy.contains("version: 1"));
-    assert!(written_policy.contains("rule no-secret-egress:"));
-
-    let artifact = fs::read_to_string(&review).unwrap();
-    assert!(artifact.contains("ActPlane policy review"));
-    assert!(artifact.contains(&format!("policy: {}", policy.display())));
-    assert!(artifact.contains("rule no-secret-egress"));
-    assert!(artifact.contains("review scope: selected initial policy"));
-}
-
-#[test]
-fn templates_review_applies_parameters_to_policy_and_review() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("actplane.yaml");
-    let review = tmp.path().join("review.txt");
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--set",
-        "agent_exec=codex",
-        "--set",
-        "loopback_endpoint=10.",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let written_policy = fs::read_to_string(&policy).unwrap();
-    assert!(written_policy.contains("# Parameter agent_exec: codex"));
-    assert!(written_policy.contains("source AGENT = exec \"codex\""));
-    assert!(written_policy.contains("unless target \"10.\""));
-
-    let artifact = fs::read_to_string(&review).unwrap();
-    assert!(artifact.contains("source AGENT = exec \"codex\""));
-    assert!(artifact.contains("unless target \"10.\""));
-}
-
-#[test]
-fn templates_review_refuses_existing_outputs_without_partial_write() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("actplane.yaml");
-    let review = tmp.path().join("review.txt");
-    fs::write(&review, "keep review").unwrap();
-
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("already exists"));
-    assert!(
-        !policy.exists(),
-        "policy should not be written after preflight failure"
-    );
-    assert_eq!(fs::read_to_string(&review).unwrap(), "keep review");
-
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-        "--force",
-    ]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(
-        fs::read_to_string(&policy)
-            .unwrap()
-            .contains("rule no-network:")
-    );
-    assert!(
-        fs::read_to_string(&review)
-            .unwrap()
-            .contains("rule no-network")
-    );
-}
-
-#[test]
-fn templates_review_preflights_parent_dirs_before_writing() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("actplane.yaml");
-    let review = tmp.path().join("missing").join("review.txt");
-
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("parent directory"));
-    assert!(
-        !policy.exists(),
-        "policy should not be written after preflight failure"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn templates_review_does_not_write_policy_when_review_temp_fails() {
-    if unsafe { libc::geteuid() } == 0 {
-        return;
-    }
-
-    let tmp = tempfile::tempdir().unwrap();
-    let policy_dir = tmp.path().join("policy");
-    let review_dir = tmp.path().join("review");
-    fs::create_dir(&policy_dir).unwrap();
-    fs::create_dir(&review_dir).unwrap();
-    let policy = policy_dir.join("actplane.yaml");
-    let review = review_dir.join("review.txt");
-
-    let mut perms = fs::metadata(&review_dir).unwrap().permissions();
-    perms.set_mode(0o500);
-    fs::set_permissions(&review_dir, perms).unwrap();
-
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-    ]);
-
-    let mut perms = fs::metadata(&review_dir).unwrap().permissions();
-    perms.set_mode(0o700);
-    fs::set_permissions(&review_dir, perms).unwrap();
-
-    assert!(!output.status.success());
-    assert!(
-        !policy.exists(),
-        "policy should not be written when review temp creation fails"
-    );
-    assert!(!review.exists());
-}
-
-#[test]
-fn templates_review_requires_distinct_output_paths() {
-    let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("actplane.yaml");
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        out.to_str().unwrap(),
-        "--review-out",
-        out.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("--policy-out and --review-out must be different"));
-    assert!(!out.exists());
-}
-
-#[test]
-fn templates_review_rejects_same_output_file_with_different_path_syntax() {
-    let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("actplane.yaml");
-    let output = Command::new(actplane())
-        .current_dir(tmp.path())
-        .args([
-            "templates",
-            "review",
-            "no-network",
-            "--policy-out",
-            "actplane.yaml",
-            "--review-out",
-            out.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run templates review");
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("--policy-out and --review-out must be different"));
-    assert!(!out.exists());
-}
-
-#[test]
-fn templates_review_rejects_directory_targets_even_with_force() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("actplane.yaml");
-    let review_dir = tmp.path().join("review-dir");
-    fs::create_dir(&review_dir).unwrap();
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review_dir.to_str().unwrap(),
-        "--force",
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("is a directory"));
-    assert!(
-        !policy.exists(),
-        "policy should not be written after preflight failure"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn templates_review_rejects_symlink_output_paths() {
-    let tmp = tempfile::tempdir().unwrap();
-    let target = tmp.path().join("target.yaml");
-    let symlink = tmp.path().join("policy.yaml");
-    std::os::unix::fs::symlink(&target, &symlink).unwrap();
-
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        symlink.to_str().unwrap(),
-        "--review-out",
-        target.to_str().unwrap(),
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("is a symlink"));
-    assert!(!target.exists());
-}
-
-#[cfg(unix)]
-#[test]
-fn templates_review_rejects_hardlinked_existing_outputs() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("policy.yaml");
-    let review = tmp.path().join("review.txt");
-    fs::write(&policy, "old").unwrap();
-    std::fs::hard_link(&policy, &review).unwrap();
-
-    let output = run(&[
-        "templates",
-        "review",
-        "no-network",
-        "--policy-out",
-        policy.to_str().unwrap(),
-        "--review-out",
-        review.to_str().unwrap(),
-        "--force",
-    ]);
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("--policy-out and --review-out must be different"));
-    assert_eq!(fs::read_to_string(&policy).unwrap(), "old");
-}
-
-#[test]
-fn templates_generate_writes_candidate_policy_and_review() {
-    let tmp = tempfile::tempdir().unwrap();
-    fs::write(
-        tmp.path().join("AGENTS.md"),
-        "Do not run git branch or git worktree. Run pytest before committing. Keep secrets safe.",
-    )
-    .unwrap();
-    fs::create_dir(tmp.path().join("src")).unwrap();
-    fs::create_dir(tmp.path().join("tests")).unwrap();
-    let policy = tmp.path().join("candidate.yaml");
-    let review = tmp.path().join("candidate-review.txt");
-
-    let output = Command::new(actplane())
-        .current_dir(tmp.path())
-        .args([
-            "templates",
-            "generate",
-            "--policy-out",
-            policy.to_str().unwrap(),
-            "--review-out",
-            review.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run templates generate");
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stderr(&output).contains("selected no-git-branch"));
-    assert!(stderr(&output).contains("selected test-before-commit"));
-    assert!(stderr(&output).contains("selected no-secret-egress"));
-
-    let written = fs::read_to_string(&policy).unwrap();
-    assert!(written.contains("ActPlane candidate policy generated"));
-    assert!(written.contains("# template: no-git-branch"));
-    assert!(written.contains("rule no-git-branch:"));
-    assert!(written.contains("rule test-before-commit:"));
-    assert!(written.contains("source SECRET = file"));
-
-    let artifact = fs::read_to_string(&review).unwrap();
-    assert!(artifact.contains("ActPlane policy review"));
-    assert!(artifact.contains("rule no-git-branch"));
-    assert!(artifact.contains("rule test-before-commit"));
-}
-
-#[test]
-fn templates_generate_uses_task_hint_without_instruction_files() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("candidate.yaml");
-    let review = tmp.path().join("candidate-review.txt");
-    let output = Command::new(actplane())
-        .current_dir(tmp.path())
-        .args([
-            "templates",
-            "generate",
-            "--task",
-            "offline read-only review",
-            "--policy-out",
-            policy.to_str().unwrap(),
-            "--review-out",
-            review.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run templates generate");
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let written = fs::read_to_string(&policy).unwrap();
-    assert!(written.contains("# template: no-network"));
-    assert!(written.contains("rule no-network:"));
-    assert!(written.contains("# template: readonly-review"));
-    assert!(written.contains("rule readonly-review:"));
-}
-
-#[test]
-fn templates_generate_infers_dependency_and_protected_push_policies() {
-    let tmp = tempfile::tempdir().unwrap();
-    fs::write(
-        tmp.path().join("AGENTS.md"),
-        "Dependency updates require cargo test before committing. Do not git push to main without approval.",
-    )
-    .unwrap();
-    fs::write(tmp.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
-    fs::write(tmp.path().join("Cargo.lock"), "").unwrap();
-    let policy = tmp.path().join("candidate.yaml");
-    let review = tmp.path().join("candidate-review.txt");
-
-    let output = Command::new(actplane())
-        .current_dir(tmp.path())
-        .args([
-            "templates",
-            "generate",
-            "--policy-out",
-            policy.to_str().unwrap(),
-            "--review-out",
-            review.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run templates generate");
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stderr(&output).contains("selected dependency-update-gate"));
-    assert!(stderr(&output).contains("selected protected-branch-push"));
-
-    let written = fs::read_to_string(&policy).unwrap();
-    assert!(written.contains("# template: dependency-update-gate"));
-    assert!(written.contains("write \"Cargo.lock\" or write \"Cargo.toml\""));
-    assert!(written.contains("# template: protected-branch-push"));
-    assert!(written.contains("protected ref main"));
-
-    let artifact = fs::read_to_string(&review).unwrap();
-    assert!(artifact.contains("rule dependency-update-gate"));
-    assert!(artifact.contains("rule protected-branch-push"));
-}
-
-#[test]
-fn templates_generate_discovers_project_root_from_subdirectory() {
-    let tmp = tempfile::tempdir().unwrap();
-    fs::write(tmp.path().join("actplane.yaml"), "version: 1\npolicy: |\n").unwrap();
-    fs::write(tmp.path().join("AGENTS.md"), "Do not run git branch.").unwrap();
-    let subdir = tmp.path().join("nested");
-    fs::create_dir(&subdir).unwrap();
-    let policy = subdir.join("candidate.yaml");
-    let review = subdir.join("candidate-review.txt");
-    let output = Command::new(actplane())
-        .current_dir(&subdir)
-        .args([
-            "templates",
-            "generate",
-            "--policy-out",
-            policy.to_str().unwrap(),
-            "--review-out",
-            review.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run templates generate");
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let written = fs::read_to_string(&policy).unwrap();
-    assert!(written.contains("# Project root: "));
-    assert!(written.contains(tmp.path().to_str().unwrap()));
-    assert!(written.contains("# Instructions considered:"));
-    assert!(written.contains("AGENTS.md"));
-    assert!(written.contains("rule no-git-branch:"));
-}
-
-#[test]
-fn domains_lists_effective_bindings_and_default_selection() {
+fn compile_domains_lists_effective_bindings() {
     let policy = fixture("15_domain_bindings.yaml");
-    let output = run(&["--policy", &policy, "domains"]);
+    let output = run(&["--policy", &policy, "compile", "--domains"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let stdout = stdout(&output);
     assert!(stdout.contains("* review"));
@@ -1260,9 +193,9 @@ fn domains_lists_effective_bindings_and_default_selection() {
 }
 
 #[test]
-fn compile_prints_selected_domain_before_output_path() {
+fn compile_writes_kernel_blob() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("review.bin");
+    let out = tmp.path().join("policy.bin");
     let policy = fixture("15_domain_bindings.yaml");
     let output = run(&[
         "--policy",
@@ -1282,44 +215,102 @@ fn compile_prints_selected_domain_before_output_path() {
 }
 
 #[test]
-fn ambiguous_domains_error_tells_user_how_to_select() {
+fn compile_out_respects_force() {
     let tmp = tempfile::tempdir().unwrap();
-    let path = tmp.path().join("actplane.yaml");
-    fs::write(
-        &path,
-        r#"
-version: 1
-rules:
-  r:
-    ifc: |
-      rule r:
-        kill exec "git"
-        because "r"
-domains:
-  alpha:
-    bind:
-      - rule: r
-        mode: default
-  beta:
-    bind:
-      - rule: r
-        mode: default
-"#,
-    )
-    .unwrap();
-    let output = run(&["--policy", path.to_str().unwrap(), "check"]);
+    let out = tmp.path().join("policy.bin");
+    fs::write(&out, b"keep").unwrap();
+    let policy = fixture("15_domain_bindings.yaml");
+
+    let output = run(&[
+        "--policy",
+        &policy,
+        "compile",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
     assert!(!output.status.success());
-    let stderr = stderr(&output);
-    assert!(stderr.contains("policy defines multiple domains"));
-    assert!(stderr.contains("alpha, beta"));
-    assert!(stderr.contains("--domain"));
+    assert!(stderr(&output).contains("already exists"));
+    assert_eq!(fs::read(&out).unwrap(), b"keep");
+
+    let output = run(&[
+        "--policy",
+        &policy,
+        "compile",
+        "--out",
+        out.to_str().unwrap(),
+        "--force",
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_ne!(fs::read(&out).unwrap(), b"keep");
 }
 
 #[test]
-fn child_run_help_exposes_domain_lifecycle_flags() {
-    let output = run(&["child-run", "--help"]);
+fn init_lists_and_writes_templates_without_templates_command() {
+    let output = run(&["init", "--list-templates"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let list_stdout = stdout(&output);
+    assert!(list_stdout.contains("ActPlane policy templates"));
+    assert!(list_stdout.contains("no-secret-egress"));
+    assert!(list_stdout.contains("test-before-commit"));
+
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("actplane.yaml");
+    let output = run(&[
+        "init",
+        "--template",
+        "workspace-confinement",
+        "--set",
+        "agent_exec=codex",
+        "--set",
+        "writable_path=/repo/**",
+        "--out",
+        out.to_str().unwrap(),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let written = fs::read_to_string(&out).unwrap();
+    assert!(written.contains("# Parameter writable_path: /repo/**"));
+    assert!(written.contains("source AGENT = exec \"codex\""));
+    assert!(written.contains("unless target \"/repo/**\""));
+
+    let compile = run(&["--policy", out.to_str().unwrap(), "compile", "--explain"]);
+    assert!(compile.status.success(), "stderr: {}", stderr(&compile));
+    assert!(stdout(&compile).contains("rule workspace-confinement"));
+}
+
+#[test]
+fn init_generate_writes_candidate_policy() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(
+        tmp.path().join("AGENTS.md"),
+        "Do not run git branch or git worktree. Run pytest before committing. Keep secrets safe.",
+    )
+    .unwrap();
+    fs::create_dir(tmp.path().join("src")).unwrap();
+    fs::create_dir(tmp.path().join("tests")).unwrap();
+    let policy = tmp.path().join("candidate.yaml");
+
+    let output = Command::new(actplane())
+        .current_dir(tmp.path())
+        .args(["init", "--generate", "--out", policy.to_str().unwrap()])
+        .output()
+        .expect("run init --generate");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stderr(&output).contains("selected no-git-branch"));
+    assert!(stderr(&output).contains("selected test-before-commit"));
+    assert!(stderr(&output).contains("selected no-secret-egress"));
+
+    let written = fs::read_to_string(&policy).unwrap();
+    assert!(written.contains("ActPlane candidate policy generated"));
+    assert!(written.contains("# template: no-git-branch"));
+    assert!(written.contains("rule no-git-branch:"));
+}
+
+#[test]
+fn run_help_exposes_child_domain_delta_flags() {
+    let output = run(&["run", "--help"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let stdout = stdout(&output);
+    assert!(stdout.contains("--parent-domain"));
     assert!(stdout.contains("--child-id"));
     assert!(stdout.contains("--scope-id"));
     assert!(stdout.contains("--delta"));
@@ -1330,24 +321,74 @@ fn child_run_help_exposes_domain_lifecycle_flags() {
 }
 
 #[test]
+fn run_accepts_global_domain_flag_after_subcommand() {
+    let output = run(&["run", "--domain", "review", "--help"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("--domain <DOMAIN>"));
+    assert!(stdout.contains("--parent-domain"));
+}
+
+#[test]
+fn watch_help_exposes_parent_domain_flag() {
+    let output = run(&["watch", "--help"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("--parent-domain"));
+}
+
+#[test]
+fn run_parent_domain_rejects_runtime_delta_mode() {
+    let output = run(&[
+        "run",
+        "--parent-domain",
+        "--domain",
+        "review",
+        "--delta-text",
+        "rule child:\n  notify exec \"git\" if true\n  because \"child\"",
+        "/bin/true",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("--parent-domain cannot be combined"));
+}
+
+#[test]
 fn control_help_exposes_already_running_engine_commands() {
     let output = run(&["control", "--help"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let stdout = stdout(&output);
-    assert!(stdout.contains("status"));
-    assert!(stdout.contains("reload-policy"));
-    assert!(stdout.contains("bind-child"));
-    assert!(stdout.contains("append-delta"));
-    assert!(stdout.contains("launch-child"));
-    assert!(stdout.contains("list-children"));
-    assert!(stdout.contains("terminate-child"));
-    assert!(stdout.contains("restart-child"));
-    assert!(stdout.contains("reconcile-children"));
+    for command in [
+        "status",
+        "reload",
+        "bind-child",
+        "delta",
+        "launch-child",
+        "children",
+        "logs",
+        "stop",
+        "restart",
+    ] {
+        assert!(
+            stdout.contains(command),
+            "missing {command} in help:\n{stdout}"
+        );
+    }
+    for removed in [
+        "append-delta",
+        "list-children",
+        "terminate-child",
+        "restart-child",
+    ] {
+        assert!(
+            !stdout.contains(removed),
+            "old control command {removed} still appears in help:\n{stdout}"
+        );
+    }
 }
 
 #[test]
-fn control_append_delta_help_exposes_delta_inputs() {
-    let output = run(&["control", "append-delta", "--help"]);
+fn control_delta_add_help_exposes_delta_inputs() {
+    let output = run(&["control", "delta", "add", "--help"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let stdout = stdout(&output);
     assert!(stdout.contains("--target-id"));
@@ -1360,22 +401,75 @@ fn control_append_delta_help_exposes_delta_inputs() {
 }
 
 #[test]
-fn delta_add_help_exposes_public_append_inputs() {
-    let output = run(&["delta", "add", "--help"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("--target-id"));
-    assert!(stdout.contains("--domain-id"));
-    assert!(stdout.contains("--delta"));
-    assert!(stdout.contains("--delta-text"));
-    assert!(stdout.contains("--approved-by"));
-    assert!(stdout.contains("--approval-ref"));
-    assert!(stdout.contains("--generated-by"));
+fn renamed_control_commands_report_new_command_names_in_errors() {
+    for (args, expected) in [
+        (&["control", "logs"][..], "control logs requires"),
+        (&["control", "stop"][..], "control stop requires"),
+        (&["control", "restart"][..], "control restart requires"),
+    ] {
+        let output = run(args);
+        assert!(!output.status.success());
+        assert!(
+            stderr(&output).contains(expected),
+            "missing `{expected}` in stderr:\n{}",
+            stderr(&output)
+        );
+    }
 }
 
 #[cfg(unix)]
 #[test]
-fn delta_add_sends_append_delta_over_repo_control_socket() {
+fn parent_domain_control_mutations_are_rejected_before_socket_connect() {
+    let tmp = tempfile::tempdir().unwrap();
+    let state_dir = tmp.path().join(".actplane");
+    fs::create_dir_all(&state_dir).unwrap();
+    fs::write(
+        state_dir.join("control.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema": "actplane.control.v1",
+            "pid": std::process::id() as i32,
+            "proc_start_time": null,
+            "socket_path": tmp.path().join("missing-control.sock"),
+            "project_dir": tmp.path(),
+            "parent_pid": 1111,
+            "parent_domain_id": u32::MAX,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    for args in [
+        vec!["control", "bind-child", "--pid", "1234"],
+        vec![
+            "control",
+            "delta",
+            "add",
+            "--delta-text",
+            "rule added:\n  notify exec \"git\" if true\n  because \"added\"",
+        ],
+        vec!["control", "launch-child", "/bin/true"],
+    ] {
+        let output = Command::new(actplane())
+            .current_dir(tmp.path())
+            .args(args)
+            .output()
+            .expect("run parent-domain control mutation");
+        assert!(!output.status.success());
+        let stderr = stderr(&output);
+        assert!(
+            stderr.contains("unavailable in --parent-domain mode"),
+            "stderr did not explain parent-domain mode:\n{stderr}"
+        );
+        assert!(
+            !stderr.contains("missing-control.sock"),
+            "command attempted to connect before rejecting parent-domain mode:\n{stderr}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn control_delta_add_sends_append_delta_over_repo_control_socket() {
     let tmp = tempfile::tempdir().unwrap();
     let policy = tmp.path().join("actplane.yaml");
     fs::write(
@@ -1432,6 +526,7 @@ policy: |
         .args([
             "--policy",
             policy.to_str().unwrap(),
+            "control",
             "delta",
             "add",
             "--target-id",
@@ -1446,7 +541,7 @@ policy: |
             "cli-test",
         ])
         .output()
-        .expect("run delta add");
+        .expect("run control delta add");
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert!(stdout(&output).contains("delta accepted"));
 
@@ -1461,123 +556,6 @@ policy: |
     assert_eq!(request["approval_ref"], "ticket-7");
     assert_eq!(request["generated_by"], "cli-test");
     handle.join().expect("control server thread");
-}
-
-#[cfg(unix)]
-#[test]
-fn control_launch_child_sends_policy_approval_over_repo_control_socket() {
-    let tmp = tempfile::tempdir().unwrap();
-    let policy = tmp.path().join("actplane.yaml");
-    fs::write(
-        &policy,
-        r#"
-version: 1
-policy: |
-  source COMMAND = exec "**"
-  rule noop:
-    notify exec "__actplane_never__" if COMMAND
-    because "noop"
-"#,
-    )
-    .unwrap();
-
-    let socket_path = tmp.path().join("control.sock");
-    let listener = UnixListener::bind(&socket_path).unwrap();
-    let state_dir = tmp.path().join(".actplane");
-    fs::create_dir_all(&state_dir).unwrap();
-    fs::write(
-        state_dir.join("control.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "schema": "actplane.control.v1",
-            "pid": std::process::id() as i32,
-            "proc_start_time": null,
-            "socket_path": socket_path,
-            "project_dir": tmp.path(),
-            "parent_pid": 1111,
-            "parent_domain_id": 2222,
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("accept control client");
-        let mut line = String::new();
-        std::io::BufReader::new(stream.try_clone().expect("clone stream"))
-            .read_line(&mut line)
-            .expect("read request");
-        let request: serde_json::Value = serde_json::from_str(&line).expect("request JSON");
-        tx.send(request).expect("send request");
-        serde_json::to_writer(
-            &mut stream,
-            &serde_json::json!({ "ok": true, "text": "launch accepted" }),
-        )
-        .expect("write response");
-        writeln!(stream).expect("write response newline");
-    });
-
-    let output = Command::new(actplane())
-        .current_dir(tmp.path())
-        .args([
-            "--policy",
-            policy.to_str().unwrap(),
-            "control",
-            "launch-child",
-            "--child-id",
-            "5252",
-            "--delta-text",
-            "rule child:\n  notify exec \"git\" if true\n  because \"child\"",
-            "--approved-by",
-            "repo-supervisor",
-            "--approval-ref",
-            "ticket-8",
-            "--generated-by",
-            "cli-test",
-            "/bin/true",
-        ])
-        .output()
-        .expect("run control launch-child");
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stdout(&output).contains("launch accepted"));
-
-    let request = rx
-        .recv_timeout(Duration::from_secs(5))
-        .expect("control request");
-    assert_eq!(request["op"], "launch_child_domain");
-    assert_eq!(request["child_id"], 5252);
-    assert!(request["policy"].as_str().unwrap().contains("rule child"));
-    assert_eq!(request["approved_by"], "repo-supervisor");
-    assert_eq!(request["approval_ref"], "ticket-8");
-    assert_eq!(request["generated_by"], "cli-test");
-    assert_eq!(request["cmd"][0], "/bin/true");
-    handle.join().expect("control server thread");
-}
-
-#[test]
-fn control_launch_child_help_exposes_supervisor_flags() {
-    let output = run(&["control", "launch-child", "--help"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("--child-id"));
-    assert!(stdout.contains("--scope-id"));
-    assert!(stdout.contains("--restart-policy"));
-    assert!(stdout.contains("--restart-limit"));
-    assert!(stdout.contains("--restart-backoff-ms"));
-    assert!(stdout.contains("--approved-by"));
-    assert!(stdout.contains("--approval-ref"));
-    assert!(stdout.contains("--generated-by"));
-}
-
-#[test]
-fn control_restart_child_help_exposes_fresh_domain_flags() {
-    let output = run(&["control", "restart-child", "--help"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-    let stdout = stdout(&output);
-    assert!(stdout.contains("--child-id"));
-    assert!(stdout.contains("--domain-id"));
-    assert!(stdout.contains("--new-child-id"));
-    assert!(stdout.contains("--terminate-existing"));
 }
 
 fn stdout(output: &Output) -> String {
