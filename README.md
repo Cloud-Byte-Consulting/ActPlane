@@ -30,47 +30,12 @@ Write a policy and run an agent (or any command) under the harness:
 
 ```bash
 actplane init                                  # write a starter actplane.yaml
-actplane templates list                        # discover built-in policy templates
-actplane templates show no-secret-egress       # inspect template DSL
-actplane templates review no-secret-egress \
-  --set 'secret_paths=**/.env,**/secrets/**' \
-  --set 'redactor_exec=**/redact' \
-  --policy-out /tmp/no-secret-policy.yaml \
-  --review-out /tmp/no-secret-review.txt       # write a candidate policy + review
-actplane templates generate \
-  --policy-out /tmp/actplane-candidate.yaml \
-  --review-out /tmp/actplane-candidate-review.txt
-actplane --policy /tmp/actplane-candidate.yaml check  # validate the generated candidate
-actplane check                                 # validate the active project policy
-actplane check --explain                       # human-readable policy review artifact
-actplane check --explain --out docs/actplane-review.txt
-actplane rollout \
-  --out docs/actplane-rollout.txt \
-  --observe-policy-out /tmp/actplane-observe.yaml
-actplane check --json                          # machine-readable support matrix for CI/review
+actplane check                                 # validate rules (no privileges)
 actplane doctor                                # diagnose hooks, MCP, kernel support
 
 codex                                         # MCP auto-attach tries passwordless sudo
 sudo -E actplane run claude -p "review this repo"
 ```
-
-`templates review` and `check --explain --out` refuse to overwrite existing
-artifacts unless you add `--force`. Built-in templates declare parameters that
-can be overridden with repeated `--set key=value` flags; `templates list --json`
-shows the available keys and defaults. The catalog includes repository
-guardrails such as no agent-created branches/worktrees, tests before commit,
-dependency-aware commit validation, no agent-run git push, conservative
-protected-push session approval, secret egress, read-only review domains,
-network isolation, workspace confinement, and mediated production-resource
-access. `templates generate`
-scans project instructions and common manifests to emit a deterministic
-candidate policy plus the same review artifact; it is a review aid, not an
-automatic rollout.
-`rollout` produces an observe-first plan, can emit a notify-only policy for
-measuring rule matches, and can read observe-mode event logs with `--events` to
-add conservative per-clause promotion guidance before selected clauses move
-back to `block` or `kill`. Add `--events .actplane/events.jsonl` after an
-observe run has produced event logs.
 
 When a rule matches, ActPlane kills the action and tells the agent why:
 
@@ -85,11 +50,9 @@ constraint, and takes a different path to complete the task.
 
 **Requirements:** Linux kernel 5.8+ with BTF (`/sys/kernel/btf/vmlinux`). `run`
 and `watch` load the eBPF engine, so they need root (or `CAP_BPF` +
-`CAP_SYS_ADMIN`) and can auto-elevate through passwordless sudo. `run` drops the
-target command back to your user. `watch` attaches to the parent agent or shell
-pid before elevation, so prefer `actplane watch` over manually prefixing it with
-`sudo`. With BPF-LSM enabled, rules can `block` before the action commits;
-otherwise they `notify` (report) or `kill`.
+`CAP_SYS_ADMIN`); ActPlane drops the target command back to your user. With
+BPF-LSM enabled, rules can `block` before the action commits; otherwise they
+`notify` (report) or `kill`.
 
 ## Why an OS-level harness?
 
@@ -169,27 +132,6 @@ policy: |
       if AGENT unless after exec "pnpm" "test" since write "src/**"
     because "Source files changed since last test run. Run `pnpm test:changed`, then commit."
 ```
-
-Projects that allow runtime policy deltas can require approval metadata before
-ActPlane accepts those deltas:
-
-```yaml
-runtime:
-  approval:
-    append_delta:
-      required: true
-      require_approval_ref: true
-      allowed_approvers:
-        - repo-supervisor
-```
-
-With that gate enabled, `actplane delta add`, `control append-delta`,
-`control launch-child`, and `child-run --delta` must include matching
-`--approved-by` metadata, plus any configured `--approval-ref` or
-`--generated-by` fields. Accepted and rejected attempts are recorded in
-`.actplane/audit.jsonl` with an enforced `approval_chain` decision. The audit
-record explicitly marks this as a local static metadata gate
-(`external_verified=false`), not a signed external approval.
 
 Three rules, three effects, three patterns:
 
@@ -278,7 +220,7 @@ actplane.yaml ─▶ collector (Rust) ─▶ .rodata config ─▶ eBPF kernel e
  matches ◀─────── ring buffer (in-process, via aya) ◀─── emit on match only
 ```
 
-- **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect / recv`,
+- **Kernel** (`bpf/`): hooks `fork / exec / exit / open / unlink / rename / connect`,
   keeps a per-node label set (process / file / endpoint), propagates labels,
   evaluates compiled rules, emits only match events.
 - **Collector** (`actplane`): discovers `actplane.yaml`, compiles the DSL to the
