@@ -140,6 +140,10 @@ fn main() {
             "BPF LSM not active; block unsupported, notify reports, kill terminates"
         }
     );
+    if let Err(e) = loader.protect_pid(std::process::id() as i32) {
+        eprintln!("protect loader pid failed: {e}");
+        std::process::exit(1);
+    }
 
     if seed_pid != 0 || seed_label != 0 {
         if let Err(e) = loader.seed_label(seed_pid, seed_label) {

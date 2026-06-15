@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include "process.h"
@@ -153,6 +154,8 @@ static unsigned int config_features(const struct taint_config *cfg)
 	unsigned int features = 0;
 
 	for (unsigned int i = 0; i < cfg->n_updates && i < MAX_TAINT_UPDATES; i++) {
+		if (cfg->updates[i].op == TOP_EXEC && cfg->updates[i].arg[0] != '\0')
+			features |= TE_POLICY_EXEC_ARGS;
 		if (cfg->updates[i].op == TOP_OPEN || cfg->updates[i].op == TOP_WRITE)
 			features |= TE_POLICY_FILE_FLOW |
 				    path_match_features(cfg->updates[i].match);
@@ -162,6 +165,8 @@ static unsigned int config_features(const struct taint_config *cfg)
 			features |= TE_POLICY_RECV;
 	}
 	for (unsigned int i = 0; i < cfg->n_rules && i < MAX_TAINT_RULES; i++) {
+		if (cfg->rules[i].op == TOP_EXEC && cfg->rules[i].arg[0] != '\0')
+			features |= TE_POLICY_EXEC_ARGS;
 		if (cfg->rules[i].effect == TEFFECT_BLOCK) {
 			if (cfg->rules[i].op == TOP_EXEC && cfg->rules[i].arg[0] == '\0')
 				features |= TE_POLICY_BLOCK_EXEC;
@@ -229,7 +234,8 @@ static unsigned int all_hook_features(void)
 	       TE_POLICY_FILE_FLOW |
 	       TE_POLICY_BLOCK_EXEC |
 	       TE_POLICY_BLOCK_FILE |
-	       TE_POLICY_BLOCK_CONNECT;
+	       TE_POLICY_BLOCK_CONNECT |
+	       TE_POLICY_EXEC_ARGS;
 }
 
 static bool name_in(const char *name, const char *const *items, size_t n)
@@ -245,7 +251,7 @@ static int tracepoint_autoload_needed(const char *name, unsigned int features,
 				      bool file_write, bool advanced)
 {
 	static const char *const core[] = {
-		"handle_fork", "handle_exec", "handle_exit", "cap_drain_tick",
+		"handle_fork", "handle_exit", "cap_drain_tick",
 	};
 	static const char *const file_open[] = {
 		"trace_openat", "trace_openat_exit", "trace_open",
@@ -289,9 +295,14 @@ static int tracepoint_autoload_needed(const char *name, unsigned int features,
 	bool file_flow = features & TE_POLICY_FILE_FLOW;
 	bool connect = features & TE_POLICY_CONNECT;
 	bool recv = features & TE_POLICY_RECV;
+	bool exec_args = features & TE_POLICY_EXEC_ARGS;
 
 	if (name_in(name, core, sizeof(core) / sizeof(core[0])))
 		return 1;
+	if (strcmp(name, "handle_exec") == 0)
+		return !exec_args;
+	if (strcmp(name, "handle_exec_args") == 0)
+		return exec_args;
 	if (name_in(name, file_open, sizeof(file_open) / sizeof(file_open[0])))
 		return file_flow;
 	if (name_in(name, file_write_path,
@@ -523,6 +534,20 @@ static int seed_initial_label(struct process_bpf *skel)
 	return 0;
 }
 
+static int protect_loader_pid(struct process_bpf *skel)
+{
+	pid_t pid = getpid();
+	__u32 one = 1;
+
+	if (bpf_map_update_elem(bpf_map__fd(skel->maps.te_protected_pids),
+				&pid, &one, BPF_ANY) < 0) {
+		fprintf(stderr, "failed to protect loader pid %d: %s\n",
+			pid, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	struct ring_buffer *rb = NULL;
@@ -596,6 +621,11 @@ int main(int argc, char **argv)
 		bpf_program__set_autoload(skel->progs.enforce_socket_connect, false);
 	if (!enforce || !recv_flow)
 		bpf_program__set_autoload(skel->progs.enforce_socket_recvmsg, false);
+	if (!enforce) {
+		bpf_program__set_autoload(skel->progs.enforce_task_kill, false);
+		bpf_program__set_autoload(skel->progs.enforce_ptrace_access_check, false);
+		bpf_program__set_autoload(skel->progs.enforce_bpf_syscall, false);
+	}
 
 	/* install enforce_mode into rodata before load */
 	skel->rodata->enforce_mode = enforce ? 1 : 0;
@@ -668,6 +698,8 @@ int main(int argc, char **argv)
 			}
 		}
 	}
+
+	if (protect_loader_pid(skel)) { err = -1; goto cleanup; }
 
 	err = process_bpf__attach(skel);
 	if (err) { fprintf(stderr, "Failed to attach BPF skeleton\n"); goto cleanup; }

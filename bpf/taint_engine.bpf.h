@@ -429,6 +429,60 @@ static __always_inline void te_tokenize_args_eng(int len)
 	bpf_loop((unsigned int)len, te_tok_cb, &c, 0);
 }
 
+#ifdef __BPF__
+/* BPF-side argv token matcher. The generic C matcher in taint.h is intentionally
+ * not used here: comparing every slot inline inside the rule/update callbacks
+ * pushes the exec-argv hook over the verifier instruction limit. This version
+ * verifies one slot-compare callback and re-looks-up the per-CPU argv scratch so
+ * the verifier keeps a bounded map_value for the variable slot offset. */
+struct __taint_arg_match_ctx {
+	char tok[TAINT_ARG_LEN];
+	int found;
+};
+
+static long __taint_arg_match_cb(__u32 idx, void *_ctx)
+{
+	struct __taint_arg_match_ctx *c = _ctx;
+	struct te_argslots *a = te_argslots_buf();
+
+	if (c->found)
+		return 1;
+	if (!a)
+		return 1;
+	if (idx >= MAX_ARG_SLOTS)
+		return 1;
+
+	__u32 off = idx * TAINT_ARG_LEN;
+	if (off >= TAINT_ARG_SLOTS_BUF)
+		return 1;
+
+	char slot[TAINT_ARG_LEN] = {};
+	TE_COPY(slot, TAINT_ARG_LEN, a->slots + off);
+
+	long diff = 0;
+	TAINT_UNROLL
+	for (int j = 0; j < TAINT_ARG_LEN; j++)
+		diff |= (unsigned char)(slot[j] ^ c->tok[j]);
+	if (diff == 0)
+		c->found = 1;
+	return 0;
+}
+
+static __noinline int taint_arg_match(const char *slots, const char *tok)
+{
+	(void)slots;
+	struct __taint_arg_match_ctx c = {};
+
+	TAINT_UNROLL
+	for (int j = 0; j < TAINT_ARG_LEN; j++)
+		c.tok[j] = tok[j];
+	if (c.tok[0] == '\0')
+		return 1;
+	bpf_loop(MAX_ARG_SLOTS, __taint_arg_match_cb, &c, 0);
+	return c.found;
+}
+#endif /* __BPF__ */
+
 static __always_inline __u64 te_fnv1a(const char *s)
 {
 	__u64 h = 0xcbf29ce484222325ULL;
@@ -960,6 +1014,39 @@ static __always_inline void te_collect_updates(struct te_update_ctx *c)
 	bpf_loop(te_count(1), te_update_cb, c, 0);
 }
 
+static int te_exec_update_no_args_cb(__u32 i, void *vc)
+{
+	struct te_update_ctx *c = vc;
+
+	if (i >= MAX_TAINT_UPDATES)
+		return 1;
+	struct taint_update *up = bpf_map_lookup_elem(&ts_updates, &i);
+	if (!up)
+		return 1;
+	struct taint_update u = *up;
+	if (u.op != TOP_EXEC)
+		return 0;
+	if (u.domain_id != c->domain_id)
+		return 0;
+	if (u.arg[0] != '\0')
+		return 0;
+	if (!taint_exec_match(u.match, c->target, u.target))
+		return 0;
+	c->add |= u.add;
+	c->del |= u.del;
+	if (u.gate_exit_code == TAINT_GATE_IMMEDIATE)
+		c->gates |= u.gates;
+	else
+		c->exit_gates |= u.gates;
+	c->invals |= u.invals;
+	return 0;
+}
+
+static __always_inline void te_collect_exec_updates_no_args(struct te_update_ctx *c)
+{
+	bpf_loop(te_count(1), te_exec_update_no_args_cb, c, 0);
+}
+
 static __always_inline void te_update_accum(struct te_update_ctx *c,
 					    const struct taint_update *u)
 {
@@ -1084,6 +1171,55 @@ static __always_inline void te_exec_update_domain(pid_t pid, const char *comm,
 	}
 }
 
+static __always_inline void te_exec_update_domain_no_args(pid_t pid,
+							  const char *comm,
+							  __u32 domain_id)
+{
+	struct te_update_ctx c = {
+		.pid = pid,
+		.domain_id = domain_id,
+		.op = TOP_EXEC,
+		.target = comm,
+	};
+
+	if (!te_pid_active(pid) || !cap_domain_matches_pid(pid, domain_id))
+		return;
+	te_collect_exec_updates_no_args(&c);
+
+	struct proc_state *p = te_get_domain(pid, domain_id);
+	struct proc_state ns = { 0 };
+	if (p)
+		ns = *p;
+	ns.labels = (ns.labels | c.add) & ~c.del;
+	ns.lin_gates |= c.gates;
+	te_store_proc_domain(pid, domain_id, &ns);
+	if (c.add)
+		te_record_proc_prov_mask(pid, domain_id, c.add, TOP_EXEC, comm, 0);
+	if (c.gates || c.exit_gates || c.invals) {
+		pid_t r = te_root(pid);
+		__u32 ep = te_tick(r, domain_id);
+		if (c.gates || c.invals)
+			te_stamp(r, domain_id, ep, c.gates, c.invals);
+		if (c.exit_gates) {
+			struct te_exit_gate_pending pending = {
+				.gates = c.exit_gates,
+				.epoch = ep,
+			};
+			struct pid_domain_id key = {};
+			te_pid_domain_key(pid, domain_id, &key);
+			bpf_map_update_elem(&ts_exit_gates, &key, &pending, BPF_ANY);
+		} else {
+			struct pid_domain_id key = {};
+			te_pid_domain_key(pid, domain_id, &key);
+			bpf_map_delete_elem(&ts_exit_gates, &key);
+		}
+	} else {
+		struct pid_domain_id key = {};
+		te_pid_domain_key(pid, domain_id, &key);
+		bpf_map_delete_elem(&ts_exit_gates, &key);
+	}
+}
+
 static __always_inline void te_exec_update(pid_t pid, const char *comm)
 {
 	if (!te_pid_active(pid))
@@ -1093,6 +1229,18 @@ static __always_inline void te_exec_update(pid_t pid, const char *comm)
 		if (i > 0 && !domain_id)
 			break;
 		te_exec_update_domain(pid, comm, domain_id);
+	}
+}
+
+static __always_inline void te_exec_update_no_args(pid_t pid, const char *comm)
+{
+	if (!te_pid_active(pid))
+		return;
+	for (int i = 0; i < CAP_DOMAIN_DEPTH; i++) {
+		__u32 domain_id = te_domain_for_depth(pid, i);
+		if (i > 0 && !domain_id)
+			break;
+		te_exec_update_domain_no_args(pid, comm, domain_id);
 	}
 }
 
@@ -1420,6 +1568,57 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 	return (int)rp->effect;
 }
 
+static __noinline int te_rule_effect_no_args(struct te_rule_eval *e,
+					     unsigned int idx)
+{
+	if (idx >= MAX_TAINT_RULES)
+		return -1;
+	__u32 key = idx;
+	struct taint_rule *rp = bpf_map_lookup_elem(&ts_rules, &key);
+	if (!rp)
+		return -1;
+
+	if (!cap_policy_rule_bound(rp->domain_id, idx))
+		return -1;
+	if (rp->op != e->op)
+		return -1;
+	if (rp->domain_id != 0 && rp->domain_id != e->current_domain_id &&
+	    !cap_domain_matches_pid(e->pid, rp->domain_id))
+		return -1;
+	if (e->effect_mask) {
+		if (rp->effect > TEFFECT_KILL)
+			return -1;
+		if (!(e->effect_mask & (1U << rp->effect)))
+			return -1;
+	}
+	__u64 labels = 0;
+	if (rp->domain_id == 0)
+		labels = e->global_labels;
+	else if (rp->domain_id == e->current_domain_id)
+		labels = e->current_labels;
+	else
+		labels = te_labels_for_domain(e->pid, rp->domain_id);
+	if (e->include_file_labels && e->fid)
+		labels |= te_file_stored_labels_domain(e->fid, e->pid, rp->domain_id);
+	if (!taint_mask_ok(labels, rp->req, rp->forbid))
+		return -1;
+	if (e->op == TOP_EXEC) {
+		if (rp->arg[0] != '\0')
+			return -1;
+		if (!taint_exec_match(rp->match, e->target, rp->target))
+			return -1;
+	} else {
+		return -1;
+	}
+	if (te_cond_satisfied(rp, e))
+		return -1;
+	e->matched_rule = (int)rp->rule_id;
+	e->matched_domain_id = rp->domain_id;
+	e->matched_req = rp->req;
+	e->matched_labels = labels & rp->req;
+	return (int)rp->effect;
+}
+
 struct te_rule_ctx {
 	struct te_rule_eval *e;
 	unsigned int best_effect;
@@ -1446,6 +1645,24 @@ static int te_rule_cb(__u32 i, void *vc)
 	return 0;
 }
 
+static int te_rule_no_args_cb(__u32 i, void *vc)
+{
+	struct te_rule_ctx *c = vc;
+	int eff = te_rule_effect_no_args(c->e, i);
+	if (eff < 0)
+		return 0;
+	if (c->best_rule < 0 || (unsigned int)eff > c->best_effect) {
+		c->best_rule = c->e->matched_rule;
+		c->best_effect = (unsigned int)eff;
+		c->best_domain_id = c->e->matched_domain_id;
+		c->best_req = c->e->matched_req;
+		c->best_labels = c->e->matched_labels;
+		if (c->best_effect == TEFFECT_KILL)
+			return 1;
+	}
+	return 0;
+}
+
 /* Evaluate sinks for one normalized event. Returns the matched rule_id, or -1.
  * The rule loop runs via bpf_loop() with the count from the ts_counts map, so
  * the callback is verified ONCE — verifier cost is independent of rule count,
@@ -1454,6 +1671,20 @@ static __noinline int te_check_labels(struct te_rule_eval *e)
 {
 	struct te_rule_ctx c = { .e = e, .best_effect = TEFFECT_NOTIFY, .best_rule = -1 };
 	bpf_loop(te_count(0), te_rule_cb, &c, 0);
+	if (c.best_rule >= 0) {
+		e->effect = c.best_effect;
+		e->matched_rule = c.best_rule;
+		e->matched_domain_id = c.best_domain_id;
+		e->matched_req = c.best_req;
+		e->matched_labels = c.best_labels;
+	}
+	return c.best_rule;
+}
+
+static __noinline int te_check_labels_no_args(struct te_rule_eval *e)
+{
+	struct te_rule_ctx c = { .e = e, .best_effect = TEFFECT_NOTIFY, .best_rule = -1 };
+	bpf_loop(te_count(0), te_rule_no_args_cb, &c, 0);
 	if (c.best_rule >= 0) {
 		e->effect = c.best_effect;
 		e->matched_rule = c.best_rule;

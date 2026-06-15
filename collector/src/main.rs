@@ -571,6 +571,9 @@ fn template_project_root() -> Result<PathBuf> {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| cwd.clone()));
     }
+    if has_local_instruction_file(&cwd) {
+        return Ok(cwd);
+    }
     let mut dir = Some(cwd.as_path());
     while let Some(candidate) = dir {
         if candidate.join(".git").exists() {
@@ -579,6 +582,18 @@ fn template_project_root() -> Result<PathBuf> {
         dir = candidate.parent();
     }
     Ok(cwd)
+}
+
+fn has_local_instruction_file(root: &Path) -> bool {
+    [
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".agents/AGENTS.md",
+        ".agents/instructions.md",
+        ".codex/AGENTS.md",
+    ]
+    .iter()
+    .any(|rel| root.join(rel).is_file())
 }
 
 async fn control_command(cli: &Cli, command: &ControlCommands) -> Result<i32> {

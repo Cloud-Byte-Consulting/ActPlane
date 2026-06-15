@@ -162,6 +162,22 @@ struct {
 	__uint(max_entries, 256 * 1024);
 } rb SEC(".maps");
 
+/* Loader/control pids protected from in-domain subjects. Host administrators
+ * outside any ActPlane runtime domain remain able to signal or debug them. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 64);
+	__type(key, pid_t);
+	__type(value, __u32);
+} te_protected_pids SEC(".maps");
+
+static __always_inline int te_pid_protected(pid_t pid)
+{
+	__u32 *v = bpf_map_lookup_elem(&te_protected_pids, &pid);
+
+	return v && *v;
+}
+
 /* Pending open(at) args, stashed at sys_enter and consumed at sys_exit. The
  * sys_enter tracepoint fires before the kernel's copy_from_user faults the path
  * page in, so a non-faulting read of the path there can EFAULT and silently drop
@@ -1704,12 +1720,130 @@ static __always_inline int te_handle_channel(int fd, __u32 access, __u32 mode)
 	return te_handle_file_event(pid, scratch->path, &scratch->fid, access, mode);
 }
 
+static __always_inline int te_handle_exec_event(pid_t pid, const char *target,
+						const char *display,
+						__u32 mode)
+{
+	struct te_rule_eval eval = {};
+	__u32 effect = TEFFECT_NOTIFY;
+	__u32 action;
+	__u64 matched_labels;
+	__u32 matched_domain_id;
+	__u32 current_domain_id;
+	__u64 global_labels;
+	__u64 current_labels;
+	int rid;
+
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
+		return 0;
+	if (!te_pid_active(pid))
+		return 0;
+	if (!target)
+		return 0;
+
+	current_domain_id = cap_domain_for_pid(pid);
+	global_labels = te_labels_for_domain(pid, 0);
+	current_labels = te_labels_for_domain(pid, current_domain_id);
+
+	eval.pid = pid;
+	eval.global_labels = global_labels;
+	eval.current_labels = current_labels;
+	eval.current_domain_id = current_domain_id;
+	eval.effect = TEFFECT_BLOCK;
+	eval.effect_mask = te_supported_effects(mode);
+	eval.op = TOP_EXEC;
+	eval.target = target;
+	rid = te_check_labels_no_args(&eval);
+	effect = eval.effect;
+	matched_labels = eval.matched_labels;
+	matched_domain_id = eval.matched_domain_id;
+
+	if (rid < 0)
+		return 0;
+
+	action = te_effect_mode(mode, effect);
+	if (action != TE_MODE_UNSUPPORTED)
+		emit_violation(pid, rid, display ? display : target, 0,
+			       TE_OBJ_EXEC, 0, matched_domain_id, matched_labels,
+			       TOP_EXEC,
+			       action == TE_MODE_BLOCK ||
+				       (action == TE_MODE_KILL && mode == TE_MODE_BLOCK),
+			       action == TE_MODE_KILL, effect);
+	if (action == TE_MODE_BLOCK)
+		return -EPERM;
+	if (action == TE_MODE_KILL) {
+		bpf_send_signal(SIGKILL);
+		if (mode == TE_MODE_BLOCK)
+			return -EPERM;
+	}
+	return 0;
+}
+
+static __always_inline int te_handle_exec_event_with_args(pid_t pid,
+							  const char *target,
+							  const char *display,
+							  __u32 mode)
+{
+	struct te_rule_eval eval = {};
+	__u32 effect = TEFFECT_NOTIFY;
+	__u32 action;
+	__u64 matched_labels;
+	__u32 matched_domain_id;
+	__u32 current_domain_id;
+	__u64 global_labels;
+	__u64 current_labels;
+	int rid;
+
+	if (mode == TE_MODE_BLOCK && !enforce_mode)
+		return 0;
+	if (!te_pid_active(pid))
+		return 0;
+	if (!target)
+		return 0;
+
+	current_domain_id = cap_domain_for_pid(pid);
+	global_labels = te_labels_for_domain(pid, 0);
+	current_labels = te_labels_for_domain(pid, current_domain_id);
+
+	eval.pid = pid;
+	eval.global_labels = global_labels;
+	eval.current_labels = current_labels;
+	eval.current_domain_id = current_domain_id;
+	eval.effect = TEFFECT_BLOCK;
+	eval.effect_mask = te_supported_effects(mode);
+	eval.op = TOP_EXEC;
+	eval.target = target;
+	rid = te_check_labels(&eval);
+	effect = eval.effect;
+	matched_labels = eval.matched_labels;
+	matched_domain_id = eval.matched_domain_id;
+
+	if (rid < 0)
+		return 0;
+
+	action = te_effect_mode(mode, effect);
+	if (action != TE_MODE_UNSUPPORTED)
+		emit_violation(pid, rid, display ? display : target, 0,
+			       TE_OBJ_EXEC, 0, matched_domain_id, matched_labels,
+			       TOP_EXEC,
+			       action == TE_MODE_BLOCK ||
+				       (action == TE_MODE_KILL && mode == TE_MODE_BLOCK),
+			       action == TE_MODE_KILL, effect);
+	if (action == TE_MODE_BLOCK)
+		return -EPERM;
+	if (action == TE_MODE_KILL) {
+		bpf_send_signal(SIGKILL);
+		if (mode == TE_MODE_BLOCK)
+			return -EPERM;
+	}
+	return 0;
+}
+
 static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
 					  const void *b, __u32 mode)
 {
 	const char *target;
 	const char *shown;
-	struct te_event ev = {};
 	pid_t pid;
 
 	if (mode == TE_MODE_BLOCK && !enforce_mode)
@@ -1746,13 +1880,7 @@ static __always_inline int te_handle_exec(__u32 ref_kind, const void *a,
 		return 0;
 	}
 
-	ev.pid = pid;
-	ev.obj_kind = TE_OBJ_EXEC;
-	ev.access = TE_ACCESS_EXEC;
-	ev.mode = mode;
-	ev.target = target;
-	ev.display = shown;
-	return te_handle_event(&ev, 0);
+	return te_handle_exec_event(pid, target, shown, mode);
 }
 
 SEC("lsm/bprm_check_security")
@@ -1862,6 +1990,57 @@ int BPF_PROG(enforce_socket_recvmsg, struct socket *sock, struct msghdr *msg,
 	return te_handle_net(TE_REF_SOCKET, sock, 0, TE_ACCESS_RECV, TE_MODE_BLOCK);
 }
 
+static __always_inline int te_protect_control_pid(struct task_struct *target)
+{
+	pid_t caller = bpf_get_current_pid_tgid() >> 32;
+	pid_t target_tgid;
+
+	if (!te_pid_active(caller))
+		return 0;
+	if (!target)
+		return 0;
+	target_tgid = BPF_CORE_READ(target, tgid);
+	if (target_tgid <= 0 || target_tgid == caller)
+		return 0;
+	if (!te_pid_protected(target_tgid))
+		return 0;
+	return -EPERM;
+}
+
+SEC("lsm/task_kill")
+int BPF_PROG(enforce_task_kill, struct task_struct *target,
+	     struct kernel_siginfo *info, int sig, const struct cred *cred)
+{
+	(void)info;
+	(void)cred;
+	if (sig == 0)
+		return 0;
+	return te_protect_control_pid(target);
+}
+
+SEC("lsm/ptrace_access_check")
+int BPF_PROG(enforce_ptrace_access_check, struct task_struct *child,
+	     unsigned int mode)
+{
+	(void)mode;
+	return te_protect_control_pid(child);
+}
+
+SEC("lsm/bpf")
+int BPF_PROG(enforce_bpf_syscall, int cmd, union bpf_attr *attr,
+	     unsigned int size, bool privileged)
+{
+	pid_t caller = bpf_get_current_pid_tgid() >> 32;
+
+	(void)cmd;
+	(void)attr;
+	(void)size;
+	(void)privileged;
+	if (!te_pid_active(caller))
+		return 0;
+	return -EPERM;
+}
+
 SEC("tp/sched/sched_process_fork")
 int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 {
@@ -1874,6 +2053,28 @@ int handle_fork(struct trace_event_raw_sched_process_fork *ctx)
 
 SEC("tp/sched/sched_process_exec")
 int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
+{
+	pid_t pid = bpf_get_current_pid_tgid() >> 32;
+	struct exec_scratch *scratch = exec_scratch_buf();
+	unsigned fname_off;
+
+	if (!te_pid_active(pid))
+		return 0;
+	if (!scratch)
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+
+	bpf_get_current_comm(&scratch->match, TASK_COMM_LEN);
+	te_exec_update_no_args(pid, scratch->match);
+
+	fname_off = ctx->__data_loc_filename & 0xFFFF;
+	bpf_probe_read_str(scratch->display, sizeof(scratch->display), (void *)ctx + fname_off);
+	te_handle_exec(TE_REF_STRINGS, scratch->match, scratch->display, te_tracepoint_mode());
+	return 0;
+}
+
+SEC("tp/sched/sched_process_exec")
+int handle_exec_args(struct trace_event_raw_sched_process_exec *ctx)
 {
 	pid_t pid = bpf_get_current_pid_tgid() >> 32;
 	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
@@ -1891,7 +2092,7 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	te_exec_update(pid, scratch->match);
 
 	/* read argv blob (NUL-separated) into per-CPU scratch, then tokenize into
-	 * fixed slots there for @arg matching — see te_tokenize_args_eng / taint_arg_match. */
+	 * fixed slots there for @arg matching. */
 	struct te_argslots *as = te_argslots_buf();
 	if (as) {
 		struct mm_struct *mm = BPF_CORE_READ(task, mm);
@@ -1908,7 +2109,8 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 
 	fname_off = ctx->__data_loc_filename & 0xFFFF;
 	bpf_probe_read_str(scratch->display, sizeof(scratch->display), (void *)ctx + fname_off);
-	te_handle_exec(TE_REF_STRINGS, scratch->match, scratch->display, te_tracepoint_mode());
+	te_handle_exec_event_with_args(pid, scratch->match, scratch->display,
+				       te_tracepoint_mode());
 	return 0;
 }
 

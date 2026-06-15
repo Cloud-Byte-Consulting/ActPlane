@@ -115,6 +115,18 @@ policies now use tracepoint file hooks by default. BPF-LSM file hooks such as
 `file_permission`, `file_open`, and path mutation hooks are reserved for
 `block open/write` policies or the explicit full hook profile.
 
+Engine self-protection is now separated from user policy. When BPF-LSM is
+active, the Rust and C loaders mark the ActPlane control pid in
+`te_protected_pids`. The kernel attaches `task_kill` and
+`ptrace_access_check` self-protection hooks and an `lsm/bpf` management-plane
+guard regardless of the user policy budget. A caller is denied only when it is
+already bound in `cap_task`, which means a root agent inside an ActPlane domain
+cannot kill, stop, or ptrace the loader/control process and cannot use `bpf()`
+to obtain, update, detach, pin, or load BPF objects, while a host root process
+outside any ActPlane domain can still stop or unload the engine. This is not
+available in tracepoint-only mode, because tracepoints cannot pre-operation
+deny signals, ptrace access, or BPF management syscalls.
+
 For a paper-quality system, the domains/delta story and hook coverage need to be
 tightened. For industrial use, ActPlane also needs policy review, structured
 audit logs, safe rollout modes, and clearer templates around common policies.
@@ -652,10 +664,17 @@ Current state:
   `sched_process_exit`) and the runtime control drain tick are always attached.
   File hooks attach only when the policy budget includes file flow, write-path
   hooks attach only when a write source or sink is present, and endpoint hooks
-  attach only for connect or recv policies. Exec block hooks attach only for
-  executable-identity `block exec` clauses. Argv-token `block exec` clauses are
-  unsupported as pre-exec blocks and do not by themselves reserve the
-  `bprm_check_security` hook.
+  attach only for connect or recv policies. Exec argv-token handling is split
+  from the default exec tracepoint: ordinary exec policies load the no-argv
+  path, while policies with exec argv predicates reserve the separate post-exec
+  argv hook. Exec block hooks attach only for executable-identity `block exec`
+  clauses. Argv-token `block exec` clauses are unsupported as pre-exec blocks
+  and do not by themselves reserve the `bprm_check_security` hook.
+- BPF-LSM self-protection hooks (`task_kill`, `ptrace_access_check`, and
+  `lsm/bpf`) attach whenever BPF-LSM is active. They deny only in-domain
+  callers targeting a protected ActPlane control pid or attempting BPF
+  management syscalls, so host administrators outside a domain keep normal
+  unload authority.
 - BPF-LSM file hooks are no longer loaded merely because a policy needs
   ordinary file-flow observation. The default path for file sources, file
   transforms, `notify`, and `kill` file rules is tracepoint-based. LSM

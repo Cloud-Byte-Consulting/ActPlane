@@ -70,6 +70,10 @@ pub(crate) async fn watch_policy(cli: &Cli, parent_domain: bool) -> Result<i32> 
                     return;
                 }
             };
+        if let Err(e) = loader.protect_pid(submitter_pid) {
+            let _ = ready_tx.send(Err(format!("protect control pid {submitter_pid}: {e}")));
+            return;
+        }
         let seeded = if parent_domain {
             loader.seed_global_label(attach_pid, agent_label)
         } else {
@@ -952,6 +956,10 @@ pub(crate) fn start_mcp_auto_attach(cli: &Cli) -> Result<AttachGuard> {
                     return;
                 }
             };
+        if let Err(e) = loader.protect_pid(submitter_pid) {
+            let _ = ready_tx.send(Err(format!("protect control pid {submitter_pid}: {e}")));
+            return;
+        }
         if let Err(e) = loader.seed_label(attach_pid, agent_label) {
             let _ = ready_tx.send(Err(format!("seed parent pid {attach_pid}: {e}")));
             return;
@@ -1155,6 +1163,7 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String], parent_domain: bool) 
     let fb = feedback.feedback.clone();
     let ev = feedback.events.clone();
     let stop_thread = stop.clone();
+    let control_pid = std::process::id() as i32;
     let poller = std::thread::spawn(move || {
         let mut loader = match Loader::load(&blob) {
             Ok(l) => l,
@@ -1163,6 +1172,10 @@ pub(crate) async fn run_command(cli: &Cli, cmd: &[String], parent_domain: bool) 
                 return;
             }
         };
+        if let Err(e) = loader.protect_pid(control_pid) {
+            let _ = ready_tx.send(Err(format!("protect control pid {control_pid}: {e}")));
+            return;
+        }
         let seeded = if parent_domain {
             loader.seed_global_label(target_pid as i32, agent_label)
         } else {
@@ -1279,6 +1292,10 @@ pub(crate) async fn run_child_command(
                     return;
                 }
             };
+        if let Err(e) = loader.protect_pid(parent_pid) {
+            let _ = ready_tx.send(Err(format!("protect control pid {parent_pid}: {e}")));
+            return;
+        }
         if let Err(e) = loader.seed_label(parent_pid, agent_label) {
             let _ = ready_tx.send(Err(format!("seed parent pid {parent_pid}: {e}")));
             return;

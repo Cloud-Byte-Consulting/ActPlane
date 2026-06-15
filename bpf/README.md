@@ -30,6 +30,17 @@ engine emits a match event with one of three effects:
 - **block** — BPF-LSM returns `-EPERM` (pre-operation denial)
 - **kill** — `SIGKILL` the matching task
 
+The loader attaches hooks according to the compiled policy budget. The default
+exec tracepoint path matches executable identity without reading argv. Policies
+with exec argv-token predicates load the separate post-exec argv hook, so common
+policies do not pay the verifier/runtime cost of argv tokenization.
+
+When BPF-LSM is active, the loader can also mark its own control pid as
+protected. Runtime-domain subjects, including uid 0 subjects, cannot signal or
+ptrace that protected pid, and they cannot use the `bpf()` syscall to manage
+BPF programs, maps, or links. Processes outside any ActPlane runtime domain
+remain ordinary host administrators and can still stop or unload the engine.
+
 ## Kernel state
 
 Five BPF hash maps track label state:

@@ -65,6 +65,7 @@ const FEAT_FILE_FLOW: u32 = 1 << 6;
 const FEAT_BLOCK_EXEC: u32 = 1 << 7;
 const FEAT_BLOCK_FILE: u32 = 1 << 8;
 const FEAT_BLOCK_CONNECT: u32 = 1 << 9;
+const FEAT_EXEC_ARGS: u32 = 1 << 10;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -423,6 +424,8 @@ impl DomainHandle {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TracepointNeed {
     Core,
+    CoreExec,
+    ExecArgs,
     FileOpen,
     FileWritePath,
     FdFlow,
@@ -454,7 +457,13 @@ const TRACEPOINTS: &[TracepointSpec] = &[
         name: "handle_exec",
         category: "sched",
         event: "sched_process_exec",
-        need: TracepointNeed::Core,
+        need: TracepointNeed::CoreExec,
+    },
+    TracepointSpec {
+        name: "handle_exec_args",
+        category: "sched",
+        event: "sched_process_exec",
+        need: TracepointNeed::ExecArgs,
     },
     TracepointSpec {
         name: "handle_exit",
@@ -867,6 +876,9 @@ const LSM_PROGS: &[(&str, &str)] = &[
     ("enforce_path_rename", "path_rename"),
     ("enforce_socket_connect", "socket_connect"),
     ("enforce_socket_recvmsg", "socket_recvmsg"),
+    ("enforce_task_kill", "task_kill"),
+    ("enforce_ptrace_access_check", "ptrace_access_check"),
+    ("enforce_bpf_syscall", "bpf"),
 ];
 
 const ALL_HOOK_FEATURES: u32 = FEAT_CONNECT
@@ -874,7 +886,8 @@ const ALL_HOOK_FEATURES: u32 = FEAT_CONNECT
     | FEAT_FILE_FLOW
     | FEAT_BLOCK_EXEC
     | FEAT_BLOCK_FILE
-    | FEAT_BLOCK_CONNECT;
+    | FEAT_BLOCK_CONNECT
+    | FEAT_EXEC_ARGS;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum HookProfile {
@@ -966,11 +979,17 @@ impl HookBudget {
     fn has_recv(self) -> bool {
         self.features & FEAT_RECV != 0
     }
+
+    fn has_exec_args(self) -> bool {
+        self.features & FEAT_EXEC_ARGS != 0
+    }
 }
 
 fn tracepoint_needed(spec: &TracepointSpec, budget: HookBudget) -> bool {
     match spec.need {
         TracepointNeed::Core => true,
+        TracepointNeed::CoreExec => !budget.has_exec_args(),
+        TracepointNeed::ExecArgs => budget.has_exec_args(),
         TracepointNeed::FileOpen => budget.has_file_flow(),
         TracepointNeed::FileWritePath => budget.has_file_write(),
         TracepointNeed::FdFlow => {
@@ -1002,6 +1021,7 @@ fn lsm_needed(
     advanced_hooks: bool,
 ) -> bool {
     match name {
+        "enforce_task_kill" | "enforce_ptrace_access_check" | "enforce_bpf_syscall" => true,
         "enforce_bprm_check_security" => block_exec,
         "enforce_socket_connect" => block_connect,
         "enforce_socket_recvmsg" => recv_flow,
@@ -1076,6 +1096,9 @@ fn config_features(cfg: &CConfig) -> u32 {
         .iter()
         .take((cfg.n_updates as usize).min(MAX_UPDATES))
     {
+        if u.op == OP_EXEC && u.arg[0] != 0 {
+            features |= FEAT_EXEC_ARGS;
+        }
         if u.op == OP_OPEN || u.op == OP_WRITE {
             features |= FEAT_FILE_FLOW;
             features |= path_match_features(u.m);
@@ -1088,6 +1111,9 @@ fn config_features(cfg: &CConfig) -> u32 {
         }
     }
     for r in cfg.rules.iter().take((cfg.n_rules as usize).min(MAX_RULES)) {
+        if r.op == OP_EXEC && r.arg[0] != 0 {
+            features |= FEAT_EXEC_ARGS;
+        }
         if r.effect == EFFECT_BLOCK {
             if r.op == OP_EXEC && r.arg[0] == 0 {
                 features |= FEAT_BLOCK_EXEC;
@@ -1174,6 +1200,9 @@ fn feature_gate_error(context: &str, needed: u32, supported: u32, missing: u32) 
     if missing & FEAT_BLOCK_CONNECT != 0 {
         names.push("connect block hooks");
     }
+    if missing & FEAT_EXEC_ARGS != 0 {
+        names.push("exec argv-token hooks");
+    }
     let mut hints = Vec::new();
     hints.push(
         "runtime reload/delta cannot attach new hooks or enable new matcher classes after load; restart the engine with the needed budget",
@@ -1184,7 +1213,8 @@ fn feature_gate_error(context: &str, needed: u32, supported: u32, missing: u32) 
             | FEAT_RECV
             | FEAT_BLOCK_EXEC
             | FEAT_BLOCK_FILE
-            | FEAT_BLOCK_CONNECT)
+            | FEAT_BLOCK_CONNECT
+            | FEAT_EXEC_ARGS)
         != 0
     {
         hints.push(
@@ -1200,6 +1230,9 @@ fn feature_gate_error(context: &str, needed: u32, supported: u32, missing: u32) 
         hints.push(
             "block deltas require matching BPF-LSM hooks reserved at startup and an active bpf LSM; argv-token block exec is not a pre-exec block",
         );
+    }
+    if missing & FEAT_EXEC_ARGS != 0 {
+        hints.push("argv-token exec deltas require the argv exec hook reserved at startup");
     }
     if missing & (FEAT_CONNECT | FEAT_RECV) != 0 {
         hints.push("network deltas require network hook budget at startup");
@@ -1352,6 +1385,25 @@ impl Loader {
 
     pub fn enforce_mode(&self) -> bool {
         self.enforce
+    }
+
+    /// Mark a loader/control process as protected from subjects that are
+    /// already bound to an ActPlane runtime domain. Host processes outside a
+    /// domain are not denied, including root/admin unload paths.
+    pub fn protect_pid(&mut self, pid: i32) -> io::Result<()> {
+        if pid <= 0 {
+            return Err(err("protected pid must be positive"));
+        }
+        let mut protected: HashMap<_, i32, u32> = HashMap::try_from(
+            self.bpf
+                .map_mut("te_protected_pids")
+                .ok_or_else(|| err("te_protected_pids missing"))?,
+        )
+        .map_err(|e| err(format!("te_protected_pids: {e}")))?;
+        protected
+            .insert(pid, 1, 0)
+            .map_err(|e| err(format!("protect pid {pid}: {e}")))?;
+        Ok(())
     }
 
     /// Create a `ReloadHandle` that can hot-reload policy into this engine.
@@ -2342,6 +2394,30 @@ mod tests {
 
     #[test]
     fn file_flow_does_not_enable_lsm_file_hooks_without_block_file() {
+        assert!(lsm_needed(
+            "enforce_task_kill",
+            false,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(lsm_needed(
+            "enforce_ptrace_access_check",
+            false,
+            false,
+            false,
+            false,
+            false
+        ));
+        assert!(lsm_needed(
+            "enforce_bpf_syscall",
+            false,
+            false,
+            false,
+            false,
+            false
+        ));
         assert!(!lsm_needed(
             "enforce_file_permission",
             false,

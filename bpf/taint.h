@@ -310,9 +310,11 @@ static __always_inline int taint_mask_ok(unsigned long long labels,
 /* @arg matching is done against PRE-TOKENIZED argv: the loader/exec hook splits
  * the argv blob into MAX_ARG_SLOTS fixed-width NUL-padded slots (te_tokenize_args
  * below), so matching a rule's @arg token is just an equality test against each
- * slot — constant strides, no scan of a symbolic blob (which no amount of
- * branchless coding could verify cheaply per rule). `slots` is MAX_ARG_SLOTS *
- * TAINT_ARG_LEN bytes. "" matches anything. */
+ * slot. In BPF contexts the implementation lives in taint_engine.bpf.h because
+ * it uses bpf_loop() to keep the verifier from simulating every slot compare. */
+#ifdef __BPF__
+static __noinline int taint_arg_match(const char *slots, const char *tok);
+#else
 static TAINT_NOINLINE int taint_arg_match(const char *slots, const char *tok)
 {
 	long found = te_iszero64((unsigned char)tok[0]);     /* "" matches */
@@ -328,6 +330,7 @@ static TAINT_NOINLINE int taint_arg_match(const char *slots, const char *tok)
 	}
 	return found != 0;
 }
+#endif
 
 /* Split a NUL-separated argv blob (`blob`, `len` bytes) into MAX_ARG_SLOTS
  * fixed-width NUL-padded slots. Done once per exec, NOT per rule. */
