@@ -1,7 +1,5 @@
 # ActPlane: eBPF-Based IFC Policy Engine for AI Agent Harnesses
 
-> WIP
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 **Runtime `observability` and `enforcement` for AI agent harnesses and sandboxing: declare information-flow policies in a compact DSL, ActPlane enforces them at the kernel level.**
