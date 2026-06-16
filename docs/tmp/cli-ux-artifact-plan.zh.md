@@ -151,6 +151,28 @@ actplane mcp --auto-attach-parent
 - `mcp` 是集成面，但不应该膨胀成 policy authoring 或 rollout 平台。
 - MCP 自动 attach 后，engine 应该 load 一次。后续 domain bind、child domain、runtime delta 都走 control socket/map updates。
 
+### attach
+
+定位：把已经启动的进程纳入当前已经运行的 ActPlane engine。
+
+推荐 UX：
+
+```bash
+actplane attach --pid <pid>
+actplane attach --pid <pid> --parent-domain
+actplane attach --pid <pid> --child-domain --domain-id <domain-id>
+actplane attach --pid <pid> --child-domain --delta child-policy.dsl
+```
+
+原则：
+
+- `attach` 是用户可见的一等入口，表达“把这个已有 pid 纳入保护”。
+- 默认行为是为该 pid 冷启动一个前台 engine，创建 runtime root domain，并暴露 repo-local control socket。这个模式适合直接保护一个已经启动的 agent。
+- 带 `--child-domain`、`--domain-id`、`--child-id`、`--scope-id` 或 delta 参数时，`attach` 复用已有 MCP auto-attach 或 `watch` engine，把该 pid 绑定为 child runtime domain，不重新 load engine。
+- child-domain attach 可以同时安装 child-local append-only delta，但 delta 作用域只能是该 attached child domain。
+- `attach` 是 post-hoc 操作。它不能补全 attach 前已经发生的文件读写、网络连接、FD 继承和标签传播历史。强隔离和严格启动前控制仍然用 `run --delta` 或 `control launch-child`。
+- `control bind-child` 保留为低层控制面和脚本兼容入口，但普通用户文档优先展示 `attach`。
+
 ### control
 
 定位：操作已经运行的 engine。

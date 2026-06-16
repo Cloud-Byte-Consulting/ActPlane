@@ -44,6 +44,10 @@ type Result<T> = std::result::Result<T, AnyError>;
       actplane --policy actplane.yaml compile --out /tmp/policy.bin\n\n  \
       # attach to the parent agent/shell and report violations without launching a child\n  \
       actplane --policy actplane.yaml watch\n\n  \
+      # attach an already-started agent pid with a foreground engine\n  \
+      actplane attach --pid <pid>\n\n  \
+      # bind an already-started subagent pid to a child domain in a running engine\n  \
+      actplane attach --pid <pid> --child-domain --delta child-policy.dsl\n\n  \
       # append a scoped runtime delta to an already-running watch/MCP engine\n  \
       actplane control delta add --target-id <domain-id> --delta policy-delta.dsl\n\n\
     See docs/rule-language.md for the policy language.")]
@@ -80,6 +84,8 @@ enum Commands {
     Doctor,
     /// Load the policy and report violations without starting a child command.
     Watch(WatchArgs),
+    /// Attach an already-started process to ActPlane.
+    Attach(AttachArgs),
     /// Hook adapter: forward new feedback-file bytes as agent additionalContext.
     #[command(hide = true)]
     FeedbackHook,
@@ -194,6 +200,54 @@ struct WatchArgs {
     /// Attach directly in the selected parent/global policy domain.
     #[arg(long)]
     parent_domain: bool,
+}
+
+#[derive(Args)]
+#[command(after_help = "NOTES:\n  \
+    By default, `attach` starts a foreground engine, seeds the target pid as \
+    the runtime root domain, reports violations, and exposes the repo-local \
+    control socket until Ctrl-C. Supplying --child-domain, --domain-id, \
+    --child-id, --scope-id, or delta flags instead binds the target pid into \
+    an already-running MCP/watch engine as a child runtime domain.\n\n  \
+    `attach` is post-hoc. It binds future events from the target process tree \
+    to ActPlane, but it does not reconstruct file, network, or label history \
+    from before the attach. For strict launch-time enforcement, prefer \
+    `actplane run --delta ... -- <cmd>` or \
+    `actplane control launch-child ... -- <cmd>`.")]
+struct AttachArgs {
+    /// Linux pid of the already-started process to attach.
+    #[arg(long)]
+    pid: i32,
+    /// Attach directly in the selected parent/global policy domain when starting a foreground engine.
+    #[arg(long)]
+    parent_domain: bool,
+    /// Bind the pid as a child domain in an already-running MCP/watch engine.
+    #[arg(long)]
+    child_domain: bool,
+    /// Runtime domain id for the attached process. Defaults to pid.
+    #[arg(long, conflicts_with = "child_id")]
+    domain_id: Option<u32>,
+    /// Alias for --domain-id.
+    #[arg(long, conflicts_with = "domain_id")]
+    child_id: Option<u32>,
+    /// Optional narrower scope id.
+    #[arg(long, default_value_t = 0)]
+    scope_id: u32,
+    /// Append-only ActPlane DSL fragment file installed into the attached domain.
+    #[arg(long = "delta", value_name = "FILE")]
+    deltas: Vec<PathBuf>,
+    /// Inline append-only ActPlane DSL fragment installed into the attached domain.
+    #[arg(long = "delta-text", value_name = "DSL")]
+    delta_text: Vec<String>,
+    /// Optional approval metadata for attached-domain policy deltas.
+    #[arg(long)]
+    approved_by: Option<String>,
+    /// Optional ticket, review, or decision id for attached-domain policy deltas.
+    #[arg(long)]
+    approval_ref: Option<String>,
+    /// Optional tool or agent identity that generated attached-domain policy deltas.
+    #[arg(long)]
+    generated_by: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -350,6 +404,7 @@ async fn main() -> Result<()> {
         Commands::Watch(args) => {
             runtime::watch_policy(&policy_input(&cli), args.parent_domain).await?
         }
+        Commands::Attach(args) => attach_command(&cli, args).await?,
         Commands::FeedbackHook => {
             hook::feedback_hook().await?;
             0
@@ -404,6 +459,60 @@ async fn run_command(cli: &Cli, args: &RunArgs) -> Result<i32> {
         .await;
     }
     runtime::run_command(&policy, &args.cmd, args.parent_domain).await
+}
+
+async fn attach_command(cli: &Cli, args: &AttachArgs) -> Result<i32> {
+    if args.pid <= 0 {
+        return Err("--pid must be positive".into());
+    }
+    let child_mode = args.child_domain
+        || args.domain_id.is_some()
+        || args.child_id.is_some()
+        || args.scope_id != 0
+        || !args.deltas.is_empty()
+        || !args.delta_text.is_empty()
+        || args.approved_by.is_some()
+        || args.approval_ref.is_some()
+        || args.generated_by.is_some();
+    if args.parent_domain && child_mode {
+        return Err("--parent-domain cannot be combined with child-domain attach options".into());
+    }
+    if !child_mode {
+        return runtime::watch_policy_for_pid(&policy_input(cli), args.parent_domain, args.pid)
+            .await;
+    }
+
+    let project_dir = control_project_dir(cli)?;
+    reject_parent_domain_runtime_mutation(&project_dir, "attach process")?;
+
+    let domain_id = args.domain_id.or(args.child_id).unwrap_or(args.pid as u32);
+    if domain_id == 0 {
+        return Err("--domain-id must be nonzero".into());
+    }
+
+    let bind_request = serde_json::json!({
+        "op": "bind_child_domain",
+        "pid": args.pid,
+        "child_id": domain_id,
+        "scope_id": args.scope_id,
+    });
+    print_control_response(control::send_request(&project_dir, bind_request)?)?;
+
+    let delta_args = DeltaAddArgs {
+        target_id: Some(domain_id),
+        domain_id: None,
+        deltas: args.deltas.clone(),
+        delta_text: args.delta_text.clone(),
+        approved_by: args.approved_by.clone(),
+        approval_ref: args.approval_ref.clone(),
+        generated_by: args.generated_by.clone(),
+    };
+    if !delta_args.deltas.is_empty() || !delta_args.delta_text.is_empty() {
+        for response in append_delta_control_requests(&project_dir, &delta_args, "attach")? {
+            print_control_response(response)?;
+        }
+    }
+    Ok(0)
 }
 
 fn policy_input(cli: &Cli) -> actplane_runtime::PolicyInput {
@@ -761,6 +870,10 @@ fn reject_parent_domain_control_mutation(
     let Some(operation) = unsupported_operation else {
         return Ok(());
     };
+    reject_parent_domain_runtime_mutation(project_dir, operation)
+}
+
+fn reject_parent_domain_runtime_mutation(project_dir: &Path, operation: &str) -> Result<()> {
     let state = control::read_state(project_dir)?;
     if state.parent_domain_id == ebpf_ifc_engine::GLOBAL_ACTIVE_DOMAIN_ID {
         return Err(parent_domain_control_mutation_error(operation).into());

@@ -33,7 +33,7 @@ fn top_level_help_is_engine_focused() {
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let stdout = stdout(&output);
     for command in [
-        "run", "compile", "init", "doctor", "watch", "mcp", "control",
+        "run", "compile", "init", "doctor", "watch", "attach", "mcp", "control",
     ] {
         assert!(
             stdout.contains(command),
@@ -342,6 +342,26 @@ fn watch_help_exposes_parent_domain_flag() {
 }
 
 #[test]
+fn attach_help_exposes_existing_process_domain_flags() {
+    let output = run(&["attach", "--help"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("--pid"));
+    assert!(stdout.contains("--parent-domain"));
+    assert!(stdout.contains("--child-domain"));
+    assert!(stdout.contains("--domain-id"));
+    assert!(stdout.contains("--child-id"));
+    assert!(stdout.contains("--scope-id"));
+    assert!(stdout.contains("--delta"));
+    assert!(stdout.contains("--delta-text"));
+    assert!(stdout.contains("--approved-by"));
+    assert!(stdout.contains("--approval-ref"));
+    assert!(stdout.contains("--generated-by"));
+    assert!(stdout.contains("foreground engine"));
+    assert!(stdout.contains("post-hoc"));
+}
+
+#[test]
 fn run_parent_domain_rejects_runtime_delta_mode() {
     let output = run(&[
         "run",
@@ -443,6 +463,7 @@ fn parent_domain_control_mutations_are_rejected_before_socket_connect() {
     .unwrap();
 
     for args in [
+        vec!["attach", "--pid", "1234", "--child-domain"],
         vec!["control", "bind-child", "--pid", "1234"],
         vec![
             "control",
@@ -469,6 +490,117 @@ fn parent_domain_control_mutations_are_rejected_before_socket_connect() {
             "command attempted to connect before rejecting parent-domain mode:\n{stderr}"
         );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn attach_sends_bind_then_child_delta_over_repo_control_socket() {
+    let tmp = tempfile::tempdir().unwrap();
+    let policy = tmp.path().join("actplane.yaml");
+    fs::write(
+        &policy,
+        r#"
+version: 1
+policy: |
+  source COMMAND = exec "**"
+  rule noop:
+    notify exec "__actplane_never__" if COMMAND
+    because "noop"
+"#,
+    )
+    .unwrap();
+
+    let socket_path = tmp.path().join("control.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    let state_dir = tmp.path().join(".actplane");
+    fs::create_dir_all(&state_dir).unwrap();
+    fs::write(
+        state_dir.join("control.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema": "actplane.control.v1",
+            "pid": std::process::id() as i32,
+            "proc_start_time": null,
+            "socket_path": socket_path,
+            "project_dir": tmp.path(),
+            "parent_pid": 1111,
+            "parent_domain_id": 2222,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        for response in ["attached", "delta accepted"] {
+            let (mut stream, _) = listener.accept().expect("accept control client");
+            let mut line = String::new();
+            std::io::BufReader::new(stream.try_clone().expect("clone stream"))
+                .read_line(&mut line)
+                .expect("read request");
+            let request: serde_json::Value = serde_json::from_str(&line).expect("request JSON");
+            tx.send(request).expect("send request");
+            serde_json::to_writer(
+                &mut stream,
+                &serde_json::json!({ "ok": true, "text": response }),
+            )
+            .expect("write response");
+            writeln!(stream).expect("write response newline");
+        }
+    });
+
+    let output = Command::new(actplane())
+        .current_dir(tmp.path())
+        .args([
+            "--policy",
+            policy.to_str().unwrap(),
+            "attach",
+            "--pid",
+            "1234",
+            "--child-domain",
+            "--domain-id",
+            "4242",
+            "--scope-id",
+            "7",
+            "--delta-text",
+            "rule added:\n  notify exec \"git\" if true\n  because \"added\"",
+            "--approved-by",
+            "reviewer",
+            "--approval-ref",
+            "ticket-7",
+            "--generated-by",
+            "cli-test",
+        ])
+        .output()
+        .expect("run attach");
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let stdout = stdout(&output);
+    assert!(stdout.contains("attached"));
+    assert!(stdout.contains("delta accepted"));
+
+    let bind_request = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("bind control request");
+    assert_eq!(bind_request["op"], "bind_child_domain");
+    assert_eq!(bind_request["pid"], 1234);
+    assert_eq!(bind_request["child_id"], 4242);
+    assert_eq!(bind_request["scope_id"], 7);
+
+    let delta_request = rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("delta control request");
+    assert_eq!(delta_request["op"], "append_policy_delta");
+    assert_eq!(delta_request["target_id"], 4242);
+    assert!(
+        delta_request["policy"]
+            .as_str()
+            .unwrap()
+            .contains("rule added")
+    );
+    assert_eq!(delta_request["policy_ref"], "--delta-text[0]");
+    assert_eq!(delta_request["approved_by"], "reviewer");
+    assert_eq!(delta_request["approval_ref"], "ticket-7");
+    assert_eq!(delta_request["generated_by"], "cli-test");
+    handle.join().expect("control server thread");
 }
 
 #[cfg(unix)]

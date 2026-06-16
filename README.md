@@ -28,7 +28,7 @@ Write a policy and run an agent (or any command) under the harness:
 
 ```bash
 actplane init                                  # write a starter actplane.yaml
-actplane check                                 # validate rules (no privileges)
+actplane compile                               # validate rules (no privileges)
 actplane doctor                                # diagnose hooks, MCP, kernel support
 
 codex                                         # MCP auto-attach tries passwordless sudo
@@ -150,7 +150,7 @@ worked examples.
 
 ActPlane feeds rule-match reasons back to agents via their hook systems.
 
-`actplane init` / `actplane setup` writes a ready-to-use Codex hook at
+`actplane init --with-codex` writes a ready-to-use Codex hook at
 `.codex/hooks.json`. It runs `actplane feedback-hook` after each tool call and
 injects any new `.actplane/last-violation.txt` content into the next model turn.
 
@@ -190,7 +190,26 @@ It exposes `actplane:///policy` for live policy validation and
 `--auto-attach-parent` tries passwordless sudo, loads the eBPF engine, and seeds
 the parent Codex process so directly running `codex` is protected.
 
-`actplane setup` also writes project `.mcp.json`:
+Attach an already-started agent with a foreground engine:
+
+```bash
+sudo -E actplane attach --pid <pid>
+```
+
+Once an MCP auto-attach or `actplane watch` engine is already running, bind an
+already-started subagent into a child runtime domain with:
+
+```bash
+actplane attach --pid <pid> --child-domain --domain-id <domain-id>
+actplane attach --pid <pid> --child-domain --delta child-policy.dsl
+```
+
+`attach` is post-hoc: future events from that process tree enter ActPlane, but
+ActPlane does not reconstruct labels or file/network history from before the
+attach. For strict launch-time enforcement, start the process with
+`actplane run ... -- <cmd>` or `actplane control launch-child ... -- <cmd>`.
+
+`actplane init --with-mcp` also writes project `.mcp.json`:
 
 ```json
 {
@@ -204,7 +223,7 @@ the parent Codex process so directly running `codex` is protected.
 }
 ```
 
-Prefer the project `.mcp.json` that `actplane setup` writes. If your Codex build
+Prefer the project `.mcp.json` that `actplane init --with-mcp` writes. If your Codex build
 does not read project MCP config, use a global `codex mcp add actplane -- actplane
 mcp --auto-attach-parent` entry instead, but do not keep both or auto-attach can
 start twice.

@@ -32,6 +32,14 @@ const ATTACH_PID_ENV: &str = "ACTPLANE_ATTACH_PID";
 
 pub async fn watch_policy(cli: &PolicyInput, parent_domain: bool) -> Result<i32> {
     let attach_pid = attach_pid_from_env_or_parent();
+    watch_policy_for_pid(cli, parent_domain, attach_pid).await
+}
+
+pub async fn watch_policy_for_pid(
+    cli: &PolicyInput,
+    parent_domain: bool,
+    attach_pid: i32,
+) -> Result<i32> {
     if attach_pid <= 1 {
         return Err(format!("invalid parent pid for watch attach: {attach_pid}").into());
     }
