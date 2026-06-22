@@ -6,8 +6,8 @@ use std::process::Stdio;
 use serde_json::{Value, json};
 
 use crate::config::{
-    AppendDeltaApprovalConfig, LoadedPolicy, ResolvedPolicy, domain_summaries, feedback_paths,
-    load_policy, resolve_policy,
+    AppendDeltaApprovalConfig, DomainSummary, LoadedPolicy, ResolvedPolicy, domain_summaries,
+    feedback_paths, load_policy, resolve_policy,
 };
 use crate::dsl::ast::{Clause, Cond, Effect, Expr, Kind, Op, Policy, Source};
 use crate::runtime::{have_bpf_caps, passwordless_sudo_available};
@@ -107,8 +107,7 @@ pub(crate) fn check_policy(
         if let Some(parent) = &domain.parent {
             println!("parent: {}", parent);
         }
-        println!("locked: {}", format_rule_list(&domain.locked));
-        println!("default: {}\n", format_rule_list(&domain.defaults));
+        println!("policy: {}\n", format_domain_policy_rules(domain));
     }
     for (i, m) in compiled.meta.iter().enumerate() {
         let eff = format!("{:?}", m.effect).to_lowercase();
@@ -268,14 +267,8 @@ fn render_rollout_plan(
             }
             writeln!(
                 &mut out,
-                "locked rules: {}",
-                format_rule_list(&domain.locked)
-            )
-            .unwrap();
-            writeln!(
-                &mut out,
-                "default rules: {}",
-                format_rule_list(&domain.defaults)
+                "policy rules: {}",
+                format_domain_policy_rules(domain)
             )
             .unwrap();
         }
@@ -1309,7 +1302,7 @@ fn render_check_json(
             "force_tracepoint": force_tracepoint,
         },
         "matrix_scope": "static_initial_policy_host_support",
-        "matrix_note": "This reports static host/backend support for the selected initial policy. Runtime hook budgets can still reject later deltas that require hooks or matcher classes not reserved when the engine was loaded.",
+        "matrix_note": "This reports static host/backend support for the selected initial policy. Runtime budgets can reject later deltas that require hook classes or path matcher classes not enabled when the engine was loaded.",
         "environment": {
             "ACTPLANE_FORCE_TRACEPOINT": std::env::var("ACTPLANE_FORCE_TRACEPOINT").ok(),
             "ACTPLANE_HOOK_PROFILE": std::env::var("ACTPLANE_HOOK_PROFILE").ok(),
@@ -1348,24 +1341,10 @@ fn render_check_explain(
             }
             writeln!(
                 &mut out,
-                "locked rules: {}",
-                format_rule_list(&domain.locked)
+                "policy rules: {}",
+                format_domain_policy_rules(domain)
             )
             .unwrap();
-            writeln!(
-                &mut out,
-                "default rules: {}",
-                format_rule_list(&domain.defaults)
-            )
-            .unwrap();
-            if !domain.disabled.is_empty() {
-                writeln!(
-                    &mut out,
-                    "disabled defaults: {}",
-                    format_rule_list(&domain.disabled)
-                )
-                .unwrap();
-            }
         }
         None => writeln!(&mut out, "domain: none (flat policy)").unwrap(),
     }
@@ -1403,7 +1382,7 @@ fn render_check_explain(
     }
     writeln!(
         &mut out,
-        "  - hook budget: policy-budgeted attach; runtime deltas cannot add hook classes after load"
+        "  - feature budget: policy-budgeted attach; runtime deltas cannot add hook classes or path contains/suffix matcher classes after load"
     )
     .unwrap();
     writeln!(
@@ -2321,11 +2300,7 @@ pub(crate) fn list_domains(cli: &PolicyInput) -> Result<i32> {
         if let Some(parent) = &domain.parent {
             println!("    parent: {}", parent);
         }
-        if !domain.disabled.is_empty() {
-            println!("    disables: {}", format_rule_list(&domain.disabled));
-        }
-        println!("    locked: {}", format_rule_list(&domain.locked));
-        println!("    default: {}", format_rule_list(&domain.defaults));
+        println!("    policy: {}", format_domain_policy_rules(&domain));
     }
     Ok(0)
 }
@@ -2336,6 +2311,12 @@ fn format_rule_list(rules: &[String]) -> String {
     } else {
         rules.join(", ")
     }
+}
+
+fn format_domain_policy_rules(domain: &DomainSummary) -> String {
+    let mut rules = domain.locked.clone();
+    rules.extend(domain.defaults.clone());
+    format_rule_list(&rules)
 }
 
 fn doctor_path_actplane(problems: &mut usize) {
