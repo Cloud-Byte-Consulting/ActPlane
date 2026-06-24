@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-**Runtime `enforcement` and `observability` for AI agent harnesses and sandboxing: declare information-flow policies for safety and compliance, and ActPlane enforces them in the kernel with eBPF.**
+**Runtime `enforcement` and `observability` for AI agent harnesses and sandboxing: declare information-flow policies for safety, security and compliance, and ActPlane enforces them in the kernel with eBPF.**
 
 Prompt constraints and model guardrails are probabilistic. ActPlane is deterministic. Tool call check cannot see indirect system behavior, e.g. a sh script.
 
