@@ -445,12 +445,22 @@ struct file_scratch {
 	char path[MAX_FILENAME_LEN];
 	struct file_id fid;
 };
+struct fd_scratch {
+	struct fd_key key;
+	struct fd_ref ref;
+};
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
 	__uint(max_entries, 1);
 	__type(key, __u32);
 	__type(value, struct file_scratch);
 } ts_file_scratch SEC(".maps");
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct fd_scratch);
+} ts_fd_scratch SEC(".maps");
 
 static __always_inline struct exec_scratch *exec_scratch_buf(void)
 {
@@ -471,6 +481,13 @@ static __always_inline struct file_scratch *file_scratch_buf(void)
 	__u32 key = 0;
 
 	return bpf_map_lookup_elem(&ts_file_scratch, &key);
+}
+
+static __always_inline struct fd_scratch *fd_scratch_buf(void)
+{
+	__u32 key = 0;
+
+	return bpf_map_lookup_elem(&ts_fd_scratch, &key);
 }
 
 static __always_inline struct mmap_ref *mmap_scratch_buf(void)
@@ -530,25 +547,28 @@ static __always_inline struct fileptr_ref *te_lookup_fileptr_ref(struct file *fi
 	return fpref;
 }
 
-static __always_inline void te_store_fd(pid_t pid, int fd, const char *path,
-					struct file_id *fid)
+static __noinline void te_store_fd(pid_t pid, int fd, const char *path,
+				   struct file_id *fid)
 {
+	struct fd_scratch *scratch = fd_scratch_buf();
+
 	if (fd < 0)
 		return;
-	struct fd_key key = {};
-	struct fd_ref ref = {};
-	te_fd_key(pid, fd, &key);
-	ref.fid = *fid;
+	if (!scratch)
+		return;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	te_fd_key(pid, fd, &scratch->key);
+	scratch->ref.fid = *fid;
 	for (int i = 0; i < MAX_FILENAME_LEN; i++)
-		ref.path[i] = path[i];
-	ref.path[MAX_FILENAME_LEN - 1] = '\0';
-	bpf_map_delete_elem(&ts_sockfd, &key);
-	bpf_map_update_elem(&ts_fd, &key, &ref, BPF_ANY);
+		scratch->ref.path[i] = path[i];
+	scratch->ref.path[MAX_FILENAME_LEN - 1] = '\0';
+	bpf_map_delete_elem(&ts_sockfd, &scratch->key);
+	bpf_map_update_elem(&ts_fd, &scratch->key, &scratch->ref, BPF_ANY);
 }
 
-static __always_inline void te_store_fd_with_current_file(pid_t pid, int fd,
-							  const char *path,
-							  struct file_id *fid)
+static __noinline void te_store_fd_with_current_file(pid_t pid, int fd,
+						     const char *path,
+						     struct file_id *fid)
 {
 	struct file *file;
 	struct fd_key key = {};
@@ -913,7 +933,7 @@ static __always_inline void te_copy_fd_to_pid(pid_t from, pid_t to, int fd)
 	te_store_fd(to, fd, ref->path, &ref->fid);
 }
 
-static __always_inline void te_copy_fork_fds(pid_t from, pid_t to)
+static __noinline void te_copy_fork_fds(pid_t from, pid_t to)
 {
 	if (!te_pid_active(from) || !te_pid_active(to))
 		return;
@@ -1370,25 +1390,27 @@ static __always_inline void exec_pipe_scan_rules(__u32 complex)
 {
 	struct exec_pipe_state *s = exec_pipe_buf();
 	struct exec_scratch *scratch = exec_scratch_buf();
+	struct eval_scratch *es = eval_scratch_buf();
+	struct te_rule_eval *eval;
 
-	if (!s || !scratch)
+	if (!s || !scratch || !es)
 		return;
 	if (s->best_effect == TEFFECT_KILL)
 		return;
 	__u32 current_domain_id = cap_domain_for_pid(s->pid);
-	struct te_rule_eval eval = {
-		.pid = s->pid,
-		.global_labels = te_labels_for_domain(s->pid, 0),
-		.current_labels = te_labels_for_domain(s->pid, current_domain_id),
-		.op = TOP_EXEC,
-		.target = scratch->match,
-		.current_domain_id = current_domain_id,
-		.effect = TEFFECT_BLOCK,
-		.effect_mask = te_supported_effects(s->mode),
-	};
-	int rid = complex ? te_check_exec_complex(&eval) :
-			    te_check_exec_simple(&eval);
-	exec_pipe_merge_rule(s, &eval, rid);
+	__builtin_memset(es, 0, sizeof(*es));
+	eval = &es->eval;
+	eval->pid = s->pid;
+	eval->global_labels = te_labels_for_domain(s->pid, 0);
+	eval->current_labels = te_labels_for_domain(s->pid, current_domain_id);
+	eval->op = TOP_EXEC;
+	te_copy_target(eval->target, scratch->match);
+	eval->current_domain_id = current_domain_id;
+	eval->effect = TEFFECT_BLOCK;
+	eval->effect_mask = te_supported_effects(s->mode);
+	int rid = complex ? te_check_exec_complex(eval) :
+			    te_check_exec_simple(eval);
+	exec_pipe_merge_rule(s, eval, rid);
 }
 
 static __always_inline void exec_pipe_finish(void)
@@ -1582,7 +1604,8 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 {
 	if (!te_pid_active(ev->pid))
 		return 0;
-	struct te_rule_eval eval = {};
+	struct eval_scratch *scratch = eval_scratch_buf();
+	struct te_rule_eval *eval;
 	const char *display = ev->display ? ev->display : ev->target;
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action = TE_MODE_NOTIFY;
@@ -1594,6 +1617,11 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 	__u64 current_labels = te_labels_for_domain(ev->pid, current_domain_id);
 	int rid = -1;
 	int candidate = -1;
+
+	if (!scratch)
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	eval = &scratch->eval;
 
 	if (ev->obj_kind == TE_OBJ_FILE &&
 	    (policy_features & TE_POLICY_FILE_FLOW) &&
@@ -1617,68 +1645,71 @@ static __always_inline int te_handle_event(struct te_event *ev, struct file_id *
 	}
 
 	if (ev->obj_kind == TE_OBJ_EXEC) {
-		eval.pid = ev->pid;
-		eval.global_labels = global_labels;
-		eval.current_labels = current_labels;
-		eval.current_domain_id = current_domain_id;
-		eval.effect = TEFFECT_BLOCK;
-		eval.effect_mask = te_supported_effects(ev->mode);
-		eval.op = TOP_EXEC;
-		eval.target = ev->target;
-		rid = te_check_labels(&eval);
-		effect = eval.effect;
-		matched_labels = eval.matched_labels;
-		matched_domain_id = eval.matched_domain_id;
-		matched_op = eval.op;
+		eval->pid = ev->pid;
+		eval->global_labels = global_labels;
+		eval->current_labels = current_labels;
+		eval->current_domain_id = current_domain_id;
+		eval->effect = TEFFECT_BLOCK;
+		eval->effect_mask = te_supported_effects(ev->mode);
+		eval->op = TOP_EXEC;
+		te_copy_target(eval->target, ev->target);
+		rid = te_check_labels(eval);
+		effect = eval->effect;
+		matched_labels = eval->matched_labels;
+		matched_domain_id = eval->matched_domain_id;
+		matched_op = eval->op;
 	} else if (ev->obj_kind == TE_OBJ_FILE) {
-		eval.pid = ev->pid;
-		eval.global_labels = global_labels;
-		eval.current_labels = current_labels;
-		eval.current_domain_id = current_domain_id;
-		eval.effect = TEFFECT_BLOCK;
-		eval.effect_mask = te_supported_effects(ev->mode);
-		eval.target = ev->target;
-		eval.fid = fid;
-		eval.include_file_labels = (ev->access & TE_ACCESS_READ) ? 1 : 0;
+		eval->pid = ev->pid;
+		eval->global_labels = global_labels;
+		eval->current_labels = current_labels;
+		eval->current_domain_id = current_domain_id;
+		eval->effect = TEFFECT_BLOCK;
+		eval->effect_mask = te_supported_effects(ev->mode);
+		te_copy_target(eval->target, ev->target);
+		if (fid) {
+			eval->fid = *fid;
+			eval->has_fid = 1;
+		}
+		eval->include_file_labels = (ev->access & TE_ACCESS_READ) ? 1 : 0;
 		if ((ev->access & TE_ACCESS_READ) &&
 		    (policy_features & TE_POLICY_OPEN_RULES)) {
-			eval.op = TOP_OPEN;
-			candidate = te_check_labels(&eval);
-			if (te_better_match(candidate, eval.effect, rid, effect)) {
+			eval->op = TOP_OPEN;
+			candidate = te_check_labels(eval);
+			if (te_better_match(candidate, eval->effect, rid, effect)) {
 				rid = candidate;
-				effect = eval.effect;
-				matched_labels = eval.matched_labels;
-				matched_domain_id = eval.matched_domain_id;
-				matched_op = eval.op;
+				effect = eval->effect;
+				matched_labels = eval->matched_labels;
+				matched_domain_id = eval->matched_domain_id;
+				matched_op = eval->op;
 			}
 		}
 		if ((ev->access & TE_ACCESS_WRITE) &&
 		    (policy_features & TE_POLICY_WRITE_RULES)) {
-			eval.effect = TEFFECT_BLOCK;
-			eval.op = TOP_WRITE;
-			candidate = te_check_labels(&eval);
-			if (te_better_match(candidate, eval.effect, rid, effect)) {
+			eval->effect = TEFFECT_BLOCK;
+			eval->op = TOP_WRITE;
+			candidate = te_check_labels(eval);
+			if (te_better_match(candidate, eval->effect, rid, effect)) {
 				rid = candidate;
-				effect = eval.effect;
-				matched_labels = eval.matched_labels;
-				matched_domain_id = eval.matched_domain_id;
-				matched_op = eval.op;
+				effect = eval->effect;
+				matched_labels = eval->matched_labels;
+				matched_domain_id = eval->matched_domain_id;
+				matched_op = eval->op;
 			}
 		}
 	} else if (ev->obj_kind == TE_OBJ_ENDPOINT) {
-		eval.pid = ev->pid;
-		eval.global_labels = global_labels;
-		eval.current_labels = current_labels;
-		eval.current_domain_id = current_domain_id;
-		eval.effect = TEFFECT_BLOCK;
-		eval.effect_mask = te_supported_effects(ev->mode);
-		eval.op = (ev->access & TE_ACCESS_RECV) ? TOP_RECV : TOP_CONNECT;
-		eval.ip = ev->ip;
-		rid = te_check_labels(&eval);
-		effect = eval.effect;
-		matched_labels = eval.matched_labels;
-		matched_domain_id = eval.matched_domain_id;
-		matched_op = eval.op;
+		eval->pid = ev->pid;
+		eval->global_labels = global_labels;
+		eval->current_labels = current_labels;
+		eval->current_domain_id = current_domain_id;
+		eval->effect = TEFFECT_BLOCK;
+		eval->effect_mask = te_supported_effects(ev->mode);
+		eval->op = (ev->access & TE_ACCESS_RECV) ? TOP_RECV : TOP_CONNECT;
+		eval->ip = ev->ip;
+		rid = te_check_labels(eval);
+		effect = eval->effect;
+		matched_labels = eval->matched_labels;
+		matched_domain_id = eval->matched_domain_id;
+		matched_op = eval->op;
 	}
 
 	if (rid >= 0) {
@@ -1720,9 +1751,15 @@ static __always_inline int te_handle_file_event(pid_t pid, const char *target,
 						struct file_id *fid, __u32 access,
 						__u32 mode)
 {
+	struct eval_scratch *scratch = eval_scratch_buf();
+	struct te_rule_eval *eval;
+
 	if (!te_pid_active(pid))
 		return 0;
-	struct te_rule_eval eval = {};
+	if (!scratch)
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	eval = &scratch->eval;
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action = TE_MODE_NOTIFY;
 	__u64 matched_labels = 0;
@@ -1739,36 +1776,39 @@ static __always_inline int te_handle_file_event(pid_t pid, const char *target,
 		current_labels |= te_file_stored_labels_domain(fid, pid, current_domain_id);
 	}
 
-	eval.pid = pid;
-	eval.global_labels = global_labels;
-	eval.current_labels = current_labels;
-	eval.current_domain_id = current_domain_id;
-	eval.effect = TEFFECT_BLOCK;
-	eval.effect_mask = te_supported_effects(mode);
-	eval.target = target;
-	eval.fid = fid;
-	eval.include_file_labels = (access & TE_ACCESS_READ) ? 1 : 0;
+	eval->pid = pid;
+	eval->global_labels = global_labels;
+	eval->current_labels = current_labels;
+	eval->current_domain_id = current_domain_id;
+	eval->effect = TEFFECT_BLOCK;
+	eval->effect_mask = te_supported_effects(mode);
+	te_copy_target(eval->target, target);
+	if (fid) {
+		eval->fid = *fid;
+		eval->has_fid = 1;
+	}
+	eval->include_file_labels = (access & TE_ACCESS_READ) ? 1 : 0;
 	if ((access & TE_ACCESS_READ) && (policy_features & TE_POLICY_OPEN_RULES)) {
-		eval.op = TOP_OPEN;
-		candidate = te_check_labels(&eval);
-		if (te_better_match(candidate, eval.effect, rid, effect)) {
+		eval->op = TOP_OPEN;
+		candidate = te_check_labels(eval);
+		if (te_better_match(candidate, eval->effect, rid, effect)) {
 			rid = candidate;
-			effect = eval.effect;
-			matched_labels = eval.matched_labels;
-			matched_domain_id = eval.matched_domain_id;
-			matched_op = eval.op;
+			effect = eval->effect;
+			matched_labels = eval->matched_labels;
+			matched_domain_id = eval->matched_domain_id;
+			matched_op = eval->op;
 		}
 	}
 	if ((access & TE_ACCESS_WRITE) && (policy_features & TE_POLICY_WRITE_RULES)) {
-		eval.effect = TEFFECT_BLOCK;
-		eval.op = TOP_WRITE;
-		candidate = te_check_labels(&eval);
-		if (te_better_match(candidate, eval.effect, rid, effect)) {
+		eval->effect = TEFFECT_BLOCK;
+		eval->op = TOP_WRITE;
+		candidate = te_check_labels(eval);
+		if (te_better_match(candidate, eval->effect, rid, effect)) {
 			rid = candidate;
-			effect = eval.effect;
-			matched_labels = eval.matched_labels;
-			matched_domain_id = eval.matched_domain_id;
-			matched_op = eval.op;
+			effect = eval->effect;
+			matched_labels = eval->matched_labels;
+			matched_domain_id = eval->matched_domain_id;
+			matched_op = eval->op;
 		}
 	}
 
@@ -1807,7 +1847,7 @@ static __always_inline int te_handle_file_event(pid_t pid, const char *target,
 
 /* Returns true if the inode mode indicates a regular file or directory —
  * the only file types that participate in IFC taint propagation. Character
- * devices (/dev/null, /dev/zero, /dev/pts/*), block devices, pipes, and
+ * devices (/dev/null, /dev/zero, /dev/pts/star), block devices, pipes, and
  * sockets are excluded: they are shared kernel objects where write/read
  * does not imply meaningful data storage/retrieval across processes. */
 static __always_inline int te_is_regular_or_dir(const void *a, const void *b,
@@ -1987,7 +2027,8 @@ static __always_inline int te_handle_exec_event(pid_t pid, const char *target,
 						const char *display,
 						__u32 mode)
 {
-	struct te_rule_eval eval = {};
+	struct eval_scratch *scratch = eval_scratch_buf();
+	struct te_rule_eval *eval;
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action;
 	__u64 matched_labels;
@@ -2003,23 +2044,27 @@ static __always_inline int te_handle_exec_event(pid_t pid, const char *target,
 		return 0;
 	if (!target)
 		return 0;
+	if (!scratch)
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	eval = &scratch->eval;
 
 	current_domain_id = cap_domain_for_pid(pid);
 	global_labels = te_labels_for_domain(pid, 0);
 	current_labels = te_labels_for_domain(pid, current_domain_id);
 
-	eval.pid = pid;
-	eval.global_labels = global_labels;
-	eval.current_labels = current_labels;
-	eval.current_domain_id = current_domain_id;
-	eval.effect = TEFFECT_BLOCK;
-	eval.effect_mask = te_supported_effects(mode);
-	eval.op = TOP_EXEC;
-	eval.target = target;
-	rid = te_check_labels_no_args(&eval);
-	effect = eval.effect;
-	matched_labels = eval.matched_labels;
-	matched_domain_id = eval.matched_domain_id;
+	eval->pid = pid;
+	eval->global_labels = global_labels;
+	eval->current_labels = current_labels;
+	eval->current_domain_id = current_domain_id;
+	eval->effect = TEFFECT_BLOCK;
+	eval->effect_mask = te_supported_effects(mode);
+	eval->op = TOP_EXEC;
+	te_copy_target(eval->target, target);
+	rid = te_check_labels_no_args(eval);
+	effect = eval->effect;
+	matched_labels = eval->matched_labels;
+	matched_domain_id = eval->matched_domain_id;
 
 	if (rid < 0)
 		return 0;
@@ -2047,7 +2092,8 @@ static __always_inline int te_handle_exec_event_with_args(pid_t pid,
 							  const char *display,
 							  __u32 mode)
 {
-	struct te_rule_eval eval = {};
+	struct eval_scratch *scratch = eval_scratch_buf();
+	struct te_rule_eval *eval;
 	__u32 effect = TEFFECT_NOTIFY;
 	__u32 action;
 	__u64 matched_labels;
@@ -2063,23 +2109,27 @@ static __always_inline int te_handle_exec_event_with_args(pid_t pid,
 		return 0;
 	if (!target)
 		return 0;
+	if (!scratch)
+		return 0;
+	__builtin_memset(scratch, 0, sizeof(*scratch));
+	eval = &scratch->eval;
 
 	current_domain_id = cap_domain_for_pid(pid);
 	global_labels = te_labels_for_domain(pid, 0);
 	current_labels = te_labels_for_domain(pid, current_domain_id);
 
-	eval.pid = pid;
-	eval.global_labels = global_labels;
-	eval.current_labels = current_labels;
-	eval.current_domain_id = current_domain_id;
-	eval.effect = TEFFECT_BLOCK;
-	eval.effect_mask = te_supported_effects(mode);
-	eval.op = TOP_EXEC;
-	eval.target = target;
-	rid = te_check_labels(&eval);
-	effect = eval.effect;
-	matched_labels = eval.matched_labels;
-	matched_domain_id = eval.matched_domain_id;
+	eval->pid = pid;
+	eval->global_labels = global_labels;
+	eval->current_labels = current_labels;
+	eval->current_domain_id = current_domain_id;
+	eval->effect = TEFFECT_BLOCK;
+	eval->effect_mask = te_supported_effects(mode);
+	eval->op = TOP_EXEC;
+	te_copy_target(eval->target, target);
+	rid = te_check_labels(eval);
+	effect = eval->effect;
+	matched_labels = eval->matched_labels;
+	matched_domain_id = eval->matched_domain_id;
 
 	if (rid < 0)
 		return 0;
@@ -2329,8 +2379,10 @@ SEC("tp/sched/sched_process_exec")
 int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 {
 	pid_t pid = bpf_get_current_pid_tgid() >> 32;
+	struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 	struct exec_scratch *scratch = exec_scratch_buf();
 	unsigned fname_off;
+	const char *target;
 
 	if (!te_pid_active(pid))
 		return 0;
@@ -2339,11 +2391,24 @@ int handle_exec(struct trace_event_raw_sched_process_exec *ctx)
 	__builtin_memset(scratch, 0, sizeof(*scratch));
 
 	bpf_get_current_comm(&scratch->match, TASK_COMM_LEN);
-	te_exec_update_no_args(pid, scratch->match);
-
 	fname_off = ctx->__data_loc_filename & 0xFFFF;
 	bpf_probe_read_str(scratch->display, sizeof(scratch->display), (void *)ctx + fname_off);
-	te_handle_exec(TE_REF_STRINGS, scratch->match, scratch->display, te_tracepoint_mode());
+
+	target = scratch->match;
+	struct te_argslots *as = te_argslots_buf();
+	if (as) {
+		struct mm_struct *mm = BPF_CORE_READ(task, mm);
+		unsigned long a0 = 0;
+
+		__builtin_memset(as->blob, 0, sizeof(as->blob));
+		if (mm)
+			a0 = BPF_CORE_READ(mm, arg_start);
+		if (a0 && bpf_probe_read_user_str(as->blob, TAINT_PAT_LEN,
+						  (void *)a0) > 0)
+			target = as->blob;
+	}
+	te_exec_update_no_args(pid, target);
+	te_handle_exec(TE_REF_STRINGS, target, scratch->display, te_tracepoint_mode());
 	return 0;
 }
 
@@ -2370,9 +2435,10 @@ int handle_exec_args(struct trace_event_raw_sched_process_exec *ctx)
 	struct te_argslots *as = te_argslots_buf();
 	if (as) {
 		struct mm_struct *mm = BPF_CORE_READ(task, mm);
+		unsigned long a0 = 0;
 		__builtin_memset(as, 0, sizeof(*as));
 		if (mm) {
-			unsigned long a0 = BPF_CORE_READ(mm, arg_start);
+			a0 = BPF_CORE_READ(mm, arg_start);
 			unsigned long a1 = BPF_CORE_READ(mm, arg_end);
 			unsigned long len = a1 - a0;
 			if (len > TAINT_ARGV_CAP - 1)
@@ -2381,6 +2447,9 @@ int handle_exec_args(struct trace_event_raw_sched_process_exec *ctx)
 				alen = (int)len;
 		}
 		te_tokenize_args_eng(alen);
+		if (a0)
+			bpf_probe_read_user_str(scratch->match, sizeof(scratch->match),
+						(void *)a0);
 	}
 
 	fname_off = ctx->__data_loc_filename & 0xFFFF;
@@ -2461,43 +2530,49 @@ static __always_inline int stash_open(const void *path_ptr, unsigned int flags,
 	return 0;
 }
 
-static __always_inline int handle_open_exit(long ret)
+static __noinline int handle_open_exit(long ret)
 {
 	__u64 tid = bpf_get_current_pid_tgid();
 	pid_t pid = tid >> 32;
 	struct open_pend *p = bpf_map_lookup_elem(&ts_openpend, &tid);
 	struct file_scratch *scratch = file_scratch_buf();
+	__u64 path_ptr;
+	__u32 flags;
+	__u32 remember_fd;
 	int rc = 0;
 
 	if (!p)
 		return 0;
+	path_ptr = p->path_ptr;
+	flags = p->flags;
+	remember_fd = p->remember_fd;
+	bpf_map_delete_elem(&ts_openpend, &tid);
 	/* On success the kernel has copied the path in, so the user page is now
 	 * resident and the read in te_handle_file is reliable. */
 	if (ret >= 0 && scratch && te_pid_active(pid)) {
 		__builtin_memset(scratch, 0, sizeof(*scratch));
-		if (te_resolve_file_ref(TE_REF_USER_PATH, (const void *)p->path_ptr,
+		if (te_resolve_file_ref(TE_REF_USER_PATH, (const void *)path_ptr,
 					0, scratch->path, sizeof(scratch->path)) == 0) {
 			struct file *opened_file = NULL;
 
 			te_resolve_file_id(TE_REF_USER_PATH,
-					   (const void *)p->path_ptr, 0,
+					   (const void *)path_ptr, 0,
 					   scratch->path, &scratch->fid);
-			if (p->remember_fd) {
+			if (remember_fd) {
 				opened_file = te_current_file_from_fd((int)ret);
 				if (opened_file)
 					te_resolve_file_id_from_file(opened_file,
 								     &scratch->fid);
 			}
 			rc = te_handle_file_event(pid, scratch->path, &scratch->fid,
-						  te_access_from_open_flags(p->flags),
+						  te_access_from_open_flags(flags),
 						  te_tracepoint_mode());
-			if (p->remember_fd)
+			if (remember_fd)
 				te_store_fd_with_current_file(pid, (int)ret,
 							      scratch->path,
 							      &scratch->fid);
 		}
 	}
-	bpf_map_delete_elem(&ts_openpend, &tid);
 	return rc;
 }
 

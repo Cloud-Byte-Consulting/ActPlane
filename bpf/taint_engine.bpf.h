@@ -49,11 +49,60 @@ struct {
 
 #include "capability.bpf.h"
 
-/* BPF implementation of taint_contains (substring search via bpf_loop).
- * The outer scan runs through bpf_loop so the callback is verified ONCE (not
- * TAINT_PAT_LEN times).  Inside, TE_COPY fetches the candidate window through
- * the bounded helper read — never a direct variable-offset stack dereference. */
+/* BPF implementations of the path/pattern matchers. These run inner byte scans
+ * through bpf_loop so rule/update callbacks do not multiply verifier state by
+ * TAINT_PAT_LEN on kernels with a tighter complexity budget. */
 #ifdef __BPF__
+struct __taint_cmp_ctx {
+	const char *a;
+	const char *b;
+	long diff;
+	long anynz;
+};
+
+static long __taint_streq_cb(__u32 idx, void *_ctx)
+{
+	struct __taint_cmp_ctx *c = _ctx;
+	unsigned char ac = 0, bc = 0;
+
+	TE_COPY(&ac, 1, c->a + idx);
+	TE_COPY(&bc, 1, c->b + idx);
+	c->diff |= (unsigned char)(ac ^ bc);
+	return 0;
+}
+
+static __noinline int taint_streq(const char *a, const char *b)
+{
+	struct __taint_cmp_ctx c = { .a = a, .b = b };
+
+	bpf_loop(TAINT_PAT_LEN, __taint_streq_cb, &c, 0);
+	return c.diff == 0;
+}
+
+static long __taint_prefix_cb(__u32 idx, void *_ctx)
+{
+	struct __taint_cmp_ctx *c = _ctx;
+	unsigned char tc = 0, pc = 0;
+	long m;
+
+	TE_COPY(&tc, 1, c->a + idx);
+	TE_COPY(&pc, 1, c->b + idx);
+	m = te_nzmask(pc);
+	c->anynz |= m;
+	c->diff |= m & (unsigned char)(tc ^ pc);
+	return 0;
+}
+
+static __noinline int taint_prefix(const char *text, const char *pre)
+{
+	struct __taint_cmp_ctx c = { .a = text, .b = pre };
+
+	bpf_loop(TAINT_PAT_LEN, __taint_prefix_cb, &c, 0);
+	return c.anynz != 0 && c.diff == 0;
+}
+
+/* Substring search via bpf_loop. The outer scan runs through bpf_loop so the
+ * callback is verified once. */
 struct __taint_contains_ctx {
 	const char *text;
 	const char *pat;
@@ -243,8 +292,9 @@ struct te_rule_eval {
 	__u64 global_labels;
 	__u64 current_labels;
 	unsigned int op;
-	const char *target;
-	struct file_id *fid;
+	char target[MAX_FILENAME_LEN];
+	struct file_id fid;
+	__u32 has_fid;
 	__u32 ip;
 	__u32 current_domain_id;
 	__u32 include_file_labels;
@@ -256,6 +306,23 @@ struct te_rule_eval {
 	__u64 matched_req;      /* required label mask for the matched compiled rule */
 	__u64 matched_labels;   /* domain-specific labels used by the matched rule */
 };
+
+struct eval_scratch {
+	struct te_rule_eval eval;
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct eval_scratch);
+} ts_eval_scratch SEC(".maps");
+
+static __always_inline struct eval_scratch *eval_scratch_buf(void)
+{
+	__u32 key = 0;
+
+	return bpf_map_lookup_elem(&ts_eval_scratch, &key);
+}
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
@@ -871,9 +938,69 @@ static __noinline __u32 te_tick(pid_t root, __u32 domain_id)
 	return s->epoch;
 }
 
+struct te_stamp_ctx {
+	pid_t root;
+	__u32 domain_id;
+	__u32 ep;
+	__u64 hits;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct te_stamp_ctx);
+} ts_stamp_scratch SEC(".maps");
+
+static __always_inline struct te_stamp_ctx *te_stamp_scratch_buf(void)
+{
+	__u32 key = 0;
+
+	return bpf_map_lookup_elem(&ts_stamp_scratch, &key);
+}
+
+static long te_stamp_gate_cb(__u32 i, void *vc)
+{
+	struct te_stamp_ctx *c = te_stamp_scratch_buf();
+	__u32 idx = i;
+
+	(void)vc;
+	if (!c)
+		return 1;
+	barrier_var(idx);
+	idx &= (__u32)(MAX_TAINT_GATES - 1);
+	if (!(c->hits & (1ULL << idx)))
+		return 0;
+	struct te_sess *s = te_sess_get(c->root, c->domain_id);
+	if (!s)
+		return 1;
+	s->gate_epoch[idx] = c->ep;
+	return 0;
+}
+
+static long te_stamp_inval_cb(__u32 i, void *vc)
+{
+	struct te_stamp_ctx *c = te_stamp_scratch_buf();
+	__u32 idx = i;
+
+	(void)vc;
+	if (!c)
+		return 1;
+	barrier_var(idx);
+	idx &= (__u32)(MAX_TAINT_INVALS - 1);
+	if (!(c->hits & (1ULL << idx)))
+		return 0;
+	struct te_sess *s = te_sess_get(c->root, c->domain_id);
+	if (!s)
+		return 1;
+	s->inval_epoch[idx] = c->ep;
+	return 0;
+}
+
 /* Stamp the gates and invalidators that fired in one event at `ep`. gate_hits
  * also latch into gate_bits (v1 `after`). The two scans are constant-bound
- * (<= 64) writes through the in-place map-value pointer. */
+ * bpf_loop callbacks so older CI verifiers do not path-expand both 64-entry
+ * scans into the open/connect/read hook programs. */
 static __noinline void te_stamp(pid_t root, __u32 domain_id, __u32 ep,
 				__u64 gate_hits, __u64 inval_hits)
 {
@@ -883,12 +1010,24 @@ static __noinline void te_stamp(pid_t root, __u32 domain_id, __u32 ep,
 	if (!s)
 		return;
 	s->gate_bits |= gate_hits;
-	for (int i = 0; i < MAX_TAINT_GATES; i++)
-		if (gate_hits & (1ULL << i))
-			s->gate_epoch[i] = ep;
-	for (int i = 0; i < MAX_TAINT_INVALS; i++)
-		if (inval_hits & (1ULL << i))
-			s->inval_epoch[i] = ep;
+	__u64 loop_ctx = 0;
+	struct te_stamp_ctx *c = te_stamp_scratch_buf();
+	if (!c)
+		return;
+	if (gate_hits) {
+		c->root = root;
+		c->domain_id = domain_id;
+		c->ep = ep;
+		c->hits = gate_hits;
+		bpf_loop(MAX_TAINT_GATES, te_stamp_gate_cb, &loop_ctx, 0);
+	}
+	if (inval_hits) {
+		c->root = root;
+		c->domain_id = domain_id;
+		c->ep = ep;
+		c->hits = inval_hits;
+		bpf_loop(MAX_TAINT_INVALS, te_stamp_inval_cb, &loop_ctx, 0);
+	}
 }
 
 /* Is a TCOND_AFTER condition satisfied (i.e. the deny is relaxed / allowed)?
@@ -1615,8 +1754,8 @@ static __noinline int te_rule_effect(struct te_rule_eval *e, unsigned int idx)
 		labels = e->current_labels;
 	else
 		labels = te_labels_for_domain(e->pid, rp->domain_id);
-	if (e->include_file_labels && e->fid)
-		labels |= te_file_stored_labels_domain(e->fid, e->pid, rp->domain_id);
+	if (e->include_file_labels && e->has_fid)
+		labels |= te_file_stored_labels_domain(&e->fid, e->pid, rp->domain_id);
 	if (!taint_mask_ok(labels, rp->req, rp->forbid))
 		return -1;
 	if (e->op == TOP_CONNECT || e->op == TOP_RECV) {
@@ -1776,8 +1915,8 @@ static __noinline int te_rule_effect_no_args(struct te_rule_eval *e,
 		labels = e->current_labels;
 	else
 		labels = te_labels_for_domain(e->pid, rp->domain_id);
-	if (e->include_file_labels && e->fid)
-		labels |= te_file_stored_labels_domain(e->fid, e->pid, rp->domain_id);
+	if (e->include_file_labels && e->has_fid)
+		labels |= te_file_stored_labels_domain(&e->fid, e->pid, rp->domain_id);
 	if (!taint_mask_ok(labels, rp->req, rp->forbid))
 		return -1;
 	if (e->op == TOP_EXEC) {

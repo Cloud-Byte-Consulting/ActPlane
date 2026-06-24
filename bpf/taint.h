@@ -185,6 +185,10 @@ static __always_inline long te_iszero64(unsigned long x)
 	return ((long)((x | (0UL - x)) >> 63)) - 1;
 }
 
+#ifdef __BPF__
+static __noinline int taint_streq(const char *a, const char *b);
+static __noinline int taint_prefix(const char *text, const char *pre);
+#else
 /* exact compare: equal over the whole NUL-padded buffer. */
 static TAINT_NOINLINE int taint_streq(const char *a, const char *b)
 {
@@ -208,6 +212,7 @@ static TAINT_NOINLINE int taint_prefix(const char *text, const char *pre)
 	}
 	return anynz != 0 && diff == 0;
 }
+#endif
 
 /* does `text` end with non-empty `suf`? Compute both lengths branchlessly, then
  * compare `suf` at every start position with CONSTANT indices and keep only the
@@ -285,10 +290,9 @@ static __always_inline int taint_match(unsigned int kind, const char *text,
 	}
 }
 
-/* Exec-side patterns are matched against comm/basename and the compiler only
- * lowers them to exact, prefix, or any. Keep suffix out of exec verifier paths:
- * taint_suffix is intentionally more expensive because it supports path/host
- * suffix globs for dotfiles and internal domains. */
+/* Exec-side patterns are matched against comm or argv[0] as supplied by the
+ * exec hooks. Keep suffix out of exec verifier paths: taint_suffix is more
+ * expensive because it supports path/host suffix globs for file/network rules. */
 static __always_inline int taint_exec_match(unsigned int kind, const char *text,
 					    const char *pat)
 {
