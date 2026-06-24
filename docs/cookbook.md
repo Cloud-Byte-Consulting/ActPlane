@@ -19,7 +19,7 @@ sudo -E actplane --policy test/policies/01_secret_no_exfil.yaml run -- <agent-or
 
 Use `notify` policies or `actplane compile --explain` first when adapting a
 policy to a real repository. Rules that use `block` need BPF-LSM support for
-pre-operation denial; see [support-matrix.md](../support-matrix.md).
+pre-operation denial; see [support-matrix.md](support-matrix.md).
 
 ## Example Map
 

@@ -42,6 +42,10 @@ Legend:
 | [NVIDIA NeMo Guardrails](https://docs.nvidia.com/nemo/guardrails/home) | Application guardrail framework | LLM app input/output flows | Native | No | No | No | No | Partial | Partial | Partial |
 | [Check Point / Lakera AI Guardrails](https://docs.lakera.ai/docs/prompt-defense) | AI application security | Prompts, tool responses, tool descriptions, and app traffic | Native | No | No | No | No | Partial | Partial | Partial |
 | [Pangea AI Guard](https://pangea.cloud/docs/ai-guard) | AI application security API | AI app traffic, prompt injection, PII, malicious content | Native | No | No | No | No | Partial | Partial | Native |
+| [Cloudflare AI Gateway](https://www.cloudflare.com/products/ai-gateway/) | AI gateway | Provider routing, caching, logs, metrics, rate limits, guardrails | Native | No | No | No | No | Partial | No | Native |
+| [Portkey Guardrails](https://portkey.ai/docs/product/guardrails) | AI gateway guardrails | Input/output guardrail checks on gateway requests | Native | No | No | No | No | Partial | Partial | Native |
+| [LiteLLM Proxy Guardrails](https://docs.litellm.ai/docs/proxy/guardrails/quick_start) | AI gateway guardrails | Guardrails on proxy requests, including per-key controls and traces | Native | No | No | No | No | Partial | Partial | Native |
+| [TrueFoundry AI Gateway](https://www.truefoundry.com/docs/ai-gateway/tfy-prompt-injection) | AI gateway guardrails | Managed prompt-injection and jailbreak checks on gateway traffic | Native | No | No | No | No | Partial | Partial | Native |
 | [E2B](https://e2b.dev/docs) | Agent sandbox | Isolated cloud sandboxes for code, data, and tools | No | Native | Partial | Partial | No | No | No | Partial |
 | [Daytona](https://www.daytona.io/docs/en/) | Agent sandbox | Isolated sandbox computers with kernel, filesystem, network, CPU/RAM | No | Native | Partial | Partial | No | No | No | Partial |
 | [LangSmith](https://docs.langchain.com/langsmith/observability) | LLM observability and evaluation | Traces, production metrics, debugging, evaluations | Partial | No | No | No | No | Partial | No | Native |
@@ -51,11 +55,12 @@ Legend:
 
 ## How to Read the Matrix
 
-The model-guardrail products are strongest before or after the LLM call. They
-are the right layer for harmful content, denied topics, prompt-injection
-detection, PII redaction, and app-level policy. They are not OS controls: if an
-agent reaches a shell, generated script, package manager, or SDK path, the
-guardrail sees only what the application sends through it.
+The model-guardrail and AI-gateway products are strongest before or after the
+LLM call. They are the right layer for harmful content, denied topics,
+prompt-injection detection, PII redaction, routing, rate limits, and app-level
+policy. They are not OS controls: if an agent reaches a shell, generated script,
+package manager, or SDK path, the guardrail sees only what the application sends
+through it.
 
 The sandbox products are strongest when the priority is isolating code
 execution. They give the agent a separate environment for files, tools, and
@@ -91,9 +96,11 @@ ActPlane should lead when the control has to survive common bypass paths:
 
 Use another control as the primary boundary when:
 
-- You need harmful-content moderation or jailbreak detection before the model
-  call. Use Bedrock Guardrails, Azure AI Content Safety, NeMo Guardrails,
-  Lakera, Pangea, or a similar AI guardrail layer.
+- You need harmful-content moderation, jailbreak detection, routing, rate
+  limits, or gateway-level policy before the model call. Use Bedrock
+  Guardrails, Azure AI Content Safety, NeMo Guardrails, Lakera, Pangea,
+  Cloudflare AI Gateway, Portkey, LiteLLM, TrueFoundry, or a similar AI
+  guardrail/gateway layer.
 - You are running untrusted generated code and need a separate execution
   environment. Use E2B, Daytona, a container, or a VM.
 - You need run review, prompt debugging, cost tracking, evaluations, or product
@@ -111,6 +118,7 @@ as their replacement.
 | Pairing | What the other product does | What ActPlane adds |
 | --- | --- | --- |
 | Bedrock / Azure / Lakera / Pangea + ActPlane | Screens prompts, outputs, PII, unsafe content, or prompt attacks | Controls downstream OS side effects after the agent acts |
+| Cloudflare / Portkey / LiteLLM / TrueFoundry + ActPlane | Routes model traffic, applies gateway guardrails, records traces, and manages access | Covers shell, subprocess, generated-code, file, and network effects outside the gateway path |
 | NeMo Guardrails + ActPlane | Defines app-level conversational and tool-flow policies | Enforces file, process, network, data-flow, and temporal rules below the app |
 | E2B / Daytona + ActPlane | Gives the agent an isolated execution environment | Adds policy inside the environment: lineage, workflow freshness, and feedback |
 | LangSmith / Langfuse + ActPlane | Records traces, evaluations, costs, and debugging context | Stops selected actions during the run and emits violation reasons |
