@@ -181,6 +181,17 @@ static __always_inline int te_pid_protected(pid_t pid)
 	return v && *v;
 }
 
+static __always_inline int te_pid_can_control_bpf(pid_t pid)
+{
+	if (te_pid_protected(pid))
+		return 1;
+	__u32 domain_id = cap_domain_for_pid(pid);
+	if (!domain_id)
+		return 0;
+	struct cap_state *state = bpf_map_lookup_elem(&cap_state, &domain_id);
+	return state && state->authority_mask;
+}
+
 /* Pending open(at) args, stashed at sys_enter and consumed at sys_exit. The
  * sys_enter tracepoint fires before the kernel's copy_from_user faults the path
  * page in, so a non-faulting read of the path there can EFAULT and silently drop
@@ -2479,16 +2490,19 @@ int BPF_PROG(enforce_bpf_syscall, int cmd, union bpf_attr *attr,
 	(void)privileged;
 	if (!te_pid_active(caller))
 		return 0;
-	/* Runtime policy deltas and domain binding operate on already-held
-	 * ActPlane map fds. Keep the required map operations available while
-	 * still denying object creation, program load, attach, pin/get, and link
-	 * commands from managed processes. */
+
+	/* Runtime clients may need to open pinned maps while already managed.
+	 * Map mutation is limited to protected pids or domains that already carry
+	 * runtime authority. */
 	switch (cmd) {
 	case BPF_MAP_LOOKUP_ELEM:
-	case BPF_MAP_UPDATE_ELEM:
-	case BPF_MAP_DELETE_ELEM:
+	case BPF_MAP_GET_NEXT_KEY:
+	case BPF_OBJ_GET:
 	case BPF_OBJ_GET_INFO_BY_FD:
 		return 0;
+	case BPF_MAP_UPDATE_ELEM:
+	case BPF_MAP_DELETE_ELEM:
+		return te_pid_can_control_bpf(caller) ? 0 : -EPERM;
 	default:
 		return -EPERM;
 	}
@@ -2550,11 +2564,11 @@ int handle_exec_args(struct trace_event_raw_sched_process_exec *ctx)
 	unsigned fname_off;
 	int alen = 0;
 
-	if (!te_pid_active(pid))
-		return 0;
 	if (!scratch)
 		return 0;
 	__builtin_memset(scratch, 0, sizeof(*scratch));
+	if (!te_pid_active(pid))
+		return 0;
 
 	bpf_get_current_comm(&scratch->match, TASK_COMM_LEN);
 	__builtin_memcpy(scratch->display, scratch->match, TASK_COMM_LEN);
@@ -2632,6 +2646,7 @@ int handle_exit(struct trace_event_raw_sched_process_template *ctx)
 		return 0;
 	te_exit(pid, exit_code);
 	te_delete_mmaps(pid);
+	bpf_map_delete_elem(&te_protected_pids, &pid);
 	return 0;
 }
 

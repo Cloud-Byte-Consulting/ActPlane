@@ -36,14 +36,17 @@ impl McpProcess {
         attach_pid: i32,
     ) -> Option<Self> {
         let attach_pid = attach_pid.to_string();
+        let pin_root = bpf_pin_root();
         let mut command = if unsafe { libc::geteuid() } == 0 {
             let mut command = Command::new(actplane());
             command.env("ACTPLANE_ATTACH_PID", &attach_pid);
+            command.env("ACTPLANE_BPF_PIN_ROOT", &pin_root);
             command
         } else if passwordless_sudo_available() {
             let mut command = Command::new("sudo");
             command.arg("-E").arg("env");
             command.arg(format!("ACTPLANE_ATTACH_PID={attach_pid}"));
+            command.arg(format!("ACTPLANE_BPF_PIN_ROOT={pin_root}"));
             command.arg(actplane());
             command
         } else {
@@ -165,40 +168,6 @@ impl Drop for McpProcess {
     }
 }
 
-struct FakeAgent {
-    child: Child,
-}
-
-impl FakeAgent {
-    fn start(name: &str) -> Self {
-        let child = Command::new("/bin/sh")
-            .arg("-c")
-            .arg("trap 'exit 0' INT TERM; while :; do sleep 1; done")
-            .arg(name)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn fake agent root");
-        Self { child }
-    }
-
-    fn pid(&self) -> i32 {
-        self.child.id() as i32
-    }
-
-    fn stop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-impl Drop for FakeAgent {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
 fn passwordless_sudo_available() -> bool {
     Command::new("sudo")
         .args(["-n", "true"])
@@ -207,6 +176,37 @@ fn passwordless_sudo_available() -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+fn bpf_pin_root() -> String {
+    let run_id = std::env::var("GITHUB_RUN_ID").unwrap_or_else(|_| "local".to_string());
+    let attempt = std::env::var("GITHUB_RUN_ATTEMPT").unwrap_or_else(|_| "0".to_string());
+    format!(
+        "/sys/fs/bpf/actplane/test-mcp-{run_id}-{attempt}-{}",
+        std::process::id()
+    )
+}
+
+fn reset_bpf_pin_root() {
+    let root = bpf_pin_root();
+    let mut command = if unsafe { libc::geteuid() } == 0 {
+        Command::new("rm")
+    } else if passwordless_sudo_available() {
+        let mut command = Command::new("sudo");
+        command.arg("-n");
+        command
+    } else {
+        return;
+    };
+    let _ = command
+        .args(["-rf", &root])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+fn test_child_id(offset: u32) -> u32 {
+    0x4000_0000 | ((std::process::id() & 0xffff) << 12) | (offset & 0x0fff)
 }
 
 #[test]
@@ -250,6 +250,7 @@ policy: |
         "method": "notifications/initialized",
         "params": {}
     }));
+    std::thread::sleep(Duration::from_millis(50));
 
     mcp.send(json!({
         "jsonrpc": "2.0",
@@ -403,6 +404,7 @@ fn mcp_stdio_jsonrpc_handles_repeated_requests() {
 #[test]
 #[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
 fn mcp_stdio_jsonrpc_launches_child_domain_with_delta_privileged() {
+    reset_bpf_pin_root();
     let tmp = tempfile::tempdir().expect("tempdir");
     let policy = tmp.path().join("actplane.yaml");
     std::fs::write(
@@ -449,6 +451,10 @@ policy: |
     }));
     std::thread::sleep(Duration::from_millis(50));
 
+    let child_id = test_child_id(1);
+    let log_child_id = test_child_id(10);
+    let restart_child_id = test_child_id(20);
+    let replacement_child_id = test_child_id(21);
     let command = format!("read _ < '{}'; exec '{}'", secret.display(), hit.display());
     mcp.send(json!({
         "jsonrpc": "2.0",
@@ -457,7 +463,7 @@ policy: |
         "params": {
             "name": "launch_child_domain",
             "arguments": {
-                "child_id": 440001,
+                "child_id": child_id,
                 "cmd": ["/bin/sh", "-c", command],
                 "policy": delta
             }
@@ -468,7 +474,7 @@ policy: |
         launch["result"]["content"][0]["text"]
             .as_str()
             .unwrap_or("")
-            .contains("child domain 440001"),
+            .contains(&format!("child domain {child_id}")),
         "launch response: {launch}"
     );
 
@@ -481,7 +487,7 @@ policy: |
         feedback.contains("Provenance"),
         "feedback did not include provenance: {feedback}"
     );
-    let audit = poll_audit_append_delta(tmp.path(), 440001);
+    let audit = poll_audit_append_delta(tmp.path(), child_id);
     let provenance = audit["rule_provenance"]
         .as_array()
         .expect("rule provenance");
@@ -548,16 +554,16 @@ policy: |
         &mut next_id,
         "launch_child_domain",
         json!({
-            "child_id": 440010,
+            "child_id": log_child_id,
             "cmd": ["/bin/sh", "-c", "echo mcp-log-line; sleep 30"]
         }),
     );
     assert!(
-        tool_text(&launch_log_child).contains("child domain 440010"),
+        tool_text(&launch_log_child).contains(&format!("child domain {log_child_id}")),
         "launch log child response: {launch_log_child}"
     );
-    let logs = poll_child_stdout(&mut mcp, &mut next_id, 440010, "mcp-log-line");
-    assert_eq!(logs["child_id"], 440010);
+    let logs = poll_child_stdout(&mut mcp, &mut next_id, log_child_id, "mcp-log-line");
+    assert_eq!(logs["child_id"], log_child_id);
     assert!(
         logs["stdout"]["content"]
             .as_str()
@@ -570,11 +576,11 @@ policy: |
         &mut mcp,
         &mut next_id,
         "terminate_child_domain",
-        json!({ "child_id": 440010 }),
+        json!({ "child_id": log_child_id }),
     );
     let terminate_text = tool_text(&terminate);
     assert!(
-        terminate_text.contains("Terminated child domain 440010")
+        terminate_text.contains(&format!("Terminated child domain {log_child_id}"))
             || terminate_text.contains("already exited"),
         "terminate response: {terminate}"
     );
@@ -584,12 +590,12 @@ policy: |
         &mut next_id,
         "launch_child_domain",
         json!({
-            "child_id": 440020,
+            "child_id": restart_child_id,
             "cmd": ["/bin/sh", "-c", "echo mcp-restart-line; sleep 30"]
         }),
     );
     assert!(
-        tool_text(&launch_restart_child).contains("child domain 440020"),
+        tool_text(&launch_restart_child).contains(&format!("child domain {restart_child_id}")),
         "launch restart child response: {launch_restart_child}"
     );
 
@@ -598,16 +604,21 @@ policy: |
         &mut next_id,
         "restart_child_domain",
         json!({
-            "child_id": 440020,
-            "new_child_id": 440021,
+            "child_id": restart_child_id,
+            "new_child_id": replacement_child_id,
             "terminate_existing": true
         }),
     );
     assert!(
-        tool_text(&restart).contains("child domain 440021"),
+        tool_text(&restart).contains(&format!("child domain {replacement_child_id}")),
         "restart response: {restart}"
     );
-    let restarted_logs = poll_child_stdout(&mut mcp, &mut next_id, 440021, "mcp-restart-line");
+    let restarted_logs = poll_child_stdout(
+        &mut mcp,
+        &mut next_id,
+        replacement_child_id,
+        "mcp-restart-line",
+    );
     assert!(
         restarted_logs["stdout"]["content"]
             .as_str()
@@ -619,23 +630,23 @@ policy: |
     let reconcile = call_tool(&mut mcp, &mut next_id, "reconcile_child_domains", json!({}));
     let reconciled = tool_json(&reconcile);
     let children = reconciled["children"].as_array().expect("children array");
-    let original = find_child(children, 440020);
+    let original = find_child(children, restart_child_id);
     assert_ne!(
         original["status"]["state"], "running",
         "original child still running after restart: {reconciled}"
     );
-    let replacement = find_child(children, 440021);
-    assert_eq!(replacement["restarted_from"], 440020);
+    let replacement = find_child(children, replacement_child_id);
+    assert_eq!(replacement["restarted_from"], restart_child_id);
     assert_eq!(replacement["status"]["state"], "running");
 
     let terminate_replacement = call_tool(
         &mut mcp,
         &mut next_id,
         "terminate_child_domain",
-        json!({ "child_id": 440021 }),
+        json!({ "child_id": replacement_child_id }),
     );
     assert!(
-        tool_text(&terminate_replacement).contains("child domain 440021")
+        tool_text(&terminate_replacement).contains(&format!("child domain {replacement_child_id}"))
             || tool_text(&terminate_replacement).contains("already exited"),
         "terminate replacement response: {terminate_replacement}"
     );
@@ -644,6 +655,7 @@ policy: |
 #[test]
 #[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
 fn mcp_append_delta_requires_configured_approval_privileged() {
+    reset_bpf_pin_root();
     let tmp = tempfile::tempdir().expect("tempdir");
     let policy = tmp.path().join("actplane.yaml");
     std::fs::write(
@@ -729,86 +741,8 @@ policy: |
 
 #[test]
 #[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
-fn mcp_reload_updates_append_delta_approval_gate_privileged() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let policy = tmp.path().join("actplane.yaml");
-    let base_policy = r#"
-version: 1
-policy: |
-  source COMMAND = exec "**"
-  rule noop:
-    notify exec "__actplane_never__" if COMMAND
-    because "noop"
-"#;
-    std::fs::write(&policy, base_policy).expect("write policy");
-
-    let Some(mut mcp) = McpProcess::start_auto_attach(&policy, tmp.path()) else {
-        eprintln!(
-            "skipping privileged MCP reload approval e2e: no root/CAP_BPF or passwordless sudo"
-        );
-        return;
-    };
-    initialize_mcp(&mut mcp, 1, "actplane-reload-approval-test");
-
-    let mut next_id = 2;
-    let before_reload = call_tool(
-        &mut mcp,
-        &mut next_id,
-        "append_policy_delta",
-        json!({
-            "policy": "rule pre-reload:\n  notify exec \"__actplane_never__\"\n  because \"pre reload\"",
-            "policy_ref": "inline://pre-reload"
-        }),
-    );
-    assert!(
-        tool_text(&before_reload).contains("Appended policy delta"),
-        "pre-reload append response: {before_reload}"
-    );
-
-    let requiring_approval = r#"
-version: 1
-runtime:
-  approval:
-    append_delta:
-      required: true
-      require_approval_ref: true
-      allowed_approvers:
-        - repo-supervisor
-policy: |
-  source COMMAND = exec "**"
-  rule noop:
-    notify exec "__actplane_never__" if COMMAND
-    because "noop"
-"#;
-    std::fs::write(&policy, requiring_approval).expect("rewrite policy");
-    let reload = call_tool(&mut mcp, &mut next_id, "reload_policy", json!({}));
-    assert!(
-        tool_text(&reload).contains("Policy hot-reloaded"),
-        "reload response: {reload}"
-    );
-
-    let rejected = call_tool_raw(
-        &mut mcp,
-        &mut next_id,
-        "append_policy_delta",
-        json!({
-            "policy": "rule post-reload:\n  notify exec \"__actplane_never__\"\n  because \"post reload\"",
-            "policy_ref": "inline://post-reload-missing"
-        }),
-    );
-    assert!(
-        rejected.to_string().contains("requires approval metadata"),
-        "post-reload missing approval response: {rejected}"
-    );
-    let audit =
-        poll_audit_append_delta_ref_status(tmp.path(), "inline://post-reload-missing", "rejected");
-    assert_eq!(audit["approval_chain"]["enforced"], true);
-    assert_eq!(audit["approval_chain"]["decision"], "rejected");
-}
-
-#[test]
-#[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
 fn mcp_background_supervisor_relaunches_on_exit_child_privileged() {
+    reset_bpf_pin_root();
     let tmp = tempfile::tempdir().expect("tempdir");
     let policy = write_base_policy(tmp.path());
     let Some(mut mcp) = McpProcess::start_auto_attach(&policy, tmp.path()) else {
@@ -818,12 +752,13 @@ fn mcp_background_supervisor_relaunches_on_exit_child_privileged() {
     initialize_mcp(&mut mcp, 1, "actplane-supervisor-test");
 
     let mut next_id = 2;
+    let child_id = test_child_id(100);
     let launch = call_tool(
         &mut mcp,
         &mut next_id,
         "launch_child_domain",
         json!({
-            "child_id": 440100,
+            "child_id": child_id,
             "cmd": ["/bin/sh", "-c", "echo mcp-supervisor-line; sleep 30"],
             "restart_policy": "on_exit",
             "restart_limit": 1,
@@ -831,34 +766,34 @@ fn mcp_background_supervisor_relaunches_on_exit_child_privileged() {
         }),
     );
     assert!(
-        tool_text(&launch).contains("child domain 440100"),
+        tool_text(&launch).contains(&format!("child domain {child_id}")),
         "launch response: {launch}"
     );
 
     let listed = call_tool(&mut mcp, &mut next_id, "list_child_domains", json!({}));
     let rows = tool_json(&listed);
     let children = rows.as_array().expect("children array");
-    let original = find_child(children, 440100);
+    let original = find_child(children, child_id);
     assert_eq!(original["restart_policy"], "on_exit");
     assert_eq!(original["restart_limit"].as_u64(), Some(1));
     assert_eq!(original["restart_backoff_ms"].as_u64(), Some(100));
     let original_pid = original["pid"].as_i64().expect("original pid") as i32;
 
     kill_process_group(original_pid);
-    let reconciled = poll_supervised_replacement(&mut mcp, &mut next_id, 440100);
+    let reconciled = poll_supervised_replacement(&mut mcp, &mut next_id, child_id);
     let children = reconciled.as_array().expect("children array");
-    let old = find_child(children, 440100);
+    let old = find_child(children, child_id);
     let replacement_id = old["replacement_child_id"]
         .as_u64()
         .expect("replacement child id") as u32;
-    assert_ne!(replacement_id, 440100);
+    assert_ne!(replacement_id, child_id);
 
     assert_ne!(
         old["status"]["state"], "running",
         "old child should no longer be running: {reconciled}"
     );
     let replacement = find_child(children, replacement_id);
-    assert_eq!(replacement["restarted_from"], 440100);
+    assert_eq!(replacement["restarted_from"], child_id);
     assert_eq!(replacement["restart_policy"], "on_exit");
     assert_eq!(replacement["restart_count"].as_u64(), Some(1));
     assert_eq!(replacement["restart_limit"].as_u64(), Some(1));
@@ -901,6 +836,7 @@ fn mcp_background_supervisor_relaunches_on_exit_child_privileged() {
 #[test]
 #[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
 fn mcp_restart_adopts_existing_child_and_relaunches_after_exit_privileged() {
+    reset_bpf_pin_root();
     let tmp = tempfile::tempdir().expect("tempdir");
     let policy = write_base_policy(tmp.path());
     let Some(mut first_mcp) = McpProcess::start_auto_attach(&policy, tmp.path()) else {
@@ -910,12 +846,13 @@ fn mcp_restart_adopts_existing_child_and_relaunches_after_exit_privileged() {
     initialize_mcp(&mut first_mcp, 1, "actplane-adopt-first");
 
     let mut next_id = 2;
+    let child_id = test_child_id(200);
     let launch = call_tool(
         &mut first_mcp,
         &mut next_id,
         "launch_child_domain",
         json!({
-            "child_id": 440200,
+            "child_id": child_id,
             "cmd": ["/bin/sh", "-c", "echo mcp-adopt-line; sleep 30"],
             "restart_policy": "on_exit",
             "restart_limit": 1,
@@ -923,7 +860,7 @@ fn mcp_restart_adopts_existing_child_and_relaunches_after_exit_privileged() {
         }),
     );
     assert!(
-        tool_text(&launch).contains("child domain 440200"),
+        tool_text(&launch).contains(&format!("child domain {child_id}")),
         "launch response: {launch}"
     );
     let listed = call_tool(
@@ -934,7 +871,7 @@ fn mcp_restart_adopts_existing_child_and_relaunches_after_exit_privileged() {
     );
     let rows = tool_json(&listed);
     let children = rows.as_array().expect("children array");
-    let original = find_child(children, 440200);
+    let original = find_child(children, child_id);
     assert_eq!(original["supervision"]["mode"], "wait_handle");
     let original_pid = original["pid"].as_i64().expect("original pid") as i32;
 
@@ -952,15 +889,15 @@ fn mcp_restart_adopts_existing_child_and_relaunches_after_exit_privileged() {
     initialize_mcp(&mut second_mcp, 100, "actplane-adopt-second");
     let mut next_id = 101;
 
-    let adopted_rows = poll_child_adopted(&mut second_mcp, &mut next_id, 440200);
+    let adopted_rows = poll_child_adopted(&mut second_mcp, &mut next_id, child_id);
     let adopted_children = adopted_rows.as_array().expect("adopted children array");
-    let adopted = find_child(adopted_children, 440200);
+    let adopted = find_child(adopted_children, child_id);
     assert_eq!(adopted["pid"].as_i64(), Some(original_pid as i64));
     let audit = poll_audit_child_event(
         tmp.path(),
         "adopt_child_domain",
         "child_domain_id",
-        440200,
+        child_id,
         "accepted",
     );
     assert_eq!(audit["supervision_mode"], "adopted_polling");
@@ -975,15 +912,15 @@ fn mcp_restart_adopts_existing_child_and_relaunches_after_exit_privileged() {
     );
 
     kill_process_group(original_pid);
-    let reconciled = poll_supervised_replacement(&mut second_mcp, &mut next_id, 440200);
+    let reconciled = poll_supervised_replacement(&mut second_mcp, &mut next_id, child_id);
     let children = reconciled.as_array().expect("children array");
-    let old = find_child(children, 440200);
+    let old = find_child(children, child_id);
     let replacement_id = old["replacement_child_id"]
         .as_u64()
         .expect("replacement child id") as u32;
     assert_ne!(old["status"]["state"], "running");
     let replacement = find_child(children, replacement_id);
-    assert_eq!(replacement["restarted_from"], 440200);
+    assert_eq!(replacement["restarted_from"], child_id);
     assert_eq!(replacement["restart_count"].as_u64(), Some(1));
     assert_eq!(replacement["supervision"]["mode"], "wait_handle");
 
@@ -1003,6 +940,7 @@ fn mcp_restart_adopts_existing_child_and_relaunches_after_exit_privileged() {
 #[test]
 #[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
 fn mcp_local_control_handles_concurrent_status_privileged() {
+    reset_bpf_pin_root();
     let tmp = tempfile::tempdir().expect("tempdir");
     let policy = write_base_policy(tmp.path());
     let Some(mut mcp) = McpProcess::start_auto_attach(&policy, tmp.path()) else {
@@ -1028,107 +966,6 @@ fn mcp_local_control_handles_concurrent_status_privileged() {
     for thread in threads {
         thread.join().expect("concurrent MCP control status thread");
     }
-}
-
-#[test]
-#[ignore = "requires root/CAP_BPF or passwordless sudo and loads concurrent live eBPF programs"]
-fn two_mcp_servers_keep_child_domain_deltas_isolated_privileged() {
-    let tmp_a = tempfile::tempdir().expect("tempdir A");
-    let tmp_b = tempfile::tempdir().expect("tempdir B");
-    let mut agent_a = FakeAgent::start("actplane-mcp-agent-a");
-    let mut agent_b = FakeAgent::start("actplane-mcp-agent-b");
-
-    let policy_a = write_base_policy(tmp_a.path());
-    let policy_b = write_base_policy(tmp_b.path());
-    let secret_a = tmp_a.path().join("secret-a.txt");
-    let secret_b = tmp_b.path().join("secret-b.txt");
-    let hit_a = tmp_a.path().join("apmcpahit");
-    let hit_b = tmp_b.path().join("apmcpbhit");
-    std::fs::write(&secret_a, "MCP agent A secret\n").expect("write secret A");
-    std::fs::write(&secret_b, "MCP agent B secret\n").expect("write secret B");
-    std::fs::copy("/bin/true", &hit_a).expect("copy hit A");
-    std::fs::copy("/bin/true", &hit_b).expect("copy hit B");
-
-    let Some(mut mcp_a) =
-        McpProcess::start_auto_attach_with_pid(&policy_a, tmp_a.path(), agent_a.pid())
-    else {
-        eprintln!("skipping concurrent MCP isolation e2e: no root/CAP_BPF or passwordless sudo");
-        return;
-    };
-    let Some(mut mcp_b) =
-        McpProcess::start_auto_attach_with_pid(&policy_b, tmp_b.path(), agent_b.pid())
-    else {
-        eprintln!("skipping concurrent MCP isolation e2e: no root/CAP_BPF or passwordless sudo");
-        return;
-    };
-
-    initialize_mcp(&mut mcp_a, 1, "actplane-mcp-agent-a-test");
-    initialize_mcp(&mut mcp_b, 1, "actplane-mcp-agent-b-test");
-
-    let delta_a = format!(
-        "source SECRET_A = file \"{}\"\nrule only-mcp-agent-a:\n  notify exec \"apmcpahit\" if SECRET_A\n  because \"MCP agent A delta fired\"\n",
-        secret_a.display()
-    );
-    let delta_b = format!(
-        "source SECRET_B = file \"{}\"\nrule only-mcp-agent-b:\n  notify exec \"apmcpbhit\" if SECRET_B\n  because \"MCP agent B delta fired\"\n",
-        secret_b.display()
-    );
-
-    let mut next_id_a = 2;
-    let launch_a = call_tool(
-        &mut mcp_a,
-        &mut next_id_a,
-        "launch_child_domain",
-        json!({
-            "child_id": 470010,
-            "cmd": [
-                "/bin/sh",
-                "-c",
-                format!("read _ < '{}'; exec '{}'", secret_a.display(), hit_a.display())
-            ],
-            "policy": delta_a
-        }),
-    );
-    assert!(
-        tool_text(&launch_a).contains("child domain 470010"),
-        "launch A response: {launch_a}"
-    );
-
-    let mut next_id_b = 2;
-    let launch_b = call_tool(
-        &mut mcp_b,
-        &mut next_id_b,
-        "launch_child_domain",
-        json!({
-            "child_id": 470020,
-            "cmd": [
-                "/bin/sh",
-                "-c",
-                format!("read _ < '{}'; exec '{}'", secret_b.display(), hit_b.display())
-            ],
-            "policy": delta_b
-        }),
-    );
-    assert!(
-        tool_text(&launch_b).contains("child domain 470020"),
-        "launch B response: {launch_b}"
-    );
-
-    let feedback_a = poll_feedback(tmp_a.path(), "MCP agent A delta fired");
-    let feedback_b = poll_feedback(tmp_b.path(), "MCP agent B delta fired");
-    assert!(feedback_a.contains("only-mcp-agent-a"), "{feedback_a}");
-    assert!(
-        !feedback_a.contains("MCP agent B delta fired") && !feedback_a.contains("only-mcp-agent-b"),
-        "MCP engine A feedback included engine B policy: {feedback_a}"
-    );
-    assert!(feedback_b.contains("only-mcp-agent-b"), "{feedback_b}");
-    assert!(
-        !feedback_b.contains("MCP agent A delta fired") && !feedback_b.contains("only-mcp-agent-a"),
-        "MCP engine B feedback included engine A policy: {feedback_b}"
-    );
-
-    agent_a.stop();
-    agent_b.stop();
 }
 
 fn initialize_mcp(mcp: &mut McpProcess, id: i64, client_name: &str) {

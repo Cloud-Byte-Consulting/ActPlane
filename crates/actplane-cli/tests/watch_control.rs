@@ -21,14 +21,17 @@ impl WatchProcess {
         attach_pid: i32,
     ) -> Option<Self> {
         let attach_pid = attach_pid.to_string();
+        let pin_root = bpf_pin_root();
         let mut command = if unsafe { libc::geteuid() } == 0 {
             let mut command = Command::new(actplane());
             command.env("ACTPLANE_ATTACH_PID", &attach_pid);
+            command.env("ACTPLANE_BPF_PIN_ROOT", &pin_root);
             command
         } else if passwordless_sudo_available() {
             let mut command = Command::new("sudo");
             command.arg("-E").arg("env");
             command.arg(format!("ACTPLANE_ATTACH_PID={attach_pid}"));
+            command.arg(format!("ACTPLANE_BPF_PIN_ROOT={pin_root}"));
             command.arg(actplane());
             command
         } else {
@@ -132,11 +135,46 @@ fn passwordless_sudo_available() -> bool {
         .unwrap_or(false)
 }
 
+fn bpf_pin_root() -> String {
+    let run_id = std::env::var("GITHUB_RUN_ID").unwrap_or_else(|_| "local".to_string());
+    let attempt = std::env::var("GITHUB_RUN_ATTEMPT").unwrap_or_else(|_| "0".to_string());
+    format!(
+        "/sys/fs/bpf/actplane/test-watch-{run_id}-{attempt}-{}",
+        std::process::id()
+    )
+}
+
+fn reset_bpf_pin_root() {
+    let root = bpf_pin_root();
+    let mut command = if unsafe { libc::geteuid() } == 0 {
+        Command::new("rm")
+    } else if passwordless_sudo_available() {
+        let mut command = Command::new("sudo");
+        command.arg("-n");
+        command
+    } else {
+        return;
+    };
+    let _ = command
+        .args(["-rf", &root])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+fn test_child_id(offset: u32) -> u32 {
+    0x5000_0000 | ((std::process::id() & 0xffff) << 12) | (offset & 0x0fff)
+}
+
 #[test]
 #[ignore = "requires root/CAP_BPF or passwordless sudo and loads live eBPF programs"]
 fn watch_exposes_repo_local_control_socket_privileged() {
+    reset_bpf_pin_root();
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut agent = FakeAgent::start("actplane-watch-control-agent");
+    let child_id = test_child_id(1);
+    let nested_parent_id = test_child_id(2);
+    let nested_rejected_id = test_child_id(3);
     let policy = tmp.path().join("actplane.yaml");
     std::fs::write(
         &policy,
@@ -178,15 +216,16 @@ policy: |
         thread.join().expect("concurrent status thread");
     }
 
+    let child_id_arg = child_id.to_string();
     let launch = Command::new(actplane())
         .current_dir(tmp.path())
+        .arg("--policy")
+        .arg(policy.to_str().expect("policy path"))
         .args([
-            "--policy",
-            policy.to_str().expect("policy path"),
             "control",
             "launch-child",
             "--child-id",
-            "550010",
+            &child_id_arg,
             "--",
             "/bin/sh",
             "-c",
@@ -201,23 +240,24 @@ policy: |
         String::from_utf8_lossy(&launch.stderr)
     );
 
-    let logs = poll_child_logs(&policy, tmp.path(), 550010, "watch-control-line");
+    let logs = poll_child_logs(&policy, tmp.path(), child_id, "watch-control-line");
     assert!(logs.contains("watch-control-line"), "{logs}");
 
     let terminate = actplane_output(
         &policy,
         tmp.path(),
-        &["control", "stop", "--child-id", "550010"],
+        &["control", "stop", "--child-id", &child_id_arg],
     );
     assert!(
-        terminate.contains("child domain 550010") || terminate.contains("already exited"),
+        terminate.contains(&format!("child domain {child_id}"))
+            || terminate.contains("already exited"),
         "{terminate}"
     );
 
     let nested_script = format!(
         r#"
 set +e
-output=$({actplane} --policy {policy} control launch-child --child-id 550012 -- /bin/true 2>&1)
+output=$({actplane} --policy {policy} control launch-child --child-id {nested_rejected_id} -- /bin/true 2>&1)
 rc=$?
 echo nested-control-rc=$rc
 printf '%s\n' "$output"
@@ -225,9 +265,10 @@ test "$rc" -ne 0
 "#,
         actplane = actplane(),
         policy = policy.display(),
+        nested_rejected_id = nested_rejected_id,
     );
-    launch_child(&policy, tmp.path(), 550011, &nested_script);
-    let nested_logs = poll_child_logs(&policy, tmp.path(), 550011, "nested-control-rc=");
+    launch_child(&policy, tmp.path(), nested_parent_id, &nested_script);
+    let nested_logs = poll_child_logs(&policy, tmp.path(), nested_parent_id, "nested-control-rc=");
     assert!(
         !nested_logs.contains("nested-control-rc=0")
             && nested_logs.contains("not trusted parent domain"),
@@ -239,10 +280,10 @@ test "$rc" -ne 0
         .as_array()
         .expect("children array")
         .iter()
-        .any(|child| child["child_id"].as_u64() == Some(550012));
+        .any(|child| child["child_id"].as_u64() == Some(nested_rejected_id.into()));
     assert!(
         !created_nested_child,
-        "rejected nested launch still created child domain 550012: {children}"
+        "rejected nested launch still created child domain {nested_rejected_id}: {children}"
     );
 
     watch.stop();
@@ -256,90 +297,6 @@ test "$rc" -ne 0
     std::fs::File::create(&marker)
         .and_then(|mut f| writeln!(f, "ok"))
         .expect("tempdir remains writable by the test user");
-}
-
-#[test]
-#[ignore = "requires root/CAP_BPF or passwordless sudo and loads concurrent live eBPF programs"]
-fn two_watch_engines_keep_child_domain_deltas_isolated_privileged() {
-    let tmp_a = tempfile::tempdir().expect("tempdir A");
-    let tmp_b = tempfile::tempdir().expect("tempdir B");
-    let mut agent_a = FakeAgent::start("actplane-agent-a");
-    let mut agent_b = FakeAgent::start("actplane-agent-b");
-
-    let policy_a = write_base_policy(tmp_a.path());
-    let policy_b = write_base_policy(tmp_b.path());
-    let secret_a = tmp_a.path().join("secret-a.txt");
-    let secret_b = tmp_b.path().join("secret-b.txt");
-    let hit_a = tmp_a.path().join("apagentahit");
-    let hit_b = tmp_b.path().join("apagentbhit");
-    std::fs::write(&secret_a, "agent A secret\n").expect("write secret A");
-    std::fs::write(&secret_b, "agent B secret\n").expect("write secret B");
-    std::fs::copy("/bin/true", &hit_a).expect("copy hit A");
-    std::fs::copy("/bin/true", &hit_b).expect("copy hit B");
-
-    let Some(mut watch_a) =
-        WatchProcess::start_with_attach_pid(&policy_a, tmp_a.path(), agent_a.pid())
-    else {
-        eprintln!("skipping two-watch isolation e2e: no root/CAP_BPF or passwordless sudo");
-        return;
-    };
-    let Some(mut watch_b) =
-        WatchProcess::start_with_attach_pid(&policy_b, tmp_b.path(), agent_b.pid())
-    else {
-        eprintln!("skipping two-watch isolation e2e: no root/CAP_BPF or passwordless sudo");
-        return;
-    };
-
-    wait_for_control_state(
-        &mut watch_a,
-        &tmp_a.path().join(".actplane").join("control.json"),
-    );
-    wait_for_control_state(
-        &mut watch_b,
-        &tmp_b.path().join(".actplane").join("control.json"),
-    );
-
-    let delta_a = format!(
-        "source SECRET_A = file \"{}\"\nrule only-agent-a:\n  notify exec \"apagentahit\" if SECRET_A\n  because \"agent A delta fired\"\n",
-        secret_a.display()
-    );
-    let delta_b = format!(
-        "source SECRET_B = file \"{}\"\nrule only-agent-b:\n  notify exec \"apagentbhit\" if SECRET_B\n  because \"agent B delta fired\"\n",
-        secret_b.display()
-    );
-
-    launch_child_with_delta(
-        &policy_a,
-        tmp_a.path(),
-        560010,
-        &delta_a,
-        &format!("read _ < {}; exec {}", secret_a.display(), hit_a.display()),
-    );
-    launch_child_with_delta(
-        &policy_b,
-        tmp_b.path(),
-        560020,
-        &delta_b,
-        &format!("read _ < {}; exec {}", secret_b.display(), hit_b.display()),
-    );
-
-    let feedback_a = poll_feedback(tmp_a.path(), "agent A delta fired");
-    let feedback_b = poll_feedback(tmp_b.path(), "agent B delta fired");
-    assert!(feedback_a.contains("only-agent-a"), "{feedback_a}");
-    assert!(
-        !feedback_a.contains("agent B delta fired") && !feedback_a.contains("only-agent-b"),
-        "engine A feedback included engine B policy: {feedback_a}"
-    );
-    assert!(feedback_b.contains("only-agent-b"), "{feedback_b}");
-    assert!(
-        !feedback_b.contains("agent A delta fired") && !feedback_b.contains("only-agent-a"),
-        "engine B feedback included engine A policy: {feedback_b}"
-    );
-
-    watch_a.stop();
-    watch_b.stop();
-    agent_a.stop();
-    agent_b.stop();
 }
 
 fn wait_for_control_state(watch: &mut WatchProcess, path: &std::path::Path) {
@@ -382,56 +339,6 @@ fn actplane_output(policy: &std::path::Path, cwd: &std::path::Path, args: &[&str
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-fn write_base_policy(cwd: &std::path::Path) -> std::path::PathBuf {
-    let policy = cwd.join("actplane.yaml");
-    std::fs::write(
-        &policy,
-        r#"
-version: 1
-policy: |
-  source COMMAND = exec "**"
-  rule noop:
-    notify exec "__actplane_never__" if COMMAND
-    because "noop"
-"#,
-    )
-    .expect("write base policy");
-    policy
-}
-
-fn launch_child_with_delta(
-    policy: &std::path::Path,
-    cwd: &std::path::Path,
-    child_id: u32,
-    delta: &str,
-    script: &str,
-) {
-    let output = Command::new(actplane())
-        .current_dir(cwd)
-        .arg("--policy")
-        .arg(policy)
-        .args([
-            "control",
-            "launch-child",
-            "--child-id",
-            &child_id.to_string(),
-            "--delta-text",
-            delta,
-            "--",
-            "/bin/sh",
-            "-c",
-            script,
-        ])
-        .output()
-        .expect("control launch-child with delta");
-    assert!(
-        output.status.success(),
-        "launch-child {child_id} failed: {}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
 fn launch_child(policy: &std::path::Path, cwd: &std::path::Path, child_id: u32, script: &str) {
     let output = Command::new(actplane())
         .current_dir(cwd)
@@ -455,22 +362,6 @@ fn launch_child(policy: &std::path::Path, cwd: &std::path::Path, child_id: u32, 
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-fn poll_feedback(cwd: &std::path::Path, needle: &str) -> String {
-    let path = cwd.join(".actplane").join("last-violation.txt");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        if text.contains(needle) {
-            return text;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for feedback containing {needle}; saw {text}"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
 
 fn poll_child_logs(

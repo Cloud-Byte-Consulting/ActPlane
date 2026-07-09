@@ -54,57 +54,38 @@ most important maps are:
 
 | Map | Purpose |
 |-----|---------|
-| `ts_updates`, `ts_rules`, `ts_counts` | Hot-reloadable compiled policy tables and active loop counts |
+| `ts_updates`, `ts_rules`, `ts_counts` | Runtime-appendable compiled policy tables and active loop counts |
 | `ts_proc`, `ts_proc_domains` | Global and runtime-domain process label state |
 | `ts_root`, `ts_sess`, `ts_sess_zero` | Lineage roots and temporal gate/staleness epochs |
 | `ts_file`, `ts_endp` | Per-domain file and IPv4 endpoint labels |
 | `ts_file_prov`, `ts_endp_prov`, `ts_proc_prov` | Label provenance for corrective feedback |
-| `cap_req`, `cap_state`, `cap_task`, `cap_policy` | Runtime domain and append/reload admission state |
+| `cap_req`, `cap_state`, `cap_task`, `cap_policy` | Runtime domain and append admission state |
 | `ts_fd`, `ts_fileptr`, `ts_sockfd`, `ts_mmap` | Tracepoint fallback fd, socket, and mmap tracking |
 | `rb` | `TAINT_VIOLATION` ring buffer |
 
 File identities are real `(dev,inode)` when hooks can recover a `struct file`.
 Tracepoint-only path references fall back to a domain-scoped FNV-1a path id.
 
-## Usage as a library
+## Runtime model
 
-The supported product entrypoint is the `actplane` CLI. The `ebpf-ifc-engine`
-crate is the lower-level loader used by the CLI and runtime, and its API follows
-the kernel ABI more closely.
+The supported product entrypoint is the `actplane` CLI. The runtime installs or
+opens one bpffs-pinned engine under `/sys/fs/bpf/actplane/v1` by default. Set
+`ACTPLANE_BPF_PIN_ROOT` to use a different pin root.
 
-Add to your `Cargo.toml`:
+The first runtime client installs and pins the maps, programs, and links. Later
+clients open those pins and append domain-scoped policy deltas through pinned
+control maps. Direct per-command private engine loading is not a supported
+runtime model.
 
-```toml
-[dependencies]
-ebpf-ifc-engine = { path = "bpf" }
-```
+The daemonless runtime has a single active event reader. A `run`, `watch`, or
+MCP auto-attach session holds the singleton runtime lock while it drains the
+pinned ring buffer, and it clears policy/control-map state when that session
+starts and exits. A second runtime session must wait or fail fast instead of
+racing to consume the same ring-buffer events.
 
-```rust
-use std::sync::atomic::AtomicBool;
-
-use ebpf_ifc_engine::Loader;
-
-// Load a compiled policy config
-let config: Vec<u8> = std::fs::read("policy.bin")?;
-let mut loader = Loader::load(&config)?;
-loader.seed_label(std::process::id() as i32, 1)?;
-
-// Read match events
-let stop = AtomicBool::new(false);
-loader.run(&stop, |event| {
-    println!("rule {} matched on pid {}", event.rule_id, event.pid);
-})?;
-```
-
-## Usage as standalone loader
-
-```bash
-cargo build -p ebpf-ifc-engine --bin actplane-loader
-sudo ./target/debug/actplane-loader --config policy.bin
-```
-
-The loader attaches eBPF programs, reads the policy config into rodata,
-and prints match events as NDJSON to stdout.
+The `ebpf-ifc-engine` crate remains the low-level kernel ABI boundary used by
+the runtime. Normal callers should use the CLI and runtime crate instead of
+loading eBPF programs directly.
 
 ## Building the eBPF programs
 
@@ -132,9 +113,9 @@ contains:
 - `n_rules` plus up to 128 `taint_rule` entries. Boolean `or` clauses are
   lowered into multiple kernel rules.
 
-The loader copies those entries into writable BPF array maps so runtime reloads
-and append-only policy deltas can update the active policy without rebuilding
-the eBPF object.
+The loader copies those entries into writable BPF array maps so admitted
+runtime policy deltas can extend the active policy without rebuilding the eBPF
+object.
 
 ## Requirements
 
